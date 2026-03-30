@@ -52,7 +52,7 @@ Each primitive uses **isinstance dispatch** to select the efficient code path ba
 | BlockDiag | per-block | sum of logdets | per-block |
 | Kronecker | Roth's lemma | scaled sum | per-factor |
 | LowRankUpdate | Woodbury | det lemma | --- |
-| Dense | lineax solver | slogdet | scipy |
+| Dense | lineax solver | slogdet | jax.scipy cholesky |
 
 For large unstructured operators, Layer 0 delegates to **matfree** for iterative/stochastic algorithms (Lanczos for logdet, Hutchinson for trace).
 
