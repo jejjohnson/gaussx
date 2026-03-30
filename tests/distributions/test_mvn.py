@@ -58,6 +58,21 @@ class TestLogProb:
 
         assert tree_allclose(lp_ours, lp_numpyro, rtol=1e-5)
 
+    def test_batched_loc_matches_numpyro(self, getkey):
+        import numpyro.distributions as dist
+
+        n = 4
+        batch = 5
+        mu = jr.normal(getkey(), (batch, n))
+        Sigma = _make_psd(getkey(), n)
+        x = jr.normal(getkey(), (batch, n))
+
+        op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        lp_ours = MultivariateNormal(mu, op).log_prob(x)
+        lp_numpyro = dist.MultivariateNormal(mu, covariance_matrix=Sigma).log_prob(x)
+
+        assert tree_allclose(lp_ours, lp_numpyro, rtol=1e-5)
+
     def test_diagonal_operator(self, getkey):
         n = 6
         d_vals = jnp.abs(jr.normal(getkey(), (n,))) + 0.5
@@ -108,6 +123,35 @@ class TestSample:
         sample = d.sample(getkey())
         assert sample.shape == (n,)
 
+    def test_batched_loc_sample_shape(self, getkey):
+        n = 3
+        batch = 4
+        Sigma = _make_psd(getkey(), n)
+        op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        mu = jr.normal(getkey(), (batch, n))
+        d = MultivariateNormal(mu, op)
+
+        sample = d.sample(getkey())
+        assert sample.shape == (batch, n)
+
+    def test_log_prob_multi_sample_shape_matches_numpyro(self, getkey):
+        import numpyro.distributions as dist
+
+        n = 3
+        Sigma = _make_psd(getkey(), n)
+        mu = jr.normal(getkey(), (n,))
+        op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        d = MultivariateNormal(mu, op)
+        samples = d.sample(getkey(), sample_shape=(2, 3))
+
+        lp_ours = d.log_prob(samples)
+        lp_numpyro = dist.MultivariateNormal(
+            mu, covariance_matrix=Sigma
+        ).log_prob(samples)
+
+        assert lp_ours.shape == (2, 3)
+        assert tree_allclose(lp_ours, lp_numpyro, rtol=1e-5)
+
 
 class TestProperties:
     def test_mean(self, getkey):
@@ -126,6 +170,17 @@ class TestProperties:
         d = MultivariateNormal(jnp.zeros(n), op)
 
         assert tree_allclose(d.variance, jnp.diag(Sigma), rtol=1e-5)
+
+    def test_variance_broadcasts_over_batched_loc(self, getkey):
+        n = 4
+        batch = 3
+        Sigma = _make_psd(getkey(), n)
+        op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        mu = jr.normal(getkey(), (batch, n))
+        d = MultivariateNormal(mu, op)
+
+        expected = jnp.broadcast_to(jnp.diag(Sigma), (batch, n))
+        assert tree_allclose(d.variance, expected, rtol=1e-5)
 
     def test_entropy_matches_manual(self, getkey):
         n = 4

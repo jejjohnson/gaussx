@@ -87,9 +87,10 @@ class MultivariateNormal(dist.Distribution):
     @validate_sample
     def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
         residual = value - self.loc
-        if residual.ndim > 1:
-            return jax.vmap(self._log_prob_single)(residual)
-        return self._log_prob_single(residual)
+        leading_shape = residual.shape[:-1]
+        residual_flat = residual.reshape((-1, residual.shape[-1]))
+        log_prob_flat = jax.vmap(self._log_prob_single)(residual_flat)
+        return log_prob_flat.reshape(leading_shape)
 
     def sample(
         self,
@@ -103,13 +104,9 @@ class MultivariateNormal(dist.Distribution):
         L = _cholesky(self.cov_operator)
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]
-        if sample_shape:
-            # vmap over leading sample dimensions
-            mv_batched = L.mv
-            for _ in sample_shape:
-                mv_batched = jax.vmap(mv_batched)
-            return self.loc + mv_batched(eps)
-        return self.loc + L.mv(eps)
+        eps_flat = eps.reshape((-1, self.event_shape[0]))
+        samples_flat = jax.vmap(L.mv)(eps_flat)
+        return self.loc + samples_flat.reshape(shape)
 
     @lazy_property
     def mean(self) -> Float[Array, " N"]:
@@ -117,7 +114,9 @@ class MultivariateNormal(dist.Distribution):
 
     @lazy_property
     def variance(self) -> Float[Array, " N"]:
-        return _diag(self.cov_operator)
+        return jnp.broadcast_to(
+            _diag(self.cov_operator), self.batch_shape + self.event_shape
+        )
 
     def entropy(self) -> Float[Array, ""]:
         n = self.loc.shape[-1]

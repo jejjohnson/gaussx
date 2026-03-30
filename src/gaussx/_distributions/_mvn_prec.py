@@ -85,9 +85,10 @@ class MultivariateNormalPrecision(dist.Distribution):
     @validate_sample
     def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
         residual = value - self.loc
-        if residual.ndim > 1:
-            return jax.vmap(self._log_prob_single)(residual)
-        return self._log_prob_single(residual)
+        leading_shape = residual.shape[:-1]
+        residual_flat = residual.reshape((-1, residual.shape[-1]))
+        log_prob_flat = jax.vmap(self._log_prob_single)(residual_flat)
+        return log_prob_flat.reshape(leading_shape)
 
     def sample(
         self,
@@ -105,12 +106,9 @@ class MultivariateNormalPrecision(dist.Distribution):
         def _solve_one(z):
             return _solve(L.T, z)
 
-        if sample_shape:
-            solve_batched = _solve_one
-            for _ in sample_shape:
-                solve_batched = jax.vmap(solve_batched)
-            return self.loc + solve_batched(eps)
-        return self.loc + _solve_one(eps)
+        eps_flat = eps.reshape((-1, self.event_shape[0]))
+        samples_flat = jax.vmap(_solve_one)(eps_flat)
+        return self.loc + samples_flat.reshape(shape)
 
     @lazy_property
     def mean(self) -> Float[Array, " N"]:
@@ -118,7 +116,9 @@ class MultivariateNormalPrecision(dist.Distribution):
 
     @lazy_property
     def variance(self) -> Float[Array, " N"]:
-        return _diag(_inv(self.prec_operator))
+        return jnp.broadcast_to(
+            _diag(_inv(self.prec_operator)), self.batch_shape + self.event_shape
+        )
 
     def entropy(self) -> Float[Array, ""]:
         n = self.loc.shape[-1]
