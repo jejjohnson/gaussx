@@ -1,8 +1,8 @@
 """Test utilities for gaussx.
 
 Provides helper functions for generating random structured operators
-and comparing results. Intended for use in the gaussx test suite
-and by downstream libraries testing gaussx integration.
+and comparing results. Intended for use in the gaussx test suite and
+other internal tests; not part of the public, stable gaussx API.
 """
 
 from __future__ import annotations
@@ -13,9 +13,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators._block_diag import BlockDiag
-from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 
 
 # ---------------------------------------------------------------------------
