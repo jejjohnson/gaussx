@@ -164,13 +164,15 @@ def gp_predict(X_train, y_train, X_test, var, length, noise):
     # Test kernel diagonal
     K_tt_diag = var * jnp.ones(len(X_test))
 
-    # Solve K_tr alpha = y via gaussx (vector solve)
+    # Solve via gaussx (vector solves, vmapped over test columns)
     K_tr_op = lx.MatrixLinearOperator(K_tr, lx.positive_semidefinite_tag)
     alpha = gaussx.solve(K_tr_op, y_train)
 
     # Predictive mean and variance
     mu = K_ts @ alpha
-    v = jnp.linalg.solve(K_tr, K_ts.T)  # (n_train, n_test)
+    # gaussx.solve is a vector solver; vmap over columns for matrix RHS
+    solve_col = lambda col: gaussx.solve(K_tr_op, col)
+    v = jax.vmap(solve_col, in_axes=1, out_axes=1)(K_ts.T)  # (n_train, n_test)
     var_pred = K_tt_diag - jnp.sum(K_ts * v.T, axis=1)
     return mu, var_pred
 
