@@ -26,12 +26,22 @@
 # %%
 from __future__ import annotations
 
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import matplotlib.pyplot as plt
 
 import gaussx
 
+
+try:
+    _here = Path(__file__).resolve().parent
+except NameError:
+    _here = Path.cwd()
+IMG_DIR = _here.parent / "images" / "structured_gp"
+IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -229,6 +239,51 @@ def sparse_gp_lml(y, sigma_op):
 
 lml = sparse_gp_lml(y_data, sigma)
 print(f"Sparse GP LML: {lml:.4f}")
+
+# %% [markdown]
+# ### Visualize the sparse GP fit
+
+# %%
+# Predict on a test grid using the sparse approximation
+x_plot = jnp.linspace(-3.5, 3.5, 300)
+K_star_m = rbf_kernel_2d(x_plot, x_inducing, ls, var)
+L_mm_op = lx.MatrixLinearOperator(
+    K_mm + 1e-6 * jnp.eye(n_inducing), lx.positive_semidefinite_tag
+)
+# Nystrom prediction weights
+alpha_sparse = gaussx.solve(sigma, y_data)
+# Project through inducing points
+w = U.T @ alpha_sparse  # (k,)
+y_plot = K_star_m @ jnp.linalg.solve(
+    K_mm + 1e-6 * jnp.eye(n_inducing), K_nm.T @ alpha_sparse
+)
+
+fig, ax = plt.subplots(figsize=(8, 3.5))
+ax.plot(x_plot, jnp.sin(2 * x_plot), "k--", lw=1, alpha=0.4, label="True")
+ax.scatter(x_data, y_data, s=8, c="C0", alpha=0.4, label="Data")
+ax.plot(x_plot, y_plot, "C1-", lw=2, label="Sparse GP mean")
+ax.axvline(x_inducing[0], color="gray", lw=0.5, alpha=0.3)
+for xi in x_inducing[1:]:
+    ax.axvline(xi, color="gray", lw=0.5, alpha=0.3)
+ax.scatter(
+    x_inducing,
+    jnp.zeros_like(x_inducing) - 1.2,
+    marker="^",
+    s=40,
+    c="C2",
+    zorder=3,
+    label=f"Inducing pts ({n_inducing})",
+)
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.legend(fontsize=8)
+ax.set_title(f"Sparse GP: {n_data} data, {n_inducing} inducing points")
+plt.tight_layout()
+fig.savefig(IMG_DIR / "sparse_gp.png", dpi=150, bbox_inches="tight")
+plt.show()
+
+# %% [markdown]
+# ![Sparse GP fit](../images/structured_gp/sparse_gp.png)
 
 # %% [markdown]
 # ## Summary
