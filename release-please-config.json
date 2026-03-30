@@ -17,7 +17,7 @@
   "packages": {
     ".": {
       "release-type": "python",
-      "package-name": "mypackage",
+      "package-name": "gaussx",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,

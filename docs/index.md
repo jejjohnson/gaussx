@@ -1,27 +1,27 @@
-# mypackage
+# gaussx
 
-> My short description for my project.
+> Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.
 
 ## Installation
 
 ```bash
-pip install mypackage
+pip install gaussx
 ```
 
 Or with `uv`:
 
 ```bash
-uv add mypackage
+uv add gaussx
 ```
 
 ## Quickstart
 
 ```python
-import mypackage
+import gaussx
 ```
 
 ## Links
 
 - [API Reference](api/reference.md)
 - [Changelog](CHANGELOG.md)
-- [GitHub](https://github.com/jejjohnson/pypackage_template)
+- [GitHub](https://github.com/jejjohnson/gaussx)
