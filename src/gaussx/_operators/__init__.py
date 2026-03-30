@@ -9,6 +9,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
     low_rank_plus_diag,
+    low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
 from gaussx._tags import is_block_diagonal, is_kronecker, is_low_rank
@@ -88,5 +89,6 @@ __all__ = [
     "Kronecker",
     "LowRankUpdate",
     "low_rank_plus_diag",
+    "low_rank_plus_identity",
     "svd_low_rank_plus_diag",
 ]

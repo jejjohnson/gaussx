@@ -152,6 +152,32 @@ def svd_low_rank_plus_diag(
     return LowRankUpdate(base, U, S, V)
 
 
+def low_rank_plus_identity(
+    U: Float[Array, "n k"],
+    d: Float[Array, " k"] | None = None,
+    V: Float[Array, "n k"] | None = None,
+    *,
+    scale: float = 1.0,
+) -> LowRankUpdate:
+    """Construct ``scale * I + U diag(d) Vᵀ``.
+
+    Common pattern for regularised low-rank models (e.g. noise + signal).
+
+    Args:
+        U: Left factor, shape ``(n, k)``.
+        d: Diagonal scaling, shape ``(k,)``. Defaults to ones.
+        V: Right factor, shape ``(n, k)``. Defaults to *U*.
+        scale: Scalar multiplier on the identity. Default 1.0.
+
+    Returns:
+        A ``LowRankUpdate`` with a scaled identity base.
+    """
+    n = U.shape[0]
+    diag = jnp.full(n, scale, dtype=U.dtype)
+    base = _diagonal_base(diag)
+    return LowRankUpdate(base, U, d, V)
+
+
 def _diagonal_base(diag: Float[Array, " n"]) -> lx.AbstractLinearOperator:
     """Wrap concrete non-negative diagonals with a PSD tag."""
     base = lx.DiagonalLinearOperator(diag)
