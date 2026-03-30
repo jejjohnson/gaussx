@@ -2,6 +2,8 @@
 
 __version__ = "0.0.3"
 
+import contextlib
+
 from gaussx._expfam import (
     GaussianExpFam as GaussianExpFam,
     fisher_info as fisher_info,
@@ -98,3 +100,10 @@ from gaussx._tags import (
     unit_diagonal_tag as unit_diagonal_tag,
     upper_triangular_tag as upper_triangular_tag,
 )
+
+
+with contextlib.suppress(ImportError):
+    from gaussx._distributions import (
+        MultivariateNormal as MultivariateNormal,
+        MultivariateNormalPrecision as MultivariateNormalPrecision,
+    )
