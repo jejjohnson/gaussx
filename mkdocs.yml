@@ -1,8 +1,8 @@
-site_name: mypackage
-site_description: My short description for my project.
+site_name: gaussx
+site_description: Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.
 site_author: J. Emmanuel Johnson
-repo_url: https://github.com/jejjohnson/pypackage_template
-repo_name: jejjohnson/pypackage_template
+repo_url: https://github.com/jejjohnson/gaussx
+repo_name: jejjohnson/gaussx
 
 theme:
   name: material
@@ -43,7 +43,9 @@ plugins:
 nav:
   - Home: index.md
   - Examples:
-      - Demo: notebooks/example_demo.py
+      - Basics: notebooks/basics.py
+      - Kernel Regression: notebooks/kernel_regression.py
+      - Structured GP: notebooks/structured_gp.py
   - API Reference: api/reference.md
   - Changelog: CHANGELOG.md
 

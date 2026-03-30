@@ -20,4 +20,4 @@ jobs:
       - name: Install typecheck dependencies
         run: uv sync --group typecheck
       - name: Run ty check
-        run: uv run --group typecheck ty check src/mypackage
+        run: uv run --group typecheck ty check src/gaussx

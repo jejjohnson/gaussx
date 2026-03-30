@@ -5,7 +5,7 @@
 - **Python**: 3.12+
 - **Package Manager**: uv
 - **CLI Framework**: cyclopts
-- **Layout**: `src/` layout (`src/mypackage/`)
+- **Layout**: `src/` layout (`src/gaussx/`)
 - **Testing**: pytest
 - **Docs**: MkDocs + Material + mkdocstrings + mkdocs-jupyter
 
@@ -23,7 +23,7 @@ make docs-serve  # Serve docs locally
 
 ## Before Every Commit — Mandatory Checklist
 
-**All four checks must pass before any commit.** CI runs them on the entire repo (`ruff check .`), not just `src/mypackage/`, so always run the commands below from the repo root.
+**All four checks must pass before any commit.** CI runs them on the entire repo (`ruff check .`), not just `src/gaussx/`, so always run the commands below from the repo root.
 
 ```bash
 # 1. Tests — zero failures required
@@ -36,16 +36,16 @@ uv run --group lint ruff check .
 uv run --group lint ruff format --check .
 
 # 4. Type check — on the package only
-uv run --group typecheck ty check src/mypackage
+uv run --group typecheck ty check src/gaussx
 ```
 
-> **Common pitfall**: Running `ruff check src/mypackage/` instead of `ruff check .` misses import-sorting errors in `tests/` and `scripts/`. The CI workflow runs `ruff check .`. Always use `.` (repo root), not a subdirectory.
+> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses import-sorting errors in `tests/` and `scripts/`. The CI workflow runs `ruff check .`. Always use `.` (repo root), not a subdirectory.
 
 ## Key Directories
 
 | Path | Purpose |
 |------|---------|
-| `src/mypackage/` | Main package source code |
+| `src/gaussx/` | Main package source code |
 | `tests/` | Test suite |
 | `docs/` | Documentation (MkDocs) |
 | `notebooks/` | Jupyter notebooks |
