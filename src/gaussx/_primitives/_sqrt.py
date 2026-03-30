@@ -98,16 +98,10 @@ class SqrtOperator(lx.AbstractLinearOperator):
         )
         funm_sqrt = matfree.funm.funm_lanczos_sym(dense_sqrt, tridiag)
 
-        # Pass operator's as_matrix as a parameter to avoid closure
-        # hashing issues with equinox modules in jax.closure_convert.
-        # This preserves matrix-free semantics for downstream code
-        # while working around the JAX tracing limitation.
-        mat = self.original.as_matrix()
+        def matvec(v, operator):
+            return operator.mv(v)
 
-        def matvec(v, A):
-            return A @ v
-
-        return funm_sqrt(matvec, vector, mat)
+        return funm_sqrt(matvec, vector, self.original)
 
     def as_matrix(self):
         return _sqrt_dense(self.original).as_matrix()

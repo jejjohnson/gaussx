@@ -59,6 +59,7 @@ def _svd_partial(
     if key is None:
         key = jr.PRNGKey(0)
 
+    rank = min(rank, operator.in_size(), operator.out_size())
     n = operator.in_size()
     v0 = jr.normal(key, (n,))
 

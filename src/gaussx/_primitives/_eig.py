@@ -127,6 +127,7 @@ def _eig_partial(
         key = jr.PRNGKey(0)
 
     n = operator.in_size()
+    rank = min(rank, n)
     v0 = jr.normal(key, (n,))
 
     tridiag = matfree.decomp.tridiag_sym(rank, reortho="full")

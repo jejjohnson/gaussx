@@ -71,10 +71,11 @@ def parallel_rts_smoother(
     transition: jnp.ndarray,
     process_noise: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Parallel RTS smoother via ``jax.lax.associative_scan``.
+    """Dense RTS smoother for outputs produced by ``parallel_kalman_filter``.
 
-    Uses an associative scan over smoother gain elements for
-    O(log T) parallel depth instead of O(T) sequential steps.
+    The previous associative-scan formulation was not algebraically
+    equivalent to the standard RTS recurrence. This implementation keeps
+    the public API but uses a validated dense backward scan.
 
     Args:
         filter_state: Output of ``kalman_filter`` or
@@ -85,54 +86,34 @@ def parallel_rts_smoother(
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
     """
+    del process_noise
+
+    def step(carry, inputs):
+        x_smooth, P_smooth = carry
+        x_filt, P_filt, x_pred, P_pred = inputs
+
+        G = jnp.linalg.solve(P_pred.T, (P_filt @ transition.T).T).T
+        x_smooth_new = x_filt + G @ (x_smooth - x_pred)
+        P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
+        return (x_smooth_new, P_smooth_new), (x_smooth_new, P_smooth_new)
+
     T = filter_state.filtered_means.shape[0]
-
-    # Build smoother elements: (G_t, g_t, L_t)
-    def _build_element(m_filt, P_filt, m_pred_next, P_pred_next):
-        G = P_filt @ transition.T @ jnp.linalg.inv(P_pred_next)
-        g = m_filt - G @ m_pred_next
-        L = P_filt - G @ P_pred_next @ G.T
-        return G, g, L
-
-    Gs, gs, Ls = jax.vmap(_build_element)(
-        filter_state.filtered_means[:-1],
-        filter_state.filtered_covs[:-1],
-        filter_state.predicted_means[1:],
-        filter_state.predicted_covs[1:],
+    init_carry = (
+        filter_state.filtered_means[T - 1],
+        filter_state.filtered_covs[T - 1],
     )
-
-    # Associative operator: (G1,g1,L1) * (G2,g2,L2)
-    def _combine(elem1, elem2):
-        G1, g1, L1 = elem1
-        G2, g2, L2 = elem2
-        G1_T = jnp.swapaxes(G1, -2, -1)
-        G_new = jnp.matmul(G1, G2)
-        g_new = jnp.einsum("...ij,...j->...i", G1, g2) + g1
-        L_new = jnp.matmul(jnp.matmul(G1, L2), G1_T) + L1
-        return G_new, g_new, L_new
-
-    # Reverse for backward pass using jnp.flip (trace-safe)
-    Gs_rev = jnp.flip(Gs, axis=0)
-    gs_rev = jnp.flip(gs, axis=0)
-    Ls_rev = jnp.flip(Ls, axis=0)
-
-    Gs_scan, gs_scan, Ls_scan = jax.lax.associative_scan(
-        _combine, (Gs_rev, gs_rev, Ls_rev)
+    inputs = (
+        filter_state.filtered_means[:-1][::-1],
+        filter_state.filtered_covs[:-1][::-1],
+        filter_state.predicted_means[1:][::-1],
+        filter_state.predicted_covs[1:][::-1],
     )
+    _, (s_means_rev, s_covs_rev) = jax.lax.scan(step, init_carry, inputs)
 
-    # Flip back
-    Gs_scan = jnp.flip(Gs_scan, axis=0)
-    gs_scan = jnp.flip(gs_scan, axis=0)
-    Ls_scan = jnp.flip(Ls_scan, axis=0)
-
-    # Recover smoothed distributions
-    m_last = filter_state.filtered_means[T - 1]
-    P_last = filter_state.filtered_covs[T - 1]
-
-    s_means_early = jax.vmap(lambda G, g: G @ m_last + g)(Gs_scan, gs_scan)
-    s_covs_early = jax.vmap(lambda G, L: G @ P_last @ G.T + L)(Gs_scan, Ls_scan)
-
-    s_means = jnp.concatenate([s_means_early, m_last[None, :]], axis=0)
-    s_covs = jnp.concatenate([s_covs_early, P_last[None, :, :]], axis=0)
-
+    s_means = jnp.concatenate(
+        [s_means_rev[::-1], filter_state.filtered_means[T - 1 :]], axis=0
+    )
+    s_covs = jnp.concatenate(
+        [s_covs_rev[::-1], filter_state.filtered_covs[T - 1 :]], axis=0
+    )
     return s_means, s_covs

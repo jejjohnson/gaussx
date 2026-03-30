@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -12,6 +13,11 @@ from gaussx._primitives._sqrt import SqrtOperator, sqrt
 from gaussx._primitives._svd import svd
 from gaussx._primitives._trace import trace
 from gaussx._testing import random_pd_matrix, tree_allclose
+
+
+class LazyPSD(lx.MatrixLinearOperator):
+    def as_matrix(self):
+        raise NotImplementedError("dense materialization unavailable")
 
 
 # --- Partial SVD ---
@@ -74,6 +80,14 @@ def test_eigvals_partial(getkey):
     assert vals.shape == (3,)
 
 
+def test_eig_partial_rank_clipped(getkey):
+    mat = random_pd_matrix(getkey(), 4)
+    op = lx.MatrixLinearOperator(mat, lx.symmetric_tag)
+    vals, vecs = eig(op, rank=10, key=getkey())
+    assert vals.shape == (4,)
+    assert vecs.shape == (4, 4)
+
+
 # --- Matrix-free Sqrt ---
 
 
@@ -93,6 +107,19 @@ def test_sqrt_lanczos_matvec(getkey):
     S_dense = vecs @ jnp.diag(jnp.sqrt(vals)) @ vecs.T
     expected = S_dense @ v
 
+    assert tree_allclose(result, expected, rtol=0.1)
+
+
+def test_sqrt_lanczos_lazy_operator(getkey):
+    """Lanczos sqrt should not require dense materialization of the input op."""
+    mat = random_pd_matrix(getkey(), 6)
+    op = LazyPSD(mat, lx.positive_semidefinite_tag)
+    v = jr.normal(getkey(), (6,))
+    S = sqrt(op, lanczos_order=6)
+    result = S.mv(v)
+
+    vals, vecs = jnp.linalg.eigh(mat)
+    expected = vecs @ jnp.diag(jnp.sqrt(vals)) @ vecs.T @ v
     assert tree_allclose(result, expected, rtol=0.1)
 
 
@@ -150,3 +177,28 @@ def test_diag_stochastic(getkey):
 
     # Stochastic — generous tolerance
     assert jnp.max(jnp.abs(estimated - true_diag)) < 0.3 * jnp.max(true_diag) + 1.0
+
+
+def test_svd_partial_rank_clipped(getkey):
+    mat = jr.normal(getkey(), (3, 5))
+    op = lx.MatrixLinearOperator(mat)
+    U, s, Vt = svd(op, rank=10, key=getkey())
+    assert U.shape == (3, 3)
+    assert s.shape == (3,)
+    assert Vt.shape == (3, 5)
+
+
+def test_sqrt_lanczos_filter_jit(getkey):
+    mat = random_pd_matrix(getkey(), 5)
+    op = LazyPSD(mat, lx.positive_semidefinite_tag)
+    vec = jr.normal(getkey(), (5,))
+    sqrt_op = sqrt(op, lanczos_order=5)
+
+    @eqx.filter_jit
+    def apply(operator, vector):
+        return operator.mv(vector)
+
+    result = apply(sqrt_op, vec)
+    vals, vecs = jnp.linalg.eigh(mat)
+    expected = vecs @ jnp.diag(jnp.sqrt(vals)) @ vecs.T @ vec
+    assert tree_allclose(result, expected, rtol=0.1)

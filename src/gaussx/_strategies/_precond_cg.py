@@ -59,46 +59,36 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         Returns:
             The solution x.
         """
-        # Build preconditioner from element access
-        if self.preconditioner_rank > 0:
-            n = operator.in_size()
-            rank = min(self.preconditioner_rank, n)
-
-            def mat_el(i, j):
-                ej = jnp.zeros(n).at[j].set(1.0)
-                return operator.mv(ej)[i]
-
-            chol_fn = matfree.low_rank.cholesky_partial_pivot(
-                mat_el, nrows=n, rank=rank
-            )
-            L, _info = chol_fn()
-
-            precond_fn = matfree.low_rank.preconditioner(lambda: (L, _info))
-
-            # Split preconditioning: solve M^{-1/2} A M^{-1/2} z = M^{-1/2} b
-            # then x = M^{-1/2} z, where M = sI + LL^T.
-            # Since M^{-1/2} is hard to form, we use M^{-1} as an
-            # approximate preconditioner and fall back to plain CG which
-            # is still effective at reducing iteration count even without
-            # perfect symmetry preservation.
-            def precond_matvec(v):
-                Mv_inv, _ = precond_fn(v, self.shift)
-                return Mv_inv
-
-            b_precond = precond_matvec(vector)
-
-            def precond_op_mv(v):
-                return precond_matvec(operator.mv(v))
-
-            precond_op = lx.FunctionLinearOperator(
-                precond_op_mv, operator.out_structure()
-            )
-            solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
-            return lx.linear_solve(precond_op, b_precond, solver).value
-
-        # Fallback: plain CG
         solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
-        return lx.linear_solve(operator, vector, solver).value
+        if self.preconditioner_rank <= 0:
+            return lx.linear_solve(operator, vector, solver).value
+
+        n = operator.in_size()
+        rank = min(self.preconditioner_rank, n)
+
+        def mat_el(i, j):
+            ej = jnp.zeros(n).at[j].set(1.0)
+            return operator.mv(ej)[i]
+
+        chol_fn = matfree.low_rank.cholesky_partial_pivot(mat_el, nrows=n, rank=rank)
+        L, info = chol_fn()
+        precond_fn = matfree.low_rank.preconditioner(lambda: (L, info))
+
+        def precond_matvec(v):
+            Mv_inv, _ = precond_fn(v, self.shift)
+            return Mv_inv
+
+        preconditioner = lx.FunctionLinearOperator(
+            precond_matvec,
+            operator.out_structure(),
+            lx.positive_semidefinite_tag,
+        )
+        return lx.linear_solve(
+            operator,
+            vector,
+            solver,
+            options={"preconditioner": preconditioner},
+        ).value
 
     def logdet(
         self,

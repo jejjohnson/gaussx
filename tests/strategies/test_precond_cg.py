@@ -20,6 +20,21 @@ def test_solve_psd_no_precond(getkey):
     assert tree_allclose(solver.solve(op, v), expected, rtol=1e-4)
 
 
+def test_solve_psd_with_precond(getkey):
+    """The preconditioned branch should still converge to the correct solve."""
+    solver = PreconditionedCGSolver(
+        preconditioner_rank=3,
+        rtol=1e-8,
+        atol=1e-8,
+        max_steps=2000,
+    )
+    mat = random_pd_matrix(getkey(), 6)
+    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+    v = jr.normal(getkey(), (6,))
+    expected = jnp.linalg.solve(mat, v)
+    assert tree_allclose(solver.solve(op, v), expected, rtol=1e-4)
+
+
 def test_logdet_psd(getkey):
     """Stochastic logdet should approximate true logdet."""
     solver = PreconditionedCGSolver(num_probes=50, lanczos_order=20)
