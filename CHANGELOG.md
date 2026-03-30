@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.4](https://github.com/jejjohnson/gaussx/compare/v0.0.3...v0.0.4) (2026-03-30)
+
+
+### Features
+
+* add NumPyro-compatible MultivariateNormal distributions ([#11](https://github.com/jejjohnson/gaussx/issues/11)) ([98248d7](https://github.com/jejjohnson/gaussx/commit/98248d76b2a5a4204280082c7d990aea0d3b5135))
+* add v0.2–v0.4 layers (strategies, sugar, expfam, recipes, matfree backends) ([#8](https://github.com/jejjohnson/gaussx/issues/8)) ([a07d878](https://github.com/jejjohnson/gaussx/commit/a07d87831f0b5213d4458eaa63e9e46502a4538d))
+* **distributions:** add NumPyro-compatible MultivariateNormal distributions ([98248d7](https://github.com/jejjohnson/gaussx/commit/98248d76b2a5a4204280082c7d990aea0d3b5135))
+
 ## [0.0.3](https://github.com/jejjohnson/gaussx/compare/v0.0.2...v0.0.3) (2026-03-30)
 
 
