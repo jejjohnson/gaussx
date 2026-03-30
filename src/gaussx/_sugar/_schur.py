@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -31,14 +32,12 @@ def schur_complement(
     # Solve K_ZZ @ W_j = K_XZ[j, :]^T for each row j of K_XZ
     # W = K_ZZ^{-1} K_XZ^T has shape (M, N)
     # Then Schur = K_XX - K_XZ @ K_ZZ^{-1} @ K_XZ^T
-    N, M = K_XZ.shape
+    _N, M = K_XZ.shape
 
-    # Solve K_ZZ w_j = k_xz_j for each column of K_XZ^T
-    # K_XZ^T has shape (M, N), so each column is (M,)
-    W = jnp.stack(
-        [solve(K_ZZ, K_XZ[j, :]) for j in range(N)],
-        axis=1,
-    )  # (M, N) = K_ZZ^{-1} K_XZ^T
+    # Solve K_ZZ w_j = k_xz_j for each row of K_XZ
+    # W^T = vmap(solve(K_ZZ, ·))(K_XZ)  =>  (N, M)
+    W_T = jax.vmap(lambda row: solve(K_ZZ, row))(K_XZ)  # (N, M)
+    W = W_T.T  # (M, N)
 
     # Represent as K_XX + K_XZ @ (-I_M) @ W
     # = K_XX - K_XZ @ K_ZZ^{-1} @ K_XZ^T

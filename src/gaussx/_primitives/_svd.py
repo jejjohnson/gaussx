@@ -44,7 +44,7 @@ def _svd_diagonal(
     d = lx.diagonal(operator)
     n = d.shape[0]
     s = jnp.abs(d)
-    signs = jnp.sign(d)
+    signs = jnp.where(d >= 0, 1.0, -1.0)
     U = jnp.diag(signs)
     Vt = jnp.eye(n, dtype=d.dtype)
     return U, s, Vt

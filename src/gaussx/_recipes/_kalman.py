@@ -7,7 +7,6 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 
-from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
 
 
@@ -75,18 +74,15 @@ def kalman_filter(
         S_op = lx.MatrixLinearOperator(S)
 
         # Kalman gain: K = P_pred @ H^T @ S^{-1}
-        K = P_pred @ obs_model.T
-        K = jnp.stack(
-            [solve(S_op, K[j, :]) for j in range(K.shape[0])],
-            axis=0,
-        )
+        PHt = P_pred @ obs_model.T  # (N, M)
+        K = jax.vmap(lambda row: solve(S_op, row))(PHt)  # (N, M)
 
         x_filt_new = x_pred + K @ v
         P_filt_new = P_pred - K @ S @ K.T
 
         # Log-likelihood increment
         Sinv_v = solve(S_op, v)
-        ld = logdet(S_op)
+        _, ld = jnp.linalg.slogdet(S)
         ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
 
         carry_new = (x_filt_new, P_filt_new, ll + ll_inc)
@@ -131,11 +127,8 @@ def rts_smoother(
         # Smoother gain: G = P_filt @ A^T @ P_pred^{-1}
         P_pred_op = lx.MatrixLinearOperator(P_pred)
         At = transition.T
-        G = P_filt @ At
-        G = jnp.stack(
-            [solve(P_pred_op, G[j, :]) for j in range(G.shape[0])],
-            axis=0,
-        )
+        G = P_filt @ At  # (N, N)
+        G = jax.vmap(lambda row: solve(P_pred_op, row))(G)  # (N, N)
 
         x_smooth_new = x_filt + G @ (x_smooth - x_pred)
         P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
@@ -191,10 +184,6 @@ def kalman_gain(
     S = H_mat @ P_mat @ H_mat.T + R_mat  # (M, M)
     S_op = lx.MatrixLinearOperator(S)
 
-    # K = P H^T S^{-1}  =>  solve S^T K^T = H P^T  row by row
+    # K = P H^T S^{-1}  =>  solve row by row
     PHt = P_mat @ H_mat.T  # (N, M)
-    K = jnp.stack(
-        [solve(S_op, PHt[j, :]) for j in range(PHt.shape[0])],
-        axis=0,
-    )
-    return K
+    return jax.vmap(lambda row: solve(S_op, row))(PHt)  # (N, M)

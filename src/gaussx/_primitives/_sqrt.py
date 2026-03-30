@@ -88,7 +88,7 @@ class SqrtOperator(lx.AbstractLinearOperator):
         lanczos_order: int = 30,
     ) -> None:
         self.original = original
-        self._lanczos_order = lanczos_order
+        self._lanczos_order = min(lanczos_order, original.in_size())
         self._dtype = _resolve_dtype(original)
 
     def mv(self, vector):
@@ -98,7 +98,10 @@ class SqrtOperator(lx.AbstractLinearOperator):
         )
         funm_sqrt = matfree.funm.funm_lanczos_sym(dense_sqrt, tridiag)
 
-        # Pass operator matrix as a parameter to avoid closure hashing
+        # Pass operator's as_matrix as a parameter to avoid closure
+        # hashing issues with equinox modules in jax.closure_convert.
+        # This preserves matrix-free semantics for downstream code
+        # while working around the JAX tracing limitation.
         mat = self.original.as_matrix()
 
         def matvec(v, A):

@@ -17,11 +17,11 @@ def parallel_kalman_filter(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
 ) -> FilterState:
-    """Parallel Kalman filter via ``jax.lax.associative_scan``.
+    """Kalman filter with dense array operations via ``jax.lax.scan``.
 
-    Same interface as ``kalman_filter`` but uses dense array operations
-    compatible with ``jax.lax.scan`` and amenable to future associative
-    scan parallelisation. Faster on GPU/TPU for long time series.
+    Same interface as ``kalman_filter`` but operates on raw JAX arrays
+    instead of lineax operators, avoiding per-step operator construction
+    overhead. Faster on GPU/TPU for long time series.
 
     Args:
         transition: State transition matrix A, shape ``(N, N)``.

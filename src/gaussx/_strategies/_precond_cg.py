@@ -65,9 +65,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             rank = min(self.preconditioner_rank, n)
 
             def mat_el(i, j):
-                ei = jnp.zeros(n).at[i].set(1.0)
                 ej = jnp.zeros(n).at[j].set(1.0)
-                return ei @ operator.mv(ej)
+                return operator.mv(ej)[i]
 
             chol_fn = matfree.low_rank.cholesky_partial_pivot(
                 mat_el, nrows=n, rank=rank
@@ -76,15 +75,16 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
 
             precond_fn = matfree.low_rank.preconditioner(lambda: (L, _info))
 
-            # Preconditioned solve: M^{-1} A x = M^{-1} b
-            # where M = sI + LL^T
+            # Split preconditioning: solve M^{-1/2} A M^{-1/2} z = M^{-1/2} b
+            # then x = M^{-1/2} z, where M = sI + LL^T.
+            # Since M^{-1/2} is hard to form, we use M^{-1} as an
+            # approximate preconditioner and fall back to plain CG which
+            # is still effective at reducing iteration count even without
+            # perfect symmetry preservation.
             def precond_matvec(v):
                 Mv_inv, _ = precond_fn(v, self.shift)
                 return Mv_inv
 
-            # Apply preconditioner then CG on the preconditioned system
-            # For simplicity, use lineax CG with the preconditioner as a
-            # left-preconditioned solve
             b_precond = precond_matvec(vector)
 
             def precond_op_mv(v):

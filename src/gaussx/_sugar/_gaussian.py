@@ -122,7 +122,6 @@ def add_jitter(
         ``A + jitter * I`` as a lineax ``AddLinearOperator``.
     """
     n = operator.in_size()
-    jitter_op = lx.DiagonalLinearOperator(
-        jnp.full(n, jitter, dtype=operator.as_matrix().dtype)
-    )
+    dtype = operator.out_structure().dtype
+    jitter_op = lx.DiagonalLinearOperator(jnp.full(n, jitter, dtype=dtype))
     return operator + jitter_op

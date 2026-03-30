@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -72,8 +73,9 @@ def gaussian_expected_log_lik(
 
     # Trace correction: tr(R^{-1} q_cov)
     R_inv = inv(noise)
-    R_inv_q = lx.MatrixLinearOperator(R_inv.as_matrix() @ q_cov.as_matrix())
-    tr_term = trace(R_inv_q)
+    from gaussx._sugar._linalg import trace_product
+
+    tr_term = trace_product(R_inv, q_cov)
 
     return -0.5 * (N * _LOG_2PI + ld + quad + tr_term)
 
@@ -105,11 +107,7 @@ def trace_correction(
     # tr(K_xz^T K_zz^{-1} K_xz) = sum_ij W_ij * K_xz_ij
     # where W = K_zz^{-1} K_xz^T reshaped, but easier:
     # tr(A^T B) = sum(A * B), so tr(K_xz^T W) where W_col = K_zz^{-1} K_xz_col
-    N, _M = K_xz.shape
-    W = jnp.stack(
-        [solve(K_zz, K_xz[j, :]) for j in range(N)],
-        axis=0,
-    )  # (N, M) — each row is solve(K_zz, K_xz[j,:])
+    W = jax.vmap(lambda row: solve(K_zz, row))(K_xz)  # (N, M)
     tr_approx = jnp.sum(K_xz * W)
 
     return tr_full - tr_approx

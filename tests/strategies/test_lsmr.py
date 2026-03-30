@@ -34,6 +34,21 @@ def test_solve_with_damping(getkey):
     assert tree_allclose(solver.solve(op, v), expected, rtol=1e-2)
 
 
+def test_solve_rectangular(getkey):
+    """LSMR should solve rectangular least-squares systems."""
+    solver = LSMRSolver(atol=1e-10, btol=1e-10, maxiter=500)
+    mat = jr.normal(getkey(), (6, 4)) + 0.5 * jnp.ones((6, 4))
+    op = lx.MatrixLinearOperator(mat)
+    b = jr.normal(getkey(), (6,))
+
+    result = solver.solve(op, b)
+
+    # Least-squares solution: (A^T A)^{-1} A^T b
+    expected = jnp.linalg.lstsq(mat, b, rcond=None)[0]
+    assert result.shape == (4,)
+    assert tree_allclose(result, expected, rtol=1e-2)
+
+
 def test_logdet_psd(getkey):
     """Stochastic logdet should approximate true logdet."""
     solver = LSMRSolver(num_probes=50, lanczos_order=20)

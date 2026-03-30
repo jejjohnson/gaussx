@@ -9,16 +9,15 @@ from gaussx._strategies._base import AbstractSolverStrategy
 
 
 class AutoSolver(AbstractSolverStrategy):
-    """Automatic solver selection based on operator type and tags.
+    """Automatic solver selection based on operator type and size.
 
     Selection logic:
 
-    - Diagonal: elementwise division + sum(log(d))
-    - Triangular: back-substitution + sum(log(diag))
-    - PSD + small (N <= size_threshold): DenseSolver (Cholesky)
-    - PSD + large (N > size_threshold): CGSolver
-    - General + small: DenseSolver (LU)
-    - General + large: lineax GMRES wrapper
+    - Structured (Diagonal, BlockDiag, Kronecker, LowRankUpdate):
+      DenseSolver (structural dispatch handles efficiency)
+    - Small dense (N <= size_threshold): DenseSolver
+    - Large PSD: CGSolver
+    - Large general: DenseSolver (fallback)
 
     Args:
         size_threshold: Matrix dimension above which iterative

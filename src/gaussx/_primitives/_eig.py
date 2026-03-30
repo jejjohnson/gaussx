@@ -6,10 +6,10 @@ import functools as ft
 
 import jax.numpy as jnp
 import jax.random as jr
-import jax.scipy.linalg
 import lineax as lx
 import matfree.decomp
 import matfree.eig
+from jax.scipy.linalg import block_diag as _block_diag
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
@@ -98,7 +98,7 @@ def _eig_block_diag(
         vals_list.append(v)
         vecs_list.append(V)
     vals = jnp.concatenate(vals_list)
-    vecs = jax.scipy.linalg.block_diag(*vecs_list)
+    vecs = _block_diag(*vecs_list)
     return vals, vecs
 
 
