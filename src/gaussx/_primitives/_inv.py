@@ -110,3 +110,8 @@ def _(operator):
 @lx.is_upper_triangular.register(InverseOperator)
 def _(operator):
     return False
+
+
+@lx.is_tridiagonal.register(InverseOperator)
+def _(operator):
+    return False
