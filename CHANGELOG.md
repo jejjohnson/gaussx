@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.3](https://github.com/jejjohnson/gaussx/compare/v0.0.2...v0.0.3) (2026-03-30)
+
+
+### Features
+
+* add _testing.py utilities and deduplicate test helpers ([#7](https://github.com/jejjohnson/gaussx/issues/7)) ([de3e839](https://github.com/jejjohnson/gaussx/commit/de3e839b413c82507fa986d0fa41465ce6ff1fa9))
+
+
+### Bug Fixes
+
+* point docs nav to .ipynb notebooks for rendered outputs ([c4f16d3](https://github.com/jejjohnson/gaussx/commit/c4f16d3548f257b844b1243b1dc31f07eaacb150))
+* render .ipynb notebooks instead of .py in docs ([#5](https://github.com/jejjohnson/gaussx/issues/5)) ([066b28e](https://github.com/jejjohnson/gaussx/commit/066b28e4db11926d301669ac8eff59c0a58aff5a))
+* stabilize sparse variational GP optimization ([36f7910](https://github.com/jejjohnson/gaussx/commit/36f791090a8d03364ffde5bd26caa18173a77746))
+
 ## [0.0.2](https://github.com/jejjohnson/gaussx/compare/v0.0.1...v0.0.2) (2026-03-30)
 
 
