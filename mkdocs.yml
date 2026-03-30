@@ -39,6 +39,7 @@ plugins:
   - mkdocs-jupyter:
       execute: false
       ignore_h1_titles: true
+      include: ["*.ipynb"]
 
 nav:
   - Home: index.md
