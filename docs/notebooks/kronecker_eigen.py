@@ -28,8 +28,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -37,13 +35,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "kronecker_eigen"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -107,11 +98,7 @@ axes[2].set_xlabel("Index")
 axes[2].legend(fontsize=8)
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "eigenvalues.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Kronecker eigenvalues](../images/kronecker_eigen/eigenvalues.png)
 
 # %% [markdown]
 # ## Structured Cholesky

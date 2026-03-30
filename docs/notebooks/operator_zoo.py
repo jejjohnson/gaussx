@@ -21,8 +21,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -30,13 +28,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "operator_zoo"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -142,11 +133,7 @@ for ax, (name, op) in zip(axes, operators.items(), strict=False):
     ax.set_yticks([])
 plt.suptitle("Operator Structure (|entries|)", y=1.02)
 plt.tight_layout()
-fig.savefig(IMG_DIR / "structure.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Operator structure](../images/operator_zoo/structure.png)
 
 # %% [markdown]
 # ## 6. Composition with lineax arithmetic

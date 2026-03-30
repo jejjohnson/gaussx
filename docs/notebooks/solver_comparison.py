@@ -25,8 +25,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -34,13 +32,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "solver_comparison"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -118,11 +109,7 @@ axes[1].set_ylabel("|Dense - CG|")
 axes[1].set_title("Pointwise solve difference")
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "comparison.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Solver comparison](../images/solver_comparison/comparison.png)
 
 # %% [markdown]
 # ## When to use which

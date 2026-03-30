@@ -28,21 +28,12 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "woodbury_solve"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -141,11 +132,7 @@ for ax in axes:
     ax.set_yticks([])
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "decomposition.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Woodbury decomposition](../images/woodbury_solve/decomposition.png)
 
 # %% [markdown]
 # ## Cost comparison
