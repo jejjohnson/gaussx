@@ -44,8 +44,15 @@ nav:
   - Home: index.md
   - Examples:
       - Basics: notebooks/basics.ipynb
+      - Operator Zoo: notebooks/operator_zoo.ipynb
+      - Woodbury Solve: notebooks/woodbury_solve.ipynb
+      - Kronecker Eigendecomposition: notebooks/kronecker_eigen.ipynb
       - Kernel Regression: notebooks/kernel_regression.ipynb
+      - GP on a 2D Grid: notebooks/gp_2d_grid.ipynb
+      - Sparse Variational GP: notebooks/sparse_variational_gp.ipynb
       - Structured GP: notebooks/structured_gp.ipynb
+      - Solver Comparison: notebooks/solver_comparison.ipynb
+      - Differentiating Through Solve: notebooks/differentiating_solve.ipynb
   - API Reference: api/reference.md
 
 markdown_extensions:
