@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.0.2](https://github.com/jejjohnson/gaussx/compare/v0.0.1...v0.0.2) (2026-03-30)
+
+
+### Features
+
+* add BlockDiag, Kronecker, and LowRankUpdate operators ([0ee2b64](https://github.com/jejjohnson/gaussx/commit/0ee2b6482707c27af8bd273e957ece3272c74f34))
+* add DenseSolver and CGSolver strategies ([91ccaed](https://github.com/jejjohnson/gaussx/commit/91ccaed9187d3da7ac620751cf5db6f07f117cdb))
+* add JAX ecosystem dependencies and update project metadata ([cae329c](https://github.com/jejjohnson/gaussx/commit/cae329c9bd17e9ea0fb36084fb70616875cf057e))
+* add Layer 0 primitives with structural dispatch ([f91da41](https://github.com/jejjohnson/gaussx/commit/f91da415d3922505ca9e9d14fd3eb121c088de3f))
+* add structural tags and query helpers ([2e6ebe3](https://github.com/jejjohnson/gaussx/commit/2e6ebe348dc99183e56931dbeca454dbd3daf100))
+* gaussx v0.0.1 — structured linear algebra foundations ([0518464](https://github.com/jejjohnson/gaussx/commit/051846498733099fee8b2bda512c95f4aa76b0bb))
+* rename mypackage to gaussx ([e70a1aa](https://github.com/jejjohnson/gaussx/commit/e70a1aad6bae28bc0cf908382a895fb2c67d7571))
+* scaffold gaussx package and test directory layout ([da4705e](https://github.com/jejjohnson/gaussx/commit/da4705ebf39771894f20441562be3cf3aca4ff37))
+* wire up gaussx public API exports ([d2b39ec](https://github.com/jejjohnson/gaussx/commit/d2b39ec9d129595f6cdcb1c56ab54b8276582dff))
+
+
+### Bug Fixes
+
+* address operator review findings ([d8a8b12](https://github.com/jejjohnson/gaussx/commit/d8a8b12640e91dd59e0307de348d34032e5b6e9c))
+
+## Changelog
+
 All notable changes to this project will be documented in this file.
 
 See [Conventional Commits](https://www.conventionalcommits.org/) for commit guidelines.
