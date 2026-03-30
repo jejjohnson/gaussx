@@ -43,7 +43,9 @@ plugins:
 nav:
   - Home: index.md
   - Examples:
-      - Demo: notebooks/example_demo.py
+      - Basics: notebooks/basics.py
+      - Kernel Regression: notebooks/kernel_regression.py
+      - Structured GP: notebooks/structured_gp.py
   - API Reference: api/reference.md
   - Changelog: CHANGELOG.md
 
