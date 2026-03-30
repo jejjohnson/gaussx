@@ -74,14 +74,19 @@ class MultivariateNormal(dist.Distribution):
             validate_args=validate_args,
         )
 
-    @validate_sample
-    def log_prob(self, value: Float[Array, " N"]) -> Float[Array, ""]:
-        residual = value - self.loc
+    def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
         alpha = self.solver.solve(self.cov_operator, residual)
         quad = residual @ alpha
         ld = self.solver.logdet(self.cov_operator)
         n = self.loc.shape[-1]
         return -0.5 * (n * jnp.log(2.0 * jnp.pi) + ld + quad)
+
+    @validate_sample
+    def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
+        residual = value - self.loc
+        if residual.ndim > 1:
+            return jax.vmap(self._log_prob_single)(residual)
+        return self._log_prob_single(residual)
 
     def sample(
         self,

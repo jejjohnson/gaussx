@@ -73,13 +73,18 @@ class MultivariateNormalPrecision(dist.Distribution):
             validate_args=validate_args,
         )
 
-    @validate_sample
-    def log_prob(self, value: Float[Array, " N"]) -> Float[Array, ""]:
-        residual = value - self.loc
+    def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
         quad = residual @ self.prec_operator.mv(residual)
         ld = self.solver.logdet(self.prec_operator)
         n = self.loc.shape[-1]
         return -0.5 * (n * jnp.log(2.0 * jnp.pi) - ld + quad)
+
+    @validate_sample
+    def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
+        residual = value - self.loc
+        if residual.ndim > 1:
+            return jax.vmap(self._log_prob_single)(residual)
+        return self._log_prob_single(residual)
 
     def sample(
         self,
