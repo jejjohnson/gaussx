@@ -2,7 +2,27 @@
 
 > **gaussx** is a JAX/Equinox library that provides structured linear operators, Gaussian distributions, and exponential family primitives under one roof.
 
-## Why gaussx?
+## Why structured linear algebra matters
+
+Linear algebra is the computational backbone of scientific computing and machine learning --- more foundational than most practitioners realize. Nearly every algorithm eventually bottlenecks on solving a linear system, computing a determinant, or factorizing a matrix:
+
+- **Linear regression** solves $(X^\top X) \beta = X^\top y$
+- **Gaussian processes** need $(K + \sigma^2 I)^{-1} y$ and $\log|K + \sigma^2 I|$ for every evaluation of the marginal likelihood
+- **Kalman filters** compute the gain $K = P H^\top (H P H^\top + R)^{-1}$ at every time step
+- **Variational inference** requires $\log|\Sigma|$ and samples from $\mathcal{N}(\mu, \Sigma)$ --- both need a matrix square root or Cholesky factor
+- **Natural gradient methods** invert the Fisher information matrix $F^{-1} \nabla \mathcal{L}$ at each update
+- **Ensemble methods** form empirical covariances $\frac{1}{J} \sum (x_j - \bar{x})(x_j - \bar{x})^\top$ that are inherently low-rank
+- **Spatial statistics on grids** produce Kronecker-structured covariances $K_x \otimes K_y$ where naive $O(N^3)$ becomes $O(n_x^3 + n_y^3)$
+- **PDE solvers** invert elliptic operators, precondition iterative methods, and compute spectral decompositions
+- **Optimal transport** solves Sinkhorn iterations that reduce to repeated matrix-vector products
+
+The same handful of operations --- `solve`, `logdet`, `cholesky`, `trace`, `sqrt` --- appear again and again across these fields. The default approach of materializing a dense matrix and calling LAPACK works for toy problems but collapses at scale. Real problems have **structure**: the matrix is Kronecker, block diagonal, low-rank plus diagonal, sparse, or symmetric positive definite. Exploiting that structure is often the difference between $O(n^3)$ and $O(n)$ --- between a computation that takes hours and one that takes milliseconds.
+
+Yet in practice, every research codebase re-discovers and re-implements these structural tricks from scratch. The Woodbury identity gets hand-coded in the GP library, then again in the filtering library, then again in the Bayesian optimization library. Each implementation is correct but isolated. Bugs don't get shared fixes. Performance improvements don't propagate. And newcomers face a wall of bespoke linear algebra code before they can focus on their actual research problem.
+
+gaussx exists to end this cycle: provide the structured operators and dispatch-based primitives once, correctly, and let every downstream library build on them.
+
+## Why gaussx (specifically)?
 
 Every project in the JAX scientific computing ecosystem reimplements the same linear algebra patterns:
 
