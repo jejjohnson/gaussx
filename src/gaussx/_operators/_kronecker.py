@@ -86,12 +86,8 @@ def _kronecker_mv(
         n_in = op.in_size()
         # Reshape to (rest, n_in), apply op to each row
         x = rearrange(x, "(r c) -> r c", c=n_in)
-        # Apply operator: each row gets multiplied by op^T
-        # (A ⊗ B)vec(X) = vec(B X A^T) — we process one factor at a time
-        mat = op.as_matrix()
-        # x has shape (rest, n_in), mat has shape (n_out, n_in)
-        # We want x @ mat^T = (rest, n_out)
-        x = x @ mat.T
+        # Apply the factor lazily so nested lineax operators keep their structure.
+        x = jax.vmap(op.mv)(x)
         # Flatten back, but now transpose the ordering for the next factor
         x = rearrange(x, "r c -> (c r)")
     return x

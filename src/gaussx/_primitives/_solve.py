@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools as ft
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -30,11 +32,11 @@ def solve(
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _solve_diagonal(operator, vector)
     if isinstance(operator, BlockDiag):
-        return _solve_block_diag(operator, vector)
+        return _solve_block_diag(operator, vector, solver)
     if isinstance(operator, Kronecker):
-        return _solve_kronecker(operator, vector)
+        return _solve_kronecker(operator, vector, solver)
     if isinstance(operator, LowRankUpdate):
-        return _solve_low_rank(operator, vector)
+        return _solve_low_rank(operator, vector, solver)
     return _solve_fallback(operator, vector, solver)
 
 
@@ -45,18 +47,26 @@ def _solve_diagonal(
     return vector / diag
 
 
-def _solve_block_diag(operator: BlockDiag, vector: jnp.ndarray) -> jnp.ndarray:
+def _solve_block_diag(
+    operator: BlockDiag,
+    vector: jnp.ndarray,
+    solver: lx.AbstractLinearSolver | None,
+) -> jnp.ndarray:
     results = []
     offset = 0
     for op in operator.operators:
         size = op.in_size()
         block = jax.lax.dynamic_slice(vector, (offset,), (size,))
-        results.append(solve(op, block))
+        results.append(solve(op, block, solver=solver))
         offset += size
     return jnp.concatenate(results)
 
 
-def _solve_kronecker(operator: Kronecker, vector: jnp.ndarray) -> jnp.ndarray:
+def _solve_kronecker(
+    operator: Kronecker,
+    vector: jnp.ndarray,
+    solver: lx.AbstractLinearSolver | None,
+) -> jnp.ndarray:
     """Solve (A1 kron A2 kron ... kron Ak) x = b.
 
     Uses the same reshape trick as Kronecker.mv but with
@@ -69,16 +79,17 @@ def _solve_kronecker(operator: Kronecker, vector: jnp.ndarray) -> jnp.ndarray:
         op = operator.operators[i]
         n_in = op.in_size()
         x = rearrange(x, "(r c) -> r c", c=n_in)
-        # In the mv path we do: x = x @ mat.T
-        # For solve, we replace mat.T with inv(mat).T = inv(mat^T)
-        # So: x = x @ inv(mat).T, i.e. solve mat^T @ y.T = x.T
-        mat = op.as_matrix()
-        x = jnp.linalg.solve(mat, x.T).T
+        solve_factor = ft.partial(solve, op, solver=solver)
+        x = jax.vmap(solve_factor)(x)
         x = rearrange(x, "r c -> (c r)")
     return x
 
 
-def _solve_low_rank(operator: LowRankUpdate, vector: jnp.ndarray) -> jnp.ndarray:
+def _solve_low_rank(
+    operator: LowRankUpdate,
+    vector: jnp.ndarray,
+    solver: lx.AbstractLinearSolver | None,
+) -> jnp.ndarray:
     """Woodbury identity: (L + U D V^T)^{-1} b.
 
     (L + U D V^T)^{-1} = L^{-1} - L^{-1} U C^{-1} V^T L^{-1}
@@ -87,11 +98,12 @@ def _solve_low_rank(operator: LowRankUpdate, vector: jnp.ndarray) -> jnp.ndarray
     U, d, V = operator.U, operator.d, operator.V
 
     # Step 1: L^{-1} b
-    Linv_b = solve(operator.base, vector)
+    Linv_b = solve(operator.base, vector, solver=solver)
 
     # Step 2: L^{-1} U  (n x k)
     Linv_U = jnp.stack(
-        [solve(operator.base, U[:, j]) for j in range(U.shape[1])], axis=1
+        [solve(operator.base, U[:, j], solver=solver) for j in range(U.shape[1])],
+        axis=1,
     )
 
     # Step 3: Capacitance matrix C = D^{-1} + V^T L^{-1} U  (k x k)

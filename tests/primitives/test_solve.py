@@ -15,6 +15,11 @@ def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
     return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
+class LazyDiagonal(lx.DiagonalLinearOperator):
+    def as_matrix(self):
+        raise NotImplementedError("dense materialization unavailable")
+
+
 def _dense_solve(op, v):
     return jnp.linalg.solve(op.as_matrix(), v)
 
@@ -40,6 +45,15 @@ def test_solve_kronecker(getkey):
     K = Kronecker(A, B)
     v = jr.normal(getkey(), (6,))
     assert tree_allclose(solve(K, v), _dense_solve(K, v), rtol=1e-4)
+
+
+def test_solve_kronecker_lazy_factors(getkey):
+    a_diag = jnp.abs(jr.normal(getkey(), (2,))) + 0.5
+    b_diag = jnp.abs(jr.normal(getkey(), (3,))) + 0.5
+    K = Kronecker(LazyDiagonal(a_diag), LazyDiagonal(b_diag))
+    v = jr.normal(getkey(), (6,))
+    expected = jnp.linalg.solve(jnp.kron(jnp.diag(a_diag), jnp.diag(b_diag)), v)
+    assert tree_allclose(solve(K, v), expected, rtol=1e-4)
 
 
 def test_solve_low_rank(getkey):

@@ -77,6 +77,18 @@ def test_mismatched_rank_raises(getkey):
         LowRankUpdate(base, U, d)
 
 
+def test_rectangular_base_supported(getkey):
+    base = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 3)))
+    U = jr.normal(getkey(), (2, 1))
+    d = jnp.abs(jr.normal(getkey(), (1,))) + 0.1
+    V = jr.normal(getkey(), (3, 1))
+    lr = LowRankUpdate(base, U, d, V)
+    v = jr.normal(getkey(), (3,))
+    assert lr.in_size() == 3
+    assert lr.out_size() == 2
+    assert tree_allclose(lr.mv(v), lr.as_matrix() @ v)
+
+
 # ---------------------------------------------------------------------------
 # mv correctness — mv matches dense as_matrix
 # ---------------------------------------------------------------------------
@@ -196,6 +208,14 @@ def test_not_diagonal(getkey):
     assert lx.is_diagonal(lr) is False
 
 
+def test_symmetric_tag_inferred_for_default_update(getkey):
+    d = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
+    base = lx.DiagonalLinearOperator(d)
+    U = jr.normal(getkey(), (4, 2))
+    lr = LowRankUpdate(base, U)
+    assert lx.is_symmetric(lr) is True
+
+
 # ---------------------------------------------------------------------------
 # Convenience constructors
 # ---------------------------------------------------------------------------
@@ -206,9 +226,17 @@ def test_low_rank_plus_diag(getkey):
     U = jr.normal(getkey(), (4, 2))
     lr = low_rank_plus_diag(diag, U)
     assert isinstance(lr, LowRankUpdate)
-    assert isinstance(lr.base, lx.DiagonalLinearOperator)
+    assert tree_allclose(lr.base.as_matrix(), jnp.diag(diag))
     v = jr.normal(getkey(), (4,))
     assert tree_allclose(lr.mv(v), lr.as_matrix() @ v)
+
+
+def test_low_rank_plus_diag_infers_psd(getkey):
+    diag = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
+    U = jr.normal(getkey(), (4, 2))
+    lr = low_rank_plus_diag(diag, U)
+    assert lx.is_symmetric(lr) is True
+    assert lx.is_positive_semidefinite(lr) is True
 
 
 def test_svd_low_rank_plus_diag(getkey):
