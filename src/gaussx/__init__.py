@@ -1,6 +1,6 @@
 """Structured linear algebra and Gaussian primitives for JAX."""
 
-__version__ = "0.1.5"
+__version__ = "0.0.1"
 
 from gaussx._operators import (
     BlockDiag as BlockDiag,
