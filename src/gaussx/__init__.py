@@ -1,6 +1,6 @@
 """Structured linear algebra and Gaussian primitives for JAX."""
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 from gaussx._expfam import (
     GaussianExpFam as GaussianExpFam,
