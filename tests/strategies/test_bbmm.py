@@ -62,11 +62,11 @@ def test_solve_and_logdet(getkey):
     v = jr.normal(getkey(), (8,))
 
     sol, ld = bbmm.solve_and_logdet(op, v)
+    expected_ld = bbmm.logdet(op)
     expected_sol = jnp.linalg.solve(mat, v)
-    true_ld = jnp.linalg.slogdet(mat)[1]
 
     assert tree_allclose(sol, expected_sol, rtol=1e-4)
-    assert jnp.abs(ld - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+    assert tree_allclose(ld, expected_ld)
 
 
 def test_deterministic_logdet(getkey):

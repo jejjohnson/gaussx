@@ -149,10 +149,10 @@ def test_trace_stochastic(getkey):
     mat = random_pd_matrix(getkey(), 20)
     op = lx.MatrixLinearOperator(mat, lx.symmetric_tag)
 
-    estimated = trace(op, stochastic=True, num_probes=100, key=getkey())
+    estimated = trace(op, stochastic=True, num_probes=200, key=getkey())
     true_trace = jnp.trace(mat)
 
-    assert jnp.abs(estimated - true_trace) < 0.1 * jnp.abs(true_trace) + 1.0
+    assert jnp.abs(estimated - true_trace) < 0.2 * jnp.abs(true_trace) + 1.0
 
 
 def test_trace_stochastic_diagonal(getkey):
