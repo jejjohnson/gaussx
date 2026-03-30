@@ -8,20 +8,12 @@ import jax.random as jr
 import lineax as lx
 
 from gaussx._strategies import CGSolver
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
-
-
-def _make_pd(getkey, n):
-    A = jr.normal(getkey(), (n, n))
-    return A @ A.T + 1.0 * jnp.eye(n)
+from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 def test_solve_psd(getkey):
     cg = CGSolver(rtol=1e-8, atol=1e-8)
-    mat = _make_pd(getkey, 5)
+    mat = random_pd_matrix(getkey(), 5)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     v = jr.normal(getkey(), (5,))
     expected = jnp.linalg.solve(mat, v)
@@ -42,7 +34,7 @@ def test_solve_diagonal(getkey):
 def test_logdet_psd(getkey):
     """Stochastic logdet should be within ~10% for moderate-size PSD."""
     cg = CGSolver(num_probes=50, lanczos_order=20)
-    mat = _make_pd(getkey, 20)
+    mat = random_pd_matrix(getkey(), 20)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     key = jr.PRNGKey(42)
     estimated = cg.logdet(op, key=key)
@@ -66,7 +58,7 @@ def test_logdet_diagonal(getkey):
 
 def test_filter_jit_solve(getkey):
     cg = CGSolver(rtol=1e-6, atol=1e-6)
-    mat = _make_pd(getkey, 4)
+    mat = random_pd_matrix(getkey(), 4)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     v = jr.normal(getkey(), (4,))
 

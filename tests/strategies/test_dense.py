@@ -9,10 +9,7 @@ import lineax as lx
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 from gaussx._strategies import DenseSolver
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
+from gaussx._testing import tree_allclose
 
 
 def test_solve_diagonal(getkey):
