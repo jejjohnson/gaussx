@@ -9,34 +9,27 @@ import lineax as lx
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 from gaussx._primitives import logdet
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
-
-
-def _dense_logdet(op):
-    return jnp.linalg.slogdet(op.as_matrix())[1]
+from gaussx._testing import dense_logdet, tree_allclose
 
 
 def test_logdet_diagonal(getkey):
     d = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
     op = lx.DiagonalLinearOperator(d)
-    assert tree_allclose(logdet(op), _dense_logdet(op))
+    assert tree_allclose(logdet(op), dense_logdet(op))
 
 
 def test_logdet_block_diag(getkey):
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 3 * jnp.eye(2))
     B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3))
     bd = BlockDiag(A, B)
-    assert tree_allclose(logdet(bd), _dense_logdet(bd))
+    assert tree_allclose(logdet(bd), dense_logdet(bd))
 
 
 def test_logdet_kronecker(getkey):
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 3 * jnp.eye(2))
     B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3))
     K = Kronecker(A, B)
-    assert tree_allclose(logdet(K), _dense_logdet(K), rtol=1e-4)
+    assert tree_allclose(logdet(K), dense_logdet(K), rtol=1e-4)
 
 
 def test_logdet_kronecker_three_factors(getkey):
@@ -44,7 +37,7 @@ def test_logdet_kronecker_three_factors(getkey):
     B = lx.DiagonalLinearOperator(jnp.abs(jr.normal(getkey(), (2,))) + 0.5)
     C = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 3 * jnp.eye(2))
     K = Kronecker(A, B, C)
-    assert tree_allclose(logdet(K), _dense_logdet(K), rtol=1e-4)
+    assert tree_allclose(logdet(K), dense_logdet(K), rtol=1e-4)
 
 
 def test_logdet_low_rank(getkey):
@@ -52,13 +45,13 @@ def test_logdet_low_rank(getkey):
     base = lx.DiagonalLinearOperator(d)
     U = jr.normal(getkey(), (5, 2)) * 0.3
     lr = LowRankUpdate(base, U)
-    assert tree_allclose(logdet(lr), _dense_logdet(lr), rtol=1e-4)
+    assert tree_allclose(logdet(lr), dense_logdet(lr), rtol=1e-4)
 
 
 def test_logdet_dense_fallback(getkey):
     mat = jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3)
     op = lx.MatrixLinearOperator(mat)
-    assert tree_allclose(logdet(op), _dense_logdet(op))
+    assert tree_allclose(logdet(op), dense_logdet(op))
 
 
 def test_logdet_filter_jit(getkey):
@@ -69,4 +62,4 @@ def test_logdet_filter_jit(getkey):
     def f(op):
         return logdet(op)
 
-    assert tree_allclose(f(op), _dense_logdet(op))
+    assert tree_allclose(f(op), dense_logdet(op))

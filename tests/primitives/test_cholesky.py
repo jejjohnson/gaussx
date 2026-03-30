@@ -9,16 +9,7 @@ import lineax as lx
 
 from gaussx._operators import BlockDiag, Kronecker
 from gaussx._primitives import cholesky
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
-
-
-def _make_pd(getkey, n):
-    """Generate a positive-definite matrix."""
-    A = jr.normal(getkey(), (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
+from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 def test_cholesky_diagonal(getkey):
@@ -32,8 +23,8 @@ def test_cholesky_diagonal(getkey):
 
 
 def test_cholesky_block_diag(getkey):
-    A = _make_pd(getkey, 2)
-    B = _make_pd(getkey, 3)
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
     bd = BlockDiag(
         lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
         lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
@@ -45,8 +36,8 @@ def test_cholesky_block_diag(getkey):
 
 
 def test_cholesky_kronecker(getkey):
-    A = _make_pd(getkey, 2)
-    B = _make_pd(getkey, 3)
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
     K = Kronecker(
         lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
         lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
@@ -58,7 +49,7 @@ def test_cholesky_kronecker(getkey):
 
 
 def test_cholesky_dense(getkey):
-    A = _make_pd(getkey, 4)
+    A = random_pd_matrix(getkey(), 4)
     op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
     L = cholesky(op)
     assert isinstance(L, lx.MatrixLinearOperator)

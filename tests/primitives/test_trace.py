@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
-import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
 from gaussx._operators import BlockDiag, Kronecker
 from gaussx._primitives import trace
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
-
-
-def _dense_trace(op):
-    return jnp.trace(op.as_matrix())
+from gaussx._testing import dense_trace, tree_allclose
 
 
 def test_trace_diagonal(getkey):
@@ -29,14 +21,14 @@ def test_trace_block_diag(getkey):
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
     B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
     bd = BlockDiag(A, B)
-    assert tree_allclose(trace(bd), _dense_trace(bd))
+    assert tree_allclose(trace(bd), dense_trace(bd))
 
 
 def test_trace_kronecker(getkey):
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
     B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
     K = Kronecker(A, B)
-    assert tree_allclose(trace(K), _dense_trace(K))
+    assert tree_allclose(trace(K), dense_trace(K))
 
 
 def test_trace_dense_fallback(getkey):

@@ -11,10 +11,7 @@ import pytest
 
 from gaussx._operators import LowRankUpdate, low_rank_plus_diag, svd_low_rank_plus_diag
 from gaussx._tags import is_low_rank
-
-
-def tree_allclose(x, y, *, rtol=1e-5, atol=1e-8):
-    return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
+from gaussx._testing import tree_allclose
 
 
 # ---------------------------------------------------------------------------
