@@ -136,9 +136,11 @@ print(f"Initial ELBO: {elbo(log_params, x_data, y_data, x_inducing):.2f}")
 # %%
 grad_fn = jax.jit(jax.grad(lambda p: -elbo(p, x_data, y_data, x_inducing)))
 
-lr = 0.05
-for _i in range(50):
+lr = 0.01
+for _i in range(100):
     g = grad_fn(log_params)
+    # Clip gradients for stability
+    g = jnp.clip(g, -10.0, 10.0)
     log_params = log_params - lr * g
 
 ls_opt, var_opt, noise_opt = jnp.exp(log_params)
