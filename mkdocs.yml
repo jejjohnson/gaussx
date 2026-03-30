@@ -61,6 +61,8 @@ nav:
       - Kalman Filter: notebooks/kalman_filter.ipynb
       - Solver Strategies: notebooks/solver_strategies.ipynb
       - Bayesian Updates: notebooks/bayesian_updates.ipynb
+      - "NumPyro: GP Regression": notebooks/numpyro_gp.ipynb
+      - "NumPyro: Precision BLR": notebooks/numpyro_precision.ipynb
   - API Reference: api/reference.md
 
 markdown_extensions:
