@@ -56,6 +56,11 @@ nav:
       - Structured GP: notebooks/structured_gp.ipynb
       - Solver Comparison: notebooks/solver_comparison.ipynb
       - Differentiating Through Solve: notebooks/differentiating_solve.ipynb
+      - Sugar Operations: notebooks/sugar_ops.ipynb
+      - Exponential Family: notebooks/exponential_family.ipynb
+      - Kalman Filter: notebooks/kalman_filter.ipynb
+      - Solver Strategies: notebooks/solver_strategies.ipynb
+      - Bayesian Updates: notebooks/bayesian_updates.ipynb
   - API Reference: api/reference.md
 
 markdown_extensions:
