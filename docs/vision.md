@@ -95,3 +95,17 @@ Meanwhile, the existing tools each solve *part* of the problem:
     │             │ │   Kalman)   │ │   gradient) │
     └─────────────┘ └─────────────┘ └─────────────┘
 ```
+
+---
+
+## Why "GaussX"?
+
+The name combines **Gauss** and **JAX** --- and that's not just branding.
+
+Carl Friedrich Gauss is arguably the most consequential figure in the history of computational mathematics. His fingerprints are on nearly every algorithm in this library: **Gaussian elimination** (the ancestor of every matrix factorization), the **method of least squares** (which he invented to track the orbit of Ceres in 1801), the **Gaussian distribution** (the central object of probability theory), and the **Gauss-Markov theorem** (which tells us why least squares is optimal). The **Cholesky decomposition** --- the workhorse of positive-definite systems --- is a direct descendant of Gaussian elimination. Even the **Fast Fourier Transform** traces back to a technique Gauss described in 1805, decades before Cooley and Tukey.
+
+The Gaussian distribution itself occupies a unique position in mathematics. It is the **maximum entropy distribution** for a given mean and variance --- the least assuming model you can write down. It is the **fixed point of the Central Limit Theorem** --- the distribution that sums converge to regardless of where they started. It is the **conjugate prior** for linear-Gaussian models, making Bayesian inference exact. And it is completely characterized by just two things: a mean vector and a covariance matrix. That covariance matrix --- its structure, its factorization, its determinant, its inverse --- is precisely what gaussx computes.
+
+Every primitive in this library (`solve`, `logdet`, `cholesky`, `trace`, `sqrt`, `inv`) exists because someone, somewhere, needs to do something with a Gaussian covariance. GP regression needs `solve` and `logdet`. Kalman filtering needs `cholesky` and `solve`. Variational inference needs `sqrt` and `logdet`. Natural gradients need `inv`. The structured operators (`Kronecker`, `BlockDiag`, `LowRankUpdate`) exist because real-world covariances have exploitable structure.
+
+gaussx is, at its core, a library for working with Gaussian covariance matrices --- fast, correctly, and in JAX.
