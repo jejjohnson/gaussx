@@ -259,7 +259,7 @@ fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 colors = ["#2196F3", "#4CAF50", "#FF9800", "#9C27B0", "#F44336", "#00BCD4"]
 
 # Solve residuals (log scale)
-bars0 = axes[0].bar(names, residuals, color=colors)
+axes[0].bar(names, residuals, color=colors)
 axes[0].set_yscale("log")
 axes[0].set_ylabel("Max solve residual")
 axes[0].set_title("Solve accuracy")
@@ -268,7 +268,7 @@ axes[0].tick_params(axis="x", rotation=30)
 # Logdet errors (log scale)
 # Clamp zeros to a small value for log scale
 logdet_errors_plot = [max(e, 1e-16) for e in logdet_errors]
-bars1 = axes[1].bar(names, logdet_errors_plot, color=colors)
+axes[1].bar(names, logdet_errors_plot, color=colors)
 axes[1].set_yscale("log")
 axes[1].set_ylabel("|logdet - true logdet|")
 axes[1].set_title("Log-determinant accuracy")

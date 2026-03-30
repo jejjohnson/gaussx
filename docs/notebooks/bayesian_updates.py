@@ -178,7 +178,6 @@ print(Sigma_1)
 # --- Covariance-form update (classic Kalman formula) ---
 # S = H Sigma_0 H^T + R  (innovation covariance)
 S = H_1 @ Sigma_0 @ H_1.T + R_1
-S_op = lx.MatrixLinearOperator(S, lx.symmetric_tag)
 
 # K = Sigma_0 H^T S^{-1}  (Kalman gain)
 K_gain = Sigma_0 @ H_1.T @ jnp.linalg.inv(S)

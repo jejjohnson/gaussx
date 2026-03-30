@@ -57,7 +57,7 @@ K = jnp.exp(-0.5 * diff**2 / lengthscale**2)
 
 # Wrap as lineax operator with a bit of jitter for numerical stability
 Sigma = K + 1e-6 * jnp.eye(N)
-Sigma_op = lx.MatrixLinearOperator(Sigma, lx.symmetric_tag)
+Sigma_op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 print("Sigma shape:", Sigma.shape)
 
 # %% [markdown]
@@ -109,8 +109,8 @@ print("match:", jnp.allclose(lp, lp_manual))
 # %%
 A_mat = jnp.eye(3) + 0.5 * jnp.ones((3, 3))
 B_mat = jnp.diag(jnp.array([1.0, 2.0]))
-A_op = lx.MatrixLinearOperator(A_mat, lx.symmetric_tag)
-B_op = lx.MatrixLinearOperator(B_mat, lx.symmetric_tag)
+A_op = lx.MatrixLinearOperator(A_mat, lx.positive_semidefinite_tag)
+B_op = lx.MatrixLinearOperator(B_mat, lx.positive_semidefinite_tag)
 kron_op = gaussx.Kronecker(A_op, B_op)
 
 key, subkey = jax.random.split(key)
@@ -163,7 +163,7 @@ y = jnp.sin(x_pts) + jax.random.normal(subkey, (N,)) * jnp.sqrt(noise_var)
 
 # Build K_y = K + sigma^2 * I
 K_y = K + noise_var * jnp.eye(N)
-K_y_op = lx.MatrixLinearOperator(K_y, lx.symmetric_tag)
+K_y_op = lx.MatrixLinearOperator(K_y, lx.positive_semidefinite_tag)
 
 lml = gaussx.log_marginal_likelihood(jnp.zeros(N), K_y_op, y)
 print("log marginal likelihood:", lml)
@@ -178,7 +178,7 @@ def neg_lml(log_lengthscale, log_noise_var, x_pts, y):
     nv = jnp.exp(log_noise_var)
     diff = x_pts[:, None] - x_pts[None, :]
     K_i = jnp.exp(-0.5 * diff**2 / ls**2) + nv * jnp.eye(len(y))
-    K_op = lx.MatrixLinearOperator(K_i, lx.symmetric_tag)
+    K_op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
     return -gaussx.log_marginal_likelihood(jnp.zeros_like(y), K_op, y)
 
 
@@ -210,8 +210,8 @@ K_XZ = jnp.exp(-0.5 * diff_XZ**2)
 diff_ZZ = z_pts[:, None] - z_pts[None, :]
 K_ZZ = jnp.exp(-0.5 * diff_ZZ**2) + 1e-6 * jnp.eye(M)
 
-K_XX_op = lx.MatrixLinearOperator(K_XX, lx.symmetric_tag)
-K_ZZ_op = lx.MatrixLinearOperator(K_ZZ, lx.symmetric_tag)
+K_XX_op = lx.MatrixLinearOperator(K_XX, lx.positive_semidefinite_tag)
+K_ZZ_op = lx.MatrixLinearOperator(K_ZZ, lx.positive_semidefinite_tag)
 
 schur = gaussx.schur_complement(K_XX_op, K_XZ, K_ZZ_op)
 print("type:", type(schur).__name__)
