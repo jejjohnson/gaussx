@@ -23,7 +23,9 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 # ---------------------------------------------------------------------------
 
 
-def tree_allclose(x, y, *, rtol: float = 1e-5, atol: float = 1e-8) -> bool | jnp.ndarray:
+def tree_allclose(
+    x, y, *, rtol: float = 1e-5, atol: float = 1e-8
+) -> bool | jnp.ndarray:
     """PyTree-aware approximate equality check.
 
     Wraps ``eqx.tree_equal`` with tolerance support. Matches the
