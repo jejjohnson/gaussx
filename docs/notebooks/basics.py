@@ -158,7 +158,7 @@ K_inv = gaussx.inv(K)
 print("inv(Kronecker) type:", type(K_inv).__name__)  # Kronecker
 
 # %% [markdown]
-# ## 7. JAX transforms
+# ## 7. JAX transforms: jit and grad
 #
 # Everything is compatible with `jit`, `vmap`, and `grad` because
 # all operators are equinox modules (PyTrees).
@@ -179,10 +179,142 @@ y = jnp.array([1.0, 2.0, 3.0, 4.0])
 nll = neg_log_marginal(K, y)
 print("neg log marginal:", nll)
 
-# vmap over multiple right-hand sides
-solve_batch = jax.vmap(lambda v: gaussx.solve(D, v))
-vs = jnp.ones((3, 3))
-print("batched solve shape:", solve_batch(vs).shape)
+
+# %%
+# grad through solve and logdet
+def loss(log_diag, y):
+    op = lx.DiagonalLinearOperator(jnp.exp(log_diag))
+    alpha = gaussx.solve(op, y)
+    return 0.5 * jnp.dot(y, alpha) + 0.5 * gaussx.logdet(op)
+
+
+log_d = jnp.log(jnp.array([1.0, 2.0, 3.0]))
+g = jax.grad(loss)(log_d, jnp.ones(3))
+print("grad shape:", g.shape)
+print("gradient:", g)
+
+# %% [markdown]
+# ## 8. vmap: batching over vectors and operators
+#
+# gaussx primitives are **vector** operations — `solve(op, b)` takes a
+# single vector `b`, not a matrix. To solve for multiple right-hand
+# sides or multiple operators, use `jax.vmap`. This is the JAX way:
+# write scalar/vector code, then batch it.
+#
+# > **Key rule:** gaussx primitives work on single vectors. Use
+# > `jax.vmap` to batch over vectors, operators, or both.
+
+# %%
+# --- vmap over a batch of vectors (fixed operator) ---
+# Solve D x = b for 5 different b vectors
+b_batch = jax.random.normal(jax.random.PRNGKey(0), (5, 3))
+
+x_batch = jax.vmap(lambda b: gaussx.solve(D, b))(b_batch)
+print("vmap over vectors:", x_batch.shape)  # (5, 3)
+
+# Verify against manual loop
+for i in range(5):
+    assert jnp.allclose(x_batch[i], gaussx.solve(D, b_batch[i]))
+print("all match ✓")
+
+# %%
+# --- vmap over columns (matrix RHS) ---
+# gaussx.solve expects a vector, but you can solve A X = B
+# by vmapping over the columns of B
+n = 4
+M = jnp.array(
+    [
+        [2.0, 1.0, 0.5, 0.2],
+        [1.0, 3.0, 0.5, 0.1],
+        [0.5, 0.5, 4.0, 0.3],
+        [0.2, 0.1, 0.3, 2.0],
+    ]
+)
+M_op = lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag)
+
+B_rhs = jax.random.normal(jax.random.PRNGKey(1), (n, 3))  # 3 right-hand sides
+
+X = jax.vmap(lambda col: gaussx.solve(M_op, col), in_axes=1, out_axes=1)(B_rhs)
+print("solve matrix RHS:", X.shape)  # (4, 3)
+
+# Verify
+X_ref = jnp.linalg.solve(M, B_rhs)
+print("max error:", jnp.max(jnp.abs(X - X_ref)))
+
+# %%
+# --- vmap over operators (e.g. hyperparameter sweep) ---
+# Solve for different diagonal scalings
+scales = jnp.array([0.5, 1.0, 2.0, 4.0])
+b_fixed = jnp.ones(3)
+
+
+def solve_scaled(scale):
+    op = lx.DiagonalLinearOperator(scale * d)
+    return gaussx.solve(op, b_fixed)
+
+
+x_scaled = jax.vmap(solve_scaled)(scales)
+print("vmap over operators:", x_scaled.shape)  # (4, 3)
+print("scale=0.5:", x_scaled[0])  # b / (0.5 * d)
+print("scale=4.0:", x_scaled[3])  # b / (4.0 * d)
+
+# %%
+# --- vmap over operators AND vectors simultaneously ---
+# Common in GP: different kernel matrix per hyperparameter sample
+
+
+def _make_psd(key, n):
+    A = jax.random.normal(key, (n, n))
+    return A @ A.T + 0.5 * jnp.eye(n)
+
+
+keys = jax.random.split(jax.random.PRNGKey(2), 4)
+matrices = jax.vmap(lambda k: _make_psd(k, 3))(keys)
+vectors = jax.random.normal(jax.random.PRNGKey(3), (4, 3))
+
+
+def solve_one(K_i, b_i):
+    op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
+    return gaussx.solve(op, b_i)
+
+
+xs = jax.vmap(solve_one)(matrices, vectors)
+print("vmap over (K, b):", xs.shape)  # (4, 3)
+
+
+# %%
+# --- vmap works with all primitives ---
+def all_primitives(K_i):
+    op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
+    return (
+        gaussx.logdet(op),
+        gaussx.trace(op),
+        gaussx.diag(op),
+    )
+
+
+lds, trs, diags = jax.vmap(all_primitives)(matrices)
+print("vmapped logdet:", lds.shape)  # (4,)
+print("vmapped trace:", trs.shape)  # (4,)
+print("vmapped diag:", diags.shape)  # (4, 3)
+
+# %%
+# --- vmap with structured operators ---
+# Kronecker solve batched over right-hand sides
+A_pd = jnp.array([[2.0, 0.5], [0.5, 3.0]])
+B_pd = jnp.array([[4.0, 1.0], [1.0, 2.0]])
+K_pd = gaussx.Kronecker(
+    lx.MatrixLinearOperator(A_pd, lx.positive_semidefinite_tag),
+    lx.MatrixLinearOperator(B_pd, lx.positive_semidefinite_tag),
+)
+
+b_batch_4 = jax.random.normal(jax.random.PRNGKey(4), (10, 4))
+x_kron = jax.vmap(lambda b: gaussx.solve(K_pd, b))(b_batch_4)
+print("Kronecker batched solve:", x_kron.shape)  # (10, 4)
+
+# Verify against dense
+x_ref = jnp.linalg.solve(K_pd.as_matrix(), b_batch_4.T).T
+print("max error:", jnp.max(jnp.abs(x_kron - x_ref)))
 
 # %% [markdown]
 # ## Summary
