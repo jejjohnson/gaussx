@@ -2,8 +2,6 @@
 
 __version__ = "0.0.3"
 
-import contextlib
-
 from gaussx._expfam import (
     GaussianExpFam as GaussianExpFam,
     fisher_info as fisher_info,
@@ -102,8 +100,11 @@ from gaussx._tags import (
 )
 
 
-with contextlib.suppress(ImportError):
+try:
     from gaussx._distributions import (
         MultivariateNormal as MultivariateNormal,
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
+except ModuleNotFoundError as _e:
+    if _e.name != "numpyro":
+        raise

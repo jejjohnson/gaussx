@@ -7,6 +7,11 @@ and factor primitives.
 
 from __future__ import annotations
 
+import pytest
+
+
+pytest.importorskip("numpyro")
+
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx

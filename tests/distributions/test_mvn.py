@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
+
+
+pytest.importorskip("numpyro")
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr

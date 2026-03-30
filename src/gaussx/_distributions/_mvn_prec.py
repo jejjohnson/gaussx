@@ -27,6 +27,9 @@ class MultivariateNormalPrecision(dist.Distribution):
     (e.g. message passing, variational inference in natural coordinates).
     The precision operator ``Lambda`` satisfies ``Lambda = Sigma^{-1}``.
 
+    Requires the ``numpyro`` optional extra
+    (``pip install "gaussx[numpyro]"``).
+
     Args:
         loc: Mean vector of shape ``(N,)``.
         prec_operator: Precision matrix as a lineax linear operator of
@@ -39,11 +42,11 @@ class MultivariateNormalPrecision(dist.Distribution):
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx
-        >>> import gaussx
+        >>> from gaussx._distributions import MultivariateNormalPrecision
         >>> Lambda = lx.MatrixLinearOperator(
         ...     2.0 * jnp.eye(3), lx.positive_semidefinite_tag
         ... )
-        >>> d = gaussx.MultivariateNormalPrecision(jnp.zeros(3), Lambda)
+        >>> d = MultivariateNormalPrecision(jnp.zeros(3), Lambda)
         >>> d.log_prob(jnp.ones(3))
     """
 
@@ -74,7 +77,7 @@ class MultivariateNormalPrecision(dist.Distribution):
         )
 
     def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
-        quad = residual @ self.prec_operator.mv(residual)
+        quad = jnp.sum(residual * self.prec_operator.mv(residual), axis=-1)
         ld = self.solver.logdet(self.prec_operator)
         n = self.loc.shape[-1]
         return -0.5 * (n * jnp.log(2.0 * jnp.pi) - ld + quad)
@@ -91,7 +94,10 @@ class MultivariateNormalPrecision(dist.Distribution):
         key: jax.dtypes.prng_key | None,
         sample_shape: tuple[int, ...] = (),
     ) -> jax.typing.ArrayLike:
-        assert key is not None
+        if key is None:
+            raise ValueError(
+                "PRNG key must be provided to sample from MultivariateNormalPrecision."
+            )
         L = _cholesky(self.prec_operator)
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]

@@ -28,6 +28,9 @@ class MultivariateNormal(dist.Distribution):
     (Kronecker, block-diagonal, low-rank, diagonal, etc.) via gaussx
     structural dispatch.
 
+    Requires the ``numpyro`` optional extra
+    (``pip install "gaussx[numpyro]"``).
+
     Args:
         loc: Mean vector of shape ``(N,)``.
         cov_operator: Covariance as a lineax linear operator of shape
@@ -40,11 +43,11 @@ class MultivariateNormal(dist.Distribution):
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx
-        >>> import gaussx
+        >>> from gaussx._distributions import MultivariateNormal
         >>> Sigma = lx.MatrixLinearOperator(
         ...     jnp.eye(3), lx.positive_semidefinite_tag
         ... )
-        >>> d = gaussx.MultivariateNormal(jnp.zeros(3), Sigma)
+        >>> d = MultivariateNormal(jnp.zeros(3), Sigma)
         >>> d.log_prob(jnp.ones(3))
     """
 
@@ -76,7 +79,7 @@ class MultivariateNormal(dist.Distribution):
 
     def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
         alpha = self.solver.solve(self.cov_operator, residual)
-        quad = residual @ alpha
+        quad = jnp.sum(residual * alpha, axis=-1)
         ld = self.solver.logdet(self.cov_operator)
         n = self.loc.shape[-1]
         return -0.5 * (n * jnp.log(2.0 * jnp.pi) + ld + quad)
@@ -93,7 +96,10 @@ class MultivariateNormal(dist.Distribution):
         key: jax.dtypes.prng_key | None,
         sample_shape: tuple[int, ...] = (),
     ) -> jax.typing.ArrayLike:
-        assert key is not None
+        if key is None:
+            raise ValueError(
+                "PRNG key must be provided to sample from MultivariateNormal."
+            )
         L = _cholesky(self.cov_operator)
         shape = sample_shape + self.batch_shape + self.event_shape
         eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]
