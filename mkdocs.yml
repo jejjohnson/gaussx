@@ -43,11 +43,10 @@ plugins:
 nav:
   - Home: index.md
   - Examples:
-      - Basics: notebooks/basics.py
-      - Kernel Regression: notebooks/kernel_regression.py
-      - Structured GP: notebooks/structured_gp.py
+      - Basics: notebooks/basics.ipynb
+      - Kernel Regression: notebooks/kernel_regression.ipynb
+      - Structured GP: notebooks/structured_gp.ipynb
   - API Reference: api/reference.md
-  - Changelog: CHANGELOG.md
 
 markdown_extensions:
   - admonition

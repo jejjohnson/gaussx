@@ -38,12 +38,11 @@ t = gaussx.trace(K)           # trace(A) * trace(B)
 
 ## Examples
 
-- [Basics](notebooks/basics.py) — operators, primitives, JAX transforms
-- [Kernel Regression](notebooks/kernel_regression.py) — GP regression with hyperparameter optimization
-- [Structured GP](notebooks/structured_gp.py) — Kronecker and low-rank structure for scalable GPs
+- [Basics](notebooks/basics.ipynb) — operators, primitives, JAX transforms
+- [Kernel Regression](notebooks/kernel_regression.ipynb) — GP regression with hyperparameter optimization
+- [Structured GP](notebooks/structured_gp.ipynb) — Kronecker and low-rank structure for scalable GPs
 
 ## Links
 
 - [API Reference](api/reference.md)
-- [Changelog](CHANGELOG.md)
 - [GitHub](https://github.com/jejjohnson/gaussx)
