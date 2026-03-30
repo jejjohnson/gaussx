@@ -23,8 +23,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -32,13 +30,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "differentiating_solve"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -103,11 +94,7 @@ axes[1].set_ylabel("$\\nabla_\\theta$ Loss")
 axes[1].set_title("Gradient via jax.grad + gaussx.solve")
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "gradient_sweep.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Gradient sweep](../images/differentiating_solve/gradient_sweep.png)
 
 # %% [markdown]
 # ## 3. Gradient descent to find optimal theta
@@ -137,11 +124,7 @@ ax.set_ylabel("Loss")
 ax.set_title("Gradient descent on $\\theta$ through gaussx.solve")
 ax.legend()
 plt.tight_layout()
-fig.savefig(IMG_DIR / "optimization.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Optimization trajectory](../images/differentiating_solve/optimization.png)
 
 # %% [markdown]
 # ## 4. Differentiating logdet
@@ -175,11 +158,7 @@ axes[1].set_ylabel("$\\nabla_\\theta \\log|A(\\theta)|$")
 axes[1].set_title("Gradient of log-determinant")
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "logdet_gradient.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Logdet gradient](../images/differentiating_solve/logdet_gradient.png)
 
 # %% [markdown]
 # ## Summary

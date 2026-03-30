@@ -4,6 +4,8 @@
 
 Built on [lineax](https://github.com/patrick-kidger/lineax), [equinox](https://github.com/patrick-kidger/equinox), and [matfree](https://github.com/pnkraemer/matfree).
 
+**New here?** Start with the [Vision](vision.md) to understand why gaussx exists, then read the [Architecture](architecture.md) to see how it's organized.
+
 ## Installation
 
 ```bash

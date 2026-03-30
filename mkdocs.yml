@@ -43,6 +43,8 @@ plugins:
 
 nav:
   - Home: index.md
+  - Vision: vision.md
+  - Architecture: architecture.md
   - Examples:
       - Basics: notebooks/basics.ipynb
       - Operator Zoo: notebooks/operator_zoo.ipynb

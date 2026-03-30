@@ -25,8 +25,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -34,13 +32,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "gp_2d_grid"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -86,11 +77,7 @@ for ax in axes:
     ax.set_aspect("equal")
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "data.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![2D grid data](../images/gp_2d_grid/data.png)
 
 # %% [markdown]
 # ## Build Kronecker kernel
@@ -179,11 +166,7 @@ for ax in axes:
     ax.set_aspect("equal")
 
 plt.tight_layout()
-fig.savefig(IMG_DIR / "results.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![GP 2D results](../images/gp_2d_grid/results.png)
 
 # %% [markdown]
 # ## Kronecker-only operations

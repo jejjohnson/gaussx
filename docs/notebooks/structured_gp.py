@@ -26,8 +26,6 @@
 # %%
 from __future__ import annotations
 
-from pathlib import Path
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -35,13 +33,6 @@ import matplotlib.pyplot as plt
 
 import gaussx
 
-
-try:
-    _here = Path(__file__).resolve().parent
-except NameError:
-    _here = Path.cwd()
-IMG_DIR = _here.parent / "images" / "structured_gp"
-IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 jax.config.update("jax_enable_x64", True)
 
@@ -279,11 +270,7 @@ ax.set_ylabel("y")
 ax.legend(fontsize=8)
 ax.set_title(f"Sparse GP: {n_data} data, {n_inducing} inducing points")
 plt.tight_layout()
-fig.savefig(IMG_DIR / "sparse_gp.png", dpi=150, bbox_inches="tight")
 plt.show()
-
-# %% [markdown]
-# ![Sparse GP fit](../images/structured_gp/sparse_gp.png)
 
 # %% [markdown]
 # ## Summary
