@@ -224,7 +224,8 @@ plt.show()
 y_pred = w_samples @ X_test.T  # (n_samples, n_test)
 
 pred_mean = jnp.mean(y_pred, axis=0)
-pred_std = jnp.std(y_pred, axis=0)
+# Total predictive std: epistemic (weight uncertainty) + aleatoric (noise)
+pred_std = jnp.sqrt(jnp.var(y_pred, axis=0) + noise_std**2)
 
 # Also compute analytic predictive
 analytic_mean = X_test @ mu_post

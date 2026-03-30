@@ -188,10 +188,15 @@ mus, vars_ = predict_fn(
 
 mu_mean = jnp.mean(mus, axis=0)
 mu_std = jnp.std(mus, axis=0)
-var_mean = jnp.mean(vars_, axis=0)
 
-# Total predictive uncertainty: epistemic (spread of means) + aleatoric
-total_std = jnp.sqrt(mu_std**2 + var_mean)
+# Law of total variance:
+#   Var(y*|D) = E_θ[Var(y*|θ,D)] + Var_θ(E[y*|θ,D])
+# vars_ is latent function variance; add observation noise per sample
+noise_vars = samples["noise"] ** 2  # (num_samples,)
+aleatoric_var = jnp.mean(vars_ + noise_vars[:, None], axis=0)
+total_var = mu_std**2 + aleatoric_var
+total_var = jnp.clip(total_var, a_min=0.0)  # guard against roundoff
+total_std = jnp.sqrt(total_var)
 
 print(f"Predictive mean shape: {mu_mean.shape}")
 print(f"Total std shape:       {total_std.shape}")
