@@ -120,9 +120,9 @@ class TestSample:
         samples = d.sample(getkey(), sample_shape=(2, 3))
 
         lp_ours = d.log_prob(samples)
-        lp_numpyro = dist.MultivariateNormal(
-            mu, precision_matrix=Lambda
-        ).log_prob(samples)
+        lp_numpyro = dist.MultivariateNormal(mu, precision_matrix=Lambda).log_prob(
+            samples
+        )
 
         assert lp_ours.shape == (2, 3)
         assert tree_allclose(lp_ours, lp_numpyro, rtol=1e-5)

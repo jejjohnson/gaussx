@@ -43,12 +43,14 @@ dev = [
     "pytest-cov>=5.0",
     "pre-commit>=3.7",
     "beartype>=0.18",
+    "numpyro>=0.15",
 ]
 lint = [
     "ruff>=0.9",
 ]
 typecheck = [
     "ty>=0.0.1a6",
+    "numpyro>=0.15",
 ]
 docs = [
     "matplotlib>=3.8",

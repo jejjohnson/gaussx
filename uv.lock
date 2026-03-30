@@ -578,6 +578,7 @@ numpyro = [
 [package.dev-dependencies]
 dev = [
     { name = "beartype" },
+    { name = "numpyro" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -595,6 +596,7 @@ lint = [
     { name = "ruff" },
 ]
 typecheck = [
+    { name = "numpyro" },
     { name = "ty" },
 ]
 
@@ -614,6 +616,7 @@ provides-extras = ["numpyro"]
 [package.metadata.requires-dev]
 dev = [
     { name = "beartype", specifier = ">=0.18" },
+    { name = "numpyro", specifier = ">=0.15" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
@@ -628,7 +631,10 @@ docs = [
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.25" },
 ]
 lint = [{ name = "ruff", specifier = ">=0.9" }]
-typecheck = [{ name = "ty", specifier = ">=0.0.1a6" }]
+typecheck = [
+    { name = "numpyro", specifier = ">=0.15" },
+    { name = "ty", specifier = ">=0.0.1a6" },
+]
 
 [[package]]
 name = "ghp-import"
