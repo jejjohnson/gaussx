@@ -7,15 +7,16 @@ gaussx is organized as a **four-layer stack** that extends lineax. Each layer bu
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Layer 3 — Recipes                                      (v0.3+) │
-│  Kalman filter/smoother, ensemble covariance,                    │
-│  natural ↔ expectation params, Kalman gain                       │
+│  Kalman filter/smoother, Kronecker GP recipes, LOVE,             │
+│  CVI sites, SSM natural params, interpolation                    │
 ├──────────────────────────────────────────────────────────────────┤
 │  Layer 2 — Distributions + Sugar                        (v0.2+) │
 │  MultivariateNormal, Schur complement, project,                  │
 │  conditional variance, exponential family                        │
 ├──────────────────────────────────────────────────────────────────┤
 │  Layer 1 — Operators                                     (v0.0) │
-│  Kronecker, BlockDiag, LowRankUpdate                             │
+│  Kronecker, BlockDiag, BlockTriDiag, LowRankUpdate,              │
+│  ImplicitKernelOperator                                          │
 │  Extend lineax.AbstractLinearOperator                            │
 ├──────────────────────────────────────────────────────────────────┤
 │  Layer 0 — Primitives                                    (v0.0) │
@@ -64,7 +65,11 @@ Structured operators extending `lineax.AbstractLinearOperator`. Each is an `equi
 |----------|-----------|----------------|
 | `Kronecker(A, B, ...)` | $A \otimes B \otimes \cdots$ | Roth's column lemma via einops |
 | `BlockDiag(A, B, ...)` | $\mathrm{diag}(A, B, \ldots)$ | Per-block, concatenate |
+| `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | Banded block matvec |
 | `LowRankUpdate(L, U, d, V)` | $L + U \mathrm{diag}(d) V^\top$ | Base mv + rank-k update |
+| `ImplicitKernelOperator(k, X)` | Matrix-free kernel Gram operator | Nested `vmap` kernel matvec |
+
+`ImplicitKernelOperator` keeps structural claims explicit: if a kernel should be treated as symmetric or PSD by `lineax`, pass those tags when constructing it rather than relying on the operator to infer them.
 
 Arithmetic (`+`, `@`, `*`) composes with lineax's built-in operators:
 
@@ -84,15 +89,20 @@ Pair `solve` + `logdet` into reusable strategy objects:
 
 Strategies decouple the distribution from the solver --- a `MultivariateNormal` doesn't know or care whether it's doing dense Cholesky or iterative CG.
 
-### Layer 2 --- Distributions + Sugar *(planned, v0.2+)*
+### Layer 2 --- Distributions + Sugar
 
 - `MultivariateNormal(loc, cov_operator, solver=...)` --- accepts any covariance operator and any solver strategy
 - Compound operations: `project`, `unwhiten`, `schur_complement`, `conditional_variance`
 - Gaussian exponential family: natural/expectation parameters, Fisher information
 
-### Layer 3 --- Recipes *(planned, v0.3+)*
+### Layer 3 --- Recipes
 
-Cross-library patterns: Kalman filter, RTS smoother, ensemble covariance, natural gradient updates. Thin wiring of Layer 0--2 operations into domain-specific sequences.
+Cross-library patterns: Kalman filter, RTS smoother, ensemble covariance, natural gradient updates, Kronecker GP marginal likelihood / posterior prediction, LOVE predictive variance, CVI site updates, and SSM-natural conversions. Thin wiring of Layer 0--2 operations into domain-specific sequences.
+
+Two API constraints worth knowing:
+
+- `kronecker_posterior_predictive(...)` needs exact test prior diagonals via `K_test_diag_factors` for predictive variances.
+- `ssm_to_naturals(...)` expects `Q[0] == P_0` and raises on inconsistent initial covariance inputs.
 
 ## Structural Tags
 
@@ -130,6 +140,8 @@ src/gaussx/
 ├── _operators/              # Layer 1
 │   ├── _kronecker.py
 │   ├── _block_diag.py
+│   ├── _block_tridiag.py
+│   ├── _implicit_kernel.py
 │   └── _low_rank_update.py
 ├── _primitives/             # Layer 0
 │   ├── _solve.py
@@ -143,5 +155,11 @@ src/gaussx/
 │   ├── _base.py
 │   ├── _dense.py
 │   └── _cg.py
+├── _recipes/                # Layer 3
+│   ├── _kalman.py
+│   ├── _kronecker_gp.py
+│   ├── _love.py
+│   ├── _cvi.py
+│   └── _ssm_natural.py
 └── _testing.py              # Test utilities
 ```

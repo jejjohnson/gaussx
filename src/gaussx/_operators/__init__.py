@@ -10,6 +10,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._implicit_kernel import ImplicitKernelOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import (
@@ -202,9 +203,28 @@ def _(operator: LowerBlockTriDiag) -> bool:
     return False
 
 
+# ImplicitKernelOperator tag registrations
+
+
+@lx.is_symmetric.register(ImplicitKernelOperator)
+def _(operator: ImplicitKernelOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(ImplicitKernelOperator)
+def _(operator: ImplicitKernelOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(ImplicitKernelOperator)
+def _(operator: ImplicitKernelOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
 __all__ = [
     "BlockDiag",
     "BlockTriDiag",
+    "ImplicitKernelOperator",
     "Kronecker",
     "KroneckerSum",
     "LowRankUpdate",

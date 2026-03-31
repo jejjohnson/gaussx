@@ -38,6 +38,37 @@ L = gaussx.cholesky(K)        # Kronecker(chol(A), chol(B))
 t = gaussx.trace(K)           # trace(A) * trace(B)
 ```
 
+## API Notes
+
+Several of the newer public APIs have explicit requirements that are worth calling out up front:
+
+- `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` when you want predictive variances.
+- `gaussx.ssm_to_naturals(...)` validates that `Q[0]` matches `P_0` so the joint prior is internally consistent.
+- `gaussx.ImplicitKernelOperator(...)` only advertises symmetry and PSD to `lineax` when those tags are provided explicitly.
+
+```python
+import jax.numpy as jnp
+import lineax as lx
+import gaussx
+
+mean, var = gaussx.kronecker_posterior_predictive(
+	[Kx, Ky],
+	y,
+	noise_var=1e-2,
+	grid_shape=(nx, ny),
+	K_cross_factors=[Kx_star, Ky_star],
+	K_test_diag_factors=[jnp.ones(nx_star), jnp.ones(ny_star)],
+)
+
+theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0=Q[0])
+
+kernel_op = gaussx.ImplicitKernelOperator(
+	kernel_fn,
+	X,
+	tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
+)
+```
+
 ## Examples
 
 - [Basics](notebooks/basics.ipynb) — operators, primitives, JAX transforms

@@ -98,6 +98,10 @@ class TestBlockTriDiag:
         expected = 2.0 * block_tridiag.as_matrix()
         assert jnp.allclose(mat_sum, expected, atol=1e-7)
 
+    def test_scalar_mul_requires_true_scalar(self, block_tridiag):
+        with pytest.raises(TypeError, match="scalar"):
+            block_tridiag * jnp.array([1.0, 2.0])
+
     def test_tags(self, block_tridiag):
         assert gaussx.is_block_tridiagonal(block_tridiag)
 
