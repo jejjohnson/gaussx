@@ -1,6 +1,6 @@
 [project]
 name = "gaussx"
-version = "0.0.5"
+version = "0.0.6"
 description = "Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX."
 authors = [
     {name="J. Emmanuel Johnson", email="jemanjohnson34@gmail.com"},

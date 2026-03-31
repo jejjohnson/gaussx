@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.6](https://github.com/jejjohnson/gaussx/compare/v0.0.5...v0.0.6) (2026-03-31)
+
+
+### Features
+
+* add phases 12r, 15, 16, 17, 18.2-18.4 ([#15](https://github.com/jejjohnson/gaussx/issues/15)) ([be8d3a5](https://github.com/jejjohnson/gaussx/commit/be8d3a5723f57f0d6f1b6529f983cb0114aefc97))
+
 ## [0.0.5](https://github.com/jejjohnson/gaussx/compare/v0.0.4...v0.0.5) (2026-03-31)
 
 
