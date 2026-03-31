@@ -50,6 +50,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -122,7 +127,7 @@ def gp_model(X, y=None):
 
 # %%
 kernel = NUTS(gp_model)
-mcmc = MCMC(kernel, num_warmup=300, num_samples=500, progress_bar=True)
+mcmc = MCMC(kernel, num_warmup=300, num_samples=500, progress_bar=False)
 mcmc.run(jax.random.PRNGKey(0), X_train, y=y_train)
 mcmc.print_summary()
 

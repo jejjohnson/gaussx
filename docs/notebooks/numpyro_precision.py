@@ -40,6 +40,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -174,7 +179,7 @@ def blr_model(X, noise_std, y=None):
 
 # %%
 kernel = NUTS(blr_model)
-mcmc = MCMC(kernel, num_warmup=500, num_samples=1000, progress_bar=True)
+mcmc = MCMC(kernel, num_warmup=500, num_samples=1000, progress_bar=False)
 mcmc.run(jax.random.PRNGKey(1), X_train, noise_std, y=y_train)
 mcmc.print_summary()
 

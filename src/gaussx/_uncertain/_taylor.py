@@ -40,6 +40,9 @@ class TaylorIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via Taylor expansion."""
+        if self.order not in (1, 2):
+            msg = f"TaylorIntegrator.order must be 1 or 2, got {self.order}"
+            raise ValueError(msg)
         mu = state.mean
         Sigma = state.cov.as_matrix()
 

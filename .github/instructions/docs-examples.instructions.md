@@ -25,7 +25,10 @@ docs/
 
 1. Write or edit the `.py` source file
 2. Execute via jupytext: `jupytext --to notebook --execute foo.py -o foo.ipynb`
-3. Commit both `.py` and `.ipynb`
+3. Review the executed notebook and clear or suppress noisy outputs (e.g. local filesystem paths, long stack traces, or irrelevant warnings/stderr) so that only intentional, documentation-quality output remains.
+4. Commit both `.py` and `.ipynb`
+
+**Note**: `mkdocs-jupyter` renders whatever is captured in the `.ipynb` cell outputs, so any noisy or unwanted output will appear verbatim on the docs site.
 
 Figures render inline from `plt.show()` — the executed `.ipynb` cell outputs are the single source of rendered figures. Do **not** use `savefig` or commit separate PNG files.
 

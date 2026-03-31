@@ -47,6 +47,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -181,7 +186,7 @@ print(f"From eigenvalues:   {ld_from_eigs:.6f}")
 # %% [markdown]
 # ## References
 #
-# - Loan, C. F. V. (2000). The ubiquitous Kronecker product. *Journal
+# - Van Loan, C. F. (2000). The ubiquitous Kronecker product. *Journal
 #   of Computational and Applied Mathematics*, 123, 85--100.
 # - Saatci, Y. (2012). *Scalable Inference for Structured Gaussian
 #   Process Models*. PhD thesis, University of Cambridge.

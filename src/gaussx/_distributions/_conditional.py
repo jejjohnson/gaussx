@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, Int
 
 from gaussx._primitives._solve import solve
 
@@ -12,7 +12,7 @@ from gaussx._primitives._solve import solve
 def conditional(
     loc: Float[Array, " N"],
     cov: lx.AbstractLinearOperator,
-    obs_idx: Float[Array, " M"],
+    obs_idx: Int[Array, " M"],
     obs_values: Float[Array, " M"],
 ) -> tuple[Float[Array, " R"], lx.AbstractLinearOperator]:
     r"""Compute ``p(x_A | x_B = b)`` from a joint Gaussian ``p(x_A, x_B)``.

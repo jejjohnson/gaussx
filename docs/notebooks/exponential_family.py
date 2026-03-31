@@ -73,6 +73,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import lineax as lx

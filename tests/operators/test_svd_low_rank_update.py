@@ -1,5 +1,6 @@
 """Tests for SVDLowRankUpdate operator."""
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
@@ -32,9 +33,6 @@ def nonsym_operator():
     S = jnp.array([2.0, 1.0])
     base = lx.DiagonalLinearOperator(diag)
     return gaussx.SVDLowRankUpdate(base, U, S, V)
-
-
-import jax
 
 
 class TestSVDLowRankUpdate:
