@@ -9,8 +9,11 @@ from gaussx._uncertain._expectations import (
 )
 from gaussx._uncertain._gp_predict import (
     kernel_expectations,
+    uncertain_bgplvm_predict,
     uncertain_gp_predict,
     uncertain_gp_predict_mc,
+    uncertain_svgp_predict,
+    uncertain_vgp_predict,
 )
 from gaussx._uncertain._integrator import AbstractIntegrator
 from gaussx._uncertain._monte_carlo import MonteCarloIntegrator
@@ -32,6 +35,9 @@ __all__ = [
     "kernel_expectations",
     "log_likelihood_expectation",
     "mean_expectation",
+    "uncertain_bgplvm_predict",
     "uncertain_gp_predict",
     "uncertain_gp_predict_mc",
+    "uncertain_svgp_predict",
+    "uncertain_vgp_predict",
 ]

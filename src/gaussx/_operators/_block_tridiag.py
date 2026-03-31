@@ -132,6 +132,35 @@ class BlockTriDiag(lx.AbstractLinearOperator):
             self.sub_diagonal + other.sub_diagonal,
         )
 
+    def __add__(self, other: BlockTriDiag) -> BlockTriDiag:
+        return self.add(other)
+
+    def __radd__(self, other: object) -> BlockTriDiag:
+        if isinstance(other, BlockTriDiag):
+            return other.add(self)
+        if other == 0:
+            return self
+        return NotImplemented
+
+    def __sub__(self, other: BlockTriDiag) -> BlockTriDiag:
+        return BlockTriDiag(
+            self.diagonal - other.diagonal,
+            self.sub_diagonal - other.sub_diagonal,
+        )
+
+    def __neg__(self) -> BlockTriDiag:
+        return BlockTriDiag(-self.diagonal, -self.sub_diagonal)
+
+    def __mul__(self, other: object) -> BlockTriDiag:
+        scalar = jnp.asarray(other)
+        if scalar.ndim != 0:
+            msg = "BlockTriDiag can only be multiplied by a scalar"
+            raise TypeError(msg)
+        return BlockTriDiag(scalar * self.diagonal, scalar * self.sub_diagonal)
+
+    def __rmul__(self, other: object) -> BlockTriDiag:
+        return self.__mul__(other)
+
 
 class LowerBlockTriDiag(lx.AbstractLinearOperator):
     """Lower triangular block-bidiagonal Cholesky factor.
