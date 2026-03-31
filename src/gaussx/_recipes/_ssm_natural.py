@@ -44,7 +44,12 @@ def ssm_to_naturals(
     N = Q.shape[0]
     d = Q.shape[1]
 
-    if not bool(jnp.allclose(Q[0], P_0)):
+    try:
+        q0_matches_p0 = bool(jnp.allclose(Q[0], P_0))
+    except jax.errors.TracerBoolConversionError:
+        q0_matches_p0 = True  # skip validation under jax.jit
+
+    if not q0_matches_p0:
         msg = "Q[0] must match P_0 so the returned natural parameters are consistent"
         raise ValueError(msg)
 

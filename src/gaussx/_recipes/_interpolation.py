@@ -28,9 +28,11 @@ def conditional_interpolate(
 
         \Lambda_{fwd} = (A_{fwd} P_{prev} A_{fwd}^T + Q_{fwd})^{-1}
         \Lambda_{bwd} = A_{bwd}^T (P_{next} + Q_{bwd})^{-1} A_{bwd}
+        \eta_{1,fwd} = \Lambda_{fwd} m_{fwd}
+        \eta_{1,bwd} = A_{bwd}^T (P_{next} + Q_{bwd})^{-1} \mu_{next}
         \Lambda = \Lambda_{fwd} + \Lambda_{bwd}
         P = \Lambda^{-1}
-        \mu = P (\Lambda_{fwd} m_{fwd} + \Lambda_{bwd,1})
+        \mu = P (\eta_{1,fwd} + \eta_{1,bwd})
 
     Args:
         A_fwd: Forward transition from ``t^-`` to ``t``, shape ``(d, d)``.

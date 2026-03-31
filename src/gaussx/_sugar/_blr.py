@@ -21,11 +21,14 @@ def blr_diag_update(
 
     Computes the damped update for diagonal variational parameters::
 
-        nat2_{new} = (1 - lr) \cdot nat2 + lr \cdot (-hessian\_diag)
         \mu = nat1 / (-2 \cdot nat2)
-        nat1_{new} = (1 - lr) \cdot nat1 + lr \cdot (grad - hessian\_diag \cdot \mu)
+        eta2_{target} = -\tfrac{1}{2}(-hessian\_diag) = 0.5 \cdot hessian\_diag
+        eta1_{target} = grad - hessian\_diag \cdot \mu
+        nat1_{new} = (1 - lr) \cdot nat1 + lr \cdot eta1_{target}
+        nat2_{new} = (1 - lr) \cdot nat2 + lr \cdot eta2_{target}
 
-    where ``nat2`` stores ``-\tfrac{1}{2} \lambda`` (diagonal precision).
+    where ``nat2`` (eta2) stores ``-\tfrac{1}{2} \lambda`` with
+    ``\lambda = -hessian\_diag`` (diagonal precision).
 
     Args:
         nat1: Current natural location, shape ``(d,)``.

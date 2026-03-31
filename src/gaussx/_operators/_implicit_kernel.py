@@ -62,7 +62,14 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
             k_row = jax.vmap(lambda x_j: self.kernel_fn(x_i, x_j))(self.X)
             return jnp.dot(k_row, vector)
 
-        Kv = jax.vmap(row_dot)(self.X)
+        # Use lax.scan so each row's kernel vector is produced and reduced
+        # immediately, avoiding an N x N intermediate from nested vmap.
+        def body_fn(
+            carry: None, x_i: Float[Array, " D"]
+        ) -> tuple[None, Float[Array, ""]]:
+            return carry, row_dot(x_i)
+
+        _, Kv = jax.lax.scan(body_fn, None, self.X)
         if self.noise_var != 0.0:
             Kv = Kv + self.noise_var * vector
         return Kv
