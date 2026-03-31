@@ -173,8 +173,9 @@ def ssm_to_expectations(
     parameters ``(eta1, eta2)`` of the joint Gaussian where:
 
     - ``eta1 = E[x]`` (concatenated means)
-    - ``eta2 = E[xx^T]`` as a :class:`~gaussx.BlockTriDiag`
-      (second moments including cross-time terms)
+    - ``eta2`` is a :class:`~gaussx.BlockTriDiag` storing the
+      block-tridiagonal subset of ``E[xx^T]`` (second moments matching
+      the Gauss-Markov sparsity pattern, not the full dense matrix)
 
     The diagonal blocks of ``eta2`` are ``E[x_k x_k^T] = P_k + m_k m_k^T``
     and the sub-diagonal blocks are

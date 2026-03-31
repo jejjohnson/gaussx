@@ -33,5 +33,6 @@ def joseph_update(
         Updated covariance, shape ``(N, N)``.
     """
     N = P_pred.shape[0]
-    I_KH = jnp.eye(N) - K @ H  # (N, N)
-    return I_KH @ P_pred @ I_KH.T + K @ R @ K.T
+    I_KH = jnp.eye(N, dtype=P_pred.dtype) - K @ H  # (N, N)
+    P_update = I_KH @ P_pred @ I_KH.T + K @ R @ K.T
+    return (P_update + P_update.T) / 2
