@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.7](https://github.com/jejjohnson/gaussx/compare/v0.0.6...v0.0.7) (2026-03-31)
+
+
+### Features
+
+* add SSM expectation params and Joseph-form covariance update ([#17](https://github.com/jejjohnson/gaussx/issues/17)) ([45ffc4e](https://github.com/jejjohnson/gaussx/commit/45ffc4ea5d531409fcb6f6c5aae7b8cb8d909d6d))
+* **recipes:** add SSM expectation params and Joseph-form covariance update ([45ffc4e](https://github.com/jejjohnson/gaussx/commit/45ffc4ea5d531409fcb6f6c5aae7b8cb8d909d6d))
+
 ## [0.0.6](https://github.com/jejjohnson/gaussx/compare/v0.0.5...v0.0.6) (2026-03-31)
 
 
