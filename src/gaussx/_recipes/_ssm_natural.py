@@ -1,4 +1,4 @@
-"""SSM <-> natural parameter transformations for Gauss-Markov models."""
+"""SSM <-> natural/expectation parameter transformations for Gauss-Markov models."""
 
 from __future__ import annotations
 
@@ -160,3 +160,86 @@ def naturals_to_ssm(
     mu_0 = P_0 @ theta_linear[:d]
 
     return A, Q, mu_0, P_0
+
+
+def ssm_to_expectations(
+    means: Float[Array, "N d"],
+    covs: Float[Array, "N d d"],
+    cross_covs: Float[Array, "Nm1 d d"],
+) -> tuple[Float[Array, " Nd"], BlockTriDiag]:
+    r"""Convert SSM marginals to expectation parameters.
+
+    Given filtered or smoothed marginals, computes the expectation
+    parameters ``(eta1, eta2)`` of the joint Gaussian where:
+
+    - ``eta1 = E[x]`` (concatenated means)
+    - ``eta2`` is a :class:`~gaussx.BlockTriDiag` storing the
+      block-tridiagonal subset of ``E[xx^T]`` (second moments matching
+      the Gauss-Markov sparsity pattern, not the full dense matrix)
+
+    The diagonal blocks of ``eta2`` are ``E[x_k x_k^T] = P_k + m_k m_k^T``
+    and the sub-diagonal blocks are
+    ``E[x_{k+1} x_k^T] = C_k + m_{k+1} m_k^T`` where ``C_k`` is the
+    cross-covariance ``Cov(x_{k+1}, x_k)``.
+
+    Args:
+        means: Marginal means, shape ``(N, d)``.
+        covs: Marginal covariances, shape ``(N, d, d)``.
+        cross_covs: Cross-covariances ``Cov(x_{k+1}, x_k)``,
+            shape ``(N-1, d, d)``.
+
+    Returns:
+        Tuple ``(eta1, eta2)`` where ``eta1`` has shape ``(N*d,)``
+        and ``eta2`` is a :class:`~gaussx.BlockTriDiag`.
+    """
+    N, d = means.shape
+
+    # eta1 = concatenated means
+    eta1 = means.reshape(N * d)
+
+    # Diagonal blocks: E[x_k x_k^T] = P_k + m_k m_k^T
+    diag = covs + jax.vmap(jnp.outer)(means, means)  # (N, d, d)
+
+    # Sub-diagonal blocks: E[x_{k+1} x_k^T] = C_k + m_{k+1} m_k^T
+    sub_diag = cross_covs + jax.vmap(jnp.outer)(means[1:], means[:-1])  # (N-1, d, d)
+
+    eta2 = BlockTriDiag(diag, sub_diag)
+    return eta1, eta2
+
+
+def expectations_to_ssm(
+    eta1: Float[Array, " Nd"],
+    eta2: BlockTriDiag,
+) -> tuple[
+    Float[Array, "N d"],
+    Float[Array, "N d d"],
+    Float[Array, "Nm1 d d"],
+]:
+    r"""Convert expectation parameters back to SSM marginals.
+
+    Recovers ``(means, covs, cross_covs)`` from the expectation
+    parameters of the joint Gaussian.
+
+    Args:
+        eta1: Concatenated means, shape ``(N*d,)``.
+        eta2: Second-moment :class:`~gaussx.BlockTriDiag`.
+
+    Returns:
+        Tuple ``(means, covs, cross_covs)`` where:
+
+        - ``means``: shape ``(N, d)``
+        - ``covs``: shape ``(N, d, d)``
+        - ``cross_covs``: shape ``(N-1, d, d)``
+    """
+    d = eta2._block_size
+    N = eta2._num_blocks
+
+    means = eta1.reshape(N, d)
+
+    # covs = E[x_k x_k^T] - m_k m_k^T
+    covs = eta2.diagonal - jax.vmap(jnp.outer)(means, means)
+
+    # cross_covs = E[x_{k+1} x_k^T] - m_{k+1} m_k^T
+    cross_covs = eta2.sub_diagonal - jax.vmap(jnp.outer)(means[1:], means[:-1])
+
+    return means, covs, cross_covs

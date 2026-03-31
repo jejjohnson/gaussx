@@ -48,6 +48,7 @@ from gaussx._recipes import (
     ensemble_covariance as ensemble_covariance,
     ensemble_cross_covariance as ensemble_cross_covariance,
     expectation_to_natural as expectation_to_natural,
+    expectations_to_ssm as expectations_to_ssm,
     kalman_filter as kalman_filter,
     kalman_gain as kalman_gain,
     kronecker_mll as kronecker_mll,
@@ -60,6 +61,7 @@ from gaussx._recipes import (
     sites_to_precision as sites_to_precision,
     spingp_log_likelihood as spingp_log_likelihood,
     spingp_posterior as spingp_posterior,
+    ssm_to_expectations as ssm_to_expectations,
     ssm_to_naturals as ssm_to_naturals,
 )
 from gaussx._recipes._parallel_kalman import (
@@ -95,6 +97,7 @@ from gaussx._sugar import (
     ggn_diagonal as ggn_diagonal,
     hsic as hsic,
     hutchinson_hessian_diag as hutchinson_hessian_diag,
+    joseph_update as joseph_update,
     kl_standard_normal as kl_standard_normal,
     log_marginal_likelihood as log_marginal_likelihood,
     mmd_squared as mmd_squared,
