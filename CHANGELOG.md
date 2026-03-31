@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.5](https://github.com/jejjohnson/gaussx/compare/v0.0.4...v0.0.5) (2026-03-31)
+
+
+### Features
+
+* add new operators, distributions, uncertainty propagation, and enriched docs ([#13](https://github.com/jejjohnson/gaussx/issues/13)) ([6aada55](https://github.com/jejjohnson/gaussx/commit/6aada55dfe3fb88e395718f9f52f07169421c6e8))
+* add structured operators, uncertainty propagation, and enriched docs ([6aada55](https://github.com/jejjohnson/gaussx/commit/6aada55dfe3fb88e395718f9f52f07169421c6e8))
+
 ## [0.0.4](https://github.com/jejjohnson/gaussx/compare/v0.0.3...v0.0.4) (2026-03-30)
 
 
