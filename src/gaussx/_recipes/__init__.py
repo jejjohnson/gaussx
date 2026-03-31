@@ -26,7 +26,12 @@ from gaussx._recipes._natural import (
     natural_to_expectation,
 )
 from gaussx._recipes._spingp import spingp_log_likelihood, spingp_posterior
-from gaussx._recipes._ssm_natural import naturals_to_ssm, ssm_to_naturals
+from gaussx._recipes._ssm_natural import (
+    expectations_to_ssm,
+    naturals_to_ssm,
+    ssm_to_expectations,
+    ssm_to_naturals,
+)
 
 
 __all__ = [
@@ -38,6 +43,7 @@ __all__ = [
     "ensemble_covariance",
     "ensemble_cross_covariance",
     "expectation_to_natural",
+    "expectations_to_ssm",
     "kalman_filter",
     "kalman_gain",
     "kronecker_mll",
@@ -50,5 +56,6 @@ __all__ = [
     "sites_to_precision",
     "spingp_log_likelihood",
     "spingp_posterior",
+    "ssm_to_expectations",
     "ssm_to_naturals",
 ]

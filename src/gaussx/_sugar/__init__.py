@@ -22,6 +22,7 @@ from gaussx._sugar._inference import (
     process_noise_covariance,
     trace_correction,
 )
+from gaussx._sugar._joseph import joseph_update
 from gaussx._sugar._kernel_approx import (
     center_kernel,
     centering_operator,
@@ -73,6 +74,7 @@ __all__ = [
     "ggn_diagonal",
     "hsic",
     "hutchinson_hessian_diag",
+    "joseph_update",
     "kl_standard_normal",
     "log_marginal_likelihood",
     "mmd_squared",
