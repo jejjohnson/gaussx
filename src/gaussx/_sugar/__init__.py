@@ -1,5 +1,6 @@
 """GaussX sugar -- compound operations combining multiple primitives."""
 
+from gaussx._sugar._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._sugar._gaussian import (
     add_jitter,
     gaussian_entropy,
@@ -22,6 +23,7 @@ from gaussx._sugar._linalg import (
 )
 from gaussx._sugar._project import project
 from gaussx._sugar._schur import conditional_variance, schur_complement
+from gaussx._sugar._svgp import whitened_svgp_predict
 from gaussx._sugar._unwhiten import unwhiten, whiten_covariance
 from gaussx._sugar._woodbury import woodbury_solve
 
@@ -45,6 +47,9 @@ __all__ = [
     "trace_correction",
     "trace_product",
     "unwhiten",
+    "variational_elbo_gaussian",
+    "variational_elbo_mc",
     "whiten_covariance",
+    "whitened_svgp_predict",
     "woodbury_solve",
 ]
