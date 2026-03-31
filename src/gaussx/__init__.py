@@ -1,6 +1,6 @@
 """Structured linear algebra and Gaussian primitives for JAX."""
 
-__version__ = "0.0.5"
+__version__ = "0.0.6"
 
 from gaussx._distributions._conditional import conditional as conditional
 from gaussx._distributions._kl import dist_kl_divergence as dist_kl_divergence
