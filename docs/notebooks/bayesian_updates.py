@@ -25,6 +25,10 @@
 # 2. Sequential Bayesian updating with natural parameters
 # 3. How gaussx primitives make the linear algebra clean
 # 4. From single observations to full GP regression via Bayes' rule
+#
+# These are foundational results in Bayesian statistics and form the
+# computational core of Kalman filtering, GP regression, and variational
+# inference.
 
 # %% [markdown]
 # ## 1. The Gaussian Bayes Rule
@@ -480,3 +484,16 @@ print(f"Posterior mean RMSE vs truth: {rmse:.4f}")
 # - `log_marginal_likelihood` for GP model selection
 #
 # All operations compose naturally with JAX's `jit`, `grad`, and `vmap`.
+
+# %% [markdown]
+# ## References
+#
+# - Bernardo, J. M. & Smith, A. F. M. (2000). *Bayesian Theory*. Wiley.
+# - Bishop, C. M. (2006). *Pattern Recognition and Machine Learning*.
+#   Springer. (Section 2.3)
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes for
+#   Machine Learning*. MIT Press.
+# - Minka, T. P. (2001). *A Family of Algorithms for Approximate Bayesian
+#   Inference*. PhD thesis, MIT.
+# - Opper, M. & Winther, O. (2005). Expectation consistent approximate
+#   inference. *JMLR*, 6, 2177--2204.

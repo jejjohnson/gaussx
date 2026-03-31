@@ -29,6 +29,22 @@
 # 4. Comparing against the analytic GP posterior
 
 # %% [markdown]
+# ## Background
+#
+# In standard GP regression, hyperparameters $\theta$ (kernel variance,
+# lengthscale, noise) are set by maximizing the log-marginal likelihood
+# -- a point estimate (type-II ML). Full Bayesian treatment places priors
+# on $\theta$ and integrates them out:
+#
+# $$p(f_* | y) = \int p(f_* | y, \theta)\, p(\theta | y)\, d\theta$$
+#
+# This integral is intractable, but MCMC (here NUTS; Hoffman & Gelman,
+# 2014) samples from $p(\theta | y)$ and averages the GP predictive over
+# those samples. The result is better-calibrated uncertainty that accounts
+# for hyperparameter uncertainty -- important when data is scarce or
+# hyperparameters are poorly identified.
+
+# %% [markdown]
 # ## Setup
 
 # %%
@@ -147,6 +163,16 @@ plt.show()
 #
 # For each posterior sample of hyperparameters, we compute the
 # analytic GP predictive mean and variance at test locations.
+#
+# The total predictive variance decomposes via the law of total variance:
+#
+# $$
+# \operatorname{Var}[y_* | \mathcal{D}]
+# = \underbrace{\mathbb{E}_\theta[\operatorname{Var}
+#   [y_* | \theta, \mathcal{D}]]}_{\text{aleatoric}}
+# + \underbrace{\operatorname{Var}_\theta[\mathbb{E}
+#   [y_* | \theta, \mathcal{D}]]}_{\text{hyper. unc.}}
+# $$
 
 
 # %%
@@ -262,3 +288,15 @@ plt.show()
 #   uncertainty estimates.
 # - The same pattern works with structured covariances (Kronecker,
 #   BlockDiag, LowRankUpdate) for scalable GP models.
+
+# %% [markdown]
+# ## References
+#
+# - Hoffman, M. D. & Gelman, A. (2014). The No-U-Turn Sampler. *JMLR*,
+#   15, 1593--1623.
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes
+#   for Machine Learning*. MIT Press. (Section 5.2 on Bayesian
+#   hyperparameter treatment)
+# - Phan, D., Pradhan, N., & Jankowiak, M. (2019). Composable effects
+#   for flexible and accelerated probabilistic programming in NumPyro.
+#   *arXiv:1912.11554*.

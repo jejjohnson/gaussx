@@ -40,6 +40,26 @@
 # object and delegates all linear algebra to it. During prototyping you
 # might use `DenseSolver`; at scale you switch to `CGSolver` or
 # `BBMMSolver` with a single-line change.
+#
+# **Conjugate Gradients (CG):** For a PSD system $Ax = b$, CG minimizes
+# $\|x - x_*\|_A$ over Krylov subspaces $\mathcal{K}_k(A, b)$. After
+# $k$ iterations, the error satisfies
+#
+# $$\|x_k - x_*\|_A \leq 2
+# \left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}
+# \right)^k \|x_0 - x_*\|_A$$
+#
+# where $\kappa = \lambda_{\max}/\lambda_{\min}$ is the condition number
+# (Hestenes & Stiefel, 1952).
+#
+# **Stochastic Lanczos Quadrature (SLQ):** Approximates
+# $\log|A| = \operatorname{tr}(\log A)$ using Hutchinson's trace
+# estimator:
+#
+# $$\log|A| \approx \frac{1}{S}\sum_{s=1}^S z_s^\top \log(A)\, z_s$$
+#
+# where each $z_s^\top \log(A)\, z_s$ is evaluated via the Lanczos
+# decomposition (Ubaru et al., 2017).
 
 # %% [markdown]
 # ## Setup
@@ -142,6 +162,11 @@ print(f"  (n={n} < 1000, so AutoSolver selects DenseSolver internally)")
 # 2018). It solves via CG and estimates the log-determinant via stochastic
 # Lanczos quadrature, similar to `CGSolver`, but also provides
 # `solve_and_logdet` which amortizes shared matvec calls when you need both.
+#
+# The BBMM method (Gardner et al., 2018) was introduced in GPyTorch and
+# unifies CG-based solve with SLQ-based logdet. The key insight is that the
+# Lanczos decomposition computed during CG can be reused for the logdet
+# estimate, amortizing the cost of matvecs.
 
 # %%
 bbmm = gaussx.BBMMSolver(
@@ -173,6 +198,13 @@ print(f"  logdet:         {ld_bbmm_joint:.6f}")
 # $K + \sigma^2 I$ (common in GP regression), preconditioning dramatically
 # reduces the number of CG iterations required for convergence.
 #
+# Preconditioning transforms the system to $M^{-1}Ax = M^{-1}b$ where
+# $M \approx A$ is cheap to invert. For GP kernels of the form
+# $K + \sigma^2 I$, a rank-$r$ partial Cholesky approximation of $K$ gives
+# $M = LL^\top + \sigma^2 I$, which can be inverted via the Woodbury
+# identity in $O(Nr^2)$. This dramatically improves the effective condition
+# number.
+#
 # The `shift` parameter should be set to the noise variance $\sigma^2$.
 
 # %%
@@ -197,6 +229,12 @@ print(f"  logdet error:   {jnp.abs(ld_pcg - ld_true):.2e}")
 # It only requires matvec and transpose-matvec, and supports Tikhonov
 # regularization via the `damp` parameter (minimizes
 # $\|Ax - b\|^2 + \lambda^2 \|x\|^2$).
+#
+# LSMR (Fong & Saunders, 2011) is mathematically equivalent to MINRES
+# applied to the normal equations $A^\top A x = A^\top b$, but is
+# numerically more stable. It is the natural choice when $A$ is rectangular
+# or when Tikhonov regularization
+# ($\min \|Ax - b\|^2 + \lambda^2\|x\|^2$) is desired.
 
 # %%
 lsmr = gaussx.LSMRSolver(atol=1e-8, btol=1e-8, maxiter=500)
@@ -322,3 +360,19 @@ plt.show()
 #   other PSD-only solvers cannot.
 # - **`AutoSolver`** removes the need to choose: it inspects operator type
 #   and size and delegates to the appropriate backend.
+
+# %% [markdown]
+# ## References
+#
+# - Fong, D. C.-L. & Saunders, M. A. (2011). LSMR: An iterative algorithm
+#   for sparse least-squares problems. *SIAM J. Scientific Computing*,
+#   33(5), 2950--2971.
+# - Gardner, J. R., Pleiss, G., Weinberger, K. Q., Bindel, D., &
+#   Wilson, A. G. (2018). GPyTorch: Blackbox matrix-matrix Gaussian process
+#   inference with GPU acceleration. *Proc. NeurIPS*.
+# - Hestenes, M. R. & Stiefel, E. (1952). Methods of conjugate gradients
+#   for solving linear systems. *Journal of Research of the National Bureau
+#   of Standards*, 49(6), 409--436.
+# - Ubaru, S., Chen, J., & Saad, Y. (2017). Fast estimation of
+#   $\operatorname{tr}(f(A))$ via stochastic Lanczos quadrature. *SIAM J.
+#   Matrix Analysis*, 38(4), 1075--1099.

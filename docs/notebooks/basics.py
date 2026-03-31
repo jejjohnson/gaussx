@@ -24,6 +24,23 @@
 # 2. How primitives (`solve`, `logdet`, `cholesky`, etc.) dispatch on structure
 # 3. How everything composes with JAX transforms (`jit`, `vmap`, `grad`)
 
+# %% [markdown]
+# ### Why structured linear algebra?
+#
+# Gaussian process (GP) inference and many probabilistic models require
+# computing $\alpha = K^{-1} y$ (solve) and $\log |K|$ (log-determinant)
+# where $K$ is an $n \times n$ covariance matrix. With a dense
+# representation both operations cost $O(n^3)$ time and $O(n^2)$ memory,
+# which becomes prohibitive for $n > 10^4$.
+#
+# When the covariance matrix has *structure* -- Kronecker, block-diagonal,
+# low-rank-plus-diagonal -- each operation can be reduced dramatically.
+# For example, a Kronecker product $A \otimes B$ with factors of size
+# $n_A$ and $n_B$ reduces $O((n_A n_B)^3)$ to $O(n_A^3 + n_B^3)$.
+# gaussx encodes this structure in lineax-compatible operators so that
+# `solve`, `logdet`, `cholesky`, and other primitives automatically
+# dispatch to the most efficient algorithm.
+
 # %%
 from __future__ import annotations
 
@@ -61,6 +78,21 @@ print("trace:", gaussx.trace(D))  # 1 + 4 + 9 = 14
 # A Kronecker product $A \otimes B$ has size $(m_A m_B) \times (n_A n_B)$
 # but is stored as two small matrices. gaussx exploits this structure
 # for O(n_A^3 + n_B^3) operations instead of O((n_A n_B)^3).
+#
+# The key identities that make this possible (Van Loan, 2000):
+#
+# **Matvec** via Roth's column lemma:
+# $$(A \otimes B)\operatorname{vec}(X) = \operatorname{vec}(B X A^\top)$$
+#
+# **Solve:**
+# $$(A \otimes B)^{-1} = A^{-1} \otimes B^{-1}$$
+#
+# **Log-determinant:**
+# $$\log|A \otimes B| = n_B \log|A| + n_A \log|B|$$
+#
+# **Cholesky:**
+# $$\operatorname{chol}(A \otimes B)
+# = \operatorname{chol}(A) \otimes \operatorname{chol}(B)$$
 
 # %%
 A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 3.0]]))
@@ -104,7 +136,16 @@ print("logdet:", gaussx.logdet(BD))
 #
 # `LowRankUpdate` represents $L + U \mathrm{diag}(d) V^\top$ where $L$ is
 # any operator. Solve uses the Woodbury identity, logdet uses the
-# matrix determinant lemma — both O(nk^2 + k^3) for rank k.
+# matrix determinant lemma -- both $O(nk^2 + k^3)$ for rank $k$.
+#
+# **Woodbury identity** (Hager, 1989):
+# $$(A + UCV)^{-1} = A^{-1} - A^{-1}U\bigl(C^{-1} + VA^{-1}U\bigr)^{-1}VA^{-1}$$
+#
+# **Matrix determinant lemma:**
+# $$\log|A + UCV| = \log|C^{-1} + VA^{-1}U| + \log|C| + \log|A|$$
+#
+# These reduce an $n \times n$ solve/logdet to operations on the
+# $k \times k$ capacitance matrix $C^{-1} + V A^{-1} U$.
 
 # %%
 # Diagonal + rank-2 update
@@ -162,6 +203,15 @@ print("inv(Kronecker) type:", type(K_inv).__name__)  # Kronecker
 #
 # Everything is compatible with `jit`, `vmap`, and `grad` because
 # all operators are equinox modules (PyTrees).
+#
+# Differentiability is essential for GP hyperparameter optimization:
+# we minimize the negative log-marginal likelihood
+# $-\log p(y|\theta) = \tfrac{1}{2}y^\top K_\theta^{-1} y
+# + \tfrac{1}{2}\log|K_\theta| + \text{const}$
+# with respect to kernel hyperparameters $\theta$ via gradient descent
+# (Rasmussen & Williams, 2006, Ch. 5). Because gaussx primitives are
+# differentiable through JAX, gradients flow through `solve` and `logdet`
+# automatically.
 
 # %%
 import equinox as eqx
@@ -326,3 +376,15 @@ print("max error:", jnp.max(jnp.abs(x_kron - x_ref)))
 # | `cholesky` | O(n) | per-block | per-factor | -- | Cholesky |
 # | `trace` | O(n) | sum | product | -- | O(n^2) |
 # | `inv` | O(n) | per-block | per-factor | -- | lazy |
+
+# %% [markdown]
+# ## References
+#
+# - Rasmussen, C. E. & Williams, C. K. I. (2006).
+#   *Gaussian Processes for Machine Learning*. MIT Press.
+# - Van Loan, C. F. (2000). The ubiquitous Kronecker
+#   product. *J. Comput. Appl. Math.*, 123, 85--100.
+# - Hager, W. W. (1989). Updating the inverse of a
+#   matrix. *SIAM Review*, 31(2), 221--239.
+# - Saatci, Y. (2012). *Scalable Inference for Structured
+#   Gaussian Process Models*. PhD thesis, Cambridge.

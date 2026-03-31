@@ -21,6 +21,36 @@
 #
 # This is the computational backbone of Gaussian process regression.
 
+# %% [markdown]
+# ## Background
+#
+# Gaussian process (GP) regression is a Bayesian nonparametric method for
+# function estimation. The key idea is to place a GP prior over the space
+# of functions, observe noisy evaluations of the function at a finite set
+# of inputs, and then condition on the data to obtain a posterior process.
+# Because the GP prior is conjugate with Gaussian observation noise, the
+# posterior is again a GP and can be computed in closed form.
+#
+# Given training inputs $X$ with observations $y$ and test inputs $X_*$,
+# the posterior predictive distribution is
+#
+# $$\mu_* = K_{*f}(K_{ff} + \sigma^2 I)^{-1} y$$
+#
+# $$\Sigma_* = K_{**} - K_{*f}(K_{ff} + \sigma^2 I)^{-1} K_{f*}$$
+#
+# where $K_{ff}$ is the kernel matrix evaluated at training points,
+# $K_{*f}$ is the cross-covariance between test and training points,
+# $K_{**}$ is the kernel at test points, and $\sigma^2$ is the
+# observation noise variance.
+#
+# The computational bottleneck is solving the kernel system
+# $(K_{ff} + \sigma^2 I) \alpha = y$ and computing the log-determinant
+# $\log|K_{ff} + \sigma^2 I|$, both of which appear in the
+# log-marginal likelihood. For $n$ training points, naive dense
+# approaches cost $O(n^3)$; structured kernels and iterative solvers
+# can reduce this substantially. See Rasmussen & Williams (2006), Ch. 2
+# for a thorough treatment.
+
 # %%
 from __future__ import annotations
 
@@ -143,6 +173,22 @@ print(f"Log-marginal likelihood: {lml:.4f}")
 # gaussx primitives are differentiable. We can optimize
 # hyperparameters via gradient descent on the negative log-marginal
 # likelihood.
+#
+# The analytic gradient of the log-marginal likelihood with respect to
+# a hyperparameter $\theta_j$ is
+#
+# $$\frac{\partial}{\partial \theta_j} \log p(y|X,\theta)
+# = \frac{1}{2} \alpha^\top \frac{\partial K}{\partial \theta_j} \alpha
+# - \frac{1}{2} \operatorname{tr}\!\left(K^{-1}
+# \frac{\partial K}{\partial \theta_j}\right)$$
+#
+# where $\alpha = K_y^{-1} y$ and $K_y = K + \sigma^2 I$.
+# The first term rewards data fit and the second penalizes model
+# complexity (Rasmussen & Williams, 2006, Eq. 5.9).
+#
+# Rather than implementing this expression manually, gaussx + JAX
+# computes the gradient via automatic differentiation through `solve`
+# and `logdet`. This is both simpler and less error-prone.
 
 
 # %%
@@ -231,3 +277,11 @@ plt.show()
 # For large-scale problems, the same code works with structured kernels
 # (Kronecker for grid data, low-rank for inducing points) — gaussx
 # automatically dispatches to the efficient algorithm.
+
+# %% [markdown]
+# ## References
+#
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes
+#   for Machine Learning*. MIT Press.
+# - Williams, C. K. I. & Rasmussen, C. E. (1996). Gaussian processes
+#   for regression. *Proc. NeurIPS 8*.

@@ -23,6 +23,26 @@
 # in gaussx. We optimize the ELBO with respect to inducing point
 # locations and kernel hyperparameters via `jax.grad`.
 
+# %% [markdown]
+# ## Background
+#
+# Sparse GP methods address the $O(N^3)$ cost of exact GP inference by
+# introducing $M \ll N$ inducing points $Z = \{z_m\}_{m=1}^M$. The key
+# idea is to approximate the full GP posterior via a variational
+# distribution that conditions on the inducing variables $u = f(Z)$.
+# The Nystrom approximation gives:
+#
+# $$K_{ff} \approx Q_{ff} = K_{fM} K_{MM}^{-1} K_{Mf}$$
+#
+# The variational free energy (VFE) framework (Titsias, 2009) optimizes
+# a lower bound on the log-marginal likelihood:
+#
+# $$\mathcal{L}_{\text{VFE}} = \log \mathcal{N}(y \mid 0, Q_{ff} + \sigma^2 I)
+#   - \frac{1}{2\sigma^2}\operatorname{tr}(K_{ff} - Q_{ff})$$
+#
+# The trace correction penalizes the approximation error, and the bound
+# is tight when the inducing points explain all the data.
+
 # %%
 from __future__ import annotations
 
@@ -54,6 +74,13 @@ x_plot = jnp.linspace(-4.5, 4.5, 500)
 
 # %% [markdown]
 # ## Build Nystrom approximation
+#
+# The Nystrom factor $U = K_{NM} L_{MM}^{-\top}$ gives
+# $Q_{NN} = UU^\top$, so the noisy covariance $\sigma^2 I + UU^\top$
+# is a rank-$M$ update of a diagonal -- exactly a `LowRankUpdate`.
+# This is why gaussx can apply the Woodbury identity for
+# $O(NM^2 + M^3)$ solve and the matrix determinant lemma for
+# $O(NM^2 + M^3)$ logdet.
 
 # %%
 n_inducing = 12
@@ -192,3 +219,13 @@ plt.show()
 # | `gaussx.solve` | Woodbury solve for weights |
 # | `gaussx.logdet` | Matrix determinant lemma for ELBO |
 # | `jax.grad` | Differentiate through everything |
+
+# %% [markdown]
+# ## References
+#
+# - Quinonero-Candela, J. & Rasmussen, C. E. (2005). A unifying view of sparse
+#   approximate Gaussian process regression. *JMLR*, 6, 1939--1959.
+# - Titsias, M. (2009). Variational learning of inducing variables in sparse
+#   Gaussian processes. *Proc. AISTATS*.
+# - Hensman, J., Fusi, N., & Lawrence, N. D. (2013). Gaussian processes for
+#   big data. *Proc. UAI*.

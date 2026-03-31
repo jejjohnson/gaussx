@@ -22,6 +22,13 @@
 #
 # 1. **Kronecker structure** — GP on a grid (e.g. spatial data on a regular mesh)
 # 2. **Low-rank + diagonal** — sparse GP with inducing points (Nystrom approximation)
+#
+# The two most common forms of kernel structure in GP models are
+# (1) Kronecker products from separable kernels on grids, and
+# (2) low-rank approximations from inducing point methods. Both reduce
+# the $O(N^3)$ cost of dense GP inference. gaussx supports both through
+# its operator type system, dispatching to the optimal algorithm
+# automatically.
 
 # %%
 from __future__ import annotations
@@ -43,6 +50,14 @@ jax.config.update("jax_enable_x64", True)
 # When input data lies on a grid, the kernel matrix factorizes as
 # a Kronecker product: $K = K_1 \otimes K_2$. This turns $O(N^3)$
 # operations into $O(n_1^3 + n_2^3)$ where $N = n_1 n_2$.
+#
+# For a separable kernel on 2D inputs the factorization is:
+#
+# $$k((x_1,y_1),(x_2,y_2)) = k_x(x_1,x_2) \cdot k_y(y_1,y_2)$$
+#
+# This includes products of any 1D stationary kernels (e.g. RBF, Matern).
+# See Saatci (2012) for a comprehensive treatment of Kronecker methods
+# in GP models.
 #
 # ### Setup: 2D grid data
 
@@ -133,6 +148,17 @@ print(f"Cholesky reconstruction error: {recon_err:.2e}")
 #
 # For non-grid data, a common approximation is $K \approx K_{nm} K_{mm}^{-1} K_{mn}$.
 # The resulting covariance is $\text{diag}(\sigma^2) + U U^\top$ — a low-rank update.
+#
+# The Woodbury identity gives an efficient solve:
+#
+# $$(\sigma^2 I + UU^\top)^{-1} = \sigma^{-2} I
+#   - \sigma^{-2} U (I + \sigma^{-2} U^\top U)^{-1} U^\top \sigma^{-2}$$
+#
+# and the matrix determinant lemma gives an efficient logdet:
+#
+# $$\log|\sigma^2 I + UU^\top| = N \log \sigma^2 + \log|I + \sigma^{-2} U^\top U|$$
+#
+# Both reduce the cost from $O(N^3)$ to $O(NM^2 + M^3)$.
 #
 # ### Setup: random 1D data with inducing points
 
@@ -284,3 +310,13 @@ plt.show()
 # gaussx dispatches to the right algorithm automatically based
 # on the operator type — write the math once, get efficient
 # computation for free.
+
+# %% [markdown]
+# ## References
+#
+# - Quinonero-Candela, J. & Rasmussen, C. E. (2005). A unifying view of sparse
+#   approximate Gaussian process regression. *JMLR*, 6, 1939--1959.
+# - Saatci, Y. (2012). *Scalable Inference for Structured Gaussian Process
+#   Models*. PhD thesis, University of Cambridge.
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes for
+#   Machine Learning*. MIT Press.

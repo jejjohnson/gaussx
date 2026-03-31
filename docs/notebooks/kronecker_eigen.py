@@ -25,6 +25,25 @@
 # matrix ($N = n_1 n_2$) by only decomposing two small matrices.
 # gaussx exploits this for `cholesky`, `sqrt`, `logdet`, and `inv`.
 
+# %% [markdown]
+# ## Context
+#
+# The Kronecker eigendecomposition is a special case of the tensor
+# product spectral theorem. If $A = U_A \Lambda_A U_A^\top$ and
+# $B = U_B \Lambda_B U_B^\top$, then
+#
+# $$A \otimes B
+#   = (U_A \otimes U_B)\,(\Lambda_A \otimes \Lambda_B)\,(U_A \otimes U_B)^\top.$$
+#
+# This result is foundational for:
+#
+# - **GP inference on grids** -- computing solves and log-determinants
+#   without forming the full $N \times N$ matrix (Saatci, 2012).
+# - **Solving Kronecker-structured linear systems** -- reducing an
+#   $N$-dimensional problem to two smaller per-factor problems.
+# - **Stochastic PDEs with separable operators** -- exploiting product
+#   structure in spatial and temporal discretizations.
+
 # %%
 from __future__ import annotations
 
@@ -130,6 +149,15 @@ print(f"||S S - K||_max: {jnp.max(jnp.abs(recon_sqrt - K.as_matrix())):.2e}")
 # ## Structured logdet
 #
 # $\log|A \otimes B| = n_2 \log|A| + n_1 \log|B|$
+#
+# **Derivation.** Using the Kronecker eigenvalues
+# $\lambda_{ij} = \lambda_i^A \lambda_j^B$:
+#
+# $$\log|A \otimes B|
+#   = \sum_{i,j} \log(\lambda_i^A \, \lambda_j^B)
+#   = \sum_{i,j} \bigl(\log \lambda_i^A + \log \lambda_j^B\bigr)
+#   = n_2 \sum_i \log \lambda_i^A + n_1 \sum_j \log \lambda_j^B
+#   = n_2 \log|A| + n_1 \log|B|.$$
 
 # %%
 ld_structured = gaussx.logdet(K)
@@ -149,3 +177,13 @@ print(f"From eigenvalues:   {ld_from_eigs:.6f}")
 # | Cholesky | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
 # | Logdet | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
 # | Solve | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
+
+# %% [markdown]
+# ## References
+#
+# - Loan, C. F. V. (2000). The ubiquitous Kronecker product. *Journal
+#   of Computational and Applied Mathematics*, 123, 85--100.
+# - Saatci, Y. (2012). *Scalable Inference for Structured Gaussian
+#   Process Models*. PhD thesis, University of Cambridge.
+# - Steeb, W.-H. (2011). *Matrix Calculus and Kronecker Product*.
+#   2nd edition, World Scientific.

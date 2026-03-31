@@ -53,6 +53,19 @@
 #
 # This encodes the normalization constant.  Everything in gaussx's
 # `_expfam` module is built on these identities.
+#
+# The Gaussian is the maximum-entropy distribution for a given mean and
+# covariance (Jaynes, 1957), which makes its exponential family form
+# central to several inference frameworks:
+#
+# - **Expectation propagation** (Minka, 2001) — message passing operates
+#   directly in natural parameter space, where site updates are additive.
+# - **Natural gradient methods** (Amari, 1998) — the Fisher information
+#   metric gives the steepest descent direction in distribution space,
+#   and natural parameters make the Fisher matrix readily available.
+# - **Variational inference** (Wainwright & Jordan, 2008) — conjugate-
+#   computation variational inference exploits natural parameter additivity
+#   to perform closed-form coordinate updates.
 
 # %% [markdown]
 # ## 2. Setup
@@ -220,6 +233,17 @@ for i in range(X.shape[0]):
 #
 # For a Gaussian, the Fisher information in the natural parameterization
 # equals the precision matrix $\Lambda = \Sigma^{-1}$.
+#
+# More generally, for any exponential family the Fisher information is
+# the Hessian of the log-partition function:
+#
+# $$
+# F_{ij} = \frac{\partial^2 A(\eta)}{\partial \eta_i \,\partial \eta_j}
+# $$
+#
+# This connects the geometry of the natural parameter space to the
+# curvature of $A(\eta)$, which is always convex
+# (Barndorff-Nielsen, 1978).
 
 # %%
 F = gaussx.fisher_info(q1)
@@ -238,6 +262,12 @@ print("Match:", jnp.allclose(F.as_matrix(), Lambda_mat, atol=1e-10))
 # \text{KL}(q \| p) = A(\eta_p) - A(\eta_q)
 #     - (\eta_p - \eta_q)^\top \nabla A(\eta_q)
 # $$
+#
+# The Bregman divergence interpretation means KL can be computed using
+# only the log-partition function and its gradient — no explicit matrix
+# inversions needed beyond what is in the natural-to-expectation
+# conversion. This is computationally advantageous when the precision
+# has structure (e.g. Kronecker, block-diagonal, or sparse).
 #
 # We verify against the standard formula:
 #
@@ -363,3 +393,18 @@ print(
 # The key takeaway: natural parameters turn Bayesian updates into
 # **simple addition**, making them the natural choice for message passing,
 # variational inference, and conjugate update algorithms.
+
+# %% [markdown]
+# ## References
+#
+# - Amari, S. (1998). Natural gradient works efficiently in learning.
+#   *Neural Computation*, 10(2), 251-276.
+# - Barndorff-Nielsen, O. (1978). *Information and Exponential Families
+#   in Statistical Theory*. Wiley.
+# - Jaynes, E. T. (1957). Information theory and statistical mechanics.
+#   *Physical Review*, 106(4), 620-630.
+# - Minka, T. P. (2001). *A Family of Algorithms for Approximate
+#   Bayesian Inference*. PhD thesis, MIT.
+# - Wainwright, M. J. & Jordan, M. I. (2008). Graphical models,
+#   exponential families, and variational inference. *Foundations and
+#   Trends in Machine Learning*, 1(1-2), 1-305.
