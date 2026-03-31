@@ -52,15 +52,19 @@ class TaylorIntegrator(AbstractIntegrator):
 
         if self.order == 1:
             mu_y = f_mu
+            Sigma_y = J @ Sigma @ J.T
         else:
             # 2nd order correction: mu_y_i += 0.5 * tr(H_i @ Sigma_x)
             H_fn = jax.hessian(fn)
             H = H_fn(mu)  # (M, N, N)
             corrections = jax.vmap(lambda H_i: jnp.trace(H_i @ Sigma))(H)
             mu_y = f_mu + 0.5 * corrections
-
-        # Output covariance: J @ Sigma @ J^T
-        Sigma_y = J @ Sigma @ J.T
+            second_order_cov = jax.vmap(
+                lambda H_i: jax.vmap(
+                    lambda H_j: 0.5 * jnp.trace(H_i @ Sigma @ H_j @ Sigma)
+                )(H)
+            )(H)
+            Sigma_y = J @ Sigma @ J.T + second_order_cov
 
         # Symmetrize for numerical stability
         Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)

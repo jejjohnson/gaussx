@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import lineax as lx
 import pytest
 
 import gaussx
@@ -99,6 +100,9 @@ class TestBlockTriDiag:
 
     def test_tags(self, block_tridiag):
         assert gaussx.is_block_tridiagonal(block_tridiag)
+
+    def test_reports_symmetric(self, block_tridiag):
+        assert lx.is_symmetric(block_tridiag)
 
     def test_in_out_size(self, block_tridiag):
         assert block_tridiag.in_size() == 15

@@ -77,7 +77,7 @@ class BlockTriDiag(lx.AbstractLinearOperator):
         self._dtype = str(diagonal.dtype)
         from gaussx._tags import block_tridiagonal_tag
 
-        self.tags = _to_frozenset(tags) | {block_tridiagonal_tag}
+        self.tags = _to_frozenset(tags) | {block_tridiagonal_tag, lx.symmetric_tag}
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         N = self._num_blocks

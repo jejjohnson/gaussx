@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 import gaussx
 
@@ -106,3 +107,42 @@ class TestConditional:
 
         assert jnp.allclose(cond_mean, expected_mean, atol=1e-4)
         assert jnp.allclose(cond_cov.as_matrix(), expected_cov, atol=1e-4)
+
+    def test_duplicate_obs_idx_raises(self):
+        """Duplicate observed indices should raise a clear validation error."""
+        mu = jnp.zeros(4)
+        cov = lx.MatrixLinearOperator(jnp.eye(4), lx.positive_semidefinite_tag)
+
+        with pytest.raises(ValueError, match="duplicates"):
+            gaussx.conditional(
+                mu,
+                cov,
+                jnp.array([1, 1, 2]),
+                jnp.array([0.0, 0.0, 0.0]),
+            )
+
+    def test_obs_idx_out_of_bounds_raises(self):
+        """Observed indices must lie within the state dimension."""
+        mu = jnp.zeros(3)
+        cov = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
+
+        with pytest.raises(ValueError, match="bounds"):
+            gaussx.conditional(
+                mu,
+                cov,
+                jnp.array([0, 3]),
+                jnp.array([0.0, 1.0]),
+            )
+
+    def test_obs_values_shape_mismatch_raises(self):
+        """Observed values must align one-to-one with observed indices."""
+        mu = jnp.zeros(3)
+        cov = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
+
+        with pytest.raises(ValueError, match="same shape"):
+            gaussx.conditional(
+                mu,
+                cov,
+                jnp.array([0, 2]),
+                jnp.array([1.0]),
+            )

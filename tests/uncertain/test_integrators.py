@@ -78,6 +78,25 @@ class TestTaylorIntegrator:
         expected_mean_0 = state.mean[0] ** 2 + correction
         assert jnp.allclose(result.state.mean[0], expected_mean_0, atol=1e-6)
 
+    def test_second_order_covariance(self):
+        """Second-order Taylor should include Hessian covariance corrections."""
+        state = GaussianState(
+            mean=jnp.array([1.0]),
+            cov=lx.MatrixLinearOperator(
+                jnp.array([[0.5]]),
+                lx.positive_semidefinite_tag,
+            ),
+        )
+        integrator = TaylorIntegrator(order=2)
+
+        def quadratic_fn(x):
+            return jnp.array([x[0] ** 2])
+
+        result = integrator.integrate(quadratic_fn, state)
+
+        expected_cov = jnp.array([[2.5]])
+        assert jnp.allclose(result.state.cov.as_matrix(), expected_cov, atol=1e-6)
+
     def test_jit(self):
         """Should be JIT-compatible."""
         state = _make_state()

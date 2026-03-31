@@ -38,6 +38,16 @@ def conditional(
     """
     N = loc.shape[0]
     obs_idx = jnp.asarray(obs_idx, dtype=jnp.int32)
+    obs_values = jnp.asarray(obs_values, dtype=loc.dtype)
+
+    if obs_idx.ndim != 1:
+        raise ValueError("obs_idx must be a 1D array.")
+    if obs_values.shape != obs_idx.shape:
+        raise ValueError("obs_values must have the same shape as obs_idx.")
+    if bool(jnp.any((obs_idx < 0) | (obs_idx >= N))):
+        raise ValueError(f"obs_idx must be within bounds [0, {N}).")
+    if bool(jnp.any(jnp.diff(jnp.sort(obs_idx)) == 0)):
+        raise ValueError("obs_idx must not contain duplicates.")
 
     # Build mask for unobserved indices
     mask = jnp.ones(N, dtype=bool).at[obs_idx].set(False)
