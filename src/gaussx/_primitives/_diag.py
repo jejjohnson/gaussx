@@ -10,6 +10,7 @@ import lineax as lx
 import matfree.stochtrace
 
 from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._kronecker import Kronecker
 
 
@@ -40,6 +41,8 @@ def diag(
         return _diag_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _diag_kronecker(operator)
+    if isinstance(operator, BlockTriDiag):
+        return _diag_block_tridiag(operator)
     if stochastic:
         return _diag_stochastic(operator, num_probes, key)
     return jnp.diag(operator.as_matrix())
@@ -52,6 +55,15 @@ def _diag_block_diag(operator: BlockDiag) -> jnp.ndarray:
 def _diag_kronecker(operator: Kronecker) -> jnp.ndarray:
     """diag(A kron B) = kron(diag(A), diag(B))."""
     return ft.reduce(jnp.kron, (diag(op) for op in operator.operators))
+
+
+def _diag_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
+    """Extract block-diagonal entries of a block-tridiagonal operator."""
+    from einops import rearrange
+
+    # diagonal blocks contain the diagonal entries
+    block_diags = jax.vmap(jnp.diag)(operator.diagonal)  # (N, d)
+    return rearrange(block_diags, "N d -> (N d)")
 
 
 def _diag_stochastic(

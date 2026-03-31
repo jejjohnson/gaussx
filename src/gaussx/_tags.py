@@ -36,6 +36,12 @@ block_diagonal_tag = _Tag("block_diagonal_tag")
 low_rank_tag = _Tag("low_rank_tag")
 """Operator has low-rank structure (e.g. L + U D V^T)."""
 
+kronecker_sum_tag = _Tag("kronecker_sum_tag")
+"""Operator is a Kronecker sum A (+) B = A (x) I_b + I_a (x) B."""
+
+block_tridiagonal_tag = _Tag("block_tridiagonal_tag")
+"""Operator is block tridiagonal."""
+
 
 # ---------------------------------------------------------------------------
 # Re-export lineax tags for unified import
@@ -71,6 +77,18 @@ def is_block_diagonal(operator: lx.AbstractLinearOperator) -> bool:
 @ft.singledispatch
 def is_low_rank(operator: lx.AbstractLinearOperator) -> bool:
     """Check whether *operator* carries the low-rank tag."""
+    return False
+
+
+@ft.singledispatch
+def is_kronecker_sum(operator: lx.AbstractLinearOperator) -> bool:
+    """Check whether *operator* carries the Kronecker sum tag."""
+    return False
+
+
+@ft.singledispatch
+def is_block_tridiagonal(operator: lx.AbstractLinearOperator) -> bool:
+    """Check whether *operator* carries the block-tridiagonal tag."""
     return False
 
 

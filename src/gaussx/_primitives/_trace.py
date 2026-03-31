@@ -10,6 +10,7 @@ import lineax as lx
 import matfree.stochtrace
 
 from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._kronecker import Kronecker
 
 
@@ -40,6 +41,8 @@ def trace(
         return _trace_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _trace_kronecker(operator)
+    if isinstance(operator, BlockTriDiag):
+        return _trace_block_tridiag(operator)
     if stochastic:
         return _trace_stochastic(operator, num_probes, key)
     return jnp.trace(operator.as_matrix())
@@ -52,6 +55,11 @@ def _trace_block_diag(operator: BlockDiag) -> jnp.ndarray:
 def _trace_kronecker(operator: Kronecker) -> jnp.ndarray:
     """trace(A kron B) = trace(A) * trace(B)."""
     return ft.reduce(jnp.multiply, (trace(op) for op in operator.operators))
+
+
+def _trace_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
+    """trace of block-tridiagonal = sum of traces of diagonal blocks."""
+    return jnp.sum(jax.vmap(jnp.trace)(operator.diagonal))
 
 
 def _trace_stochastic(
