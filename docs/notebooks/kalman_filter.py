@@ -41,9 +41,32 @@
 #
 # The smoother always has lower (or equal) posterior variance than the filter,
 # because it conditions on strictly more data.
+#
+# ### Kalman filter equations
+#
+# The filter alternates between a **predict** step and an **update** step:
+#
+# **Predict:**
+#
+# $$\hat{x}_{t|t-1} = A \hat{x}_{t-1|t-1}, \qquad P_{t|t-1} = A P_{t-1|t-1} A^\top + Q$$
+#
+# **Update:**
+#
+# $$S_t = H P_{t|t-1} H^\top + R \qquad \text{(innovation covariance)}$$
+# $$K_t = P_{t|t-1} H^\top S_t^{-1} \qquad \text{(Kalman gain)}$$
+# $$\hat{x}_{t|t} = \hat{x}_{t|t-1} + K_t(y_t - H \hat{x}_{t|t-1})$$
+# $$P_{t|t} = (I - K_t H) P_{t|t-1}$$
+#
+# Note that each step involves a linear system solve (for $K_t$), which is
+# where gaussx primitives are used.
 
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -200,6 +223,15 @@ plt.show()
 # The RTS smoother takes the filter output and refines the estimates
 # using a backward pass. This produces tighter credible intervals,
 # especially in the middle of the time series.
+#
+# The smoother computes a backward recursion from $t = T-1$ down to $t = 1$:
+#
+# $$G_t = P_{t|t} A^\top P_{t+1|t}^{-1}$$
+# $$\hat{x}_{t|T} = \hat{x}_{t|t} + G_t(\hat{x}_{t+1|T} - A \hat{x}_{t|t})$$
+# $$P_{t|T} = P_{t|t} + G_t(P_{t+1|T} - P_{t+1|t}) G_t^\top$$
+#
+# The smoother refines filter estimates by incorporating future observations.
+# This optimal smoother was derived by Rauch, Tung, & Striebel (1965).
 
 # %%
 smoothed_means, smoothed_covs = gaussx.rts_smoother(filter_state, A, Q)
@@ -317,3 +349,15 @@ print(f"Gradient d(-LL)/d(log R) = {grad_nll:.4f}")
 #   JAX transforms: `jit`, `vmap`, and `grad` all work out of the box.
 # - This makes gaussx suitable for learning SSM parameters via gradient-based
 #   optimization of the log-likelihood.
+
+# %% [markdown]
+# ## References
+#
+# - Kalman, R. E. (1960). A new approach to linear filtering and prediction
+#   problems. *J. Basic Engineering*, 82(1), 35--45.
+# - Rauch, H. E., Tung, F., & Striebel, C. T. (1965). Maximum likelihood
+#   estimates of linear dynamic systems. *AIAA Journal*, 3(8), 1445--1450.
+# - Sarkka, S. (2013). *Bayesian Filtering and Smoothing*. Cambridge
+#   University Press.
+# - Anderson, B. D. O. & Moore, J. B. (1979). *Optimal Filtering*.
+#   Prentice-Hall.

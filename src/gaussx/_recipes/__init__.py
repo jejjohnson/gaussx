@@ -14,6 +14,7 @@ from gaussx._recipes._natural import (
     expectation_to_natural,
     natural_to_expectation,
 )
+from gaussx._recipes._spingp import spingp_log_likelihood, spingp_posterior
 
 
 __all__ = [
@@ -25,4 +26,6 @@ __all__ = [
     "kalman_gain",
     "natural_to_expectation",
     "rts_smoother",
+    "spingp_log_likelihood",
+    "spingp_posterior",
 ]

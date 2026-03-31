@@ -17,9 +17,22 @@
 #
 # A tour of every operator type in gaussx, showing construction,
 # sizes, matvec, and how they compose.
+#
+# Structured linear operators arise throughout computational mathematics:
+# Kronecker products in multi-dimensional PDEs and separable covariance
+# kernels, block-diagonal matrices in independent subsystems and mixture
+# models, and low-rank updates in Kalman filtering and spatial statistics.
+# By representing these operators in factored form, we avoid forming and
+# factorizing dense $n \times n$ matrices -- often reducing $O(n^3)$
+# operations to $O(n)$ or $O(n \log n)$.
 
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -71,6 +84,15 @@ print(f"trace:   {gaussx.trace(BD):.1f}")
 #
 # $A \otimes B$ stored as two small matrices.
 # Matvec via Roth's column lemma, logdet/solve/cholesky per-factor.
+#
+# The eigenvalue decomposition of $A \otimes B$ inherits from its factors:
+# if $A v_i^A = \lambda_i^A v_i^A$ and $B v_j^B = \lambda_j^B v_j^B$, then
+#
+# $$\lambda_{ij} = \lambda_i^A \lambda_j^B, \qquad v_{ij} = v_i^A \otimes v_j^B$$
+#
+# This means all spectral operations on the product decompose into
+# operations on the factors, reducing $O((n_1 n_2)^3)$ to
+# $O(n_1^3 + n_2^3)$ (Van Loan, 2000).
 
 # %%
 K1 = lx.MatrixLinearOperator(jnp.array([[2.0, 0.5], [0.5, 3.0]]))
@@ -93,6 +115,15 @@ print(f"3-factor logdet: {gaussx.logdet(K3):.4f}")
 # ## 4. LowRankUpdate
 #
 # $L + U \mathrm{diag}(d) V^\top$. Woodbury solve, determinant lemma logdet.
+#
+# **Woodbury identity** (Hager, 1989):
+# $$(A + UCV)^{-1} = A^{-1} - A^{-1}U\bigl(C^{-1} + VA^{-1}U\bigr)^{-1}VA^{-1}$$
+#
+# **Matrix determinant lemma:**
+# $$\log|A + UCV| = \log|C^{-1} + VA^{-1}U| + \log|C| + \log|A|$$
+#
+# Both reduce an $n \times n$ problem to a $k \times k$ problem on the
+# capacitance matrix, where $k$ is the rank of the update.
 
 # %%
 base = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0, 4.0]))
@@ -183,3 +214,13 @@ print(f"  is_low_rank:   {gaussx.is_low_rank(lr)}")
 # | `BlockDiag` | sum O(n_i^2) | sum O(n_i^2) | Per-block decomposition |
 # | `Kronecker` | sum O(n_i^2) | O(sum n_i^3) | Roth's column lemma |
 # | `LowRankUpdate` | O(nk) | O(nk) | Woodbury identity |
+
+# %% [markdown]
+# ## References
+#
+# - Golub, G. H. & Van Loan, C. F. (2013).
+#   *Matrix Computations*. 4th ed., Johns Hopkins.
+# - Hager, W. W. (1989). Updating the inverse of a
+#   matrix. *SIAM Review*, 31(2), 221--239.
+# - Van Loan, C. F. (2000). The ubiquitous Kronecker
+#   product. *J. Comput. Appl. Math.*, 123, 85--100.

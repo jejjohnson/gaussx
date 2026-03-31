@@ -21,9 +21,21 @@
 # - **CGSolver** — iterative CG solve + stochastic Lanczos logdet
 #
 # This notebook compares them on the same problem.
+#
+# For small-to-medium problems ($N \lesssim 5000$), direct factorization
+# (Cholesky for PSD systems) is optimal: $O(N^3/3)$ flops with
+# machine-precision accuracy. For larger problems, iterative methods like
+# conjugate gradients (CG) achieve useful accuracy in far fewer flops,
+# especially when the matrix is well-conditioned or a good preconditioner
+# is available.
 
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -67,6 +79,17 @@ print(f"  logdet: {ld_dense:.6f}")
 
 # %% [markdown]
 # ## CGSolver
+#
+# The CGSolver pairs conjugate gradients for the linear solve with
+# stochastic Lanczos quadrature (SLQ) for the log-determinant. SLQ
+# exploits the identity $\log|A| = \operatorname{tr}(\log A)$ and then
+# uses Hutchinson's trace estimator: draw random probe vectors $z$ and
+# approximate $\operatorname{tr}(\log A) \approx
+# \frac{1}{P}\sum_{p=1}^P z_p^\top \log(A)\, z_p$.
+# Each quadratic form $z^\top \log(A)\, z$ is evaluated via a short
+# Lanczos decomposition, which produces a tridiagonal matrix whose
+# eigenvalues give accurate Gauss quadrature nodes for the spectral
+# integral. See Ubaru et al. (2017) for convergence analysis.
 
 # %%
 cg = gaussx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=200, num_probes=50)
@@ -123,3 +146,20 @@ plt.show()
 # (Kronecker, BlockDiag, LowRank, Diagonal fast paths).
 # The `CGSolver` works for any PSD operator, even matrix-free ones
 # where `as_matrix()` is unavailable, but the logdet is approximate.
+#
+# The crossover point depends on hardware (GPU memory, FLOP throughput) and
+# matrix conditioning. On modern GPUs, Cholesky can handle
+# $N \sim 10{,}000$--$50{,}000$; beyond that, CG-based methods become
+# necessary.
+
+# %% [markdown]
+# ## References
+#
+# - Golub, G. H. & Van Loan, C. F. (2013). *Matrix Computations*. 4th edition,
+#   Johns Hopkins University Press.
+# - Ubaru, S., Chen, J., & Saad, Y. (2017). Fast estimation of
+#   $\operatorname{tr}(f(A))$ via stochastic Lanczos quadrature.
+#   *SIAM J. Matrix Analysis*, 38(4), 1075--1099.
+# - Hestenes, M. R. & Stiefel, E. (1952). Methods of conjugate gradients for
+#   solving linear systems. *Journal of Research of the National Bureau of
+#   Standards*, 49(6), 409--436.

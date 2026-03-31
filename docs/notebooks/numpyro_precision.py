@@ -40,6 +40,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -73,8 +78,18 @@ jax.config.update("jax_enable_x64", True)
 # \bigl(\tfrac{1}{\sigma^2} X^\top y\bigr)$$
 #
 # The posterior precision is the **sum** of prior precision and data
-# precision — this additivity is why precision parameterization is
+# precision -- this additivity is why precision parameterization is
 # natural for conjugate updates.
+#
+# The precision form arises naturally in **Gaussian Markov random fields
+# (GMRFs)** where the precision matrix is sparse (typically banded or
+# block-tridiagonal), encoding conditional independence structure. In
+# spatial statistics, the SPDE approach (Lindgren et al., 2011) constructs
+# a GMRF approximation to a Matern GP, where the precision is a sparse
+# matrix defined by the finite element mesh. gaussx's
+# `MultivariateNormalPrecision` can work with structured precision
+# operators (banded, block-diagonal, Kronecker) for efficient inference
+# in these models.
 
 # %% [markdown]
 # ## Generate data
@@ -164,7 +179,7 @@ def blr_model(X, noise_std, y=None):
 
 # %%
 kernel = NUTS(blr_model)
-mcmc = MCMC(kernel, num_warmup=500, num_samples=1000, progress_bar=True)
+mcmc = MCMC(kernel, num_warmup=500, num_samples=1000, progress_bar=False)
 mcmc.run(jax.random.PRNGKey(1), X_train, noise_std, y=y_train)
 mcmc.print_summary()
 
@@ -297,6 +312,13 @@ plt.show()
 # The key advantage of precision parameterization: posterior
 # precision = prior precision + data precision. Let's verify this
 # with gaussx.
+#
+# Each observation adds information (in the Fisher sense) to the
+# posterior. The posterior precision
+# $\Lambda_{\text{post}} = \Lambda_0 + \Lambda_{\text{data}}$ directly
+# reflects this: the total information is the sum of prior information
+# and data information. This additivity is the defining property of the
+# natural parameters of the exponential family.
 
 # %%
 # Build operators
@@ -332,3 +354,15 @@ print("log p(mu_post | posterior):", d_post.log_prob(mu_post))
 #   trivial — just add precision operators.
 # - The same pattern extends to structured precisions (banded,
 #   Kronecker, block-diagonal) for scalable models like GMRFs.
+
+# %% [markdown]
+# ## References
+#
+# - Bishop, C. M. (2006). *Pattern Recognition and Machine Learning*.
+#   Springer. (Section 3.3 on Bayesian linear regression)
+# - Lindgren, F., Rue, H., & Lindstrom, J. (2011). An explicit link
+#   between Gaussian fields and Gaussian Markov random fields: the
+#   stochastic partial differential equation approach. *JRSS-B*, 73(4),
+#   423--498.
+# - Rue, H. & Held, L. (2005). *Gaussian Markov Random Fields: Theory
+#   and Applications*. Chapman & Hall/CRC.

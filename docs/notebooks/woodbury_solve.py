@@ -25,8 +25,33 @@
 # This notebook walks through each step and shows that `gaussx.solve`
 # does it automatically.
 
+# %% [markdown]
+# ## Background
+#
+# The Woodbury identity (also known as the matrix inversion lemma or
+# Sherman-Morrison-Woodbury formula) is one of the most important identities
+# in computational linear algebra. It appears in:
+#
+# - **Sparse GP inference** — the Nystrom approximation yields a low-rank + diagonal
+#   covariance, and the Woodbury identity turns the $n \times n$ inversion into
+#   a $k \times k$ problem where $k \ll n$.
+# - **Kalman filtering** — sequential rank-1 updates to the state covariance
+#   are applied via the matrix inversion lemma at each time step.
+# - **Online learning** — rank-1 covariance updates (e.g. recursive least squares)
+#   use the Sherman-Morrison special case.
+# - **Ridge regression with feature space formulations** — the kernel trick
+#   relates the $n \times n$ and $p \times p$ solutions through Woodbury.
+#
+# The identity was first published by Woodbury (1950) and independently by
+# Sherman & Morrison (1950) for the rank-1 case.
+
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -96,9 +121,17 @@ print(f"Woodbury vs gaussx: max|diff| = {jnp.max(jnp.abs(x_woodbury - x_gaussx))
 # %% [markdown]
 # ## Matrix determinant lemma
 #
-# Similarly, the logdet decomposes:
+# Similarly, the logdet decomposes. This follows from the identity
 #
-# $$\log|L + U D V^\top| = \log|L| + \log|C| + \log|D|$$
+# $$|A + UDV^\top| = |D^{-1} + V^\top A^{-1} U| \cdot |D| \cdot |A|$$
+#
+# which is a direct consequence of the Schur complement determinant identity.
+# Taking logarithms:
+#
+# $$\log|A + UDV^\top| = \log|A| + \log|C| + \log|D|$$
+#
+# where $C = D^{-1} + V^\top A^{-1} U$ is the capacitance matrix.
+# In our case ($D = I$, $V = U$):
 
 # %%
 ld_gaussx = gaussx.logdet(sigma)
@@ -144,3 +177,13 @@ plt.show()
 # | Storage | O(n^2) | O(nk) |
 #
 # For n=100, k=3: dense does ~10^6 ops, Woodbury does ~900.
+
+# %% [markdown]
+# ## References
+#
+# - Hager, W. W. (1989). Updating the inverse of a matrix.
+#   *SIAM Review*, 31(2), 221--239.
+# - Henderson, H. V. & Searle, S. R. (1981). On deriving the inverse of a
+#   sum of matrices. *SIAM Review*, 23(1), 53--60.
+# - Woodbury, M. A. (1950). *Inverting Modified Matrices*. Statistical Research
+#   Group Memo Report 42, Princeton University.

@@ -22,8 +22,37 @@
 # This example fits a 2D GP to noisy observations on a grid using
 # Kronecker structure for solve, logdet, and prediction.
 
+# %% [markdown]
+# ## Background
+#
+# When inputs lie on a Cartesian product grid
+# $\mathcal{X} = \{x_1, \ldots, x_{n_1}\} \times \{y_1, \ldots, y_{n_2}\}$
+# and the kernel is separable,
+#
+# $$k\bigl((x,y),(x',y')\bigr) = k_x(x,x')\, k_y(y,y'),$$
+#
+# the kernel matrix factorizes as a Kronecker product $K = K_x \otimes K_y$
+# where $K_x \in \mathbb{R}^{n_1 \times n_1}$ and
+# $K_y \in \mathbb{R}^{n_2 \times n_2}$.
+# With $N = n_1 n_2$, this reduces:
+#
+# - **Storage** from $O(N^2)$ to $O(n_1^2 + n_2^2)$.
+# - **Solve** from $O(N^3)$ to $O(n_1^3 + n_2^3)$.
+# - **Log-determinant** via
+#   $\log|K_x \otimes K_y| = n_2 \log|K_x| + n_1 \log|K_y|$.
+#
+# These savings make GP inference feasible on grids with thousands of
+# points that would be intractable with a dense kernel matrix.
+# See Saatci (2012) for a comprehensive treatment and Gilboa et al.
+# (2015) for extensions to higher-dimensional grids.
+
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -83,6 +112,11 @@ plt.show()
 # ## Build Kronecker kernel
 #
 # Separable RBF: $k((x_1,y_1), (x_2,y_2)) = k_x(x_1,x_2) \cdot k_y(y_1,y_2)$
+#
+# Separability holds for any product of 1D stationary kernels (RBF,
+# Matern, periodic). For non-separable kernels, sums of Kronecker
+# products $\sum_r K_x^{(r)} \otimes K_y^{(r)}$ can be used as
+# approximations.
 
 
 # %%
@@ -130,6 +164,19 @@ print(f"Solve residual: {jnp.max(jnp.abs(op.mv(alpha) - z_vec)):.2e}")
 
 # %% [markdown]
 # ## Log-marginal likelihood
+#
+# The log-marginal likelihood (LML) for GP regression is
+#
+# $$\log p(\mathbf{z} \mid X) = -\tfrac{1}{2}\mathbf{z}^\top
+#   (K + \sigma^2 I)^{-1}\mathbf{z}
+#   - \tfrac{1}{2}\log|K + \sigma^2 I|
+#   - \tfrac{N}{2}\log 2\pi.$$
+#
+# Note that the noise term $\sigma^2 I$ breaks the pure Kronecker
+# structure of $K_x \otimes K_y$. However, eigendecomposition-based
+# approaches (Saatci, 2012) or Krylov methods can handle
+# $K_x \otimes K_y + \sigma^2 I$ efficiently by working with the
+# per-factor eigenvalues.
 
 
 # %%
@@ -186,3 +233,14 @@ print(f"  Dense:      {jnp.trace(K_kron.as_matrix()):.4f}")
 
 L_kron = gaussx.cholesky(K_kron)
 print(f"\ncholesky type: {type(L_kron).__name__}")
+
+# %% [markdown]
+# ## References
+#
+# - Gilboa, E., Saatci, Y., & Cunningham, J. P. (2015). Scaling
+#   multidimensional inference for structured Gaussian processes.
+#   *IEEE TPAMI*, 37(2), 424--436.
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes
+#   for Machine Learning*. MIT Press.
+# - Saatci, Y. (2012). *Scalable Inference for Structured Gaussian
+#   Process Models*. PhD thesis, University of Cambridge.

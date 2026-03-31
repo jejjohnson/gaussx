@@ -26,9 +26,22 @@
 # 3. `log_marginal_likelihood` for GP model selection
 # 4. `schur_complement` and `cov_transform` for conditional distributions
 # 5. `whiten_covariance` and `unwhiten` for reparameterization
+#
+# These compound operations appear repeatedly in GP inference
+# (Rasmussen & Williams, 2006), variational inference (Blei et al.,
+# 2017), and Bayesian neural networks. gaussx sugar functions combine
+# primitives into numerically stable implementations — for example,
+# `log_marginal_likelihood` avoids separate computation of the
+# quadratic form and logdet, which can be more efficient with certain
+# solver strategies.
 
 # %%
 from __future__ import annotations
+
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
 
 import jax
 import jax.numpy as jnp
@@ -197,6 +210,16 @@ print("grad w.r.t. log-noise-var:  ", grads[1])
 #
 # `schur_complement` returns a `LowRankUpdate` operator that
 # preserves the low-rank structure.
+#
+# The Schur complement is the key identity behind GP conditional
+# distributions. Given the joint
+# $\begin{pmatrix} f_X \\ f_Z \end{pmatrix} \sim \mathcal{N}\!\left(0,
+# \begin{pmatrix} K_{XX} & K_{XZ} \\ K_{ZX} & K_{ZZ}
+# \end{pmatrix}\right)$,
+# the conditional $f_X \mid f_Z$ has covariance
+# $K_{XX} - K_{XZ}\, K_{ZZ}^{-1}\, K_{ZX}$.
+# When $M \ll N$, this is a rank-$M$ correction — exactly a
+# `LowRankUpdate`.
 
 # %%
 M = 8
@@ -248,6 +271,12 @@ print("max error:", jnp.max(jnp.abs(Sigma_prime_op.as_matrix() - Sigma_prime_man
 #
 # `whiten_covariance(L, S_tilde)` computes $L\,\tilde{S}\,L^\top$, and
 # `unwhiten(m_tilde, L)` computes $L\,\tilde{m}$.
+#
+# The reparameterization trick (Kingma & Welling, 2014) enables
+# gradient-based optimization of variational objectives by expressing
+# samples $x = L\,z + \mu$ where $z \sim \mathcal{N}(0, I)$, making
+# the sampling differentiable w.r.t. the distribution parameters
+# $\mu$ and $L$.
 
 # %%
 # Cholesky factor of our covariance
@@ -294,3 +323,13 @@ print("mean abs error (empirical cov):", jnp.mean(jnp.abs(cov_empirical - Sigma)
 # All operations dispatch on operator structure (diagonal, Kronecker,
 # block-diagonal, low-rank) for efficient computation, and compose
 # seamlessly with `jax.jit`, `jax.vmap`, and `jax.grad`.
+
+# %% [markdown]
+# ## References
+#
+# - Blei, D. M., Kucukelbir, A., & McAuliffe, J. D. (2017). Variational
+#   inference: a review for statisticians. *JASA*, 112(518), 859-877.
+# - Kingma, D. P. & Welling, M. (2014). Auto-encoding variational Bayes.
+#   *Proc. ICLR*.
+# - Rasmussen, C. E. & Williams, C. K. I. (2006). *Gaussian Processes
+#   for Machine Learning*. MIT Press.
