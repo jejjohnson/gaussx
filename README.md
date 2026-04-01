@@ -44,8 +44,8 @@ L = gaussx.cholesky(K)        # Kronecker(chol(A), chol(B))
 # Distributions with pluggable solver strategies
 mvn = gaussx.MultivariateNormal(
     loc=jnp.zeros(6),
-    covariance_operator=K,
-    strategy=gaussx.DenseSolver(),
+    cov_operator=K,
+    solver=gaussx.DenseSolver(),
 )
 log_p = mvn.log_prob(v)
 ```

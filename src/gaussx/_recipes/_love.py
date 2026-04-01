@@ -67,8 +67,8 @@ def love_cache(
 
     # Clamp small / negative eigenvalues to a safe floor so that
     # 1/lambda stays finite and positive.
-    eps = jnp.finfo(eigvals.dtype).eps
-    eigvals = jnp.clip(eigvals, a_min=eps)
+    floor = jnp.finfo(eigvals.dtype).tiny
+    eigvals = jnp.maximum(eigvals, floor)
 
     # Invert eigenvalues for K^{-1} approximation
     inv_eigvals = 1.0 / eigvals
