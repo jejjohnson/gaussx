@@ -193,9 +193,19 @@ y_pred = K_star_m @ weights
 
 # %%
 fig, ax = plt.subplots(figsize=(10, 4))
-ax.plot(x_plot, f_true(x_plot), "k--", lw=1, alpha=0.4, label="True function")
-ax.scatter(x_data, y_data, s=5, c="C0", alpha=0.3, label="Data")
-ax.plot(x_plot, y_pred, "C1-", lw=2, label="Sparse GP mean")
+ax.plot(x_plot, f_true(x_plot), "k--", lw=1.5, label="True function", zorder=4)
+ax.scatter(
+    x_data,
+    y_data,
+    s=30,
+    c="C0",
+    alpha=0.3,
+    edgecolors="k",
+    linewidths=0.5,
+    label="Data",
+    zorder=5,
+)
+ax.plot(x_plot, y_pred, "C1-", lw=2, label="Sparse GP mean", zorder=3)
 ax.scatter(
     x_inducing,
     jnp.full_like(x_inducing, -1.8),
@@ -207,11 +217,14 @@ ax.scatter(
 )
 ax.set_xlabel("x")
 ax.set_ylabel("y")
-ax.legend(fontsize=8)
 ax.set_title(
     f"Sparse Variational GP: {n_data} data, {n_inducing} inducing "
     f"(ls={ls_opt:.2f}, var={var_opt:.2f})"
 )
+ax.legend(fontsize=9)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 

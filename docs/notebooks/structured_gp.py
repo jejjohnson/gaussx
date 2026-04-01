@@ -280,10 +280,20 @@ y_plot = K_star_m @ jnp.linalg.solve(
     K_mm + 1e-6 * jnp.eye(n_inducing), K_nm.T @ alpha_sparse
 )
 
-fig, ax = plt.subplots(figsize=(8, 3.5))
-ax.plot(x_plot, jnp.sin(2 * x_plot), "k--", lw=1, alpha=0.4, label="True")
-ax.scatter(x_data, y_data, s=8, c="C0", alpha=0.4, label="Data")
-ax.plot(x_plot, y_plot, "C1-", lw=2, label="Sparse GP mean")
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(x_plot, jnp.sin(2 * x_plot), "k--", lw=1.5, label="True", zorder=4)
+ax.scatter(
+    x_data,
+    y_data,
+    s=30,
+    c="C0",
+    alpha=0.4,
+    edgecolors="k",
+    linewidths=0.5,
+    label="Data",
+    zorder=5,
+)
+ax.plot(x_plot, y_plot, "C1-", lw=2, label="Sparse GP mean", zorder=3)
 ax.axvline(x_inducing[0], color="gray", lw=0.5, alpha=0.3)
 for xi in x_inducing[1:]:
     ax.axvline(xi, color="gray", lw=0.5, alpha=0.3)
@@ -293,13 +303,16 @@ ax.scatter(
     marker="^",
     s=40,
     c="C2",
-    zorder=3,
+    zorder=5,
     label=f"Inducing pts ({n_inducing})",
 )
 ax.set_xlabel("x")
 ax.set_ylabel("y")
-ax.legend(fontsize=8)
 ax.set_title(f"Sparse GP: {n_data} data, {n_inducing} inducing points")
+ax.legend(fontsize=9)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 

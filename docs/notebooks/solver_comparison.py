@@ -118,18 +118,24 @@ print(f"CG logdet:      {ld_cg:.6f}  (error: {jnp.abs(ld_cg - ld_true):.4f})")
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 
 # Solve comparison
-axes[0].plot(x_dense, "C0-", lw=1.5, label="DenseSolver", alpha=0.8)
-axes[0].plot(x_cg, "C1--", lw=1.5, label="CGSolver", alpha=0.8)
+axes[0].plot(x_dense, "C0-", lw=2, label="DenseSolver", alpha=0.8)
+axes[0].plot(x_cg, "C1--", lw=2, label="CGSolver", alpha=0.8)
 axes[0].set_xlabel("Index")
 axes[0].set_ylabel("Solution")
 axes[0].set_title("Solve comparison")
-axes[0].legend()
+axes[0].legend(fontsize=9)
+axes[0].grid(True, which="major", alpha=0.3)
+axes[0].grid(True, which="minor", alpha=0.1)
+axes[0].minorticks_on()
 
 # Solve difference
 axes[1].semilogy(jnp.abs(x_dense - x_cg), "C2-")
 axes[1].set_xlabel("Index")
 axes[1].set_ylabel("|Dense - CG|")
 axes[1].set_title("Pointwise solve difference")
+axes[1].grid(True, which="major", alpha=0.3)
+axes[1].grid(True, which="minor", alpha=0.1)
+axes[1].minorticks_on()
 
 plt.tight_layout()
 plt.show()

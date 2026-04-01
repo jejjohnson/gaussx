@@ -176,12 +176,18 @@ axes[0].plot(thetas, losses, "C0-", lw=2)
 axes[0].set_xlabel("$\\theta$")
 axes[0].set_ylabel("Loss")
 axes[0].set_title("$\\|A(\\theta)^{-1}b - x^*\\|^2$")
+axes[0].grid(True, which="major", alpha=0.3)
+axes[0].grid(True, which="minor", alpha=0.1)
+axes[0].minorticks_on()
 
 axes[1].plot(thetas, grads, "C1-", lw=2)
 axes[1].axhline(0, color="k", lw=0.5, ls="--")
 axes[1].set_xlabel("$\\theta$")
 axes[1].set_ylabel("$\\nabla_\\theta$ Loss")
 axes[1].set_title("Gradient via jax.grad + gaussx.solve")
+axes[1].grid(True, which="major", alpha=0.3)
+axes[1].grid(True, which="minor", alpha=0.1)
+axes[1].minorticks_on()
 
 plt.tight_layout()
 plt.show()
@@ -204,15 +210,43 @@ print(f"Optimal theta: {trajectory[-1]:.4f}")
 print(f"Final loss: {loss(trajectory[-1]):.8f}")
 
 # %%
-fig, ax = plt.subplots(figsize=(8, 4))
-ax.plot(thetas, losses, "C0-", lw=1.5, alpha=0.6, label="Loss landscape")
-ax.plot(trajectory, jax.vmap(loss)(trajectory), "C3o-", ms=4, label="GD trajectory")
-ax.scatter(trajectory[0], loss(trajectory[0]), s=80, c="red", zorder=5, label="Start")
-ax.scatter(trajectory[-1], loss(trajectory[-1]), s=80, c="green", zorder=5, label="End")
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(thetas, losses, "C0-", lw=2, label="Loss landscape")
+ax.plot(
+    trajectory,
+    jax.vmap(loss)(trajectory),
+    "C3o-",
+    ms=4,
+    zorder=3,
+    label="GD trajectory",
+)
+ax.scatter(
+    trajectory[0],
+    loss(trajectory[0]),
+    s=80,
+    c="red",
+    edgecolors="k",
+    linewidths=0.5,
+    zorder=5,
+    label="Start",
+)
+ax.scatter(
+    trajectory[-1],
+    loss(trajectory[-1]),
+    s=80,
+    c="green",
+    edgecolors="k",
+    linewidths=0.5,
+    zorder=5,
+    label="End",
+)
 ax.set_xlabel("$\\theta$")
 ax.set_ylabel("Loss")
 ax.set_title("Gradient descent on $\\theta$ through gaussx.solve")
-ax.legend()
+ax.legend(fontsize=9)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 
@@ -250,11 +284,17 @@ axes[0].plot(thetas, logdets, "C0-", lw=2)
 axes[0].set_xlabel("$\\theta$")
 axes[0].set_ylabel("$\\log|A(\\theta)|$")
 axes[0].set_title("Log-determinant")
+axes[0].grid(True, which="major", alpha=0.3)
+axes[0].grid(True, which="minor", alpha=0.1)
+axes[0].minorticks_on()
 
 axes[1].plot(thetas, grad_logdets, "C1-", lw=2)
 axes[1].set_xlabel("$\\theta$")
 axes[1].set_ylabel("$\\nabla_\\theta \\log|A(\\theta)|$")
 axes[1].set_title("Gradient of log-determinant")
+axes[1].grid(True, which="major", alpha=0.3)
+axes[1].grid(True, which="minor", alpha=0.1)
+axes[1].minorticks_on()
 
 plt.tight_layout()
 plt.show()

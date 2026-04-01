@@ -157,7 +157,10 @@ for ax, name, true_val in zip(
     ax.set_xlabel("value")
     if true_val is not None:
         ax.axvline(true_val, color="red", ls="--", label=f"true={true_val}")
-        ax.legend()
+        ax.legend(fontsize=9)
+    ax.grid(True, which="major", alpha=0.3)
+    ax.grid(True, which="minor", alpha=0.1)
+    ax.minorticks_on()
 
 fig.suptitle("Posterior hyperparameter distributions (NUTS)", fontsize=13)
 plt.tight_layout()
@@ -276,7 +279,9 @@ ax.set_xlabel("x")
 ax.set_ylabel("y")
 ax.set_title("GP Regression with NumPyro MCMC + gaussx")
 ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 

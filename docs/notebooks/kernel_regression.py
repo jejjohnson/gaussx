@@ -94,13 +94,25 @@ y_train = f_true(x_train) + noise_std * jax.random.normal(
 x_test = jnp.linspace(-3.5, 3.5, n_test)
 
 # %%
-fig, ax = plt.subplots(figsize=(8, 3))
-ax.plot(x_test, f_true(x_test), "k-", lw=1.5, label="True function")
-ax.scatter(x_train, y_train, s=15, c="C0", zorder=3, label="Training data")
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(x_test, f_true(x_test), "k--", lw=1.5, zorder=4, label="True function")
+ax.scatter(
+    x_train,
+    y_train,
+    s=30,
+    c="C0",
+    edgecolors="k",
+    linewidths=0.5,
+    zorder=5,
+    label="Training data",
+)
 ax.set_xlabel("x")
 ax.set_ylabel("y")
-ax.legend()
+ax.legend(fontsize=9)
 ax.set_title("Kernel Regression: Data")
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 
@@ -251,10 +263,19 @@ print(f"Mean prediction range: [{y_pred_opt.min():.2f}, {y_pred_opt.max():.2f}]"
 print(f"Mean std range: [{y_std.min():.4f}, {y_std.max():.4f}]")
 
 # %%
-fig, ax = plt.subplots(figsize=(8, 3.5))
-ax.plot(x_test, f_true(x_test), "k--", lw=1, alpha=0.5, label="True function")
-ax.scatter(x_train, y_train, s=15, c="C0", zorder=3, label="Training data")
-ax.plot(x_test, y_pred_opt, "C1-", lw=2, label="GP mean")
+fig, ax = plt.subplots(figsize=(10, 4))
+ax.plot(x_test, f_true(x_test), "k--", lw=1.5, zorder=4, label="True function")
+ax.scatter(
+    x_train,
+    y_train,
+    s=30,
+    c="C0",
+    edgecolors="k",
+    linewidths=0.5,
+    zorder=5,
+    label="Training data",
+)
+ax.plot(x_test, y_pred_opt, "C1-", lw=2, zorder=3, label="GP mean")
 ax.fill_between(
     x_test,
     y_pred_opt - 2 * y_std,
@@ -267,6 +288,9 @@ ax.set_xlabel("x")
 ax.set_ylabel("y")
 ax.legend(fontsize=9)
 ax.set_title("GP Regression (optimized hyperparameters)")
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 

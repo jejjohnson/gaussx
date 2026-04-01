@@ -60,6 +60,16 @@ def love_cache(
     # Partial eigendecomposition via matfree Lanczos
     eigvals, eigvecs = eig(K_op, rank=lanczos_order, key=key)
 
+    # Guard against complex values from numerical round-off in
+    # Lanczos / eigendecomposition of ill-conditioned matrices.
+    eigvals = jnp.real(eigvals)
+    eigvecs = jnp.real(eigvecs)
+
+    # Clamp small / negative eigenvalues to a safe floor so that
+    # 1/lambda stays finite and positive.
+    eps = jnp.finfo(eigvals.dtype).eps
+    eigvals = jnp.clip(eigvals, a_min=eps)
+
     # Invert eigenvalues for K^{-1} approximation
     inv_eigvals = 1.0 / eigvals
 

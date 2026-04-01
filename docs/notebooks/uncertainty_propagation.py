@@ -106,12 +106,15 @@ x_grid = jnp.linspace(-5, 5, 500)
 y_grid = f_vec(x_grid)
 
 # %%
-fig, ax = plt.subplots(figsize=(8, 3))
+fig, ax = plt.subplots(figsize=(10, 4))
 ax.plot(x_grid, y_grid, "k-", lw=2)
 ax.set_xlabel("x")
 ax.set_ylabel("f(x)")
 ax.set_title("Nonlinear function")
 ax.axhline(0, c="grey", lw=0.5)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 
@@ -385,7 +388,10 @@ ax.set_title(
     fontsize=13,
 )
 ax.axhline(0, c="grey", lw=0.4)
-ax.legend(loc="upper left", fontsize=10)
+ax.legend(loc="upper left", fontsize=9)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 
@@ -438,6 +444,9 @@ axes[0].bar(
 axes[0].set_ylabel("|mean error|")
 axes[0].set_title("Mean error vs. pure MC reference")
 axes[0].tick_params(axis="x", rotation=25)
+axes[0].grid(True, which="major", alpha=0.3)
+axes[0].grid(True, which="minor", alpha=0.1)
+axes[0].minorticks_on()
 
 axes[1].bar(
     names,
@@ -450,6 +459,9 @@ axes[1].bar(
 axes[1].set_ylabel("|variance error|")
 axes[1].set_title("Variance error vs. pure MC reference")
 axes[1].tick_params(axis="x", rotation=25)
+axes[1].grid(True, which="major", alpha=0.3)
+axes[1].grid(True, which="minor", alpha=0.1)
+axes[1].minorticks_on()
 
 plt.tight_layout()
 plt.show()

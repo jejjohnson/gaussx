@@ -180,10 +180,18 @@ fig, axes = plt.subplots(2, 1, figsize=(12, 6), sharex=True)
 # Position
 ax = axes[0]
 ax.scatter(
-    times, observations[:, 0], s=6, c="C0", alpha=0.35, label="Observations", zorder=1
+    times,
+    observations[:, 0],
+    s=30,
+    c="C0",
+    alpha=0.35,
+    edgecolors="k",
+    linewidths=0.5,
+    label="Observations",
+    zorder=5,
 )
-ax.plot(times, true_position, "k-", lw=1.5, label="True position", zorder=3)
-ax.plot(times, filt_pos_mean, "C1-", lw=1.5, label="Filtered mean", zorder=2)
+ax.plot(times, true_position, "k--", lw=1.5, label="True position", zorder=4)
+ax.plot(times, filt_pos_mean, "C1-", lw=2, label="Filtered mean", zorder=3)
 ax.fill_between(
     times,
     filt_pos_mean - 2 * filt_pos_std,
@@ -195,12 +203,14 @@ ax.fill_between(
 ax.set_ylabel("Position")
 ax.set_title("Kalman Filter: Filtered Estimates")
 ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 # Velocity (inferred, never directly observed)
 ax = axes[1]
-ax.plot(times, true_states[:, 1], "k-", lw=1.5, label="True velocity")
-ax.plot(times, filt_vel_mean, "C3-", lw=1.5, label="Filtered mean")
+ax.plot(times, true_states[:, 1], "k--", lw=1.5, label="True velocity", zorder=4)
+ax.plot(times, filt_vel_mean, "C3-", lw=2, label="Filtered mean", zorder=3)
 ax.fill_between(
     times,
     filt_vel_mean - 2 * filt_vel_std,
@@ -212,7 +222,9 @@ ax.fill_between(
 ax.set_xlabel("Time")
 ax.set_ylabel("Velocity (latent)")
 ax.legend(loc="upper right", fontsize=9)
-ax.grid(alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 plt.tight_layout()
 plt.show()
@@ -256,9 +268,17 @@ fig, axes = plt.subplots(2, 1, figsize=(12, 7), sharex=True)
 # Top: position — overlay filtered and smoothed
 ax = axes[0]
 ax.scatter(
-    times, observations[:, 0], s=6, c="C0", alpha=0.25, label="Observations", zorder=1
+    times,
+    observations[:, 0],
+    s=30,
+    c="C0",
+    alpha=0.25,
+    edgecolors="k",
+    linewidths=0.5,
+    label="Observations",
+    zorder=5,
 )
-ax.plot(times, true_position, "k-", lw=1.5, label="True", zorder=4)
+ax.plot(times, true_position, "k--", lw=1.5, label="True", zorder=4)
 ax.fill_between(
     times,
     filt_pos_mean - 2 * filt_pos_std,
@@ -267,7 +287,7 @@ ax.fill_between(
     alpha=0.15,
     label=r"Filtered $\pm 2\sigma$",
 )
-ax.plot(times, filt_pos_mean, "C1-", lw=1, alpha=0.6, label="Filtered", zorder=2)
+ax.plot(times, filt_pos_mean, "C1-", lw=1, alpha=0.6, label="Filtered", zorder=3)
 ax.fill_between(
     times,
     smooth_pos_mean - 2 * smooth_pos_std,
@@ -276,15 +296,17 @@ ax.fill_between(
     alpha=0.25,
     label=r"Smoothed $\pm 2\sigma$",
 )
-ax.plot(times, smooth_pos_mean, "C2-", lw=1.5, label="Smoothed", zorder=3)
+ax.plot(times, smooth_pos_mean, "C2-", lw=2, label="Smoothed", zorder=3)
 ax.set_ylabel("Position")
 ax.set_title("Filter vs Smoother: Position")
-ax.legend(loc="upper right", fontsize=8, ncol=2)
-ax.grid(alpha=0.3)
+ax.legend(loc="upper right", fontsize=9, ncol=2)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 # Bottom: velocity — overlay filtered and smoothed
 ax = axes[1]
-ax.plot(times, true_states[:, 1], "k-", lw=1.5, label="True", zorder=4)
+ax.plot(times, true_states[:, 1], "k--", lw=1.5, label="True", zorder=4)
 ax.fill_between(
     times,
     filt_vel_mean - 2 * filt_vel_std,
@@ -293,7 +315,7 @@ ax.fill_between(
     alpha=0.15,
     label=r"Filtered $\pm 2\sigma$",
 )
-ax.plot(times, filt_vel_mean, "C1-", lw=1, alpha=0.6, label="Filtered", zorder=2)
+ax.plot(times, filt_vel_mean, "C1-", lw=1, alpha=0.6, label="Filtered", zorder=3)
 ax.fill_between(
     times,
     smooth_vel_mean - 2 * smooth_vel_std,
@@ -302,12 +324,14 @@ ax.fill_between(
     alpha=0.25,
     label=r"Smoothed $\pm 2\sigma$",
 )
-ax.plot(times, smooth_vel_mean, "C3-", lw=1.5, label="Smoothed", zorder=3)
+ax.plot(times, smooth_vel_mean, "C3-", lw=2, label="Smoothed", zorder=3)
 ax.set_xlabel("Time")
 ax.set_ylabel("Velocity (latent)")
 ax.set_title("Filter vs Smoother: Velocity")
-ax.legend(loc="upper right", fontsize=8, ncol=2)
-ax.grid(alpha=0.3)
+ax.legend(loc="upper right", fontsize=9, ncol=2)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 plt.tight_layout()
 plt.show()
