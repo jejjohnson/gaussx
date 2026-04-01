@@ -248,9 +248,11 @@ ax.axvline(
 ax.set_xlabel("$x_1$")
 ax.set_ylabel("$x_2$")
 ax.set_title("Bayesian Update: Prior vs Posterior")
-ax.legend()
+ax.legend(fontsize=9)
 ax.set_aspect("equal")
-ax.grid(True, alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 plt.show()
 
@@ -339,9 +341,11 @@ ax.plot(*np.asarray(x_true), "r*", markersize=18, label="True location", zorder=
 ax.set_xlabel("$x_1$")
 ax.set_ylabel("$x_2$")
 ax.set_title("Sequential Bayesian Updates")
-ax.legend(fontsize=8, loc="upper left")
+ax.legend(fontsize=9, loc="upper left")
 ax.set_aspect("equal")
-ax.grid(True, alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 
 plt.show()
 

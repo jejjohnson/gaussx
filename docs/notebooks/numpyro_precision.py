@@ -221,8 +221,10 @@ for i, ax in enumerate(axes.flat):
 
     ax.set_title(f"$w_{i}$")
     if i == 0:
-        ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
+        ax.legend(fontsize=9)
+    ax.grid(True, which="major", alpha=0.3)
+    ax.grid(True, which="minor", alpha=0.1)
+    ax.minorticks_on()
 
 fig.suptitle("MCMC vs Analytic Posterior (per weight)", fontsize=13)
 plt.tight_layout()
@@ -289,7 +291,7 @@ ax.fill_between(
 ax.scatter(
     x_train,
     y_train,
-    s=25,
+    s=30,
     c="C1",
     edgecolors="k",
     linewidths=0.5,
@@ -300,9 +302,11 @@ ax.scatter(
 ax.set_xlabel("x")
 ax.set_ylabel("y")
 ax.set_title("Bayesian Linear Regression: MCMC vs Analytic Posterior")
-ax.legend(loc="upper left", fontsize=8, ncol=2)
+ax.legend(loc="upper left", fontsize=9, ncol=2)
 ax.set_ylim(-5, 5)
-ax.grid(alpha=0.3)
+ax.grid(True, which="major", alpha=0.3)
+ax.grid(True, which="minor", alpha=0.1)
+ax.minorticks_on()
 plt.tight_layout()
 plt.show()
 

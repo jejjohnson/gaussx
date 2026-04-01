@@ -64,6 +64,16 @@ nav:
       - Uncertainty Propagation: notebooks/uncertainty_propagation.ipynb
       - "NumPyro: GP Regression": notebooks/numpyro_gp.ipynb
       - "NumPyro: Precision BLR": notebooks/numpyro_precision.ipynb
+      - Conditional Distributions: notebooks/conditional_distributions.ipynb
+      - Parallel Kalman Filter: notebooks/parallel_kalman.ipynb
+      - Expectation Propagation: notebooks/expectation_propagation.ipynb
+      - Ensemble Kalman Filter: notebooks/ensemble_kalman.ipynb
+      - Natural Gradient VI: notebooks/natural_gradient_vi.ipynb
+      - Kernel Approximations: notebooks/kernel_approximations.ipynb
+      - LOVE Cross-Validation: notebooks/love_crossval.ipynb
+      - Whitened SVGP & BLR: notebooks/whitened_svgp.ipynb
+      - GP with Uncertain Inputs: notebooks/uncertain_gp_inputs.ipynb
+      - Matrix-Free GP: notebooks/implicit_kernel.ipynb
   - API Reference: api/reference.md
 
 markdown_extensions:
