@@ -79,7 +79,7 @@ class TestTaylorIntegrator:
         assert jnp.allclose(result.state.mean[0], expected_mean_0, atol=1e-6)
 
     def test_second_order_covariance(self):
-        """2nd-order Taylor + correct_variance includes Hessian cov correction."""
+        """2nd-order Taylor includes Hessian covariance correction by default."""
         state = GaussianState(
             mean=jnp.array([1.0]),
             cov=lx.MatrixLinearOperator(
@@ -87,7 +87,7 @@ class TestTaylorIntegrator:
                 lx.positive_semidefinite_tag,
             ),
         )
-        integrator = TaylorIntegrator(order=2, correct_variance=True)
+        integrator = TaylorIntegrator(order=2)
 
         def quadratic_fn(x):
             return jnp.array([x[0] ** 2])
@@ -97,15 +97,17 @@ class TestTaylorIntegrator:
         expected_cov = jnp.array([[2.5]])
         assert jnp.allclose(result.state.cov.as_matrix(), expected_cov, atol=1e-6)
 
-    def test_second_order_default_same_cov_as_first(self):
-        """order=2 default (no var correction) matches order=1 cov."""
+    def test_second_order_mean_only_same_cov_as_first(self):
+        """order=2 + correct_variance=False matches order=1 covariance."""
         state = _make_state()
 
         def quadratic_fn(x):
             return jnp.array([x[0] ** 2, x[1]])
 
         result_1st = TaylorIntegrator(order=1).integrate(quadratic_fn, state)
-        result_2nd = TaylorIntegrator(order=2).integrate(quadratic_fn, state)
+        result_2nd = TaylorIntegrator(order=2, correct_variance=False).integrate(
+            quadratic_fn, state
+        )
 
         assert jnp.allclose(
             result_2nd.state.cov.as_matrix(),
@@ -113,17 +115,15 @@ class TestTaylorIntegrator:
             atol=1e-10,
         )
 
-    def test_second_order_correct_variance_larger(self):
-        """order=2 + correct_variance=True gives larger variance."""
+    def test_second_order_default_larger_than_first(self):
+        """order=2 default gives larger variance than first-order."""
         state = _make_state()
 
         def quadratic_fn(x):
             return jnp.array([x[0] ** 2, x[1]])
 
         result_1st = TaylorIntegrator(order=1).integrate(quadratic_fn, state)
-        result_2nd = TaylorIntegrator(order=2, correct_variance=True).integrate(
-            quadratic_fn, state
-        )
+        result_2nd = TaylorIntegrator(order=2).integrate(quadratic_fn, state)
 
         # Diagonal variances should be >= first-order (correction is PSD)
         diag_1st = jnp.diag(result_1st.state.cov.as_matrix())
