@@ -149,13 +149,18 @@ from gaussx._tags import (
 )
 from gaussx._uncertain import (
     AbstractIntegrator as AbstractIntegrator,
+    AbstractLikelihood as AbstractLikelihood,
     AssumedDensityFilter as AssumedDensityFilter,
+    GaussHermiteIntegrator as GaussHermiteIntegrator,
+    GaussianLikelihood as GaussianLikelihood,
     GaussianState as GaussianState,
     MonteCarloIntegrator as MonteCarloIntegrator,
     PropagationResult as PropagationResult,
     TaylorIntegrator as TaylorIntegrator,
     UnscentedIntegrator as UnscentedIntegrator,
     cost_expectation as cost_expectation,
+    elbo as elbo,
+    expected_log_likelihood as expected_log_likelihood,
     gradient_expectation as gradient_expectation,
     kernel_expectations as kernel_expectations,
     log_likelihood_expectation as log_likelihood_expectation,

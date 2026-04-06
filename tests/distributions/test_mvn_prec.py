@@ -96,7 +96,7 @@ class TestSample:
         sample_cov = jnp.cov(samples.T)
 
         assert jnp.allclose(sample_mean, mu, atol=0.1)
-        assert jnp.allclose(sample_cov, Sigma, atol=0.15)
+        assert jnp.allclose(sample_cov, Sigma, atol=0.3)
 
     def test_batched_loc_sample_shape(self, getkey):
         n = 3

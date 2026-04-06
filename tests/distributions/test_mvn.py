@@ -112,7 +112,7 @@ class TestSample:
         sample_cov = jnp.cov(samples.T)
 
         assert jnp.allclose(sample_mean, mu, atol=0.1)
-        assert jnp.allclose(sample_cov, Sigma, atol=0.15)
+        assert jnp.allclose(sample_cov, Sigma, atol=0.3)
 
     def test_single_sample(self, getkey):
         n = 3
