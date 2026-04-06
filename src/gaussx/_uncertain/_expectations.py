@@ -8,6 +8,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from gaussx._uncertain._integrator import AbstractIntegrator
+from gaussx._uncertain._likelihood import AbstractLikelihood
 from gaussx._uncertain._types import GaussianState
 
 
@@ -86,6 +87,73 @@ def log_likelihood_expectation(
         state,
         integrator,
     )[0]
+
+
+def expected_log_likelihood(
+    likelihood: AbstractLikelihood,
+    state: GaussianState,
+    integrator: AbstractIntegrator | None = None,
+) -> Float[Array, ""]:
+    r"""Unified expected log-likelihood with analytical dispatch.
+
+    Computes ``E_q[log p(y | f)]`` where ``q = N(mu, Sigma)``.
+
+    If the likelihood has a closed-form expected log-likelihood
+    (e.g. ``GaussianLikelihood``), it is used directly without
+    an integrator. Otherwise, an ``integrator`` must be provided
+    for numerical approximation.
+
+    Args:
+        likelihood: Likelihood object with ``log_prob`` method.
+        state: Variational Gaussian distribution.
+        integrator: Integration method. Required for non-conjugate
+            likelihoods; ignored when the likelihood has an
+            analytical fast path.
+
+    Returns:
+        Scalar expected log-likelihood.
+
+    Raises:
+        ValueError: If no integrator is provided and the likelihood
+            has no analytical form.
+    """
+    if likelihood.has_analytical_ell():
+        return likelihood.analytical_expected_log_likelihood(state.mean, state.cov)
+    if integrator is None:
+        msg = (
+            f"{type(likelihood).__name__} has no analytical ELL; provide an integrator"
+        )
+        raise ValueError(msg)
+    return log_likelihood_expectation(likelihood.log_prob, state, integrator)
+
+
+def elbo(
+    likelihood: AbstractLikelihood,
+    state: GaussianState,
+    kl: Float[Array, ""],
+    integrator: AbstractIntegrator | None = None,
+) -> Float[Array, ""]:
+    r"""Evidence lower bound (ELBO).
+
+    Computes::
+
+        ELBO = E_q[log p(y | f)] - KL(q || p)
+
+    Dispatches to analytical expected log-likelihood when available
+    (e.g. Gaussian likelihood), or uses numerical integration.
+
+    Args:
+        likelihood: Likelihood object with ``log_prob`` method.
+        state: Variational Gaussian distribution ``q(f)``.
+        kl: KL divergence ``KL(q || p)`` (scalar, precomputed).
+        integrator: Integration method for non-conjugate likelihoods.
+            Ignored when the likelihood has an analytical fast path.
+
+    Returns:
+        Scalar ELBO value.
+    """
+    ell = expected_log_likelihood(likelihood, state, integrator)
+    return ell - kl
 
 
 def cost_expectation(
