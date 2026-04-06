@@ -31,13 +31,14 @@ class TaylorIntegrator(AbstractIntegrator):
     Args:
         order: Taylor expansion order (1 or 2). Default 1.
         correct_variance: If True and order=2, apply 2nd-order covariance
-            correction using 4th Gaussian moments. Default False (mean-only
-            correction, matching the standard EKF literature). Ignored
-            when order=1.
+            correction using 4th Gaussian moments. Default True to preserve
+            the historical ``order=2`` behaviour. Set to False for the
+            mean-only correction used in the standard EKF literature.
+            Ignored when order=1.
     """
 
     order: int = eqx.field(static=True, default=1)
-    correct_variance: bool = eqx.field(static=True, default=False)
+    correct_variance: bool = eqx.field(static=True, default=True)
 
     def integrate(
         self,
