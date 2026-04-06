@@ -22,8 +22,8 @@
 # **What you'll learn:**
 #
 # 1. How solver strategies decouple algorithms from models
-# 2. Comparing all 6 strategies: `DenseSolver`, `CGSolver`, `AutoSolver`,
-#    `BBMMSolver`, `PreconditionedCGSolver`, `LSMRSolver`
+# 2. Comparing all 7 strategies: `DenseSolver`, `CGSolver`, `AutoSolver`,
+#    `BBMMSolver`, `PreconditionedCGSolver`, `LSMRSolver`, `ComposedSolver`
 # 3. When to use which strategy
 
 # %% [markdown]
@@ -254,6 +254,34 @@ print(f"  logdet:         {ld_lsmr:.6f}")
 print(f"  logdet error:   {jnp.abs(ld_lsmr - ld_true):.2e}")
 
 # %% [markdown]
+# ## ComposedSolver
+#
+# `ComposedSolver` lets you mix-and-match solve and logdet from different
+# strategies. For example, use an exact dense solve (stable gradients)
+# paired with a stochastic SLQ logdet (cheaper at scale), or an iterative
+# CG solve with a closed-form Kronecker logdet.
+
+# %%
+composed = gaussx.ComposedSolver(
+    solve_strategy=gaussx.DenseSolver(),
+    logdet_strategy=gaussx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=500, num_probes=50),
+)
+
+x_composed = composed.solve(op, b)
+ld_composed = composed.logdet(op, key=jax.random.PRNGKey(99))
+
+residual_composed = jnp.max(jnp.abs(op.mv(x_composed) - b))
+print("ComposedSolver (DenseSolver solve + CGSolver logdet):")
+print(f"  solve residual: {residual_composed:.2e}")
+print(f"  logdet:         {ld_composed:.6f}")
+print(f"  logdet error:   {jnp.abs(ld_composed - ld_true):.2e}")
+
+# %% [markdown]
+# Notice the solve residual matches DenseSolver (exact) while the logdet
+# matches CGSolver (stochastic). This is the main use case: exact solve
+# for stable gradients, stochastic logdet where noise is acceptable.
+
+# %% [markdown]
 # ## Comparison Table
 #
 # Collect all results and compare side by side.
@@ -266,6 +294,7 @@ results = {
     "BBMMSolver": {"residual": residual_bbmm, "logdet": ld_bbmm},
     "PrecondCG": {"residual": residual_pcg, "logdet": ld_pcg},
     "LSMRSolver": {"residual": residual_lsmr, "logdet": ld_lsmr},
+    "ComposedSolver": {"residual": residual_composed, "logdet": ld_composed},
 }
 
 print(f"{'Strategy':<20s}  {'Residual':>12s}  {'Logdet':>12s}  {'Logdet Err':>12s}")
@@ -299,7 +328,7 @@ logdet_errors = [float(jnp.abs(results[n]["logdet"] - ld_true)) for n in names]
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-colors = ["#2196F3", "#4CAF50", "#FF9800", "#9C27B0", "#F44336", "#00BCD4"]
+colors = ["#2196F3", "#4CAF50", "#FF9800", "#9C27B0", "#F44336", "#00BCD4", "#795548"]
 
 # Solve residuals (log scale)
 axes[0].bar(names, residuals, color=colors)
@@ -339,6 +368,7 @@ plt.show()
 # | `BBMMSolver` | Large PSD, amortized | CG | SLQ |
 # | `PrecondCGSolver` | Noisy GP kernels | Precond CG | SLQ |
 # | `LSMRSolver` | Rectangular, ill-cond. | LSMR | SLQ |
+# | `ComposedSolver` | Mix-and-match | Any | Any |
 #
 # **Details:**
 #
@@ -354,6 +384,8 @@ plt.show()
 #   preconditioner accelerates convergence on $K + \sigma^2 I$.
 # - **LSMRSolver**: Supports Tikhonov damping; only needs
 #   matvec and transpose-matvec.
+# - **ComposedSolver**: Delegates solve and logdet to two
+#   independent strategies; pair exact solve with stochastic logdet, etc.
 
 # %% [markdown]
 # ## Summary
@@ -369,6 +401,8 @@ plt.show()
 #   noisy kernel matrices by using a low-rank Cholesky preconditioner.
 # - **`LSMRSolver`** handles rectangular and ill-conditioned systems that
 #   other PSD-only solvers cannot.
+# - **`ComposedSolver`** decouples solve and logdet: pair any solve strategy
+#   with any logdet strategy for maximum flexibility.
 # - **`AutoSolver`** removes the need to choose: it inspects operator type
 #   and size and delegates to the appropriate backend.
 

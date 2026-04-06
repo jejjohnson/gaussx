@@ -52,12 +52,13 @@
 #
 # ## Methods compared
 #
-# This notebook compares five approaches available in gaussx:
+# This notebook compares six approaches available in gaussx:
 #
 # | Method | Points | Key idea |
 # |--------|--------|----------|
 # | **Taylor 1st** | 1 (mean only) | Linearize $f$ at the mean |
-# | **Taylor 2nd** | 1 + Hessian | Add curvature correction |
+# | **Taylor 2nd** | 1 + Hessian | Add curvature correction (mean only) |
+# | **Taylor 2nd (var)** | 1 + Hessian | Curvature correction (mean + variance) |
 # | **Unscented** | $2N+1$ sigma points | Deterministic quadrature |
 # | **Monte Carlo** | $S$ random samples | Empirical moments |
 # | **Pure MC** | $S$ random samples | Direct histogram (ground truth) |
@@ -162,10 +163,18 @@ state = gaussx.GaussianState(
 #
 # $$\mu_{y,i} = f_i(\mu) + \tfrac{1}{2}\operatorname{tr}(H_i\,\Sigma).$$
 #
-# The covariance remains the first-order expression $\Sigma_y = J\Sigma J^\top$
-# (computing the exact second-order covariance requires fourth moments of the
-# Gaussian, which is rarely worth the cost). This "second-order EKF" appears
-# in, e.g., Athans et al. (1968).
+# By default, the covariance remains the first-order expression
+# $\Sigma_y = J\Sigma J^\top$ — this "second-order EKF" (mean-only
+# correction) appears in Athans et al. (1968).
+#
+# Optionally, with `correct_variance=True`, the covariance also receives a
+# second-order correction using fourth Gaussian moments:
+#
+# $$(\Sigma_y)_{ij} \mathrel{+}=
+#   \tfrac{1}{2}\operatorname{tr}(H_i\,\Sigma\,H_j\,\Sigma).$$
+#
+# This can improve accuracy for mildly nonlinear functions but may
+# overshoot for strongly nonlinear ones.
 #
 # ### Unscented transform (UT)
 #
@@ -207,16 +216,20 @@ state = gaussx.GaussianState(
 # filtering" in GP dynamics models (Deisenroth & Rasmussen, 2011).
 
 # %% [markdown]
-# ## Run all five methods
+# ## Run all six methods
 
 # %%
 # --- Taylor 1st order (EKF) ---
 taylor1 = gaussx.TaylorIntegrator(order=1)
 res_t1 = taylor1.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
 
-# --- Taylor 2nd order ---
+# --- Taylor 2nd order (mean correction only, default) ---
 taylor2 = gaussx.TaylorIntegrator(order=2)
 res_t2 = taylor2.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+
+# --- Taylor 2nd order (mean + variance correction) ---
+taylor2v = gaussx.TaylorIntegrator(order=2, correct_variance=True)
+res_t2v = taylor2v.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
 
 # --- Unscented transform ---
 ut = gaussx.UnscentedIntegrator(alpha=1.0, beta=2.0, kappa=0.0)
@@ -245,6 +258,7 @@ def _moments(res):
 methods = {
     "Taylor 1st": _moments(res_t1),
     "Taylor 2nd": _moments(res_t2),
+    "Taylor 2nd (var)": _moments(res_t2v),
     "Unscented": _moments(res_ut),
     "MC (50k)": _moments(res_mc),
     "Pure MC (200k)": (float(pure_mc_mean), float(pure_mc_var)),
@@ -304,7 +318,7 @@ ax.text(
 )
 
 # --- Output distributions (horizontal Gaussians) ---
-colours = ["C1", "C2", "C3", "C4", "C5"]
+colours = ["C1", "C2", "C6", "C3", "C4", "C5"]
 x_right = 4.2
 width = 1.0
 
@@ -344,7 +358,7 @@ for i, (name, (m, v)) in enumerate(methods.items()):
     )
 
 # --- Pure MC histogram (faint, behind the Gaussians) ---
-hist_x_pos = x_right + 4 * 0.9
+hist_x_pos = x_right + 5 * 0.9
 counts, bin_edges = jnp.histogram(y_samples, bins=80, density=True)
 bin_centres = 0.5 * (bin_edges[:-1] + bin_edges[1:])
 hist_scaled = counts / counts.max() * width
@@ -379,7 +393,7 @@ ax.text(
 )
 
 # --- Formatting ---
-ax.set_xlim(-4, x_right + 5 * 0.9 + 1.5)
+ax.set_xlim(-4, x_right + 6 * 0.9 + 1.5)
 ax.set_ylim(y_base - 0.4, 4.0)
 ax.set_xlabel("x", fontsize=12)
 ax.set_ylabel("y = f(x)", fontsize=12)
@@ -406,15 +420,19 @@ plt.show()
 #    ($\mu_y \mathrel{+}= \tfrac{1}{2}\operatorname{tr}(H \Sigma)$) and gets
 #    closer to the true mean, but the covariance is still first-order.
 #
-# 3. **Unscented transform** evaluates $f$ at $2N{+}1=3$ deterministic sigma
+# 3. **Taylor 2nd (var)** additionally corrects the covariance using fourth
+#    Gaussian moments. For this wiggly function the correction overshoots —
+#    a common failure mode for strongly nonlinear functions.
+#
+# 4. **Unscented transform** evaluates $f$ at $2N{+}1=3$ deterministic sigma
 #    points and captures the nonlinearity much better -- even with just 3
 #    function evaluations.
 #
-# 4. **Monte Carlo** (moment matching) converges to the true moments with
+# 5. **Monte Carlo** (moment matching) converges to the true moments with
 #    enough samples. With 50k samples, the mean and variance match the pure
 #    MC histogram closely.
 #
-# 5. The **pure MC histogram** reveals that the true output distribution is
+# 6. The **pure MC histogram** reveals that the true output distribution is
 #    slightly skewed -- something no Gaussian approximation can capture.
 #    All four methods project onto the best-fit Gaussian, which is the
 #    optimal thing to do for downstream linear-Gaussian inference (Kalman
@@ -431,7 +449,7 @@ fig, axes = plt.subplots(1, 2, figsize=(10, 3.5))
 names = list(methods.keys())[:-1]
 mean_errors = [abs(methods[n][0] - ref_mean) for n in names]
 var_errors = [abs(methods[n][1] - ref_var) for n in names]
-colours_bar = colours[:4]
+colours_bar = colours[:5]
 
 axes[0].bar(
     names,
