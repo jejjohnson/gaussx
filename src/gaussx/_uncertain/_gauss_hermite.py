@@ -23,7 +23,7 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         E[g(f)] \approx \sum_i w_i \cdot g(\mu + L z_i)
 
     where ``(z_i, w_i)`` are GH points/weights in standard normal space
-    and ``L`` is the Cholesky factor of the covariance.
+    and ``L`` is the square root of the covariance.
 
     Exact for polynomials up to degree ``2 * order - 1``.
     Complexity: ``O(order^dim)``, practical for ``dim <= ~5``.
@@ -43,15 +43,17 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         from gaussx._sugar._quadrature import gauss_hermite_points
 
         mu = state.mean
-        Sigma = state.cov.as_matrix()
         N = mu.shape[0]
 
         # GH points in standard normal space
         z, w = gauss_hermite_points(self.order, N)
 
-        # Transform to input space: x_i = mu + L @ z_i
-        L = jnp.linalg.cholesky(Sigma)
-        chi = mu[None, :] + z @ L.T  # (P, N)
+        # Transform to input space: x_i = mu + S @ z_i
+        # Use structured sqrt (eigh-based) which handles PSD covariances
+        from gaussx._primitives._sqrt import sqrt
+
+        S = sqrt(state.cov).as_matrix()
+        chi = mu[None, :] + z @ S.T  # (P, N)
 
         # Normalize weights (GH weights sum to (2*pi)^{D/2} for
         # probabilists' Hermite; normalize to sum to 1)

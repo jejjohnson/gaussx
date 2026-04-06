@@ -1,5 +1,6 @@
 """Tests for unified expected_log_likelihood and elbo (#54, #55)."""
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
@@ -91,8 +92,6 @@ class TestExpectedLogLikelihood:
             def log_prob(self, f):
                 p = jax.nn.sigmoid(f)
                 return jnp.sum(self.y * jnp.log(p) + (1 - self.y) * jnp.log(1 - p))
-
-        import jax
 
         lik = BernoulliLikelihood(y=jnp.array([1.0, 0.0]))
         with pytest.raises(ValueError, match="no analytical ELL"):

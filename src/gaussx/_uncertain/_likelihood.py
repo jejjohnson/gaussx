@@ -17,6 +17,7 @@ class AbstractLikelihood(eqx.Module):
 
     Subclasses that support closed-form expected log-likelihood under
     a Gaussian variational distribution should override
+    ``has_analytical_ell`` to return ``True`` and implement
     ``analytical_expected_log_likelihood``.
     """
 
