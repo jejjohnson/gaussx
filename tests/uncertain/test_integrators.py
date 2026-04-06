@@ -79,7 +79,7 @@ class TestTaylorIntegrator:
         assert jnp.allclose(result.state.mean[0], expected_mean_0, atol=1e-6)
 
     def test_second_order_covariance(self):
-        """Second-order Taylor should include Hessian covariance corrections."""
+        """2nd-order Taylor includes Hessian covariance correction by default."""
         state = GaussianState(
             mean=jnp.array([1.0]),
             cov=lx.MatrixLinearOperator(
@@ -96,6 +96,39 @@ class TestTaylorIntegrator:
 
         expected_cov = jnp.array([[2.5]])
         assert jnp.allclose(result.state.cov.as_matrix(), expected_cov, atol=1e-6)
+
+    def test_second_order_mean_only_same_cov_as_first(self):
+        """order=2 + correct_variance=False matches order=1 covariance."""
+        state = _make_state()
+
+        def quadratic_fn(x):
+            return jnp.array([x[0] ** 2, x[1]])
+
+        result_1st = TaylorIntegrator(order=1).integrate(quadratic_fn, state)
+        result_2nd = TaylorIntegrator(order=2, correct_variance=False).integrate(
+            quadratic_fn, state
+        )
+
+        assert jnp.allclose(
+            result_2nd.state.cov.as_matrix(),
+            result_1st.state.cov.as_matrix(),
+            atol=1e-10,
+        )
+
+    def test_second_order_default_larger_than_first(self):
+        """order=2 default gives larger variance than first-order."""
+        state = _make_state()
+
+        def quadratic_fn(x):
+            return jnp.array([x[0] ** 2, x[1]])
+
+        result_1st = TaylorIntegrator(order=1).integrate(quadratic_fn, state)
+        result_2nd = TaylorIntegrator(order=2).integrate(quadratic_fn, state)
+
+        # Diagonal variances should be >= first-order (correction is PSD)
+        diag_1st = jnp.diag(result_1st.state.cov.as_matrix())
+        diag_2nd = jnp.diag(result_2nd.state.cov.as_matrix())
+        assert jnp.all(diag_2nd >= diag_1st - 1e-10)
 
     def test_jit(self):
         """Should be JIT-compatible."""

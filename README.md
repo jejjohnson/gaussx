@@ -76,7 +76,7 @@ Extend `lineax.AbstractLinearOperator` with structured matrices:
 
 Pluggable solve + logdet algorithms that decouple numerics from distributions:
 
-`DenseSolver` | `AutoSolver` | `CGSolver` | `PreconditionedCGSolver` | `LSMRSolver` | `BBMMSolver`
+`DenseSolver` | `AutoSolver` | `CGSolver` | `PreconditionedCGSolver` | `LSMRSolver` | `BBMMSolver` | `ComposedSolver`
 
 ### Layer 2 -- Distributions & Sugar
 

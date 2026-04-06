@@ -73,6 +73,7 @@ from gaussx._strategies import (
     AutoSolver as AutoSolver,
     BBMMSolver as BBMMSolver,
     CGSolver as CGSolver,
+    ComposedSolver as ComposedSolver,
     DenseSolver as DenseSolver,
     LSMRSolver as LSMRSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,
