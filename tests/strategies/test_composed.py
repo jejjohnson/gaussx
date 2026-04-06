@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
+from gaussx._distributions import MultivariateNormal
 from gaussx._strategies import CGSolver, ComposedSolver, DenseSolver
 from gaussx._testing import tree_allclose
 
@@ -93,3 +94,36 @@ def test_pytree_roundtrip():
     leaves, treedef = jax.tree.flatten(composed)
     restored = jax.tree.unflatten(treedef, leaves)
     assert isinstance(restored, ComposedSolver)
+
+
+def test_mvn_log_prob_end_to_end(getkey):
+    """log_prob through MultivariateNormal matches DenseSolver."""
+    n = 4
+    A = jr.normal(getkey(), (n, n))
+    M = A @ A.T + n * jnp.eye(n)
+    op = lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag)
+    mu = jnp.zeros(n)
+    x = jr.normal(getkey(), (n,))
+
+    dense = DenseSolver()
+    composed = ComposedSolver(solve_strategy=dense, logdet_strategy=dense)
+
+    lp_ref = MultivariateNormal(mu, op, solver=dense).log_prob(x)
+    lp_composed = MultivariateNormal(mu, op, solver=composed).log_prob(x)
+    assert tree_allclose(lp_composed, lp_ref, rtol=1e-5)
+
+
+def test_mvn_entropy_end_to_end(getkey):
+    """entropy through MultivariateNormal matches DenseSolver."""
+    n = 4
+    A = jr.normal(getkey(), (n, n))
+    M = A @ A.T + n * jnp.eye(n)
+    op = lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag)
+    mu = jnp.zeros(n)
+
+    dense = DenseSolver()
+    composed = ComposedSolver(solve_strategy=dense, logdet_strategy=dense)
+
+    h_ref = MultivariateNormal(mu, op, solver=dense).entropy()
+    h_composed = MultivariateNormal(mu, op, solver=composed).entropy()
+    assert tree_allclose(h_composed, h_ref, rtol=1e-5)
