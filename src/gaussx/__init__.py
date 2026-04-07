@@ -16,8 +16,10 @@ from gaussx._expfam import (
 from gaussx._operators import (
     BlockDiag as BlockDiag,
     BlockTriDiag as BlockTriDiag,
+    ImplicitCrossKernelOperator as ImplicitCrossKernelOperator,
     ImplicitKernelOperator as ImplicitKernelOperator,
     InterpolatedOperator as InterpolatedOperator,
+    KernelOperator as KernelOperator,
     Kronecker as Kronecker,
     KroneckerSum as KroneckerSum,
     LowerBlockTriDiag as LowerBlockTriDiag,
@@ -30,6 +32,7 @@ from gaussx._operators import (
     SVDLowRankUpdate as SVDLowRankUpdate,
     Toeplitz as Toeplitz,
     UpperBlockTriDiag as UpperBlockTriDiag,
+    implicit_cross_kernel as implicit_cross_kernel,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,

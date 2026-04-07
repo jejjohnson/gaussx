@@ -10,8 +10,14 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._implicit_cross_kernel import (
+    ImplicitCrossKernelOperator,
+    _TransposedCrossKernelOperator,
+    implicit_cross_kernel,
+)
 from gaussx._operators._implicit_kernel import ImplicitKernelOperator
 from gaussx._operators._interpolated import InterpolatedOperator
+from gaussx._operators._kernel import KernelOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._lazy_algebra import (
@@ -356,11 +362,67 @@ def _(operator: InterpolatedOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
+# KernelOperator tag registrations
+
+
+@lx.is_symmetric.register(KernelOperator)
+def _(operator: KernelOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(KernelOperator)
+def _(operator: KernelOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(KernelOperator)
+def _(operator: KernelOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# ImplicitCrossKernelOperator tag registrations
+
+
+@lx.is_symmetric.register(ImplicitCrossKernelOperator)
+def _(operator: ImplicitCrossKernelOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(ImplicitCrossKernelOperator)
+def _(operator: ImplicitCrossKernelOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(ImplicitCrossKernelOperator)
+def _(operator: ImplicitCrossKernelOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# _TransposedCrossKernelOperator tag registrations
+
+
+@lx.is_symmetric.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
 __all__ = [
     "BlockDiag",
     "BlockTriDiag",
+    "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "InterpolatedOperator",
+    "KernelOperator",
     "Kronecker",
     "KroneckerSum",
     "LowRankUpdate",
@@ -373,6 +435,7 @@ __all__ = [
     "SumOperator",
     "Toeplitz",
     "UpperBlockTriDiag",
+    "implicit_cross_kernel",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "svd_low_rank_plus_diag",
