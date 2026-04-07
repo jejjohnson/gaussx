@@ -7,8 +7,8 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
@@ -26,6 +26,9 @@ def _build_likelihood_precision(
 
         Lambda_lik[k] = H_k^T R_k^{-1} H_k
 
+    The observation noise inverse ``R^{-1}`` is computed once via
+    structural dispatch and reused for all time steps.
+
     Args:
         emission_model: Emission matrix. Shape ``(N, d_obs, d)`` for
             per-timestep matrices or ``(d_obs, d)`` for shared.
@@ -36,11 +39,8 @@ def _build_likelihood_precision(
     Returns:
         Block-tridiagonal likelihood precision (block-diagonal).
     """
-    d_obs = obs_noise.in_size()
-    I_obs = jnp.eye(d_obs, dtype=emission_model.dtype)
-
-    # R^{-1} via solve: solve(R, I) = R^{-1}
-    R_inv = jax.vmap(lambda col: solve(obs_noise, col), in_axes=1, out_axes=1)(I_obs)
+    # Compute R^{-1} once via structural dispatch (obs_noise is typically small)
+    R_inv = inv(obs_noise).as_matrix()
 
     if emission_model.ndim == 2:
         # Shared emission model: H^T R^{-1} H for all time steps
@@ -61,7 +61,8 @@ def _build_data_vector(
 ) -> jnp.ndarray:
     """Build the data contribution to the posterior mean equation.
 
-    Computes ``H^T R^{-1} y`` for each time step.
+    Computes ``H^T R^{-1} y`` for each time step.  The observation
+    noise inverse is computed once and reused for all time steps.
 
     Args:
         emission_model: Emission matrix, shape ``(N, d_obs, d)`` or
@@ -72,21 +73,17 @@ def _build_data_vector(
     Returns:
         Data vector, shape ``(N * d,)``.
     """
-    # R^{-1} y_k via solve for each time step
+    # Precompute R^{-1} once (obs_noise is typically small)
+    R_inv = inv(obs_noise).as_matrix()
+
     if emission_model.ndim == 2:
         # Shared: H^T R^{-1} y_k for each k
-        def _data_vec_k(y_k):
-            Rinv_y = solve(obs_noise, y_k)
-            return emission_model.T @ Rinv_y
-
-        data_vec = jax.vmap(_data_vec_k)(observations)
+        HtRinv = emission_model.T @ R_inv
+        data_vec = jax.vmap(lambda y_k: HtRinv @ y_k)(observations)
     else:
-
-        def _data_vec_k_varying(H_k, y_k):
-            Rinv_y = solve(obs_noise, y_k)
-            return H_k.T @ Rinv_y
-
-        data_vec = jax.vmap(_data_vec_k_varying)(emission_model, observations)
+        data_vec = jax.vmap(lambda H_k, y_k: H_k.T @ R_inv @ y_k)(
+            emission_model, observations
+        )
 
     return data_vec.reshape(-1)
 
@@ -118,6 +115,11 @@ def spingp_log_likelihood(
 
     All operations exploit banded structure for O(Nd³) cost.
 
+    The ``solver`` parameter controls the algorithm used for the
+    large-scale posterior precision operations (solve, logdet).
+    Observation noise operations always use structural dispatch
+    since ``obs_noise`` is typically a small dense matrix.
+
     Args:
         prior_precision: Prior precision as ``BlockTriDiag``,
             shape ``(N, d, d)`` diagonal and ``(N-1, d, d)`` sub-diagonal.
@@ -125,8 +127,9 @@ def spingp_log_likelihood(
             shared or ``(N, d_obs, d)`` per time step.
         obs_noise: Observation noise covariance R operator.
         observations: Observations y, shape ``(N, d_obs)``.
-        solver: Optional solver strategy. When ``None``, uses
-            structural dispatch.
+        solver: Optional solver strategy for posterior precision
+            operations. When ``None``, uses structural dispatch.
+            Observation noise operations always use structural dispatch.
 
     Returns:
         Scalar log marginal likelihood.
@@ -147,14 +150,15 @@ def spingp_log_likelihood(
     post_solve = dispatch_solve(post_prec, eta, solver)
     quad_term = jnp.dot(eta, post_solve)
 
-    # Observation quadratic: y^T R^{-1} y
-    obs_quad = jnp.sum(jax.vmap(lambda y_k: y_k @ solve(obs_noise, y_k))(observations))
+    # Observation quadratic: y^T R^{-1} y (obs_noise is small, use inv)
+    R_inv = inv(obs_noise).as_matrix()
+    obs_quad = jnp.sum(jax.vmap(lambda y_k: y_k @ R_inv @ y_k)(observations))
 
-    # Log determinants
+    # Log determinants (posterior precision: may be large, use solver)
     ld_post = dispatch_logdet(post_prec, solver)
     ld_prior = dispatch_logdet(prior_precision, solver)
 
-    # Total observation noise logdet: N * log|R|
+    # Total observation noise logdet: N * log|R| (small, structural dispatch)
     ld_R = logdet(obs_noise)
     ld_R_total = N * ld_R
 
@@ -185,8 +189,8 @@ def spingp_posterior(
             shared or ``(N, d_obs, d)`` per time step.
         obs_noise: Observation noise covariance R operator.
         observations: Observations y, shape ``(N, d_obs)``.
-        solver: Optional solver strategy. When ``None``, uses
-            structural dispatch.
+        solver: Optional solver strategy for posterior precision
+            operations. When ``None``, uses structural dispatch.
 
     Returns:
         Tuple ``(posterior_mean, posterior_precision)`` where

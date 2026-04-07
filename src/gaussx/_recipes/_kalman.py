@@ -76,7 +76,7 @@ def kalman_filter(
         # --- Update ---
         v = y_t - obs_model @ x_pred  # innovation
         S = obs_model @ P_pred @ obs_model.T + obs_noise  # innovation cov
-        S_op = lx.MatrixLinearOperator(S)
+        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
         # Kalman gain: K = P_pred @ H^T @ S^{-1}
         PHt = P_pred @ obs_model.T  # (N, M)
@@ -134,7 +134,7 @@ def rts_smoother(
         x_filt, P_filt, x_pred, P_pred = inputs
 
         # Smoother gain: G = P_filt @ A^T @ P_pred^{-1}
-        P_pred_op = lx.MatrixLinearOperator(P_pred)
+        P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
         At = transition.T
         G = P_filt @ At  # (N, N)
         G = jax.vmap(lambda row: dispatch_solve(P_pred_op, row, solver))(G)  # (N, N)
@@ -195,7 +195,7 @@ def kalman_gain(
     R_mat = R.as_matrix()
 
     S = H_mat @ P_mat @ H_mat.T + R_mat  # (M, M)
-    S_op = lx.MatrixLinearOperator(S)
+    S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
     # K = P H^T S^{-1}  =>  solve row by row
     PHt = P_mat @ H_mat.T  # (N, M)

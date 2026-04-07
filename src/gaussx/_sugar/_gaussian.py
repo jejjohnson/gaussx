@@ -6,7 +6,11 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._primitives._trace import trace
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import (
+    AbstractLogdetStrategy,
+    AbstractSolverStrategy,
+    AbstractSolveStrategy,
+)
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
@@ -17,14 +21,14 @@ def quadratic_form(
     operator: lx.AbstractLinearOperator,
     x: jnp.ndarray,
     *,
-    solver: AbstractSolverStrategy | None = None,
+    solver: AbstractSolveStrategy | None = None,
 ) -> jnp.ndarray:
     """Compute ``x^T A^{-1} x`` via a single solve.
 
     Args:
         operator: A non-singular linear operator A.
         x: Vector, shape ``(N,)``.
-        solver: Optional solver strategy. When ``None``, uses
+        solver: Optional solve strategy. When ``None``, uses
             structural dispatch.
 
     Returns:
@@ -54,8 +58,8 @@ def gaussian_log_prob(
         loc: Mean vector, shape ``(N,)``.
         cov_operator: Covariance operator Sigma, shape ``(N, N)``.
         value: Observation vector, shape ``(N,)``.
-        solver: Optional solver strategy. When ``None``, uses
-            structural dispatch.
+        solver: Optional solver strategy (needs both solve and logdet).
+            When ``None``, uses structural dispatch.
 
     Returns:
         Scalar log-probability.
@@ -71,7 +75,7 @@ def gaussian_log_prob(
 def gaussian_entropy(
     cov_operator: lx.AbstractLinearOperator,
     *,
-    solver: AbstractSolverStrategy | None = None,
+    solver: AbstractLogdetStrategy | None = None,
 ) -> jnp.ndarray:
     """Entropy of a multivariate normal ``N(mu, Sigma)``.
 
@@ -83,7 +87,7 @@ def gaussian_entropy(
 
     Args:
         cov_operator: Covariance operator, shape ``(N, N)``.
-        solver: Optional solver strategy. When ``None``, uses
+        solver: Optional logdet strategy. When ``None``, uses
             structural dispatch.
 
     Returns:
@@ -98,7 +102,7 @@ def kl_standard_normal(
     m: jnp.ndarray,
     S: lx.AbstractLinearOperator,
     *,
-    solver: AbstractSolverStrategy | None = None,
+    solver: AbstractLogdetStrategy | None = None,
 ) -> jnp.ndarray:
     """KL divergence ``KL(N(m, S) || N(0, I))``.
 
@@ -111,7 +115,7 @@ def kl_standard_normal(
     Args:
         m: Mean vector, shape ``(N,)``.
         S: Covariance operator, shape ``(N, N)``.
-        solver: Optional solver strategy. When ``None``, uses
+        solver: Optional logdet strategy. When ``None``, uses
             structural dispatch.
 
     Returns:

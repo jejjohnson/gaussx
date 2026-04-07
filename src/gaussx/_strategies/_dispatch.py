@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -34,7 +35,8 @@ def dispatch_solve(
 def dispatch_logdet(
     operator: lx.AbstractLinearOperator,
     solver: AbstractLogdetStrategy | None = None,
-    **kwargs,
+    *,
+    key: jax.Array | None = None,
 ) -> jnp.ndarray:
     """Compute ``log |det(A)|`` via *solver* or structural-dispatch primitive.
 
@@ -42,12 +44,13 @@ def dispatch_logdet(
         operator: The linear operator A.
         solver: Optional logdet strategy. When ``None``, falls back
             to :func:`gaussx.logdet` (structural dispatch).
+        key: Optional PRNG key for stochastic estimators.
 
     Returns:
         Scalar ``log |det(A)|``.
     """
     if solver is not None:
-        return solver.logdet(operator, **kwargs)
+        return solver.logdet(operator, key=key)
     from gaussx._primitives._logdet import logdet
 
     return logdet(operator)

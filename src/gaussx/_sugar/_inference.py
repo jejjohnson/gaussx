@@ -8,7 +8,7 @@ import lineax as lx
 
 from gaussx._primitives._inv import inv
 from gaussx._primitives._trace import trace
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 from gaussx._sugar._gaussian import _LOG_2PI
 
@@ -93,7 +93,7 @@ def trace_correction(
     K_xz: jnp.ndarray,
     K_zz: lx.AbstractLinearOperator,
     *,
-    solver: AbstractSolverStrategy | None = None,
+    solver: AbstractSolveStrategy | None = None,
 ) -> jnp.ndarray:
     """Trace term in Titsias collapsed ELBO.
 
@@ -108,7 +108,7 @@ def trace_correction(
         K_xx: Full covariance, shape ``(N, N)``.
         K_xz: Cross-covariance, shape ``(N, M)``.
         K_zz: Inducing covariance, shape ``(M, M)``.
-        solver: Optional solver strategy. When ``None``, uses
+        solver: Optional solve strategy. When ``None``, uses
             structural dispatch.
 
     Returns:
