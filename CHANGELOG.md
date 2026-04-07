@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.9](https://github.com/jejjohnson/gaussx/compare/v0.0.8...v0.0.9) (2026-04-07)
+
+
+### Features
+
+* add 5 features — implicit op params, stable distances, batched matvec, gauss_kl, conditional ([#50](https://github.com/jejjohnson/gaussx/issues/50), [#51](https://github.com/jejjohnson/gaussx/issues/51), [#73](https://github.com/jejjohnson/gaussx/issues/73), [#74](https://github.com/jejjohnson/gaussx/issues/74), [#86](https://github.com/jejjohnson/gaussx/issues/86)) ([#89](https://github.com/jejjohnson/gaussx/issues/89)) ([92b37cc](https://github.com/jejjohnson/gaussx/commit/92b37ccfebc340d47a87163c041f4185d3827e71))
+* add KernelOperator and ImplicitCrossKernelOperator ([#46](https://github.com/jejjohnson/gaussx/issues/46), [#48](https://github.com/jejjohnson/gaussx/issues/48)) ([#87](https://github.com/jejjohnson/gaussx/issues/87)) ([64b03b4](https://github.com/jejjohnson/gaussx/commit/64b03b419cd3ab7bf8c647006f4254eae6246791))
+* add MINRESSolver and Gaussian 3-parameterization conversions ([#45](https://github.com/jejjohnson/gaussx/issues/45), [#75](https://github.com/jejjohnson/gaussx/issues/75)) ([#91](https://github.com/jejjohnson/gaussx/issues/91)) ([73a62b7](https://github.com/jejjohnson/gaussx/commit/73a62b7afa6a128c65077db04166ab491ea2ac80))
+
 ## [0.0.8](https://github.com/jejjohnson/gaussx/compare/v0.0.7...v0.0.8) (2026-04-07)
 
 
