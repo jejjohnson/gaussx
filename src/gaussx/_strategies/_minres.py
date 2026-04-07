@@ -140,7 +140,7 @@ def _minres_solve(
         )
 
         # If converged, keep old state; otherwise use new state
-        out_state = jax.tree.map(
+        out_state = jax.tree_util.tree_map(
             lambda old, new: jnp.where(converged, old, new),
             state,
             new_state,

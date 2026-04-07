@@ -39,14 +39,14 @@ def meanvar_to_natural(
     Returns:
         Tuple ``(eta1, eta2)`` of natural parameters.
     """
-    # Sigma^{-1} = S_sqrt^{-T} S_sqrt^{-1}
-    # eta1 = Sigma^{-1} mu via cho_solve
+    # eta1 = Sigma^{-1} mu via triangular solves
     alpha = jnp.linalg.solve(S_sqrt, mu[..., None])[..., 0]  # S_sqrt^{-1} mu
     eta1 = jnp.linalg.solve(S_sqrt.mT, alpha[..., None])[..., 0]  # S_sqrt^{-T} alpha
 
-    # eta2 = -0.5 * Sigma^{-1}
-    S_sqrt_inv = jnp.linalg.inv(S_sqrt)
-    Sigma_inv = S_sqrt_inv.mT @ S_sqrt_inv
+    # eta2 = -0.5 * Sigma^{-1}; avoid forming S_sqrt^{-1} explicitly.
+    identity = jnp.eye(S_sqrt.shape[-1], dtype=S_sqrt.dtype)
+    sigma_inv_rhs = jnp.linalg.solve(S_sqrt, identity)
+    Sigma_inv = jnp.linalg.solve(S_sqrt.mT, sigma_inv_rhs)
     eta2 = -0.5 * Sigma_inv
     return eta1, eta2
 
@@ -173,7 +173,10 @@ def expectation_to_natural(
         Tuple ``(eta1, eta2)`` of natural parameters.
     """
     Sigma = m2 - m1[..., None] * m1[..., None, :]
-    Sigma_inv = jnp.linalg.inv(Sigma)
-    eta1 = (Sigma_inv @ m1[..., None])[..., 0]
+    eta1 = jnp.linalg.solve(Sigma, m1[..., None])[..., 0]
+    Sigma_inv = jnp.linalg.solve(
+        Sigma,
+        jnp.eye(Sigma.shape[-1], dtype=Sigma.dtype),
+    )
     eta2 = -0.5 * Sigma_inv
     return eta1, eta2

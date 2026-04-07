@@ -24,13 +24,15 @@ from gaussx._recipes._kronecker_gp import (
 )
 from gaussx._recipes._love import LOVECache, love_cache, love_variance
 from gaussx._recipes._natural import (
-    expectation_to_natural,
-    natural_to_expectation,
+    mean_cov_to_natural,
+    natural_to_mean_cov,
 )
 from gaussx._recipes._parameterizations import (
     expectation_to_meanvar,
+    expectation_to_natural,
     meanvar_to_expectation,
     meanvar_to_natural,
+    natural_to_expectation,
     natural_to_meanvar,
 )
 from gaussx._recipes._spingp import spingp_log_likelihood, spingp_posterior
@@ -61,9 +63,11 @@ __all__ = [
     "kronecker_posterior_predictive",
     "love_cache",
     "love_variance",
+    "mean_cov_to_natural",
     "meanvar_to_expectation",
     "meanvar_to_natural",
     "natural_to_expectation",
+    "natural_to_mean_cov",
     "natural_to_meanvar",
     "naturals_to_ssm",
     "rts_smoother",
