@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsla
 from jaxtyping import Array, Float
@@ -43,24 +44,25 @@ def gauss_kl(
     # Prior Cholesky factor
     L_K = jnp.linalg.cholesky(K) if K is not None else None
 
-    kl = jnp.array(0.0)
-
     if is_diagonal:
         # q_sqrt shape: (M, R) — diagonal standard deviations
         q_var = q_sqrt**2  # (M, R)
 
         if L_K is not None:
-            # Solve L_K^{-1} q_mu for the Mahalanobis term
-            # alpha = L_K^{-1} q_mu => K^{-1} q_mu = L_K^{-T} alpha
+            # alpha = L_K^{-1} q_mu  ->  Mahalanobis term
             alpha = jsla.solve_triangular(L_K, q_mu, lower=True)  # (M, R)
             mahal = jnp.sum(alpha**2)
 
-            # tr(K^{-1} S) = tr(L_K^{-T} L_K^{-1} diag(q_var))
-            #              = sum_r sum_i q_var[i,r] * ||L_K^{-1}[:,i]||^2
-            L_K_inv = jsla.solve_triangular(L_K, jnp.eye(M), lower=True)  # (M, M)
-            # ||L_K^{-1}[:,i]||^2 = sum over rows
-            L_K_inv_col_sq = jnp.sum(L_K_inv**2, axis=0)  # (M,)
-            trace_term = jnp.sum(q_var * L_K_inv_col_sq[:, None])
+            # tr(K^{-1} diag(q_var_r)) = sum_i q_var[i,r] * (K^{-1})_{ii}
+            # diag(K^{-1}) = diag(L_K^{-T} L_K^{-1}) via cho_solve on
+            # each standard basis vector — but that's O(M^2) total.
+            # More efficient: solve L_K x_i = e_i for each i, then
+            # diag(K^{-1})_i = ||x_i||^2.  Use a single batched solve:
+            Kinv_diag = jnp.sum(
+                jsla.solve_triangular(L_K, jnp.eye(M), lower=True) ** 2,
+                axis=0,
+            )  # (M,)
+            trace_term = jnp.sum(q_var * Kinv_diag[:, None])
 
             # log|K| - log|S|
             logdet_K = 2.0 * jnp.sum(jnp.log(jnp.diag(L_K)))
@@ -72,32 +74,30 @@ def gauss_kl(
             trace_term = jnp.sum(q_var)
             logdet_diff = -jnp.sum(jnp.log(q_var))
 
-        kl = 0.5 * (logdet_diff - M * R + trace_term + mahal)
+        return 0.5 * (logdet_diff - M * R + trace_term + mahal)
 
-    else:
-        # q_sqrt shape: (R, M, M) — full lower-triangular Cholesky factors
-        for r in range(R):
-            q_mu_r = q_mu[:, r]  # (M,)
-            L_q_r = q_sqrt[r]  # (M, M)
+    # q_sqrt shape: (R, M, M) — full lower-triangular Cholesky factors
+    # Hoist prior-only quantities outside the per-output computation.
+    logdet_K = 2.0 * jnp.sum(jnp.log(jnp.diag(L_K))) if L_K is not None else 0.0
 
-            if L_K is not None:
-                # alpha = L_K^{-1} q_mu_r
-                alpha = jsla.solve_triangular(L_K, q_mu_r, lower=True)
-                mahal_r = jnp.sum(alpha**2)
+    def _kl_single(
+        q_mu_r: Float[Array, " M"], L_q_r: Float[Array, "M M"]
+    ) -> Float[Array, ""]:
+        logdet_q = 2.0 * jnp.sum(jnp.log(jnp.diag(L_q_r)))
 
-                # L_K^{-1} L_q
-                L_K_inv_L_q = jsla.solve_triangular(L_K, L_q_r, lower=True)
-                trace_r = jnp.sum(L_K_inv_L_q**2)
+        if L_K is not None:
+            alpha = jsla.solve_triangular(L_K, q_mu_r, lower=True)
+            mahal_r = jnp.sum(alpha**2)
+            L_K_inv_L_q = jsla.solve_triangular(L_K, L_q_r, lower=True)
+            trace_r = jnp.sum(L_K_inv_L_q**2)
+            logdet_diff_r = logdet_K - logdet_q
+        else:
+            mahal_r = jnp.sum(q_mu_r**2)
+            trace_r = jnp.sum(L_q_r**2)
+            logdet_diff_r = -logdet_q
 
-                logdet_K = 2.0 * jnp.sum(jnp.log(jnp.diag(L_K)))
-                logdet_q = 2.0 * jnp.sum(jnp.log(jnp.diag(L_q_r)))
-                logdet_diff_r = logdet_K - logdet_q
-            else:
-                mahal_r = jnp.sum(q_mu_r**2)
-                trace_r = jnp.sum(L_q_r**2)
-                logdet_q = 2.0 * jnp.sum(jnp.log(jnp.diag(L_q_r)))
-                logdet_diff_r = -logdet_q
+        return 0.5 * (logdet_diff_r - M + trace_r + mahal_r)
 
-            kl = kl + 0.5 * (logdet_diff_r - M + trace_r + mahal_r)
-
-    return kl
+    # vmap over R output dimensions: q_mu.T -> (R, M), q_sqrt -> (R, M, M)
+    kl_per_output = jax.vmap(_kl_single)(q_mu.T, q_sqrt)
+    return jnp.sum(kl_per_output)

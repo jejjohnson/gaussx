@@ -97,9 +97,10 @@ def batched_kernel_rmatvec(
         acc = acc + K_batch.T @ u_batch
         return acc, None
 
+    acc_dtype = jnp.result_type(X, Z, u)
     result, _ = jax.lax.scan(
         scan_body,
-        jnp.zeros(m, dtype=X.dtype),
+        jnp.zeros(m, dtype=acc_dtype),
         (X_batched, u_batched),
     )
     return result
