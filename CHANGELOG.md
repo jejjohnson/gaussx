@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.8](https://github.com/jejjohnson/gaussx/compare/v0.0.7...v0.0.8) (2026-04-07)
+
+
+### Features
+
+* add 7 new lineax operators ([#37](https://github.com/jejjohnson/gaussx/issues/37), [#38](https://github.com/jejjohnson/gaussx/issues/38), [#41](https://github.com/jejjohnson/gaussx/issues/41), [#42](https://github.com/jejjohnson/gaussx/issues/42), [#44](https://github.com/jejjohnson/gaussx/issues/44)) ([#85](https://github.com/jejjohnson/gaussx/issues/85)) ([ccf012f](https://github.com/jejjohnson/gaussx/commit/ccf012ff9a60df8e118cd125a4ab283211e2bcf0))
+* add correct_variance flag and ComposedSolver ([#81](https://github.com/jejjohnson/gaussx/issues/81)) ([901dd53](https://github.com/jejjohnson/gaussx/commit/901dd5337a83d75d1bb25d83d14b2f67f68f658a))
+* integrator unification — GaussHermiteIntegrator, unified ELL & ELBO ([#83](https://github.com/jejjohnson/gaussx/issues/83)) ([47cee23](https://github.com/jejjohnson/gaussx/commit/47cee2319783a40b3c15f8764fcaf76a0aed4425))
+
 ## [0.0.7](https://github.com/jejjohnson/gaussx/compare/v0.0.6...v0.0.7) (2026-03-31)
 
 
