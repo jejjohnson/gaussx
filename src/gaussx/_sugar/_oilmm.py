@@ -13,7 +13,7 @@ def oilmm_project(
 ) -> tuple[Float[Array, "N L"], Float[Array, " L"]]:
     """Project multi-output data to independent latent GPs via OILMM.
 
-    Given an orthogonal mixing matrix W ∈ ℝᴾˣᴸ with WᵀW = Iₗ, projects
+    Given an orthogonal mixing matrix W ∈ ℝᴾˣᴸ with WᵀW = I_L, projects
     P-output observations to L independent latent channels::
 
         Y_latent    = Y W              (N, L)
@@ -21,7 +21,7 @@ def oilmm_project(
 
     Args:
         Y: Observations, shape ``(N, P)``.
-        W: Orthogonal mixing matrix, shape ``(P, L)`` with WᵀW = Iₗ.
+        W: Orthogonal mixing matrix, shape ``(P, L)`` with WᵀW = I_L.
         noise_var: Observation noise variance. Scalar for isotropic noise,
             or shape ``(P,)`` for heteroscedastic noise.
 
@@ -50,7 +50,7 @@ def oilmm_back_project(
     Args:
         f_means: Latent predictive means, shape ``(N, L)``.
         f_vars: Latent predictive variances, shape ``(N, L)``.
-        W: Orthogonal mixing matrix, shape ``(P, L)`` with WᵀW = Iₗ.
+        W: Orthogonal mixing matrix, shape ``(P, L)`` with WᵀW = I_L.
 
     Returns:
         Tuple ``(y_means, y_vars)`` with shapes ``(N, P)`` and ``(N, P)``.

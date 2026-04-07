@@ -44,8 +44,8 @@ def infinite_horizon_filter(
     """Infinite-horizon Kalman filter with fixed steady-state gain.
 
     Uses the DARE solution for a constant Kalman gain K∞, avoiding
-    per-step Riccati updates.  Per-step cost is O(MN) instead of
-    O(N³) for the standard Kalman filter::
+    per-step Riccati updates.  For dense matrices, the per-step cost is
+    O(N² + MN + M²) instead of O(N³) for the standard Kalman filter::
 
         Predict:  x⁻ₜ = A xₜ₋₁
         Update:   vₜ  = yₜ − H x⁻ₜ
