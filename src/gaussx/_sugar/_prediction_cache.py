@@ -66,21 +66,18 @@ def predict_mean(
 
 
 def predict_variance(
-    cache: PredictionCache,
     K_cross: jnp.ndarray,
     K_test_diag: jnp.ndarray,
     operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolveStrategy | None = None,
 ) -> jnp.ndarray:
-    """Predictive variance: ``σ²* = k_** - diag(K_*f @ K_y^{-1} @ K_f*)``.
+    """Predictive variance: ``sigma^2* = k_** - diag(K_*f K_y^{-1} K_f*)``.
 
     For each test point *i*, solves ``K_y v_i = K_cross[i, :]`` and
-    computes ``σ²_i = K_test_diag[i] - K_cross[i, :] @ v_i``.
+    computes ``sigma^2_i = K_test_diag[i] - K_cross[i, :] @ v_i``.
 
     Args:
-        cache: Prediction cache (unused in this implementation, reserved
-            for future extensions).
         K_cross: Cross-covariance matrix, shape ``(Nt, N)``.
         K_test_diag: Prior variance at test points, shape ``(Nt,)``.
         operator: Training covariance operator ``K_y``, shape ``(N, N)``.
@@ -90,8 +87,6 @@ def predict_variance(
     Returns:
         Predictive variance, shape ``(Nt,)``.
     """
-
-    del cache  # reserved for future extensions (e.g. LOVE)
 
     def _solve_row(row: jnp.ndarray) -> jnp.ndarray:
         return dispatch_solve(operator, row, solver)

@@ -9,22 +9,23 @@ import jax.numpy as jnp
 def pairwise_marginals(
     means: jnp.ndarray,
     covariances: jnp.ndarray,
-    transitions: jnp.ndarray,
+    cross_covariances: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     r"""Joint p(x_k, x_{k+1}) for each consecutive pair.
 
     For each pair ``(k, k+1)``, the joint distribution is::
 
         p(x_k, x_{k+1}) = N([mu_k; mu_{k+1}],
-                             [[P_k,      P_k A_k^T],
-                              [A_k P_k,  P_{k+1}  ]])
+                             [[P_k,      C_k^T],
+                              [C_k,      P_{k+1}]])
 
-    where the cross-covariance is ``Cov[x_k, x_{k+1}] = P_k @ A_k^T``.
+    where ``C_k = Cov[x_{k+1}, x_k]`` is the pairwise cross-covariance.
 
     Args:
         means: Smoothed means, shape ``(T, d)``.
         covariances: Smoothed covariances, shape ``(T, d, d)``.
-        transitions: State transition matrices, shape ``(T-1, d, d)``.
+        cross_covariances: Pairwise cross-covariances
+            ``Cov[x_{k+1}, x_k]``, shape ``(T-1, d, d)``.
 
     Returns:
         Tuple ``(joint_means, joint_covariances)`` where:
@@ -38,14 +39,13 @@ def pairwise_marginals(
         m_kp1: jnp.ndarray,
         P_k: jnp.ndarray,
         P_kp1: jnp.ndarray,
-        A_k: jnp.ndarray,
+        C_k: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
         joint_mean = jnp.concatenate([m_k, m_kp1])
-        cross_cov = P_k @ A_k.T
         joint_cov = jnp.block(
             [
-                [P_k, cross_cov],
-                [cross_cov.T, P_kp1],
+                [P_k, C_k.T],
+                [C_k, P_kp1],
             ]
         )
         return joint_mean, joint_cov
@@ -55,7 +55,7 @@ def pairwise_marginals(
         means[1:],
         covariances[:-1],
         covariances[1:],
-        transitions,
+        cross_covariances,
     )
 
     return joint_means, joint_covariances

@@ -38,12 +38,10 @@ class TestPredictionCache:
         N, Nt = 8, 4
         A = jax.random.normal(getkey(), (N, N))
         K = A @ A.T + jnp.eye(N)
-        y = jax.random.normal(getkey(), (N,))
         K_cross = jax.random.normal(getkey(), (Nt, N))
         K_test_diag = jnp.ones(Nt) * 2.0
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
-        cache = build_prediction_cache(op, y)
-        var = predict_variance(cache, K_cross, K_test_diag, op)
+        var = predict_variance(K_cross, K_test_diag, op)
         # Expected: k_** - diag(K_cross @ K_inv @ K_cross.T)
         K_inv = jnp.linalg.inv(K)
         expected = K_test_diag - jnp.sum(K_cross @ K_inv * K_cross, axis=1)

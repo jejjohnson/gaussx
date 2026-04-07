@@ -30,6 +30,9 @@ def leave_one_out_cv(
     y: jnp.ndarray,
     *,
     solver: AbstractSolveStrategy | None = None,
+    diag_inv_method: str = "solve",
+    diag_inv_num_probes: int = 30,
+    diag_inv_key: jnp.ndarray | None = None,
 ) -> LOOResult:
     """LOO-CV via the bordered-system identity.
 
@@ -49,15 +52,28 @@ def leave_one_out_cv(
         operator: A linear operator representing the (noise-inclusive)
             kernel matrix K_y.
         y: Observation vector of shape ``(N,)``.
-        solver: Optional solve strategy for computing K_y^{-1} y.
-            When ``None``, falls back to structural dispatch.
+        solver: Optional solve strategy for computing K_y^{-1} y
+            and for the ``diag_inv`` computation. When ``None``,
+            falls back to structural dispatch.
+        diag_inv_method: Method passed to :func:`diag_inv`. Defaults to
+            ``"solve"`` so the LOO variances remain deterministic.
+        diag_inv_num_probes: Number of Hutchinson probes when
+            ``diag_inv_method="hutchinson"``.
+        diag_inv_key: PRNG key for probe generation when
+            ``diag_inv_method="hutchinson"``.
 
     Returns:
         A :class:`LOOResult` containing the LOO log-likelihood,
         predictive means, and predictive variances.
     """
     alpha = dispatch_solve(operator, y, solver)
-    diag_Kinv = diag_inv(operator)
+    diag_Kinv = diag_inv(
+        operator,
+        method=diag_inv_method,
+        num_probes=diag_inv_num_probes,
+        key=diag_inv_key,
+        solver=solver,
+    )
 
     loo_means = y - alpha / diag_Kinv
     loo_variances = 1.0 / diag_Kinv

@@ -37,7 +37,9 @@ def safe_cholesky(
 
     Returns:
         Lower-triangular Cholesky factor as a dense ``jnp.ndarray``.
-        If all attempts fail, the result will contain NaNs.
+        If all attempts fail the result will contain NaNs — this is
+        intentional: JAX cannot raise exceptions inside ``jit``-traced
+        code, so callers should check for NaNs when robustness matters.
     """
     A = operator.as_matrix()
     n = A.shape[0]

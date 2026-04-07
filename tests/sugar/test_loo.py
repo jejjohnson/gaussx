@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx import leave_one_out_cv
+from gaussx._strategies import DenseSolver
 
 
 class TestLeaveOneOutCV:
@@ -58,3 +59,26 @@ class TestLeaveOneOutCV:
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
         result = leave_one_out_cv(op, y)
         assert jnp.isfinite(result.loo_log_likelihood)
+
+    def test_loo_with_explicit_diag_inv_solver(self, getkey):
+        """The diagonal-inverse path can reuse an explicit solve strategy."""
+        N = 6
+        A = jax.random.normal(getkey(), (N, N))
+        K = A @ A.T + 0.5 * jnp.eye(N)
+        y = jax.random.normal(getkey(), (N,))
+        op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+        result = leave_one_out_cv(
+            op,
+            y,
+            solver=DenseSolver(),
+            diag_inv_method="solve",
+        )
+
+        K_inv = jnp.linalg.inv(K)
+        alpha = K_inv @ y
+        diag_Kinv = jnp.diag(K_inv)
+        expected_means = y - alpha / diag_Kinv
+        expected_vars = 1.0 / diag_Kinv
+
+        assert jnp.allclose(result.loo_means, expected_means, atol=1e-4)
+        assert jnp.allclose(result.loo_variances, expected_vars, atol=1e-4)
