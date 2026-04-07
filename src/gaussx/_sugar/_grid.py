@@ -77,6 +77,14 @@ def cubic_interpolation_weights(
     B = x_target.shape[0]
     grid_sizes = [g.shape[0] for g in grid]
 
+    for d, n in enumerate(grid_sizes):
+        if n < 4:
+            msg = (
+                f"Cubic interpolation requires at least 4 grid points per "
+                f"dimension, but dimension {d} has {n}."
+            )
+            raise ValueError(msg)
+
     # Compute strides for manual flat indexing
     strides = []
     s = 1

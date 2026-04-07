@@ -12,6 +12,8 @@ def collapsed_elbo(
     K_xz: jnp.ndarray,
     K_zz: jnp.ndarray,
     noise_var: float,
+    *,
+    jitter: float = 1e-6,
 ) -> jnp.ndarray:
     """Collapsed ELBO (Titsias bound) for sparse GP regression.
 
@@ -31,6 +33,8 @@ def collapsed_elbo(
             shape ``(N, M)``.
         K_zz: Inducing point kernel matrix, shape ``(M, M)``.
         noise_var: Observation noise variance (scalar).
+        jitter: Diagonal jitter for numerical stability in Cholesky
+            decomposition of ``K_zz``.
 
     Returns:
         Scalar ELBO value.
@@ -39,8 +43,8 @@ def collapsed_elbo(
     M = K_zz.shape[0]
     log_2pi = jnp.log(2.0 * jnp.pi)
 
-    # L_zz @ L_zz^T = K_zz
-    L_zz = jnp.linalg.cholesky(K_zz)
+    # L_zz @ L_zz^T = K_zz + jitter * I
+    L_zz = jnp.linalg.cholesky(K_zz + jitter * jnp.eye(M))
 
     # V = L_zz^{-1} @ K_xz^T, shape (M, N)
     V = lax.linalg.triangular_solve(L_zz, K_xz.T, left_side=True, lower=True)

@@ -26,7 +26,7 @@ class AnalyticalPsiStatistics(Protocol):
             state: Input Gaussian distribution.
 
         Returns:
-            Scalar or shape ``(N,)`` expected self-kernel values.
+            Scalar expected self-kernel value.
         """
         ...
 
@@ -42,7 +42,7 @@ class AnalyticalPsiStatistics(Protocol):
             X_train: Training/inducing points, shape ``(M, D)``.
 
         Returns:
-            Shape ``(N, M)`` expected cross-kernel values.
+            Shape ``(M,)`` expected cross-kernel values.
         """
         ...
 
@@ -58,7 +58,7 @@ class AnalyticalPsiStatistics(Protocol):
             X_train: Training/inducing points, shape ``(M, D)``.
 
         Returns:
-            Shape ``(M, M)`` or ``(N, M, M)`` expected outer products.
+            Shape ``(M, M)`` expected outer products.
         """
         ...
 
@@ -110,10 +110,10 @@ def compute_psi_statistics(
     # Numerical fallback: integrate kernel evaluations over the input distribution
     # psi0: E[k(x, x)]
     def _k_self(x: jnp.ndarray) -> jnp.ndarray:
-        return kernel(x, x)  # type: ignore[operator]
+        return jnp.atleast_1d(kernel(x, x))  # type: ignore[operator]
 
     psi0_result = integrator.integrate(_k_self, state)
-    psi0 = psi0_result.state.mean
+    psi0 = psi0_result.state.mean[0]
 
     # psi1: E[k(x, X_j)] for each inducing point j
     def _k_cross(x: jnp.ndarray) -> jnp.ndarray:

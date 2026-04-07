@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from gaussx import create_grid, cubic_interpolation_weights, grid_data
 
@@ -102,3 +103,10 @@ class TestCubicInterpolationWeights:
 
         _indices, weights = interp(x)
         assert jnp.all(jnp.isfinite(weights))
+
+    def test_rejects_small_grid(self):
+        """Raises ValueError when grid has fewer than 4 points."""
+        grid = create_grid([3], [(-1.0, 1.0)])
+        x = jnp.array([[0.0]])
+        with pytest.raises(ValueError, match="at least 4"):
+            cubic_interpolation_weights(x, grid)

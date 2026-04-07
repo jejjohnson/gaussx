@@ -33,6 +33,7 @@ def infinite_horizon_filter(
     process_noise: jnp.ndarray,
     obs_noise: jnp.ndarray,
     observations: jnp.ndarray,
+    init_mean: jnp.ndarray | None = None,
     *,
     dare_result: DAREResult | None = None,
     max_iter: int = 100,
@@ -49,6 +50,7 @@ def infinite_horizon_filter(
         process_noise: Process noise covariance Q, shape ``(N, N)``.
         obs_noise: Observation noise covariance R, shape ``(M, M)``.
         observations: Observed data y, shape ``(T, M)``.
+        init_mean: Initial state mean, shape ``(N,)``. Defaults to zeros.
         dare_result: Precomputed DARE result. If ``None``, calls
             ``dare()`` internally.
         max_iter: Maximum DARE iterations (used only if ``dare_result``
@@ -97,13 +99,14 @@ def infinite_horizon_filter(
         v = y_t - obs_model @ x_pred
         x_filt_new = x_pred + K_inf @ v
 
-        # Log-likelihood increment
-        Sinv_v = jnp.linalg.solve(S_inf, v)
+        # Log-likelihood increment (reuse precomputed Cholesky L_S)
+        Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)
         ll_inc = -0.5 * (v @ Sinv_v + ld_inf + M * log_2pi)
 
         return (x_filt_new, ll + ll_inc), (x_filt_new, x_pred)
 
-    init_mean = jnp.zeros(N)
+    if init_mean is None:
+        init_mean = jnp.zeros(N)
     init_carry = (init_mean, jnp.array(0.0))
     (_, total_ll), (f_means, p_means) = jax.lax.scan(
         step,
@@ -149,8 +152,16 @@ def infinite_horizon_smoother(
     N = transition.shape[0]
     G_inf = jnp.linalg.solve(P_pred_inf.T, (P_inf @ transition.T).T).T
 
-    # Steady-state smoothed covariance
-    P_smooth_inf = P_inf + G_inf @ (P_inf - P_pred_inf) @ G_inf.T
+    # Solve the steady-state RTS covariance fixed-point equation
+    # P_smooth = P_inf + G_inf @ (P_smooth - P_pred_inf) @ G_inf.T
+    rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T
+    identity = jnp.eye(N * N, dtype=P_inf.dtype)
+    kron_term = jnp.kron(G_inf, G_inf)
+    P_smooth_inf = jnp.linalg.solve(
+        identity - kron_term,
+        rhs.ravel(),
+    ).reshape(N, N)
+    P_smooth_inf = 0.5 * (P_smooth_inf + P_smooth_inf.T)
 
     T = filter_state.filtered_means.shape[0]
 
