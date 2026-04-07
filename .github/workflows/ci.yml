@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run tests with coverage
-        run: uv run pytest -v
+        run: uv run pytest -v -n auto --cov=src/gaussx --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7

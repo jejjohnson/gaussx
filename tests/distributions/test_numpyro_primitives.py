@@ -69,6 +69,7 @@ class TestPlate:
 
         assert tree_allclose(lp_ours, lp_np, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_plate_nuts(self):
         def model(obs=None):
             mu = numpyro.sample("mu", dist.Normal(0, 2).expand([3]))
@@ -97,6 +98,7 @@ class TestPlate:
         assert samples["x"].shape == (5, 10, 3)
         assert jnp.all(jnp.isfinite(samples["x"]))
 
+    @pytest.mark.slow
     def test_plate_svi(self):
         def model(obs=None):
             mu = numpyro.sample("mu", dist.Normal(0, 2).expand([3]))

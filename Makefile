@@ -129,12 +129,17 @@ typecheck: ## 🔬 Type-check with ty
 
 test: ## 🧪 Run tests with pytest (no coverage)
 	@printf "$(YELLOW)>>> Running tests (no coverage)...$(RESET)\n"
-	uv run pytest -v -o addopts=
+	uv run pytest -v -n auto
 	@printf "$(GREEN)>>> ✅ Tests passed!$(RESET)\n"
+
+test-fast: ## ⚡ Run tests skipping slow (MCMC/SVI) tests
+	@printf "$(YELLOW)>>> Running fast tests...$(RESET)\n"
+	uv run pytest -v -n auto -m "not slow"
+	@printf "$(GREEN)>>> ✅ Fast tests passed!$(RESET)\n"
 
 test-cov: ## 📊 Run tests with coverage report
 	@printf "$(YELLOW)>>> Running tests with coverage...$(RESET)\n"
-	uv run pytest -v
+	uv run pytest -v -n auto --cov=src/gaussx --cov-report=term-missing --cov-report=xml:coverage.xml
 	@printf "$(GREEN)>>> ✅ Coverage report generated!$(RESET)\n"
 
 # ===========================================================================

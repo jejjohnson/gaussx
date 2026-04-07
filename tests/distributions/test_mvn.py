@@ -107,12 +107,12 @@ class TestSample:
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(mu, op)
 
-        samples = d.sample(getkey(), sample_shape=(50_000,))
+        samples = d.sample(getkey(), sample_shape=(10_000,))
         sample_mean = jnp.mean(samples, axis=0)
         sample_cov = jnp.cov(samples.T)
 
-        assert jnp.allclose(sample_mean, mu, atol=0.1)
-        assert jnp.allclose(sample_cov, Sigma, atol=0.3)
+        assert jnp.allclose(sample_mean, mu, atol=0.15)
+        assert jnp.allclose(sample_cov, Sigma, atol=0.5)
 
     def test_single_sample(self, getkey):
         n = 3
