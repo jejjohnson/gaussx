@@ -21,6 +21,10 @@ from gaussx._uncertain._gp_predict import (
 from gaussx._uncertain._integrator import AbstractIntegrator
 from gaussx._uncertain._likelihood import AbstractLikelihood, GaussianLikelihood
 from gaussx._uncertain._monte_carlo import MonteCarloIntegrator
+from gaussx._uncertain._psi_statistics import (
+    AnalyticalPsiStatistics,
+    compute_psi_statistics,
+)
 from gaussx._uncertain._taylor import TaylorIntegrator
 from gaussx._uncertain._types import GaussianState, PropagationResult
 from gaussx._uncertain._unscented import UnscentedIntegrator
@@ -29,6 +33,7 @@ from gaussx._uncertain._unscented import UnscentedIntegrator
 __all__ = [
     "AbstractIntegrator",
     "AbstractLikelihood",
+    "AnalyticalPsiStatistics",
     "AssumedDensityFilter",
     "GaussHermiteIntegrator",
     "GaussianLikelihood",
@@ -37,6 +42,7 @@ __all__ = [
     "PropagationResult",
     "TaylorIntegrator",
     "UnscentedIntegrator",
+    "compute_psi_statistics",
     "cost_expectation",
     "elbo",
     "expected_log_likelihood",

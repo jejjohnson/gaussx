@@ -7,9 +7,15 @@ from gaussx._recipes._cvi import (
     sites_to_precision,
 )
 from gaussx._recipes._dare import DAREResult, dare
+from gaussx._recipes._emission import EmissionModel
 from gaussx._recipes._ensemble import (
     ensemble_covariance,
     ensemble_cross_covariance,
+)
+from gaussx._recipes._infinite_horizon_kalman import (
+    InfiniteHorizonState,
+    infinite_horizon_filter,
+    infinite_horizon_smoother,
 )
 from gaussx._recipes._interpolation import conditional_interpolate
 from gaussx._recipes._kalman import (
@@ -48,8 +54,10 @@ from gaussx._recipes._ssm_natural import (
 
 __all__ = [
     "DAREResult",
+    "EmissionModel",
     "FilterState",
     "GaussianSites",
+    "InfiniteHorizonState",
     "LOVECache",
     "base_conditional",
     "conditional_interpolate",
@@ -61,6 +69,8 @@ __all__ = [
     "expectation_to_natural",
     "expectations_to_ssm",
     "gauss_kl",
+    "infinite_horizon_filter",
+    "infinite_horizon_smoother",
     "kalman_filter",
     "kalman_gain",
     "kronecker_mll",

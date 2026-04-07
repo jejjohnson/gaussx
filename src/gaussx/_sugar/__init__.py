@@ -7,6 +7,7 @@ from gaussx._sugar._blr import (
     ggn_diagonal,
     hutchinson_hessian_diag,
 )
+from gaussx._sugar._collapsed_elbo import collapsed_elbo
 from gaussx._sugar._diag_inv import diag_inv
 from gaussx._sugar._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._sugar._gaussian import (
@@ -16,6 +17,7 @@ from gaussx._sugar._gaussian import (
     kl_standard_normal,
     quadratic_form,
 )
+from gaussx._sugar._grid import create_grid, cubic_interpolation_weights, grid_data
 from gaussx._sugar._inference import (
     cavity_distribution,
     gaussian_expected_log_lik,
@@ -45,6 +47,7 @@ from gaussx._sugar._natural_gradient import (
     gauss_newton_precision,
     riemannian_psd_correction,
 )
+from gaussx._sugar._oilmm import oilmm_back_project, oilmm_project
 from gaussx._sugar._prediction_cache import (
     PredictionCache,
     build_prediction_cache,
@@ -77,9 +80,12 @@ __all__ = [
     "cavity_distribution",
     "center_kernel",
     "centering_operator",
+    "collapsed_elbo",
     "conditional_variance",
     "cov_transform",
+    "create_grid",
     "cubature_points",
+    "cubic_interpolation_weights",
     "damped_natural_update",
     "diag_conditional_variance",
     "diag_inv",
@@ -89,6 +95,7 @@ __all__ = [
     "gaussian_expected_log_lik",
     "gaussian_log_prob",
     "ggn_diagonal",
+    "grid_data",
     "hsic",
     "hutchinson_hessian_diag",
     "joseph_update",
@@ -98,6 +105,8 @@ __all__ = [
     "mmd_squared",
     "newton_update",
     "nystrom_operator",
+    "oilmm_back_project",
+    "oilmm_project",
     "predict_mean",
     "predict_variance",
     "process_noise_covariance",
