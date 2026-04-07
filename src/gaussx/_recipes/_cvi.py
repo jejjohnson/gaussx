@@ -14,7 +14,7 @@ class GaussianSites(eqx.Module):
 
     Stores per-timestep natural parameters for ``N`` Gaussian sites,
     following the ``\eta_2 = -\tfrac{1}{2}\Lambda`` convention
-    (consistent with :func:`gaussx.expectation_to_natural`).
+    (consistent with :func:`gaussx.mean_cov_to_natural`).
 
     Attributes:
         nat1: Natural location parameters, shape ``(N, d)``.

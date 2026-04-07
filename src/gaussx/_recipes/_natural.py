@@ -1,4 +1,10 @@
-"""Natural <-> expectation parameter conversions for Gaussians."""
+"""Natural <-> mean/covariance parameter conversions for Gaussians.
+
+These functions convert between natural parameters ``(eta1, eta2)``
+and mean/covariance ``(mu, Sigma)`` where ``Sigma`` is a lineax
+operator. For moment-based expectation parameters ``(m1, m2)`` see
+:mod:`gaussx._recipes._parameterizations`.
+"""
 
 from __future__ import annotations
 
@@ -9,11 +15,11 @@ from gaussx._primitives._inv import inv
 from gaussx._primitives._solve import solve
 
 
-def natural_to_expectation(
+def natural_to_mean_cov(
     eta1: jnp.ndarray,
     eta2: lx.AbstractLinearOperator,
 ) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
-    """Convert natural parameters to expectation parameters.
+    """Convert natural parameters to mean/covariance.
 
     Given natural parameters ``(eta1, eta2)`` where
     ``eta1 = Lambda @ mu`` and ``eta2 = -0.5 * Lambda``:
@@ -35,11 +41,11 @@ def natural_to_expectation(
     return mu, Sigma
 
 
-def expectation_to_natural(
+def mean_cov_to_natural(
     mu: jnp.ndarray,
     Sigma: lx.AbstractLinearOperator,
 ) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
-    """Convert expectation parameters to natural parameters.
+    """Convert mean/covariance to natural parameters.
 
     Given mean ``mu`` and covariance ``Sigma``:
 

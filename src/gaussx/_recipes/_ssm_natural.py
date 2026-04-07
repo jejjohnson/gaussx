@@ -25,7 +25,7 @@ def ssm_to_naturals(
     the joint prior ``p(x_0, \ldots, x_{N-1})`` has a block-tridiagonal
     precision matrix. This function returns its natural parameters
     ``(\theta_1, \theta_2)`` where ``\theta_2 = -\tfrac{1}{2}\Lambda``
-    (matching the convention in :func:`gaussx.expectation_to_natural`).
+    (matching the convention in :func:`gaussx.mean_cov_to_natural`).
 
     Args:
         A: Transition matrices, shape ``(N-1, d, d)``.
