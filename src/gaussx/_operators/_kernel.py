@@ -95,42 +95,51 @@ def _make_kernel_mv(kernel_fn: Callable) -> Callable:
 
         _, grad_v = jax.lax.scan(body_fn_t, None, X2)
 
-        # ∂L/∂params via bilinear trick:
-        #   ∂L/∂θ = Σ_ij u_i v_j (∂k/∂θ)(params, x1_i, x2_j)
+        # ∂L/∂params, ∂L/∂X1, ∂L/∂X2 via bilinear trick.
         # We scan over rows (i) and vmap over columns (j) so that each
         # iteration only holds one row of gradients in memory.
-        dk_dparams = jax.grad(kernel_fn, argnums=0)
+        #   ∂L/∂θ   = Σ_ij u_i v_j (∂k/∂θ)(params, x1_i, x2_j)
+        #   ∂L/∂x1_i = u_i Σ_j v_j (∂k/∂x1)(params, x1_i, x2_j)
+        #   ∂L/∂x2  += u_i Σ ... (accumulated across rows)
+        dk_all = jax.grad(kernel_fn, argnums=(0, 1, 2))
 
-        # Initialize accumulator to zeros with same structure as params
-        zero_acc = jax.tree.map(jnp.zeros_like, params_res)
+        # Initialize accumulators
+        zero_params = jax.tree.map(jnp.zeros_like, params_res)
+        zero_X2 = jnp.zeros_like(X2)
 
-        # Per-pair gradient: dk/dθ(params, x1_i, x2_j)
-        def _pair_grad(x1_i: Float[Array, " D"], x2_j: Float[Array, " D"]) -> PyTree:
-            return dk_dparams(params_res, x1_i, x2_j)
+        # Per-pair gradient: dk/d(params, x1, x2)
+        def _pair_grad(
+            x1_i: Float[Array, " D"], x2_j: Float[Array, " D"]
+        ) -> tuple[PyTree, Float[Array, " D"], Float[Array, " D"]]:
+            return dk_all(params_res, x1_i, x2_j)
 
-        # vmap over j for a single x1_i -> pytree with leaves (M, ...)
+        # vmap over j for a single x1_i
         _row_grads = jax.vmap(_pair_grad, in_axes=(None, 0))
 
-        # Accumulate one row: Σ_j v_j * dk/dθ(params, x1_i, x2_j)
         def _weighted_row(
-            carry: PyTree, x1_i_ui: tuple[Float[Array, " D"], Float[Array, ""]]
-        ) -> tuple[PyTree, None]:
+            carry: tuple[PyTree, Float[Array, "M D"]],
+            x1_i_ui: tuple[Float[Array, " D"], Float[Array, ""]],
+        ) -> tuple[tuple[PyTree, Float[Array, "M D"]], Float[Array, " D"]]:
+            acc_params, acc_X2 = carry
             x1_i, ui = x1_i_ui
-            row_g = _row_grads(x1_i, X2)  # pytree, leaves (M, ...)
-            # weight by v (shape M) and ui (scalar), sum over M
-            weighted = jax.tree.map(
+            # grads: (params_g, x1_g, x2_g) with leaves (M, ...)
+            g_params, g_x1, g_x2 = _row_grads(x1_i, X2)
+            # Weight by u_i * v_j and sum over j (M axis)
+            w_params = jax.tree.map(
                 lambda rg: ui * jnp.tensordot(v, rg, axes=([0], [0])),
-                row_g,
+                g_params,
             )
-            carry = jax.tree.map(lambda c, w: c + w, carry, weighted)
-            return carry, None
+            acc_params = jax.tree.map(lambda c, w: c + w, acc_params, w_params)
+            # ∂L/∂x1_i = u_i * Σ_j v_j * dk/dx1(x1_i, x2_j)
+            # g_x1 has shape (M, D), weight by v and sum over M
+            grad_x1_i = ui * jnp.einsum("j,jd->d", v, g_x1)
+            # ∂L/∂x2_j += u_i * v_j * dk/dx2(x1_i, x2_j)
+            acc_X2 = acc_X2 + ui * (v[:, None] * g_x2)
+            return (acc_params, acc_X2), grad_x1_i
 
-        grad_params, _ = jax.lax.scan(_weighted_row, zero_acc, (X1, u))
-
-        # We don't provide useful gradients for X1, X2 (treat as constant
-        # data).  Return zeros so the signature matches.
-        grad_X1 = jnp.zeros_like(X1)
-        grad_X2 = jnp.zeros_like(X2)
+        (grad_params, grad_X2), grad_X1 = jax.lax.scan(
+            _weighted_row, (zero_params, zero_X2), (X1, u)
+        )
 
         return grad_params, grad_X1, grad_X2, grad_v
 

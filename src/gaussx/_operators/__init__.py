@@ -12,6 +12,7 @@ from gaussx._operators._block_tridiag import (
 )
 from gaussx._operators._implicit_cross_kernel import (
     ImplicitCrossKernelOperator,
+    _TransposedCrossKernelOperator,
     implicit_cross_kernel,
 )
 from gaussx._operators._implicit_kernel import ImplicitKernelOperator
@@ -394,6 +395,24 @@ def _(operator: ImplicitCrossKernelOperator) -> bool:
 
 @lx.is_positive_semidefinite.register(ImplicitCrossKernelOperator)
 def _(operator: ImplicitCrossKernelOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# _TransposedCrossKernelOperator tag registrations
+
+
+@lx.is_symmetric.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 

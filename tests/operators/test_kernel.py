@@ -233,6 +233,62 @@ class TestGradients:
             rtol=1e-4,
         )
 
+    def test_grad_x_matches_dense(self, getkey):
+        """Gradient w.r.t. kernel inputs should match dense autodiff."""
+        X = jr.normal(getkey(), (6, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (6,))
+        u = jr.normal(getkey(), (6,))
+
+        def loss_custom(X):
+            op = KernelOperator(_rbf_kernel, X, X, params)
+            return jnp.dot(u, op.mv(v))
+
+        def loss_dense(X):
+            K = _build_dense(_rbf_kernel, params, X, X)
+            return jnp.dot(u, K @ v)
+
+        grad_custom = jax.grad(loss_custom)(X)
+        grad_dense = jax.grad(loss_dense)(X)
+
+        assert tree_allclose(grad_custom, grad_dense, rtol=1e-4)
+
+    def test_grad_x_rectangular(self, getkey):
+        """Gradient w.r.t. X1 and X2 separately for rectangular."""
+        X1 = jr.normal(getkey(), (8, 2))
+        X2 = jr.normal(getkey(), (5, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (5,))
+        u = jr.normal(getkey(), (8,))
+
+        def loss_custom_x1(X1):
+            op = KernelOperator(_rbf_kernel, X1, X2, params)
+            return jnp.dot(u, op.mv(v))
+
+        def loss_dense_x1(X1):
+            K = _build_dense(_rbf_kernel, params, X1, X2)
+            return jnp.dot(u, K @ v)
+
+        assert tree_allclose(
+            jax.grad(loss_custom_x1)(X1),
+            jax.grad(loss_dense_x1)(X1),
+            rtol=1e-4,
+        )
+
+        def loss_custom_x2(X2):
+            op = KernelOperator(_rbf_kernel, X1, X2, params)
+            return jnp.dot(u, op.mv(v))
+
+        def loss_dense_x2(X2):
+            K = _build_dense(_rbf_kernel, params, X1, X2)
+            return jnp.dot(u, K @ v)
+
+        assert tree_allclose(
+            jax.grad(loss_custom_x2)(X2),
+            jax.grad(loss_dense_x2)(X2),
+            rtol=1e-4,
+        )
+
 
 # ---------------------------------------------------------------------------
 # JAX transforms
