@@ -7,7 +7,8 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 
-from gaussx._primitives._solve import solve
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 class FilterState(eqx.Module):
@@ -36,6 +37,8 @@ def kalman_filter(
     observations: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> FilterState:
     """Kalman filter forward pass via ``jax.lax.scan``.
 
@@ -53,6 +56,8 @@ def kalman_filter(
         observations: Observed data y, shape ``(T, M)``.
         init_mean: Initial state mean x0, shape ``(N,)``.
         init_cov: Initial state covariance P0, shape ``(N, N)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         A ``FilterState`` with filtered/predicted means, covariances,
@@ -71,18 +76,18 @@ def kalman_filter(
         # --- Update ---
         v = y_t - obs_model @ x_pred  # innovation
         S = obs_model @ P_pred @ obs_model.T + obs_noise  # innovation cov
-        S_op = lx.MatrixLinearOperator(S)
+        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
         # Kalman gain: K = P_pred @ H^T @ S^{-1}
         PHt = P_pred @ obs_model.T  # (N, M)
-        K = jax.vmap(lambda row: solve(S_op, row))(PHt)  # (N, M)
+        K = jax.vmap(lambda row: dispatch_solve(S_op, row, solver))(PHt)  # (N, M)
 
         x_filt_new = x_pred + K @ v
         P_filt_new = P_pred - K @ S @ K.T
 
         # Log-likelihood increment
-        Sinv_v = solve(S_op, v)
-        _, ld = jnp.linalg.slogdet(S)
+        Sinv_v = dispatch_solve(S_op, v, solver)
+        ld = dispatch_logdet(S_op, solver)
         ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
 
         carry_new = (x_filt_new, P_filt_new, ll + ll_inc)
@@ -107,6 +112,8 @@ def rts_smoother(
     filter_state: FilterState,
     transition: jnp.ndarray,
     process_noise: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Rauch-Tung-Striebel backward smoother.
 
@@ -114,6 +121,8 @@ def rts_smoother(
         filter_state: Output of ``kalman_filter``.
         transition: State transition matrix A, shape ``(N, N)``.
         process_noise: Process noise covariance Q, shape ``(N, N)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
@@ -125,10 +134,10 @@ def rts_smoother(
         x_filt, P_filt, x_pred, P_pred = inputs
 
         # Smoother gain: G = P_filt @ A^T @ P_pred^{-1}
-        P_pred_op = lx.MatrixLinearOperator(P_pred)
+        P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
         At = transition.T
         G = P_filt @ At  # (N, N)
-        G = jax.vmap(lambda row: solve(P_pred_op, row))(G)  # (N, N)
+        G = jax.vmap(lambda row: dispatch_solve(P_pred_op, row, solver))(G)  # (N, N)
 
         x_smooth_new = x_filt + G @ (x_smooth - x_pred)
         P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
@@ -166,6 +175,8 @@ def kalman_gain(
     P: lx.AbstractLinearOperator,
     H: lx.AbstractLinearOperator,
     R: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> jnp.ndarray:
     """Compute Kalman gain ``K = P @ H^T @ (H @ P @ H^T + R)^{-1}``.
 
@@ -173,6 +184,8 @@ def kalman_gain(
         P: Prior covariance operator, shape ``(N, N)``.
         H: Observation model operator, shape ``(M, N)``.
         R: Observation noise operator, shape ``(M, M)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Kalman gain matrix of shape ``(N, M)``.
@@ -182,8 +195,8 @@ def kalman_gain(
     R_mat = R.as_matrix()
 
     S = H_mat @ P_mat @ H_mat.T + R_mat  # (M, M)
-    S_op = lx.MatrixLinearOperator(S)
+    S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
     # K = P H^T S^{-1}  =>  solve row by row
     PHt = P_mat @ H_mat.T  # (N, M)
-    return jax.vmap(lambda row: solve(S_op, row))(PHt)  # (N, M)
+    return jax.vmap(lambda row: dispatch_solve(S_op, row, solver))(PHt)  # (N, M)

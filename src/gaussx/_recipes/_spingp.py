@@ -7,8 +7,10 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 def _build_likelihood_precision(
@@ -24,6 +26,9 @@ def _build_likelihood_precision(
 
         Lambda_lik[k] = H_k^T R_k^{-1} H_k
 
+    The observation noise inverse ``R^{-1}`` is computed once via
+    structural dispatch and reused for all time steps.
+
     Args:
         emission_model: Emission matrix. Shape ``(N, d_obs, d)`` for
             per-timestep matrices or ``(d_obs, d)`` for shared.
@@ -34,7 +39,8 @@ def _build_likelihood_precision(
     Returns:
         Block-tridiagonal likelihood precision (block-diagonal).
     """
-    R_inv = jnp.linalg.inv(obs_noise.as_matrix())
+    # Compute R^{-1} once via structural dispatch (obs_noise is typically small)
+    R_inv = inv(obs_noise).as_matrix()
 
     if emission_model.ndim == 2:
         # Shared emission model: H^T R^{-1} H for all time steps
@@ -55,7 +61,8 @@ def _build_data_vector(
 ) -> jnp.ndarray:
     """Build the data contribution to the posterior mean equation.
 
-    Computes ``H^T R^{-1} y`` for each time step.
+    Computes ``H^T R^{-1} y`` for each time step.  The observation
+    noise inverse is computed once and reused for all time steps.
 
     Args:
         emission_model: Emission matrix, shape ``(N, d_obs, d)`` or
@@ -66,7 +73,8 @@ def _build_data_vector(
     Returns:
         Data vector, shape ``(N * d,)``.
     """
-    R_inv = jnp.linalg.inv(obs_noise.as_matrix())
+    # Precompute R^{-1} once (obs_noise is typically small)
+    R_inv = inv(obs_noise).as_matrix()
 
     if emission_model.ndim == 2:
         # Shared: H^T R^{-1} y_k for each k
@@ -85,6 +93,8 @@ def spingp_log_likelihood(
     emission_model: jnp.ndarray,
     obs_noise: lx.AbstractLinearOperator,
     observations: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> jnp.ndarray:
     r"""Log marginal likelihood via sparse inverse GP formulation.
 
@@ -105,6 +115,11 @@ def spingp_log_likelihood(
 
     All operations exploit banded structure for O(Nd³) cost.
 
+    The ``solver`` parameter controls the algorithm used for the
+    large-scale posterior precision operations (solve, logdet).
+    Observation noise operations always use structural dispatch
+    since ``obs_noise`` is typically a small dense matrix.
+
     Args:
         prior_precision: Prior precision as ``BlockTriDiag``,
             shape ``(N, d, d)`` diagonal and ``(N-1, d, d)`` sub-diagonal.
@@ -112,6 +127,9 @@ def spingp_log_likelihood(
             shared or ``(N, d_obs, d)`` per time step.
         obs_noise: Observation noise covariance R operator.
         observations: Observations y, shape ``(N, d_obs)``.
+        solver: Optional solver strategy for posterior precision
+            operations. When ``None``, uses structural dispatch.
+            Observation noise operations always use structural dispatch.
 
     Returns:
         Scalar log marginal likelihood.
@@ -129,19 +147,19 @@ def spingp_log_likelihood(
     eta = _build_data_vector(emission_model, obs_noise, observations)
 
     # Quadratic term: eta^T Lambda_post^{-1} eta
-    post_solve = solve(post_prec, eta)
+    post_solve = dispatch_solve(post_prec, eta, solver)
     quad_term = jnp.dot(eta, post_solve)
 
-    # Observation quadratic: y^T R^{-1} y
-    R_inv = jnp.linalg.inv(obs_noise.as_matrix())
+    # Observation quadratic: y^T R^{-1} y (obs_noise is small, use inv)
+    R_inv = inv(obs_noise).as_matrix()
     obs_quad = jnp.sum(jax.vmap(lambda y_k: y_k @ R_inv @ y_k)(observations))
 
-    # Log determinants
-    ld_post = logdet(post_prec)
-    ld_prior = logdet(prior_precision)
+    # Log determinants (posterior precision: may be large, use solver)
+    ld_post = dispatch_logdet(post_prec, solver)
+    ld_prior = dispatch_logdet(prior_precision, solver)
 
-    # Total observation noise logdet: N * log|R|
-    _, ld_R = jnp.linalg.slogdet(obs_noise.as_matrix())
+    # Total observation noise logdet: N * log|R| (small, structural dispatch)
+    ld_R = logdet(obs_noise)
     ld_R_total = N * ld_R
 
     return -0.5 * (
@@ -154,6 +172,8 @@ def spingp_posterior(
     emission_model: jnp.ndarray,
     obs_noise: lx.AbstractLinearOperator,
     observations: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[jnp.ndarray, BlockTriDiag]:
     r"""Posterior mean and precision via SpInGP.
 
@@ -169,6 +189,8 @@ def spingp_posterior(
             shared or ``(N, d_obs, d)`` per time step.
         obs_noise: Observation noise covariance R operator.
         observations: Observations y, shape ``(N, d_obs)``.
+        solver: Optional solver strategy for posterior precision
+            operations. When ``None``, uses structural dispatch.
 
     Returns:
         Tuple ``(posterior_mean, posterior_precision)`` where
@@ -186,6 +208,6 @@ def spingp_posterior(
     eta = _build_data_vector(emission_model, obs_noise, observations)
 
     # Posterior mean: Lambda_post^{-1} eta
-    post_mean = solve(post_prec, eta)
+    post_mean = dispatch_solve(post_prec, eta, solver)
 
     return post_mean, post_prec

@@ -7,9 +7,9 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._primitives._inv import inv
-from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
 from gaussx._primitives._trace import trace
+from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
+from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 from gaussx._sugar._gaussian import _LOG_2PI
 
 
@@ -17,6 +17,8 @@ def log_marginal_likelihood(
     loc: jnp.ndarray,
     cov_operator: lx.AbstractLinearOperator,
     y: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> jnp.ndarray:
     """GP log marginal likelihood.
 
@@ -30,15 +32,17 @@ def log_marginal_likelihood(
         loc: Prior mean, shape ``(N,)``.
         cov_operator: Covariance operator K, shape ``(N, N)``.
         y: Observations, shape ``(N,)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar log marginal likelihood.
     """
     N = y.shape[-1]
     residual = y - loc
-    alpha = solve(cov_operator, residual)
+    alpha = dispatch_solve(cov_operator, residual, solver)
     quad = residual @ alpha
-    ld = logdet(cov_operator)
+    ld = dispatch_logdet(cov_operator, solver)
     return -0.5 * (quad + ld + N * _LOG_2PI)
 
 
@@ -47,6 +51,8 @@ def gaussian_expected_log_lik(
     q_mu: jnp.ndarray,
     q_cov: lx.AbstractLinearOperator,
     noise: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> jnp.ndarray:
     r"""Expected log-likelihood ``E_q[log N(y | f, R)]``.
 
@@ -61,15 +67,17 @@ def gaussian_expected_log_lik(
         q_mu: Variational mean, shape ``(N,)``.
         q_cov: Variational covariance operator, shape ``(N, N)``.
         noise: Noise covariance operator R, shape ``(N, N)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar expected log-likelihood.
     """
     N = y.shape[-1]
     residual = y - q_mu
-    alpha = solve(noise, residual)
+    alpha = dispatch_solve(noise, residual, solver)
     quad = residual @ alpha
-    ld = logdet(noise)
+    ld = dispatch_logdet(noise, solver)
 
     # Trace correction: tr(R^{-1} q_cov)
     R_inv = inv(noise)
@@ -84,6 +92,8 @@ def trace_correction(
     K_xx: lx.AbstractLinearOperator,
     K_xz: jnp.ndarray,
     K_zz: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolveStrategy | None = None,
 ) -> jnp.ndarray:
     """Trace term in Titsias collapsed ELBO.
 
@@ -98,6 +108,8 @@ def trace_correction(
         K_xx: Full covariance, shape ``(N, N)``.
         K_xz: Cross-covariance, shape ``(N, M)``.
         K_zz: Inducing covariance, shape ``(M, M)``.
+        solver: Optional solve strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar trace correction.
@@ -107,7 +119,7 @@ def trace_correction(
     # tr(K_xz^T K_zz^{-1} K_xz) = sum_ij W_ij * K_xz_ij
     # where W = K_zz^{-1} K_xz^T reshaped, but easier:
     # tr(A^T B) = sum(A * B), so tr(K_xz^T W) where W_col = K_zz^{-1} K_xz_col
-    W = jax.vmap(lambda row: solve(K_zz, row))(K_xz)  # (N, M)
+    W = jax.vmap(lambda row: dispatch_solve(K_zz, row, solver))(K_xz)  # (N, M)
     tr_approx = jnp.sum(K_xz * W)
 
     return tr_full - tr_approx

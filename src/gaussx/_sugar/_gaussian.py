@@ -5,9 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 
-from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
 from gaussx._primitives._trace import trace
+from gaussx._strategies._base import (
+    AbstractLogdetStrategy,
+    AbstractSolverStrategy,
+    AbstractSolveStrategy,
+)
+from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 _LOG_2PI = jnp.log(2.0 * jnp.pi)
@@ -16,23 +20,29 @@ _LOG_2PI = jnp.log(2.0 * jnp.pi)
 def quadratic_form(
     operator: lx.AbstractLinearOperator,
     x: jnp.ndarray,
+    *,
+    solver: AbstractSolveStrategy | None = None,
 ) -> jnp.ndarray:
     """Compute ``x^T A^{-1} x`` via a single solve.
 
     Args:
         operator: A non-singular linear operator A.
         x: Vector, shape ``(N,)``.
+        solver: Optional solve strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar ``x^T A^{-1} x``.
     """
-    return x @ solve(operator, x)
+    return x @ dispatch_solve(operator, x, solver)
 
 
 def gaussian_log_prob(
     loc: jnp.ndarray,
     cov_operator: lx.AbstractLinearOperator,
     value: jnp.ndarray,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> jnp.ndarray:
     """Multivariate normal log-probability.
 
@@ -42,26 +52,30 @@ def gaussian_log_prob(
         = -0.5 * (N log(2 pi) + log|Sigma| + (value - loc)^T Sigma^{-1} (value - loc))
 
     All expensive operations (``solve``, ``logdet``) dispatch on
-    operator structure automatically.
+    operator structure automatically, or through an explicit *solver*.
 
     Args:
         loc: Mean vector, shape ``(N,)``.
         cov_operator: Covariance operator Sigma, shape ``(N, N)``.
         value: Observation vector, shape ``(N,)``.
+        solver: Optional solver strategy (needs both solve and logdet).
+            When ``None``, uses structural dispatch.
 
     Returns:
         Scalar log-probability.
     """
     N = loc.shape[-1]
     residual = value - loc
-    alpha = solve(cov_operator, residual)
+    alpha = dispatch_solve(cov_operator, residual, solver)
     quad = residual @ alpha
-    ld = logdet(cov_operator)
+    ld = dispatch_logdet(cov_operator, solver)
     return -0.5 * (N * _LOG_2PI + ld + quad)
 
 
 def gaussian_entropy(
     cov_operator: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractLogdetStrategy | None = None,
 ) -> jnp.ndarray:
     """Entropy of a multivariate normal ``N(mu, Sigma)``.
 
@@ -73,18 +87,22 @@ def gaussian_entropy(
 
     Args:
         cov_operator: Covariance operator, shape ``(N, N)``.
+        solver: Optional logdet strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar entropy.
     """
     N = cov_operator.in_size()
-    ld = logdet(cov_operator)
+    ld = dispatch_logdet(cov_operator, solver)
     return 0.5 * (N * (1.0 + _LOG_2PI) + ld)
 
 
 def kl_standard_normal(
     m: jnp.ndarray,
     S: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractLogdetStrategy | None = None,
 ) -> jnp.ndarray:
     """KL divergence ``KL(N(m, S) || N(0, I))``.
 
@@ -97,6 +115,8 @@ def kl_standard_normal(
     Args:
         m: Mean vector, shape ``(N,)``.
         S: Covariance operator, shape ``(N, N)``.
+        solver: Optional logdet strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Scalar KL divergence.
@@ -104,7 +124,7 @@ def kl_standard_normal(
     N = m.shape[-1]
     tr_S = trace(S)
     mTm = m @ m
-    ld = logdet(S)
+    ld = dispatch_logdet(S, solver)
     return 0.5 * (tr_S + mTm - N - ld)
 
 

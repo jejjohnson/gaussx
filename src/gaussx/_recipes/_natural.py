@@ -12,12 +12,15 @@ import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._primitives._inv import inv
-from gaussx._primitives._solve import solve
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def natural_to_mean_cov(
     eta1: jnp.ndarray,
     eta2: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
     """Convert natural parameters to mean/covariance.
 
@@ -30,13 +33,15 @@ def natural_to_mean_cov(
     Args:
         eta1: Natural location parameter, shape ``(N,)``.
         eta2: Natural precision-like operator, shape ``(N, N)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Tuple ``(mu, Sigma)`` where mu is shape ``(N,)`` and
         Sigma is a linear operator.
     """
     neg2_eta2 = -2.0 * eta2
-    mu = solve(neg2_eta2, eta1)
+    mu = dispatch_solve(neg2_eta2, eta1, solver)
     Sigma = inv(neg2_eta2)
     return mu, Sigma
 
@@ -44,6 +49,8 @@ def natural_to_mean_cov(
 def mean_cov_to_natural(
     mu: jnp.ndarray,
     Sigma: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
     """Convert mean/covariance to natural parameters.
 
@@ -55,11 +62,13 @@ def mean_cov_to_natural(
     Args:
         mu: Mean vector, shape ``(N,)``.
         Sigma: Covariance operator, shape ``(N, N)``.
+        solver: Optional solver strategy. When ``None``, uses
+            structural dispatch.
 
     Returns:
         Tuple ``(eta1, eta2)`` where eta1 is shape ``(N,)`` and
         eta2 is a linear operator.
     """
-    eta1 = solve(Sigma, mu)
+    eta1 = dispatch_solve(Sigma, mu, solver)
     eta2 = -0.5 * inv(Sigma)
     return eta1, eta2

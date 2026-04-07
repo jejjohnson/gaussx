@@ -5,11 +5,9 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import matfree.decomp
-import matfree.funm
-import matfree.stochtrace
 
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet
 
 
 def _minres_solve(
@@ -152,13 +150,6 @@ def _minres_solve(
     return x_sol
 
 
-def _logabsdet_integrand(order: int):
-    """Build an SLQ integrand for ``log|det(A)|`` of a symmetric operator."""
-    tridiag = matfree.decomp.tridiag_sym(order, reortho="full")
-    dense_funm = matfree.funm.dense_funm_sym_eigh(lambda x: jnp.log(jnp.abs(x)))
-    return matfree.funm.integrand_funm_sym(dense_funm, tridiag)
-
-
 class MINRESSolver(AbstractSolverStrategy):
     """MINRES solver for symmetric (possibly indefinite) systems.
 
@@ -216,21 +207,8 @@ class MINRESSolver(AbstractSolverStrategy):
         Returns:
             Scalar estimate of ``log|det(A + shift I)|``.
         """
-        if key is None:
-            key = jax.random.PRNGKey(0)
-
-        n = operator.in_size()
-
-        def matvec(v):
-            return operator.mv(v) + self.shift * v
-
-        order = min(self.lanczos_order, n)
-        integrand = _logabsdet_integrand(order)
-
-        sample_shape = jnp.zeros(n)
-        sampler = matfree.stochtrace.sampler_rademacher(
-            sample_shape, num=self.num_probes
-        )
-        estimator = matfree.stochtrace.estimator(integrand, sampler)
-
-        return estimator(matvec, key)
+        return IndefiniteSLQLogdet(
+            num_probes=self.num_probes,
+            lanczos_order=self.lanczos_order,
+            shift=self.shift,
+        ).logdet(operator, key=key)
