@@ -11,15 +11,24 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._implicit_kernel import ImplicitKernelOperator
+from gaussx._operators._interpolated import InterpolatedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._lazy_algebra import (
+    ProductOperator,
+    ScaledOperator,
+    SumOperator,
+)
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
     low_rank_plus_diag,
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
+from gaussx._operators._masked import MaskedOperator
+from gaussx._operators._sum_kronecker import SumKronecker
 from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
+from gaussx._operators._toeplitz import Toeplitz
 from gaussx._tags import (
     is_block_diagonal,
     is_block_tridiagonal,
@@ -221,15 +230,148 @@ def _(operator: ImplicitKernelOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
+# MaskedOperator tag registrations
+
+
+@lx.is_symmetric.register(MaskedOperator)
+def _(operator: MaskedOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(MaskedOperator)
+def _(operator: MaskedOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(MaskedOperator)
+def _(operator: MaskedOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# Toeplitz tag registrations
+
+
+@lx.is_symmetric.register(Toeplitz)
+def _(operator: Toeplitz) -> bool:
+    return True
+
+
+@lx.is_diagonal.register(Toeplitz)
+def _(operator: Toeplitz) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(Toeplitz)
+def _(operator: Toeplitz) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# SumOperator tag registrations
+
+
+@lx.is_symmetric.register(SumOperator)
+def _(operator: SumOperator) -> bool:
+    return all(lx.is_symmetric(op) for op in operator.operators)
+
+
+@lx.is_diagonal.register(SumOperator)
+def _(operator: SumOperator) -> bool:
+    return all(lx.is_diagonal(op) for op in operator.operators)
+
+
+@lx.is_positive_semidefinite.register(SumOperator)
+def _(operator: SumOperator) -> bool:
+    return all(lx.is_positive_semidefinite(op) for op in operator.operators)
+
+
+# ScaledOperator tag registrations
+
+
+@lx.is_symmetric.register(ScaledOperator)
+def _(operator: ScaledOperator) -> bool:
+    return lx.is_symmetric(operator.operator)
+
+
+@lx.is_diagonal.register(ScaledOperator)
+def _(operator: ScaledOperator) -> bool:
+    return lx.is_diagonal(operator.operator)
+
+
+@lx.is_positive_semidefinite.register(ScaledOperator)
+def _(operator: ScaledOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# ProductOperator tag registrations
+
+
+@lx.is_symmetric.register(ProductOperator)
+def _(operator: ProductOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(ProductOperator)
+def _(operator: ProductOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(ProductOperator)
+def _(operator: ProductOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# SumKronecker tag registrations
+
+
+@lx.is_symmetric.register(SumKronecker)
+def _(operator: SumKronecker) -> bool:
+    return lx.is_symmetric(operator.kron1) and lx.is_symmetric(operator.kron2)
+
+
+@lx.is_diagonal.register(SumKronecker)
+def _(operator: SumKronecker) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(SumKronecker)
+def _(operator: SumKronecker) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+# InterpolatedOperator tag registrations
+
+
+@lx.is_symmetric.register(InterpolatedOperator)
+def _(operator: InterpolatedOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(InterpolatedOperator)
+def _(operator: InterpolatedOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(InterpolatedOperator)
+def _(operator: InterpolatedOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
 __all__ = [
     "BlockDiag",
     "BlockTriDiag",
     "ImplicitKernelOperator",
+    "InterpolatedOperator",
     "Kronecker",
     "KroneckerSum",
     "LowRankUpdate",
     "LowerBlockTriDiag",
+    "MaskedOperator",
+    "ProductOperator",
     "SVDLowRankUpdate",
+    "ScaledOperator",
+    "SumKronecker",
+    "SumOperator",
+    "Toeplitz",
     "UpperBlockTriDiag",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
