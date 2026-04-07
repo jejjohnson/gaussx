@@ -212,7 +212,9 @@ def _solve_lower_block_tridiag(
     """Forward substitution for lower block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    b = vector.reshape(N, d)
+    from einops import rearrange
+
+    b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 
     def body_fn(carry, k):
         x_prev = carry
@@ -225,7 +227,7 @@ def _solve_lower_block_tridiag(
         return x_k, x_k
 
     _, x_all = jax.lax.scan(body_fn, jnp.zeros(d, dtype=b.dtype), jnp.arange(N))
-    return x_all.reshape(-1)
+    return rearrange(x_all, "N d -> (N d)")
 
 
 def _solve_upper_block_tridiag(
@@ -235,7 +237,9 @@ def _solve_upper_block_tridiag(
     """Backward substitution for upper block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    b = vector.reshape(N, d)
+    from einops import rearrange
+
+    b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 
     def body_fn(carry, k):
         x_next = carry
@@ -251,7 +255,7 @@ def _solve_upper_block_tridiag(
         return x_k, x_k
 
     _, x_rev = jax.lax.scan(body_fn, jnp.zeros(d, dtype=b.dtype), jnp.arange(N))
-    return jnp.flip(x_rev, axis=0).reshape(-1)
+    return rearrange(jnp.flip(x_rev, axis=0), "N d -> (N d)")
 
 
 def _solve_fallback(

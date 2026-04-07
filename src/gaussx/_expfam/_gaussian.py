@@ -5,6 +5,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 import lineax as lx
+from einops import einsum
 
 from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet
@@ -168,7 +169,7 @@ def sufficient_stats(x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
     if x.ndim == 1:
         return x, jnp.outer(x, x)
     # Batched: (B, N) -> (B, N, N)
-    return x, jnp.einsum("bi,bj->bij", x, x)
+    return x, einsum(x, x, "b i, b j -> b i j")
 
 
 def kl_divergence(

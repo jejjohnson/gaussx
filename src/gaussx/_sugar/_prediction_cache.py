@@ -10,6 +10,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from einops import reduce
 
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -92,4 +93,4 @@ def predict_variance(
         return dispatch_solve(operator, row, solver)
 
     V = jax.vmap(_solve_row)(K_cross)
-    return K_test_diag - jnp.sum(K_cross * V, axis=1)
+    return K_test_diag - reduce(K_cross * V, "N M -> N", "sum")

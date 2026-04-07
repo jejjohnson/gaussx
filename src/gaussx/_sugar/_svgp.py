@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from einops import reduce
 
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve
@@ -54,12 +55,12 @@ def whitened_svgp_predict(
     # Predictive mean: f_loc = A^T @ u_mean = K_xz @ L_zz^{-T} @ u_mean
     f_loc = A.T @ u_mean
 
-    # Prior variance reduction: Q_xx = sum(A^2, axis=0)
-    Q_xx = jnp.sum(A**2, axis=0)
+    # Prior variance reduction: Q_xx = Σₘ Aₘₙ²
+    Q_xx = reduce(A**2, "M N -> N", "sum")
 
-    # Posterior variance contribution: W = u_chol^T @ A, S = sum(W^2, axis=0)
+    # Posterior variance contribution: W = u_cholᵀ @ A, S = Σₖ Wₖₙ²
     W = u_chol.T @ A
-    S_contrib = jnp.sum(W**2, axis=0)
+    S_contrib = reduce(W**2, "K N -> N", "sum")
 
     # Predictive variance
     f_var = jnp.clip(K_xx_diag - Q_xx + S_contrib, 0.0)

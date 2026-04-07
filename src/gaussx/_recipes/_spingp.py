@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from einops import einsum, rearrange, repeat
 
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._primitives._inv import inv
@@ -45,10 +46,15 @@ def _build_likelihood_precision(
     if emission_model.ndim == 2:
         # Shared emission model: H^T R^{-1} H for all time steps
         block = emission_model.T @ R_inv @ emission_model
-        diag_blocks = jnp.tile(block[None, :, :], (N, 1, 1))
+        diag_blocks = repeat(block, "d1 d2 -> N d1 d2", N=N)
     else:
-        # Per-timestep emission: H_k^T R^{-1} H_k
-        diag_blocks = jax.vmap(lambda H_k: H_k.T @ R_inv @ H_k)(emission_model)
+        # Per-timestep emission: Hₖᵀ R⁻¹ Hₖ
+        diag_blocks = einsum(
+            emission_model,
+            R_inv,
+            emission_model,
+            "N M d1, M M2, N M2 d2 -> N d1 d2",
+        )
 
     sub_diag_blocks = jnp.zeros((N - 1, d, d), dtype=diag_blocks.dtype)
     return BlockTriDiag(diag_blocks, sub_diag_blocks)
@@ -85,7 +91,7 @@ def _build_data_vector(
             emission_model, observations
         )
 
-    return data_vec.reshape(-1)
+    return rearrange(data_vec, "N d -> (N d)")
 
 
 def spingp_log_likelihood(

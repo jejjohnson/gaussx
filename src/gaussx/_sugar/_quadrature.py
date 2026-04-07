@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
+from einops import rearrange, reduce
 from jaxtyping import Array, Float
 
 from gaussx._primitives._sqrt import sqrt
@@ -39,12 +40,12 @@ def gauss_hermite_points(
 
     # Tensor product via meshgrid
     grids = jnp.meshgrid(*([x1d] * dim), indexing="ij")
-    points = jnp.stack([g.ravel() for g in grids], axis=-1)
+    stacked = jnp.stack(grids, axis=0)  # (dim, *grid_shape)
+    points = rearrange(stacked, "D ... -> (...) D")
 
     weight_grids = jnp.meshgrid(*([w1d] * dim), indexing="ij")
-    weights = weight_grids[0].ravel()
-    for i in range(1, dim):
-        weights = weights * weight_grids[i].ravel()
+    weight_stack = jnp.stack(weight_grids, axis=0)  # (dim, *grid_shape)
+    weights = reduce(weight_stack, "D ... -> (...)", "prod")
 
     return points, weights
 

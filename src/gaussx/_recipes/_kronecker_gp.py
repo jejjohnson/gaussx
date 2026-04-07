@@ -159,12 +159,12 @@ def _kron_rotate(
     x = x.reshape(grid_shape)
 
     for i, Q_i in enumerate(vecs_list):
-        # Move axis i to last position, apply Q_i^T, move back
+        # Move axis i to last position, apply Qᵢᵀ, move back
         x = jnp.moveaxis(x, i, -1)
         x = x @ Q_i  # (..., n_i) @ (n_i, n_i) -> (..., n_i)
         x = jnp.moveaxis(x, -1, i)
 
-    return x.ravel()
+    return rearrange(x, "... -> (...)")
 
 
 def _kron_matvec(
@@ -185,4 +185,4 @@ def _kron_matvec(
         out_shape.append(A_i.shape[0])
         x = jnp.moveaxis(x, -1, i)
 
-    return x.ravel()
+    return rearrange(x, "... -> (...)")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from einops import reduce
 
 
 def cov_transform(
@@ -47,7 +48,7 @@ def trace_product(
     """
     A_mat = A.as_matrix()
     B_mat = B.as_matrix()
-    return jnp.sum(A_mat * B_mat.T)
+    return reduce(A_mat * B_mat.T, "i j -> ", "sum")
 
 
 def diag_conditional_variance(
@@ -75,5 +76,5 @@ def diag_conditional_variance(
     Returns:
         Conditional variances, shape ``(N,)``.
     """
-    correction = jnp.sum(A_X * K_XZ, axis=1)
+    correction = reduce(A_X * K_XZ, "N M -> N", "sum")
     return jnp.clip(K_XX_diag - correction, 0.0)

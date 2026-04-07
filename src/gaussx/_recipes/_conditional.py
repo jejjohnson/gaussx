@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsla
+from einops import rearrange, repeat
 from jaxtyping import Array, Float
 
 
@@ -51,7 +52,6 @@ def base_conditional(
         ``(mean, var)`` where ``mean`` has shape ``(N, R)`` and ``var``
         has shape ``(N, N, R)`` (full K_nn) or ``(N, R)`` (diagonal K_nn).
     """
-    N = K_mn.shape[1]
     R = f.shape[1]
 
     # Cholesky of prior
@@ -198,12 +198,12 @@ def base_conditional(
                 else:
                     var = jax.vmap(_var_full_full_nonwhite)(q_sqrt)  # (R, N, N)
                 # Transpose from (R, N, N) to (N, N, R)
-                var = jnp.moveaxis(var, 0, -1)
+                var = rearrange(var, "R N1 N2 -> N1 N2 R")
     else:
         # No variational posterior — just prior conditional
         if is_diag_knn:
-            var = jnp.broadcast_to(var_base[:, None], (N, R))
+            var = repeat(var_base, "N -> N R", R=R)
         else:
-            var = jnp.broadcast_to(var_base[..., None], (N, N, R))
+            var = repeat(var_base, "N1 N2 -> N1 N2 R", R=R)
 
     return mean, var

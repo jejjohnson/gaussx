@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+from einops import reduce
 from jaxtyping import Array, Float
 
 
@@ -36,8 +37,8 @@ def stable_squared_distances(
     Z_c = Z.astype(compute_dtype)
 
     # Squared norms — computed in compute_dtype
-    X_sq = jnp.sum(X_c**2, axis=-1)  # (N,)
-    Z_sq = jnp.sum(Z_c**2, axis=-1)  # (M,)
+    X_sq = reduce(X_c**2, "N D -> N", "sum")
+    Z_sq = reduce(Z_c**2, "M D -> M", "sum")
 
     # Cross term — computed in compute_dtype
     cross = X_c @ Z_c.T  # (N, M)

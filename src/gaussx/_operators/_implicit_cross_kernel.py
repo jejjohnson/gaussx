@@ -9,6 +9,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from einops import rearrange
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
@@ -37,8 +38,7 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
         n_padded = ((n + bs - 1) // bs) * bs
         pad_amount = n_padded - n
         X_padded = jnp.pad(X_data, ((0, pad_amount), (0, 0)), mode="constant")
-        num_batches = n_padded // bs
-        X_batched = X_padded.reshape(num_batches, bs, -1)
+        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
 
         def batch_jvp_rows(
             X_batch: Float[Array, "batch_size D"],
@@ -55,7 +55,7 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
             None,
             X_batched,
         )
-        return Kv.reshape(-1)[:n]
+        return rearrange(Kv, "B bs -> (B bs)")[:n]
 
     @jax.custom_jvp
     def cross_kernel_mv(
@@ -90,9 +90,8 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
         pad_amount = n_padded - n
         X_padded = jnp.pad(X_data, ((0, pad_amount), (0, 0)), mode="constant")
         dX_padded = jnp.pad(dX_data, ((0, pad_amount), (0, 0)), mode="constant")
-        num_batches = n_padded // bs
-        X_batched = X_padded.reshape(num_batches, bs, -1)
-        dX_batched = dX_padded.reshape(num_batches, bs, -1)
+        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
+        dX_batched = rearrange(dX_padded, "(B bs) D -> B bs D", bs=bs)
 
         def row_jvp(
             xdx: tuple[Float[Array, " D"], Float[Array, " D"]],
@@ -124,7 +123,9 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
 
         outputs = jax.vmap(batch_jvp)((X_batched, dX_batched))
         primal_out, tangent_out = outputs
-        return primal_out.reshape(-1)[:n], tangent_out.reshape(-1)[:n]
+        return rearrange(primal_out, "B bs -> (B bs)")[:n], rearrange(
+            tangent_out, "B bs -> (B bs)"
+        )[:n]
 
     return cross_kernel_mv
 
@@ -219,8 +220,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
         n_padded = ((n + bs - 1) // bs) * bs
         pad_amount = n_padded - n
         X_padded = jnp.pad(self.X_data, ((0, pad_amount), (0, 0)), mode="constant")
-        num_batches = n_padded // bs
-        X_batched = X_padded.reshape(num_batches, bs, -1)
+        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
 
         def batch_matvec(
             carry: None, X_batch: Float[Array, "batch_size D"]
@@ -233,7 +233,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
             return carry, K_batch @ vector
 
         _, results = jax.lax.scan(batch_matvec, None, X_batched)
-        return results.reshape(-1)[:n]
+        return rearrange(results, "B bs -> (B bs)")[:n]
 
     def transpose(self) -> _TransposedCrossKernelOperator:
         """Return the adjoint operator ``K^T``.
@@ -301,9 +301,8 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
 
         X_padded = jnp.pad(parent.X_data, ((0, pad_amount), (0, 0)), mode="constant")
         u_padded = jnp.pad(vector, (0, pad_amount), mode="constant")
-        num_batches = n_padded // bs
-        X_batched = X_padded.reshape(num_batches, bs, -1)
-        u_batched = u_padded.reshape(num_batches, bs)
+        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
+        u_batched = rearrange(u_padded, "(B bs) -> B bs", bs=bs)
 
         if parent._has_params:
             kfn = parent.kernel_fn
