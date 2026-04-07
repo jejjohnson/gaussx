@@ -127,6 +127,7 @@ class TestLogDensity:
 # ------------------------------------------------------------------ #
 
 
+@pytest.mark.slow
 class TestMCMC:
     def test_nuts_covariance(self):
         obs = jnp.array([1.0, 0.5, -0.5])
@@ -157,6 +158,7 @@ class TestMCMC:
 # ------------------------------------------------------------------ #
 
 
+@pytest.mark.slow
 class TestSVI:
     def test_svi_converges(self):
         obs = jnp.array([1.0, 0.5, -0.5])
@@ -196,6 +198,7 @@ class TestPredictive:
         # Mean should be close to zero
         assert jnp.linalg.norm(jnp.mean(samples["x"], axis=0)) < 0.5
 
+    @pytest.mark.slow
     def test_posterior_predictive(self):
         obs = jnp.array([1.0, 0.5, -0.5])
         kernel = infer.NUTS(_cov_model)
@@ -230,6 +233,7 @@ class TestStructuredInNumpyro:
         assert samples["x"].shape == (100, 6)
         assert jnp.all(jnp.isfinite(samples["x"]))
 
+    @pytest.mark.slow
     def test_diagonal_nuts(self):
         def model(obs=None):
             mu = numpyro.sample("mu", dist.Normal(0, 2).expand([4]))

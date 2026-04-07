@@ -51,7 +51,9 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 
 ```bash
 make install              # Install all deps (uv sync --all-groups) + pre-commit hooks
-make test                 # Run tests: uv run pytest -v
+make test                 # Run tests in parallel: uv run pytest -v -n auto
+make test-fast            # Skip slow (MCMC/SVI) tests: pytest -n auto -m "not slow"
+make test-cov             # Run tests with coverage report (parallel)
 make format               # Auto-fix: ruff format . && ruff check --fix .
 make lint                 # Lint code: ruff check .
 make typecheck            # Type check: ty check src/gaussx
