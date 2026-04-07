@@ -22,20 +22,26 @@
 # **What you'll learn:**
 #
 # 1. How solver strategies decouple algorithms from models
-# 2. Comparing all 7 strategies: `DenseSolver`, `CGSolver`, `AutoSolver`,
+# 2. Comparing all 7 full strategies: `DenseSolver`, `CGSolver`, `AutoSolver`,
 #    `BBMMSolver`, `PreconditionedCGSolver`, `LSMRSolver`, `ComposedSolver`
-# 3. When to use which strategy
+# 3. Standalone logdet strategies: `SLQLogdet`, `DenseLogdet`,
+#    `IndefiniteSLQLogdet`
+# 4. Fine-grained composition via `ComposedSolver`
+# 5. When to use which strategy
 
 # %% [markdown]
 # ## Background
 #
-# Every solver strategy is a subclass of `AbstractSolverStrategy` with two
-# methods:
+# gaussx separates solve and logdet into **independent protocol axes**:
 #
-# - **`.solve(op, b)`** -- solve the linear system $A x = b$
-# - **`.logdet(op)`** -- compute $\log \lvert \det(A) \rvert$
+# - **`AbstractSolveStrategy`** -- just `.solve(op, b)`
+# - **`AbstractLogdetStrategy`** -- just `.logdet(op)`
+# - **`AbstractSolverStrategy`** -- bundles both (inherits from both)
 #
-# This makes it easy to swap algorithms without changing model code.
+# Convenience classes like `CGSolver` implement both methods, but you can
+# also use **standalone logdet strategies** (`SLQLogdet`, `DenseLogdet`,
+# `IndefiniteSLQLogdet`) and compose them freely via `ComposedSolver`.
+#
 # For example, a `MultivariateNormal` distribution accepts a strategy
 # object and delegates all linear algebra to it. During prototyping you
 # might use `DenseSolver`; at scale you switch to `CGSolver` or
@@ -257,29 +263,70 @@ print(f"  logdet error:   {jnp.abs(ld_lsmr - ld_true):.2e}")
 # ## ComposedSolver
 #
 # `ComposedSolver` lets you mix-and-match solve and logdet from different
-# strategies. For example, use an exact dense solve (stable gradients)
-# paired with a stochastic SLQ logdet (cheaper at scale), or an iterative
-# CG solve with a closed-form Kronecker logdet.
+# strategies. It accepts **fine-grained protocols**: any
+# `AbstractSolveStrategy` for the solve side and any
+# `AbstractLogdetStrategy` for the logdet side.
+#
+# This means you can pair a full solver (like `DenseSolver`) with a
+# **standalone logdet strategy** (like `SLQLogdet`) -- no need to wrap
+# the logdet in a full solver class.
 
 # %%
 composed = gaussx.ComposedSolver(
     solve_strategy=gaussx.DenseSolver(),
-    logdet_strategy=gaussx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=500, num_probes=50),
+    logdet_strategy=gaussx.SLQLogdet(num_probes=50, lanczos_order=50),
 )
 
 x_composed = composed.solve(op, b)
 ld_composed = composed.logdet(op, key=jax.random.PRNGKey(99))
 
 residual_composed = jnp.max(jnp.abs(op.mv(x_composed) - b))
-print("ComposedSolver (DenseSolver solve + CGSolver logdet):")
+print("ComposedSolver (DenseSolver solve + SLQLogdet):")
 print(f"  solve residual: {residual_composed:.2e}")
 print(f"  logdet:         {ld_composed:.6f}")
 print(f"  logdet error:   {jnp.abs(ld_composed - ld_true):.2e}")
 
 # %% [markdown]
 # Notice the solve residual matches DenseSolver (exact) while the logdet
-# matches CGSolver (stochastic). This is the main use case: exact solve
-# for stable gradients, stochastic logdet where noise is acceptable.
+# uses stochastic Lanczos quadrature directly. This is the main use case:
+# exact solve for stable gradients, stochastic logdet where noise is
+# acceptable.
+
+# %% [markdown]
+# ## Standalone Logdet Strategies
+#
+# gaussx provides three standalone logdet strategies that implement
+# `AbstractLogdetStrategy`:
+#
+# - **`SLQLogdet`** -- stochastic Lanczos quadrature for PSD operators
+# - **`IndefiniteSLQLogdet`** -- SLQ with $\log\lvert\lambda\rvert$ for
+#   symmetric indefinite operators, with optional diagonal shift
+# - **`DenseLogdet`** -- delegates to `gaussx.logdet` (structural dispatch)
+#
+# These are the building blocks that `CGSolver`, `BBMMSolver`, etc. use
+# internally for their logdet computation. By extracting them as
+# standalone strategies, you can compose them freely.
+
+# %%
+# SLQLogdet: stochastic logdet for PSD operators
+slq = gaussx.SLQLogdet(num_probes=50, lanczos_order=50)
+ld_slq = slq.logdet(op, key=jax.random.PRNGKey(0))
+
+# DenseLogdet: exact logdet via structural dispatch
+dense_ld = gaussx.DenseLogdet()
+ld_exact = dense_ld.logdet(op)
+
+# IndefiniteSLQLogdet: handles indefinite matrices
+indef_slq = gaussx.IndefiniteSLQLogdet(num_probes=50, lanczos_order=50)
+ld_indef = indef_slq.logdet(op, key=jax.random.PRNGKey(0))
+
+print("Standalone logdet strategies:")
+slq_err = jnp.abs(ld_slq - ld_true)
+exact_err = jnp.abs(ld_exact - ld_true)
+indef_err = jnp.abs(ld_indef - ld_true)
+print(f"  SLQLogdet:           {ld_slq:.6f}  (err {slq_err:.2e})")
+print(f"  DenseLogdet:         {ld_exact:.6f}  (err {exact_err:.2e})")
+print(f"  IndefiniteSLQLogdet: {ld_indef:.6f}  (err {indef_err:.2e})")
 
 # %% [markdown]
 # ## Comparison Table
@@ -360,6 +407,8 @@ plt.show()
 # %% [markdown]
 # ## When to Use Which
 #
+# ### Full solver strategies (solve + logdet)
+#
 # | Strategy | Best for | Solve | Logdet |
 # |----------|----------|-------|--------|
 # | `DenseSolver` | Small-medium, structured | Exact | Exact |
@@ -369,6 +418,14 @@ plt.show()
 # | `PrecondCGSolver` | Noisy GP kernels | Precond CG | SLQ |
 # | `LSMRSolver` | Rectangular, ill-cond. | LSMR | SLQ |
 # | `ComposedSolver` | Mix-and-match | Any | Any |
+#
+# ### Standalone logdet strategies
+#
+# | Strategy | Best for |
+# |----------|----------|
+# | `SLQLogdet` | Large PSD operators |
+# | `IndefiniteSLQLogdet` | Symmetric indefinite / shifted |
+# | `DenseLogdet` | Small-medium, structured |
 #
 # **Details:**
 #
@@ -386,12 +443,20 @@ plt.show()
 #   matvec and transpose-matvec.
 # - **ComposedSolver**: Delegates solve and logdet to two
 #   independent strategies; pair exact solve with stochastic logdet, etc.
+# - **SLQLogdet / IndefiniteSLQLogdet / DenseLogdet**: Standalone logdet
+#   strategies usable with `ComposedSolver` for fine-grained control.
 
 # %% [markdown]
 # ## Summary
 #
 # - **Solver strategies** decouple algorithm choice from model code. Swap
 #   a single strategy object to change how `solve` and `logdet` are computed.
+# - **Fine-grained protocols** (`AbstractSolveStrategy`,
+#   `AbstractLogdetStrategy`) let you compose solve and logdet independently
+#   via `ComposedSolver`.
+# - **Standalone logdet strategies** (`SLQLogdet`, `IndefiniteSLQLogdet`,
+#   `DenseLogdet`) can be used directly with `ComposedSolver` for
+#   maximum flexibility -- no need to wrap logdet in a full solver.
 # - **`DenseSolver`** is exact and fast for small-medium problems; it
 #   leverages gaussx structural dispatch for operators like `Kronecker`,
 #   `BlockDiag`, and `LowRankUpdate`.
