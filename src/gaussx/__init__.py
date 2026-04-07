@@ -87,15 +87,20 @@ from gaussx._recipes._parallel_kalman import (
     parallel_rts_smoother as parallel_rts_smoother,
 )
 from gaussx._strategies import (
+    AbstractLogdetStrategy as AbstractLogdetStrategy,
     AbstractSolverStrategy as AbstractSolverStrategy,
+    AbstractSolveStrategy as AbstractSolveStrategy,
     AutoSolver as AutoSolver,
     BBMMSolver as BBMMSolver,
     CGSolver as CGSolver,
     ComposedSolver as ComposedSolver,
+    DenseLogdet as DenseLogdet,
     DenseSolver as DenseSolver,
+    IndefiniteSLQLogdet as IndefiniteSLQLogdet,
     LSMRSolver as LSMRSolver,
     MINRESSolver as MINRESSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,
+    SLQLogdet as SLQLogdet,
 )
 from gaussx._sugar import (
     add_jitter as add_jitter,

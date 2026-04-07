@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -29,5 +30,7 @@ class DenseSolver(AbstractSolverStrategy):
     def logdet(
         self,
         operator: lx.AbstractLinearOperator,
+        *,
+        key: jax.Array | None = None,
     ) -> jnp.ndarray:
         return _logdet(operator)

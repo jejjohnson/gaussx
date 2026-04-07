@@ -80,6 +80,17 @@ def test_deterministic_logdet(getkey):
     assert tree_allclose(ld1, ld2)
 
 
+def test_logdet_respects_explicit_key(getkey):
+    """Passing different keys should change the stochastic estimate."""
+    bbmm = BBMMSolver(seed=42, num_probes=5, lanczos_iter=8)
+    mat = random_pd_matrix(getkey(), 20)
+    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+
+    ld1 = bbmm.logdet(op, key=jr.PRNGKey(1))
+    ld2 = bbmm.logdet(op, key=jr.PRNGKey(2))
+    assert not tree_allclose(ld1, ld2)
+
+
 def test_filter_jit_solve(getkey):
     bbmm = BBMMSolver(cg_tolerance=1e-6)
     mat = random_pd_matrix(getkey(), 4)

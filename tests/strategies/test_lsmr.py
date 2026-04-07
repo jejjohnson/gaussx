@@ -57,3 +57,14 @@ def test_logdet_psd(getkey):
     estimated = solver.logdet(op)
     true_ld = jnp.linalg.slogdet(mat)[1]
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+
+
+def test_logdet_respects_explicit_key(getkey):
+    """Passing different keys should change the stochastic estimate."""
+    solver = LSMRSolver(seed=42, num_probes=5, lanczos_order=8)
+    mat = random_pd_matrix(getkey(), 20)
+    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+
+    ld1 = solver.logdet(op, key=jr.PRNGKey(1))
+    ld2 = solver.logdet(op, key=jr.PRNGKey(2))
+    assert not tree_allclose(ld1, ld2)

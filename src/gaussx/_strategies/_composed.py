@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import (
+    AbstractLogdetStrategy,
+    AbstractSolverStrategy,
+    AbstractSolveStrategy,
+)
 
 
 class ComposedSolver(AbstractSolverStrategy):
@@ -15,6 +20,9 @@ class ComposedSolver(AbstractSolverStrategy):
     log-determinant estimator, or an iterative CG solve with a
     closed-form Kronecker log-determinant.
 
+    Accepts either fine-grained protocols (:class:`AbstractSolveStrategy`,
+    :class:`AbstractLogdetStrategy`) or full solver strategies.
+
     Args:
         solve_strategy: Strategy whose ``.solve()`` method will be used.
         logdet_strategy: Strategy whose ``.logdet()`` method will be used.
@@ -23,12 +31,12 @@ class ComposedSolver(AbstractSolverStrategy):
 
         solver = ComposedSolver(
             solve_strategy=DenseSolver(),
-            logdet_strategy=CGSolver(num_probes=50, lanczos_order=30),
+            logdet_strategy=SLQLogdet(num_probes=50, lanczos_order=30),
         )
     """
 
-    solve_strategy: AbstractSolverStrategy
-    logdet_strategy: AbstractSolverStrategy
+    solve_strategy: AbstractSolveStrategy
+    logdet_strategy: AbstractLogdetStrategy
 
     def solve(
         self,
@@ -41,7 +49,8 @@ class ComposedSolver(AbstractSolverStrategy):
     def logdet(
         self,
         operator: lx.AbstractLinearOperator,
-        **kwargs,
+        *,
+        key: jax.Array | None = None,
     ) -> jnp.ndarray:
         """Compute log |det(A)| using the logdet strategy."""
-        return self.logdet_strategy.logdet(operator, **kwargs)
+        return self.logdet_strategy.logdet(operator, key=key)

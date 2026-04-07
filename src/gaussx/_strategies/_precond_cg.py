@@ -5,12 +5,10 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import matfree.decomp
-import matfree.funm
 import matfree.low_rank
-import matfree.stochtrace
 
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._slq_logdet import SLQLogdet
 
 
 class PreconditionedCGSolver(AbstractSolverStrategy):
@@ -93,6 +91,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     def logdet(
         self,
         operator: lx.AbstractLinearOperator,
+        *,
+        key: jax.Array | None = None,
     ) -> jnp.ndarray:
         """Stochastic log-determinant via Lanczos quadrature.
 
@@ -102,16 +102,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         Returns:
             Scalar estimate of log |det(A)|.
         """
-        key = jax.random.PRNGKey(self.seed)
-        n = operator.in_size()
-
-        order = min(self.lanczos_order, n)
-        tridiag = matfree.decomp.tridiag_sym(order, reortho="full")
-        integrand = matfree.funm.integrand_funm_sym_logdet(tridiag)
-
-        sample_shape = jnp.zeros(n)
-        sampler = matfree.stochtrace.sampler_rademacher(
-            sample_shape, num=self.num_probes
-        )
-        estimator = matfree.stochtrace.estimator(integrand, sampler)
-        return estimator(operator.mv, key)
+        return SLQLogdet(
+            num_probes=self.num_probes,
+            lanczos_order=self.lanczos_order,
+            seed=self.seed,
+        ).logdet(operator, key=key)

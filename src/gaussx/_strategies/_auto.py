@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -45,16 +46,19 @@ class AutoSolver(AbstractSolverStrategy):
     def logdet(
         self,
         operator: lx.AbstractLinearOperator,
+        *,
+        key: jax.Array | None = None,
     ) -> jnp.ndarray:
         """Compute log |det(A)| with automatically selected algorithm.
 
         Args:
             operator: The linear operator A.
+            key: Optional PRNG key (forwarded to stochastic strategies).
 
         Returns:
             Scalar log |det(A)|.
         """
-        return self._get_strategy(operator).logdet(operator)
+        return self._get_strategy(operator).logdet(operator, key=key)
 
     def _get_strategy(
         self, operator: lx.AbstractLinearOperator
