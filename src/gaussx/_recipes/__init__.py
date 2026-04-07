@@ -27,6 +27,12 @@ from gaussx._recipes._natural import (
     expectation_to_natural,
     natural_to_expectation,
 )
+from gaussx._recipes._parameterizations import (
+    expectation_to_meanvar,
+    meanvar_to_expectation,
+    meanvar_to_natural,
+    natural_to_meanvar,
+)
 from gaussx._recipes._spingp import spingp_log_likelihood, spingp_posterior
 from gaussx._recipes._ssm_natural import (
     expectations_to_ssm,
@@ -45,6 +51,7 @@ __all__ = [
     "cvi_update_sites",
     "ensemble_covariance",
     "ensemble_cross_covariance",
+    "expectation_to_meanvar",
     "expectation_to_natural",
     "expectations_to_ssm",
     "gauss_kl",
@@ -54,7 +61,10 @@ __all__ = [
     "kronecker_posterior_predictive",
     "love_cache",
     "love_variance",
+    "meanvar_to_expectation",
+    "meanvar_to_natural",
     "natural_to_expectation",
+    "natural_to_meanvar",
     "naturals_to_ssm",
     "rts_smoother",
     "sites_to_precision",

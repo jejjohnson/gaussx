@@ -58,6 +58,7 @@ from gaussx._recipes import (
     cvi_update_sites as cvi_update_sites,
     ensemble_covariance as ensemble_covariance,
     ensemble_cross_covariance as ensemble_cross_covariance,
+    expectation_to_meanvar as expectation_to_meanvar,
     expectation_to_natural as expectation_to_natural,
     expectations_to_ssm as expectations_to_ssm,
     gauss_kl as gauss_kl,
@@ -67,7 +68,10 @@ from gaussx._recipes import (
     kronecker_posterior_predictive as kronecker_posterior_predictive,
     love_cache as love_cache,
     love_variance as love_variance,
+    meanvar_to_expectation as meanvar_to_expectation,
+    meanvar_to_natural as meanvar_to_natural,
     natural_to_expectation as natural_to_expectation,
+    natural_to_meanvar as natural_to_meanvar,
     naturals_to_ssm as naturals_to_ssm,
     rts_smoother as rts_smoother,
     sites_to_precision as sites_to_precision,
@@ -88,6 +92,7 @@ from gaussx._strategies import (
     ComposedSolver as ComposedSolver,
     DenseSolver as DenseSolver,
     LSMRSolver as LSMRSolver,
+    MINRESSolver as MINRESSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,
 )
 from gaussx._sugar import (
