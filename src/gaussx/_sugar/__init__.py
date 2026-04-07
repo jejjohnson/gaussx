@@ -7,6 +7,7 @@ from gaussx._sugar._blr import (
     ggn_diagonal,
     hutchinson_hessian_diag,
 )
+from gaussx._sugar._diag_inv import diag_inv
 from gaussx._sugar._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._sugar._gaussian import (
     add_jitter,
@@ -37,11 +38,18 @@ from gaussx._sugar._linalg import (
     diag_conditional_variance,
     trace_product,
 )
+from gaussx._sugar._loo import LOOResult, leave_one_out_cv
 from gaussx._sugar._mixed_precision import stable_rbf_kernel, stable_squared_distances
 from gaussx._sugar._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
     riemannian_psd_correction,
+)
+from gaussx._sugar._prediction_cache import (
+    PredictionCache,
+    build_prediction_cache,
+    predict_mean,
+    predict_variance,
 )
 from gaussx._sugar._project import project
 from gaussx._sugar._quadrature import (
@@ -49,6 +57,7 @@ from gaussx._sugar._quadrature import (
     gauss_hermite_points,
     sigma_points,
 )
+from gaussx._sugar._safe_cholesky import safe_cholesky
 from gaussx._sugar._schur import conditional_variance, schur_complement
 from gaussx._sugar._svgp import whitened_svgp_predict
 from gaussx._sugar._svgp_variance import svgp_variance_adjustment
@@ -57,11 +66,14 @@ from gaussx._sugar._woodbury import woodbury_solve
 
 
 __all__ = [
+    "LOOResult",
+    "PredictionCache",
     "add_jitter",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
     "blr_diag_update",
     "blr_full_update",
+    "build_prediction_cache",
     "cavity_distribution",
     "center_kernel",
     "centering_operator",
@@ -70,6 +82,7 @@ __all__ = [
     "cubature_points",
     "damped_natural_update",
     "diag_conditional_variance",
+    "diag_inv",
     "gauss_hermite_points",
     "gauss_newton_precision",
     "gaussian_entropy",
@@ -80,15 +93,19 @@ __all__ = [
     "hutchinson_hessian_diag",
     "joseph_update",
     "kl_standard_normal",
+    "leave_one_out_cv",
     "log_marginal_likelihood",
     "mmd_squared",
     "newton_update",
     "nystrom_operator",
+    "predict_mean",
+    "predict_variance",
     "process_noise_covariance",
     "project",
     "quadratic_form",
     "rff_operator",
     "riemannian_psd_correction",
+    "safe_cholesky",
     "schur_complement",
     "sigma_points",
     "stable_rbf_kernel",
