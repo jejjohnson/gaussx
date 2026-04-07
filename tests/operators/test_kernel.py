@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import KernelOperator
 from gaussx._testing import tree_allclose
@@ -68,6 +69,22 @@ class TestConstruction:
         )
         assert lx.is_symmetric(op) is True
         assert lx.is_positive_semidefinite(op) is True
+
+    def test_psd_requires_square(self, getkey):
+        X1 = jr.normal(getkey(), (5, 2))
+        X2 = jr.normal(getkey(), (4, 2))
+        params = _make_params(getkey())
+        with pytest.raises(
+            ValueError,
+            match="positive_semidefinite_tag is only valid for square operators",
+        ):
+            KernelOperator(
+                _rbf_kernel,
+                X1,
+                X2,
+                params,
+                tags=lx.positive_semidefinite_tag,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +348,125 @@ class TestJAX:
         g = jax.grad(loss_and_grad)(params)
         assert jnp.all(jnp.isfinite(g["variance"]))
         assert jnp.all(jnp.isfinite(g["lengthscale"]))
+
+    def test_jvp_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (6, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (6,))
+        params_tangent = {"variance": jnp.array(0.2), "lengthscale": jnp.array(-0.1)}
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return op.mv(v)
+
+        def loss_dense(p):
+            return _build_dense(_rbf_kernel, p, X, X) @ v
+
+        custom_primal, custom_tangent = jax.jvp(
+            loss_custom, (params,), (params_tangent,)
+        )
+        dense_primal, dense_tangent = jax.jvp(loss_dense, (params,), (params_tangent,))
+
+        assert tree_allclose(custom_primal, dense_primal, rtol=1e-5)
+        assert tree_allclose(custom_tangent, dense_tangent, rtol=1e-4)
+
+    def test_linearize_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (6, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (6,))
+        params_tangent = {"variance": jnp.array(-0.3), "lengthscale": jnp.array(0.15)}
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return op.mv(v)
+
+        def loss_dense(p):
+            return _build_dense(_rbf_kernel, p, X, X) @ v
+
+        custom_primal, custom_lin = jax.linearize(loss_custom, params)
+        dense_primal, dense_lin = jax.linearize(loss_dense, params)
+
+        assert tree_allclose(custom_primal, dense_primal, rtol=1e-5)
+        assert tree_allclose(
+            custom_lin(params_tangent), dense_lin(params_tangent), rtol=1e-4
+        )
+
+    def test_vjp_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (6, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (6,))
+        cotangent = jr.normal(getkey(), (6,))
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return op.mv(v)
+
+        def loss_dense(p):
+            return _build_dense(_rbf_kernel, p, X, X) @ v
+
+        custom_primal, custom_pullback = jax.vjp(loss_custom, params)
+        dense_primal, dense_pullback = jax.vjp(loss_dense, params)
+
+        assert tree_allclose(custom_primal, dense_primal, rtol=1e-5)
+        assert tree_allclose(
+            custom_pullback(cotangent),
+            dense_pullback(cotangent),
+            rtol=1e-4,
+        )
+
+    def test_jacrev_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (5, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (5,))
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return op.mv(v)
+
+        def loss_dense(p):
+            return _build_dense(_rbf_kernel, p, X, X) @ v
+
+        assert tree_allclose(
+            jax.jacrev(loss_custom)(params),
+            jax.jacrev(loss_dense)(params),
+            rtol=1e-4,
+        )
+
+    def test_jacfwd_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (5, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (5,))
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return op.mv(v)
+
+        def loss_dense(p):
+            return _build_dense(_rbf_kernel, p, X, X) @ v
+
+        assert tree_allclose(
+            jax.jacfwd(loss_custom)(params),
+            jax.jacfwd(loss_dense)(params),
+            rtol=1e-4,
+        )
+
+    def test_hessian_matches_dense(self, getkey):
+        X = jr.normal(getkey(), (5, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (5,))
+
+        def loss_custom(p):
+            op = KernelOperator(_rbf_kernel, X, X, p)
+            return jnp.sum(op.mv(v))
+
+        def loss_dense(p):
+            return jnp.sum(_build_dense(_rbf_kernel, p, X, X) @ v)
+
+        assert tree_allclose(
+            jax.hessian(loss_custom)(params),
+            jax.hessian(loss_dense)(params),
+            rtol=1e-4,
+        )
 
 
 # ---------------------------------------------------------------------------
