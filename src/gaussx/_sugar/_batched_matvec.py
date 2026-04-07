@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+from einops import rearrange
 from jaxtyping import Array, Float
 
 
@@ -37,8 +38,7 @@ def batched_kernel_matvec(
     n_padded = ((n + bs - 1) // bs) * bs
     pad_amount = n_padded - n
     X_padded = jnp.pad(X, ((0, pad_amount), (0, 0)), mode="constant")
-    num_batches = n_padded // bs
-    X_batched = X_padded.reshape(num_batches, bs, -1)
+    X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
 
     def scan_body(
         carry: None, X_batch: Float[Array, "batch_size D"]
@@ -49,7 +49,7 @@ def batched_kernel_matvec(
         return carry, K_batch @ v
 
     _, results = jax.lax.scan(scan_body, None, X_batched)
-    return results.reshape(-1)[:n]
+    return rearrange(results, "B bs -> (B bs)")[:n]
 
 
 def batched_kernel_rmatvec(
@@ -82,9 +82,8 @@ def batched_kernel_rmatvec(
     pad_amount = n_padded - n
     X_padded = jnp.pad(X, ((0, pad_amount), (0, 0)), mode="constant")
     u_padded = jnp.pad(u, (0, pad_amount), mode="constant")
-    num_batches = n_padded // bs
-    X_batched = X_padded.reshape(num_batches, bs, -1)
-    u_batched = u_padded.reshape(num_batches, bs)
+    X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
+    u_batched = rearrange(u_padded, "(B bs) -> B bs", bs=bs)
 
     def scan_body(
         acc: Float[Array, " M"],

@@ -5,6 +5,8 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from einops import rearrange, repeat
+from jaxtyping import Array, Float
 
 from gaussx._recipes._dare import DAREResult, dare
 
@@ -13,27 +15,27 @@ class InfiniteHorizonState(eqx.Module):
     """Output of ``infinite_horizon_filter``.
 
     Attributes:
-        filtered_means: Shape ``(T, N)`` -- filtered state estimates.
-        filtered_covs: Shape ``(T, N, N)`` -- filtered covariances (constant).
-        predicted_means: Shape ``(T, N)`` -- predicted state estimates.
-        predicted_covs: Shape ``(T, N, N)`` -- predicted covariances (constant).
-        log_likelihood: Scalar -- total log-likelihood.
+        filtered_means: Filtered state estimates, shape ``(T, N)``.
+        filtered_covs: Filtered covariances (constant), shape ``(T, N, N)``.
+        predicted_means: Predicted state estimates, shape ``(T, N)``.
+        predicted_covs: Predicted covariances (constant), shape ``(T, N, N)``.
+        log_likelihood: Total log-likelihood (scalar).
     """
 
-    filtered_means: jnp.ndarray
-    filtered_covs: jnp.ndarray
-    predicted_means: jnp.ndarray
-    predicted_covs: jnp.ndarray
-    log_likelihood: jnp.ndarray
+    filtered_means: Float[Array, "T N"]
+    filtered_covs: Float[Array, "T N N"]
+    predicted_means: Float[Array, "T N"]
+    predicted_covs: Float[Array, "T N N"]
+    log_likelihood: Float[Array, ""]
 
 
 def infinite_horizon_filter(
-    transition: jnp.ndarray,
-    obs_model: jnp.ndarray,
-    process_noise: jnp.ndarray,
-    obs_noise: jnp.ndarray,
-    observations: jnp.ndarray,
-    init_mean: jnp.ndarray | None = None,
+    transition: Float[Array, "N N"],
+    obs_model: Float[Array, "M N"],
+    process_noise: Float[Array, "N N"],
+    obs_noise: Float[Array, "M M"],
+    observations: Float[Array, "T M"],
+    init_mean: Float[Array, " N"] | None = None,
     *,
     dare_result: DAREResult | None = None,
     max_iter: int = 100,
@@ -41,8 +43,13 @@ def infinite_horizon_filter(
 ) -> InfiniteHorizonState:
     """Infinite-horizon Kalman filter with fixed steady-state gain.
 
-    Uses the DARE solution for a constant Kalman gain, avoiding per-step
-    Riccati updates. Much cheaper per step than the standard Kalman filter.
+    Uses the DARE solution for a constant Kalman gain K∞, avoiding
+    per-step Riccati updates.  For dense matrices, the per-step cost is
+    O(N² + MN + M²) instead of O(N³) for the standard Kalman filter::
+
+        Predict:  x⁻ₜ = A xₜ₋₁
+        Update:   vₜ  = yₜ − H x⁻ₜ
+                  xₜ  = x⁻ₜ + K∞ vₜ
 
     Args:
         transition: State transition matrix A, shape ``(N, N)``.
@@ -72,35 +79,32 @@ def infinite_horizon_filter(
             tol=tol,
         )
 
-    P_inf = dare_result.P_inf
-    K_inf = dare_result.K_inf
+    P_inf = dare_result.P_inf  # (N, N)
+    K_inf = dare_result.K_inf  # (N, M)
     T = observations.shape[0]
     M = obs_model.shape[0]
     N = transition.shape[0]
 
     # Precompute steady-state quantities
-    P_pred_inf = transition @ P_inf @ transition.T + process_noise
-    S_inf = obs_model @ P_pred_inf @ obs_model.T + obs_noise
-    L_S = jnp.linalg.cholesky(S_inf)
-    ld_inf = 2.0 * jnp.sum(jnp.log(jnp.diag(L_S)))
+    P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
+    S_inf = obs_model @ P_pred_inf @ obs_model.T + obs_noise  # (M, M)
+    L_S = jnp.linalg.cholesky(S_inf)  # (M, M)
+    ld_inf = 2.0 * jnp.sum(jnp.log(jnp.diag(L_S)))  # scalar
     log_2pi = jnp.log(2.0 * jnp.pi)
 
-    # Steady-state filtered covariance
+    # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
     I_N = jnp.eye(N)
-    P_filt_inf = (I_N - K_inf @ obs_model) @ P_pred_inf
+    P_filt_inf = (I_N - K_inf @ obs_model) @ P_pred_inf  # (N, N)
 
     def step(carry, y_t):
         x_filt, ll = carry
 
-        # Predict
-        x_pred = transition @ x_filt
-
-        # Update with fixed gain
-        v = y_t - obs_model @ x_pred
-        x_filt_new = x_pred + K_inf @ v
+        x_pred = transition @ x_filt  # (N,)
+        v = y_t - obs_model @ x_pred  # (M,)  innovation
+        x_filt_new = x_pred + K_inf @ v  # (N,)
 
         # Log-likelihood increment (reuse precomputed Cholesky L_S)
-        Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)
+        Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)  # (M,)
         ll_inc = -0.5 * (v @ Sinv_v + ld_inf + M * log_2pi)
 
         return (x_filt_new, ll + ll_inc), (x_filt_new, x_pred)
@@ -114,9 +118,9 @@ def infinite_horizon_filter(
         observations,
     )
 
-    # Tile constant covariances to (T, N, N)
-    f_covs = jnp.broadcast_to(P_filt_inf[None], (T, N, N))
-    p_covs = jnp.broadcast_to(P_pred_inf[None], (T, N, N))
+    # Broadcast constant covariances to (T, N, N)
+    f_covs = repeat(P_filt_inf, "n1 n2 -> T n1 n2", T=T)
+    p_covs = repeat(P_pred_inf, "n1 n2 -> T n1 n2", T=T)
 
     return InfiniteHorizonState(
         filtered_means=f_means,
@@ -129,11 +133,17 @@ def infinite_horizon_filter(
 
 def infinite_horizon_smoother(
     filter_state: InfiniteHorizonState,
-    transition: jnp.ndarray,
+    transition: Float[Array, "N N"],
     dare_result: DAREResult,
-    process_noise: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    process_noise: Float[Array, "N N"],
+) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Infinite-horizon RTS smoother with fixed steady-state gain.
+
+    Precomputes the steady-state smoother gain G∞ = P∞ Aᵀ P⁻pred⁻¹,
+    then runs a backward scan with fixed G∞.  The steady-state smoothed
+    covariance is the solution of the discrete Lyapunov equation::
+
+        P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
 
     Args:
         filter_state: Output of ``infinite_horizon_filter``.
@@ -145,30 +155,33 @@ def infinite_horizon_smoother(
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
         ``(T, N)`` and ``(T, N, N)``.
     """
-    P_inf = dare_result.P_inf
-    P_pred_inf = transition @ P_inf @ transition.T + process_noise
+    P_inf = dare_result.P_inf  # (N, N)
+    P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
 
-    # Steady-state smoother gain: G = P_inf @ A^T @ P_pred^{-1}
+    # Steady-state smoother gain: G∞ = P∞ Aᵀ P⁻pred⁻¹
     N = transition.shape[0]
-    G_inf = jnp.linalg.solve(P_pred_inf.T, (P_inf @ transition.T).T).T
+    G_inf = jnp.linalg.solve(P_pred_inf.T, (P_inf @ transition.T).T).T  # (N, N)
 
-    # Solve the steady-state RTS covariance fixed-point equation
-    # P_smooth = P_inf + G_inf @ (P_smooth - P_pred_inf) @ G_inf.T
-    rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T
-    identity = jnp.eye(N * N, dtype=P_inf.dtype)
-    kron_term = jnp.kron(G_inf, G_inf)
-    P_smooth_inf = jnp.linalg.solve(
-        identity - kron_term,
-        rhs.ravel(),
-    ).reshape(N, N)
-    P_smooth_inf = 0.5 * (P_smooth_inf + P_smooth_inf.T)
+    # Solve discrete Lyapunov equation:
+    # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
+    # ⟺ (I − G∞ ⊗ G∞) vec(P_smooth) = vec(P∞ − G∞ P⁻pred G∞ᵀ)
+    rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T  # (N, N)
+    identity = jnp.eye(N * N, dtype=P_inf.dtype)  # (N², N²)
+    kron_term = jnp.kron(G_inf, G_inf)  # (N², N²)
+    P_smooth_inf = rearrange(
+        jnp.linalg.solve(identity - kron_term, rearrange(rhs, "n1 n2 -> (n1 n2)")),
+        "(n1 n2) -> n1 n2",
+        n1=N,
+        n2=N,
+    )  # (N, N)
+    P_smooth_inf = 0.5 * (P_smooth_inf + P_smooth_inf.T)  # enforce symmetry
 
     T = filter_state.filtered_means.shape[0]
 
     def step(carry, inputs):
         x_smooth = carry
         x_filt, x_pred = inputs
-        x_smooth_new = x_filt + G_inf @ (x_smooth - x_pred)
+        x_smooth_new = x_filt + G_inf @ (x_smooth - x_pred)  # (N,)
         return x_smooth_new, x_smooth_new
 
     init = filter_state.filtered_means[T - 1]
@@ -182,7 +195,7 @@ def infinite_horizon_smoother(
     s_means = jnp.concatenate(
         [s_means_rev[::-1], filter_state.filtered_means[T - 1 :]],
         axis=0,
-    )
-    s_covs = jnp.broadcast_to(P_smooth_inf[None], (T, N, N))
+    )  # (T, N)
+    s_covs = repeat(P_smooth_inf, "n1 n2 -> T n1 n2", T=T)  # (T, N, N)
 
     return s_means, s_covs

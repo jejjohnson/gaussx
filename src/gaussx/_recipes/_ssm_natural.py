@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+from einops import einsum, rearrange
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -192,16 +193,18 @@ def ssm_to_expectations(
         Tuple ``(eta1, eta2)`` where ``eta1`` has shape ``(N*d,)``
         and ``eta2`` is a :class:`~gaussx.BlockTriDiag`.
     """
-    N, d = means.shape
+    _N, _d = means.shape
 
     # eta1 = concatenated means
-    eta1 = means.reshape(N * d)
+    eta1 = rearrange(means, "N d -> (N d)")
 
-    # Diagonal blocks: E[x_k x_k^T] = P_k + m_k m_k^T
-    diag = covs + jax.vmap(jnp.outer)(means, means)  # (N, d, d)
+    # Diagonal blocks: E[xₖ xₖᵀ] = Pₖ + mₖ mₖᵀ
+    diag = covs + einsum(means, means, "N i, N j -> N i j")  # (N, d, d)
 
-    # Sub-diagonal blocks: E[x_{k+1} x_k^T] = C_k + m_{k+1} m_k^T
-    sub_diag = cross_covs + jax.vmap(jnp.outer)(means[1:], means[:-1])  # (N-1, d, d)
+    # Sub-diagonal blocks: E[xₖ₊₁ xₖᵀ] = Cₖ + mₖ₊₁ mₖᵀ
+    sub_diag = cross_covs + einsum(
+        means[1:], means[:-1], "N i, N j -> N i j"
+    )  # (N-1, d, d)
 
     eta2 = BlockTriDiag(diag, sub_diag)
     return eta1, eta2
@@ -234,12 +237,12 @@ def expectations_to_ssm(
     d = eta2._block_size
     N = eta2._num_blocks
 
-    means = eta1.reshape(N, d)
+    means = rearrange(eta1, "(N d) -> N d", N=N, d=d)
 
-    # covs = E[x_k x_k^T] - m_k m_k^T
-    covs = eta2.diagonal - jax.vmap(jnp.outer)(means, means)
+    # covs = E[xₖ xₖᵀ] − mₖ mₖᵀ
+    covs = eta2.diagonal - einsum(means, means, "N i, N j -> N i j")
 
-    # cross_covs = E[x_{k+1} x_k^T] - m_{k+1} m_k^T
-    cross_covs = eta2.sub_diagonal - jax.vmap(jnp.outer)(means[1:], means[:-1])
+    # cross_covs = E[xₖ₊₁ xₖᵀ] − mₖ₊₁ mₖᵀ
+    cross_covs = eta2.sub_diagonal - einsum(means[1:], means[:-1], "N i, N j -> N i j")
 
     return means, covs, cross_covs

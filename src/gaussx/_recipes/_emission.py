@@ -3,22 +3,26 @@
 from __future__ import annotations
 
 import equinox as eqx
-import jax.numpy as jnp
+from jaxtyping import Array, Float
 
 
 class EmissionModel(eqx.Module):
     """Observation (emission) model wrapping a linear observation matrix.
 
-    Provides named methods for common Kalman filter projection operations.
+    Provides named methods for common Kalman filter projection
+    operations with observation matrix H ∈ ℝᴹˣᴺ.
 
     Attributes:
         H: Observation matrix, shape ``(M, N)``.
     """
 
-    H: jnp.ndarray
+    H: Float[Array, "M N"]
 
-    def project_mean(self, mean: jnp.ndarray) -> jnp.ndarray:
-        """Project state mean to observation space.
+    def project_mean(
+        self,
+        mean: Float[Array, " N"],
+    ) -> Float[Array, " M"]:
+        """Project state mean to observation space: ŷ = H x.
 
         Args:
             mean: State mean, shape ``(N,)``.
@@ -30,47 +34,47 @@ class EmissionModel(eqx.Module):
 
     def project_covariance(
         self,
-        cov: jnp.ndarray,
-        noise: jnp.ndarray | None = None,
-    ) -> jnp.ndarray:
-        """Project state covariance to observation space.
+        cov: Float[Array, "N N"],
+        noise: Float[Array, "M M"] | None = None,
+    ) -> Float[Array, "M M"]:
+        """Project state covariance: S = H P Hᵀ [+ R].
 
         Args:
-            cov: State covariance, shape ``(N, N)``.
-            noise: Optional observation noise, shape ``(M, M)``.
+            cov: State covariance P, shape ``(N, N)``.
+            noise: Optional observation noise R, shape ``(M, M)``.
 
         Returns:
-            Innovation covariance, shape ``(M, M)``.
+            Innovation covariance S, shape ``(M, M)``.
         """
-        S = self.H @ cov @ self.H.T
+        S = self.H @ cov @ self.H.T  # (M, M)
         if noise is not None:
             S = S + noise
         return S
 
     def innovation(
         self,
-        y: jnp.ndarray,
-        x_pred: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Compute innovation (measurement residual).
+        y: Float[Array, " M"],
+        x_pred: Float[Array, " N"],
+    ) -> Float[Array, " M"]:
+        """Compute innovation (measurement residual): v = y − H x.
 
         Args:
             y: Observation, shape ``(M,)``.
             x_pred: Predicted state mean, shape ``(N,)``.
 
         Returns:
-            Innovation vector, shape ``(M,)``.
+            Innovation vector v, shape ``(M,)``.
         """
         return y - self.H @ x_pred
 
     def back_project_precision(
         self,
-        noise_prec: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Back-project observation precision to state space.
+        noise_prec: Float[Array, "M M"],
+    ) -> Float[Array, "N N"]:
+        """Back-project observation precision: Hᵀ R⁻¹ H.
 
         Args:
-            noise_prec: Observation noise precision, shape ``(M, M)``.
+            noise_prec: Observation noise precision R⁻¹, shape ``(M, M)``.
 
         Returns:
             Information matrix contribution, shape ``(N, N)``.
@@ -79,14 +83,14 @@ class EmissionModel(eqx.Module):
 
     def back_project_info(
         self,
-        y: jnp.ndarray,
-        noise_prec: jnp.ndarray,
-    ) -> jnp.ndarray:
-        """Back-project observation to information vector.
+        y: Float[Array, " M"],
+        noise_prec: Float[Array, "M M"],
+    ) -> Float[Array, " N"]:
+        """Back-project observation to information vector: Hᵀ R⁻¹ y.
 
         Args:
             y: Observation, shape ``(M,)``.
-            noise_prec: Observation noise precision, shape ``(M, M)``.
+            noise_prec: Observation noise precision R⁻¹, shape ``(M, M)``.
 
         Returns:
             Information vector contribution, shape ``(N,)``.

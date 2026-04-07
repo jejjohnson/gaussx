@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from einops import reduce
 
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -71,7 +72,7 @@ def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
     n = L.shape[0]
     I = jnp.eye(n, dtype=L.dtype)
     L_inv = jax.scipy.linalg.solve_triangular(L, I, lower=True)
-    return jnp.sum(L_inv**2, axis=0)
+    return reduce(L_inv**2, "M N -> N", "sum")
 
 
 def _diag_inv_solve(

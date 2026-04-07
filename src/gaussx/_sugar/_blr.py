@@ -6,6 +6,7 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+from einops import reduce
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
@@ -112,7 +113,7 @@ def ggn_diagonal(
     Returns:
         Diagonal of ``J^T J``, shape ``(d,)``.
     """
-    return jnp.sum(jacobian**2, axis=0)
+    return reduce(jacobian**2, "K D -> D", "sum")
 
 
 def hutchinson_hessian_diag(

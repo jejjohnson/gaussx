@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import jax.typing
 import lineax as lx
 import numpyro.distributions as dist
+from einops import rearrange
 from jaxtyping import Array, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
@@ -86,7 +87,7 @@ class MultivariateNormalPrecision(dist.Distribution):
     def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
         residual = value - self.loc
         leading_shape = residual.shape[:-1]
-        residual_flat = residual.reshape((-1, residual.shape[-1]))
+        residual_flat = rearrange(residual, "... D -> (...) D")
         log_prob_flat = jax.vmap(self._log_prob_single)(residual_flat)
         return log_prob_flat.reshape(leading_shape)
 
@@ -106,7 +107,7 @@ class MultivariateNormalPrecision(dist.Distribution):
         def _solve_one(z):
             return _solve(L.T, z)
 
-        eps_flat = eps.reshape((-1, self.event_shape[0]))
+        eps_flat = rearrange(eps, "... D -> (...) D")
         samples_flat = jax.vmap(_solve_one)(eps_flat)
         return self.loc + samples_flat.reshape(shape)
 

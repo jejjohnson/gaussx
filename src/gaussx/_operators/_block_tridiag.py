@@ -6,6 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from einops import einsum, rearrange
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import _to_frozenset
@@ -82,17 +83,16 @@ class BlockTriDiag(lx.AbstractLinearOperator):
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         N = self._num_blocks
         d = self._block_size
-        x = vector.reshape(N, d)
-        result = jnp.zeros_like(x)
-        # D_k x_k for all k
-        result = jax.vmap(jnp.dot)(self.diagonal, x)
-        # A_k x_{k-1} for k = 1, ..., N-1 (sub-diagonal contribution)
-        sub_contrib = jax.vmap(jnp.dot)(self.sub_diagonal, x[:-1])
+        x = rearrange(vector, "(N d) -> N d", N=N, d=d)
+        # Dₖ xₖ for all k
+        result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        # Aₖ xₖ₋₁ for k = 1, ..., N-1 (sub-diagonal)
+        sub_contrib = einsum(self.sub_diagonal, x[:-1], "N d1 d2, N d2 -> N d1")
         result = result.at[1:].add(sub_contrib)
-        # A_k^T x_{k+1} for k = 0, ..., N-2 (super-diagonal contribution)
-        super_contrib = jax.vmap(lambda A, v: A.T @ v)(self.sub_diagonal, x[1:])
+        # Aₖᵀ xₖ₊₁ for k = 0, ..., N-2 (super-diagonal)
+        super_contrib = einsum(self.sub_diagonal, x[1:], "N d1 d2, N d1 -> N d2")
         result = result.at[:-1].add(super_contrib)
-        return result.reshape(-1)
+        return rearrange(result, "N d -> (N d)")
 
     def as_matrix(self) -> Float[Array, "n n"]:
         N = self._num_blocks
@@ -207,13 +207,13 @@ class LowerBlockTriDiag(lx.AbstractLinearOperator):
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         N = self._num_blocks
         d = self._block_size
-        x = vector.reshape(N, d)
-        # L_k x_k
-        result = jax.vmap(jnp.dot)(self.diagonal, x)
-        # B_k x_{k-1}
-        sub_contrib = jax.vmap(jnp.dot)(self.sub_diagonal, x[:-1])
+        x = rearrange(vector, "(N d) -> N d", N=N, d=d)
+        # Lₖ xₖ
+        result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        # Bₖ xₖ₋₁
+        sub_contrib = einsum(self.sub_diagonal, x[:-1], "N d1 d2, N d2 -> N d1")
         result = result.at[1:].add(sub_contrib)
-        return result.reshape(-1)
+        return rearrange(result, "N d -> (N d)")
 
     def as_matrix(self) -> Float[Array, "n n"]:
         N = self._num_blocks
@@ -284,13 +284,13 @@ class UpperBlockTriDiag(lx.AbstractLinearOperator):
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         N = self._num_blocks
         d = self._block_size
-        x = vector.reshape(N, d)
-        # U_k x_k
-        result = jax.vmap(jnp.dot)(self.diagonal, x)
-        # C_k x_{k+1}
-        super_contrib = jax.vmap(jnp.dot)(self.super_diagonal, x[1:])
+        x = rearrange(vector, "(N d) -> N d", N=N, d=d)
+        # Uₖ xₖ
+        result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        # Cₖ xₖ₊₁
+        super_contrib = einsum(self.super_diagonal, x[1:], "N d1 d2, N d2 -> N d1")
         result = result.at[:-1].add(super_contrib)
-        return result.reshape(-1)
+        return rearrange(result, "N d -> (N d)")
 
     def as_matrix(self) -> Float[Array, "n n"]:
         N = self._num_blocks
