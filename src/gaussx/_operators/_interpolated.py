@@ -52,6 +52,9 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
                 f"got {interp_indices.shape} and {interp_values.shape}."
             )
         m = base_operator.in_size()
+        out_m = base_operator.out_size()
+        if m != out_m:
+            raise ValueError(f"base_operator must be square, got shape ({out_m}, {m}).")
         n = interp_indices.shape[0]
         self.base_operator = base_operator
         self.interp_indices = jnp.asarray(interp_indices)
@@ -59,7 +62,12 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
         self._in_size = n
         self._out_size = n
         self._m = m
-        self._dtype = _resolve_dtype(base_operator)
+        self._dtype = str(
+            jnp.result_type(
+                jnp.dtype(_resolve_dtype(base_operator)),
+                self.interp_values.dtype,
+            )
+        )
         self.tags = _to_frozenset(tags)
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:

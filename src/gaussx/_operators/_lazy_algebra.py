@@ -98,10 +98,13 @@ class ScaledOperator(lx.AbstractLinearOperator):
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
         self.operator = operator
-        self.scalar = jnp.asarray(scalar, dtype=jnp.float32).reshape(())
+        self.scalar = jnp.asarray(scalar).reshape(())
         self._in_size = operator.in_size()
         self._out_size = operator.out_size()
-        self._dtype = _resolve_dtype(operator)
+        self._dtype = jnp.result_type(
+            jnp.dtype(_resolve_dtype(operator)),
+            self.scalar,
+        ).name
         self.tags = _to_frozenset(tags)
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:

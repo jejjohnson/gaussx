@@ -21,9 +21,12 @@ class SumKronecker(lx.AbstractLinearOperator):
 
     Matvec is computed as the sum of the two Kronecker matvecs.
 
-    For efficient solve and logdet, call :meth:`eigendecompose` which
-    uses a joint eigendecomposition of the second Kronecker pair
-    (requires ``A_2, B_2`` to be symmetric).
+    For solve and logdet, call :meth:`eigendecompose` which uses a
+    joint eigendecomposition of the second Kronecker pair (requires
+    ``A_2, B_2`` to be symmetric).  The eigendecomposition forms a
+    dense ``(n_c n_d) x (n_c n_d)`` matrix internally, so it is
+    intended for moderate factor sizes (typical for multi-output GPs
+    where the task dimension is small).
 
     Args:
         kron1: First Kronecker product ``A_1 \otimes B_1``.
@@ -55,7 +58,7 @@ class SumKronecker(lx.AbstractLinearOperator):
         self.kron2 = kron2
         self._in_size = kron1.in_size()
         self._out_size = kron1.out_size()
-        self._dtype = _resolve_dtype(kron1.operators[0], kron2.operators[0])
+        self._dtype = _resolve_dtype(kron1, kron2)
         self.tags = _to_frozenset(tags)
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:
@@ -69,10 +72,12 @@ class SumKronecker(lx.AbstractLinearOperator):
             Kronecker(
                 self.kron1.operators[0].T,
                 self.kron1.operators[1].T,
+                tags=lx.transpose_tags(self.kron1.tags),
             ),
             Kronecker(
                 self.kron2.operators[0].T,
                 self.kron2.operators[1].T,
+                tags=lx.transpose_tags(self.kron2.tags),
             ),
             tags=lx.transpose_tags(self.tags),
         )
@@ -90,22 +95,28 @@ class SumKronecker(lx.AbstractLinearOperator):
 
         Decomposes ``A_2 = Q_C \Lambda_C Q_C^T`` and
         ``B_2 = Q_D \Lambda_D Q_D^T``, then transforms the first pair
-        into the eigenbasis:
+        into the eigenbasis and diagonalizes the result.
 
-        .. math::
+        .. note::
 
-            A_1 \otimes B_1 + A_2 \otimes B_2
-            = (Q_C \otimes Q_D)
-              [(Q_C^T A_1 Q_C) \otimes (Q_D^T B_1 Q_D) + \Lambda_C \otimes \Lambda_D]
-              (Q_C \otimes Q_D)^T
+            This forms a dense ``(n_c n_d) x (n_c n_d)`` matrix
+            internally and is O((n_c n_d)^3).  Intended for moderate
+            factor sizes (e.g. multi-output GPs where task dimension
+            is small).
 
-        Requires ``A_2, B_2`` to be symmetric.
+        Raises:
+            ValueError: If the factors of ``kron2`` are not symmetric.
 
         Returns:
-            Tuple ``(eigenvalues, Q)`` where ``Q = Q_C \otimes Q_D``.
+            Tuple ``(eigenvalues, Q)`` where
+            ``self == Q @ diag(eigenvalues) @ Q^T``.
         """
+        A2_op, B2_op = self.kron2.operators
+        if not lx.is_symmetric(A2_op) or not lx.is_symmetric(B2_op):
+            raise ValueError("eigendecompose requires kron2 factors to be symmetric.")
+
         A1, B1 = (op.as_matrix() for op in self.kron1.operators)
-        A2, B2 = (op.as_matrix() for op in self.kron2.operators)
+        A2, B2 = A2_op.as_matrix(), B2_op.as_matrix()
 
         evals_c, Q_C = jnp.linalg.eigh(A2)
         evals_d, Q_D = jnp.linalg.eigh(B2)
@@ -114,22 +125,12 @@ class SumKronecker(lx.AbstractLinearOperator):
         A1_tilde = Q_C.T @ A1 @ Q_C
         B1_tilde = Q_D.T @ B1 @ Q_D
 
-        # kron(A1_tilde, B1_tilde) + kron(diag(evals_c), diag(evals_d))
-        # Eigenvalues of the sum (when A1_tilde, B1_tilde are also diagonal
-        # in this basis, e.g. when commuting)
-        # In general we must diagonalize the transformed sum
-        n_c = A2.shape[0]
-        n_d = B2.shape[0]
-        transformed = jnp.kron(A1_tilde, B1_tilde) + jnp.diag(
-            rearrange(
-                evals_c[:, None] * jnp.ones(n_d)[None, :],
-                "a b -> (a b)",
-            )
-            * rearrange(
-                jnp.ones(n_c)[:, None] * evals_d[None, :],
-                "a b -> (a b)",
-            )
+        # kron(A1_tilde, B1_tilde) + diag(evals_c kron evals_d)
+        diag_vals = rearrange(
+            evals_c[:, None] * evals_d[None, :],
+            "a b -> (a b)",
         )
+        transformed = jnp.kron(A1_tilde, B1_tilde) + jnp.diag(diag_vals)
         evals, V = jnp.linalg.eigh(transformed)
 
         Q = jnp.kron(Q_C, Q_D) @ V
