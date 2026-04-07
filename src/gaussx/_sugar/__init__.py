@@ -1,5 +1,6 @@
 """GaussX sugar -- compound operations combining multiple primitives."""
 
+from gaussx._sugar._batched_matvec import batched_kernel_matvec, batched_kernel_rmatvec
 from gaussx._sugar._blr import (
     blr_diag_update,
     blr_full_update,
@@ -36,6 +37,7 @@ from gaussx._sugar._linalg import (
     diag_conditional_variance,
     trace_product,
 )
+from gaussx._sugar._mixed_precision import stable_rbf_kernel, stable_squared_distances
 from gaussx._sugar._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
@@ -56,6 +58,8 @@ from gaussx._sugar._woodbury import woodbury_solve
 
 __all__ = [
     "add_jitter",
+    "batched_kernel_matvec",
+    "batched_kernel_rmatvec",
     "blr_diag_update",
     "blr_full_update",
     "cavity_distribution",
@@ -87,6 +91,8 @@ __all__ = [
     "riemannian_psd_correction",
     "schur_complement",
     "sigma_points",
+    "stable_rbf_kernel",
+    "stable_squared_distances",
     "svgp_variance_adjustment",
     "trace_correction",
     "trace_product",
