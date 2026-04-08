@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import lineax as lx
 
@@ -119,7 +118,9 @@ def trace_correction(
     # tr(K_xz^T K_zz^{-1} K_xz) = sum_ij W_ij * K_xz_ij
     # where W = K_zz^{-1} K_xz^T reshaped, but easier:
     # tr(A^T B) = sum(A * B), so tr(K_xz^T W) where W_col = K_zz^{-1} K_xz_col
-    W = jax.vmap(lambda row: dispatch_solve(K_zz, row, solver))(K_xz)  # (N, M)
+    from gaussx._sugar._linalg import solve_rows
+
+    W = solve_rows(K_zz, K_xz, solver=solver)  # (N, M)
     tr_approx = jnp.sum(K_xz * W)
 
     return tr_full - tr_approx

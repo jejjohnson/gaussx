@@ -38,6 +38,8 @@ from gaussx._sugar._kernel_approx import (
 from gaussx._sugar._linalg import (
     cov_transform,
     diag_conditional_variance,
+    solve_columns,
+    solve_rows,
     trace_product,
 )
 from gaussx._sugar._loo import LOOResult, leave_one_out_cv
@@ -117,6 +119,8 @@ __all__ = [
     "safe_cholesky",
     "schur_complement",
     "sigma_points",
+    "solve_columns",
+    "solve_rows",
     "stable_rbf_kernel",
     "stable_squared_distances",
     "svgp_variance_adjustment",
