@@ -89,7 +89,9 @@ def infinite_horizon_filter(
     P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
     S_inf = obs_model @ P_pred_inf @ obs_model.T + obs_noise  # (M, M)
     L_S = jnp.linalg.cholesky(S_inf)  # (M, M)
-    ld_inf = 2.0 * jnp.sum(jnp.log(jnp.diag(L_S)))  # scalar
+    from gaussx._primitives._logdet import cholesky_logdet
+
+    ld_inf = cholesky_logdet(L_S)  # scalar
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred

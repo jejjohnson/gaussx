@@ -7,9 +7,9 @@ from collections.abc import Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._uncertain._assembly import assemble_propagation_result
 from gaussx._uncertain._integrator import AbstractIntegrator
 from gaussx._uncertain._types import GaussianState, PropagationResult
 
@@ -53,41 +53,19 @@ class UnscentedIntegrator(AbstractIntegrator):
 
         # Sigma points
         S = jnp.linalg.cholesky(c * Sigma)  # (N, N)
-
-        # chi_0 = mu, chi_{1..N} = mu + S_col, chi_{N+1..2N} = mu - S_col
         chi = jnp.concatenate(
-            [mu[None, :], mu[None, :] + S.T, mu[None, :] - S.T], axis=0
+            [mu[None, :], mu[None, :] + S.T, mu[None, :] - S.T],
+            axis=0,
         )  # (2N+1, N)
 
-        # Weights
+        # Weights (mean and covariance weights differ for chi_0)
         w_m_0 = lam / c
         w_c_0 = lam / c + (1.0 - self.alpha**2 + self.beta)
         w_rest = 1.0 / (2.0 * c)
-
         w_m = jnp.concatenate([jnp.array([w_m_0]), jnp.full(2 * N, w_rest)])
         w_c = jnp.concatenate([jnp.array([w_c_0]), jnp.full(2 * N, w_rest)])
 
         # Propagate sigma points
         Y = jax.vmap(fn)(chi)  # (2N+1, M)
 
-        # Output moments
-        mu_y = jnp.sum(w_m[:, None] * Y, axis=0)
-
-        dy = Y - mu_y[None, :]  # (2N+1, M)
-        dx = chi - mu[None, :]  # (2N+1, N)
-
-        # Output covariance
-        Sigma_y = jnp.sum(
-            w_c[:, None, None] * (dy[:, :, None] * dy[:, None, :]), axis=0
-        )
-        Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)
-
-        # Cross-covariance
-        cross_cov = jnp.sum(
-            w_c[:, None, None] * (dx[:, :, None] * dy[:, None, :]), axis=0
-        )
-
-        cov_y = lx.MatrixLinearOperator(Sigma_y, lx.positive_semidefinite_tag)
-        out_state = GaussianState(mean=mu_y, cov=cov_y)
-
-        return PropagationResult(state=out_state, cross_cov=cross_cov)
+        return assemble_propagation_result(chi, Y, mu, w_m, w_c)

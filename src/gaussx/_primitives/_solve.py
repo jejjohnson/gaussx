@@ -144,7 +144,7 @@ def _solve_svd_low_rank(
 
     Same as _solve_low_rank but uses S (singular values) instead of d.
     """
-    U, S, V = operator.U, operator.S, operator.V
+    U, S, V = operator.U, operator.d, operator.V
 
     # Step 1: L^{-1} b
     Linv_b = solve(operator.base, vector, solver=solver)

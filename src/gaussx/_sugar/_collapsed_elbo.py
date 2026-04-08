@@ -57,8 +57,10 @@ def collapsed_elbo(
     B = jnp.eye(M) + (1.0 / noise_var) * (V @ V.T)  # (M, M)
     L_B = jnp.linalg.cholesky(B)  # (M, M)
 
-    # log|Q_ff + σ²I| = N log σ² + 2 Σᵢ log(L_B)ᵢᵢ
-    log_det = N * jnp.log(noise_var) + 2.0 * jnp.sum(jnp.log(jnp.diag(L_B)))
+    # log|Q_ff + σ²I| = N log σ² + log|B|
+    from gaussx._primitives._logdet import cholesky_logdet
+
+    log_det = N * jnp.log(noise_var) + cholesky_logdet(L_B)
 
     # Quadratic form via Woodbury:
     # yᵀ (Q_ff + σ²I)⁻¹ y = σ⁻²(‖y‖² − σ⁻² ‖L_B⁻¹ V y‖²)
