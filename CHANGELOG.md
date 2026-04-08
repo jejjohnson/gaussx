@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.10](https://github.com/jejjohnson/gaussx/compare/v0.0.9...v0.0.10) (2026-04-08)
+
+
+### Features
+
+* add 6 features — infinite-horizon KF, collapsed ELBO, OILMM, Psi stats, emission model, grid interpolation ([#96](https://github.com/jejjohnson/gaussx/issues/96)) ([b2b1e1f](https://github.com/jejjohnson/gaussx/commit/b2b1e1ff743bd479c6aa75b12a4ee725a6f1e7b0))
+* add 6 standalone sugar/recipe features ([#27](https://github.com/jejjohnson/gaussx/issues/27), [#32](https://github.com/jejjohnson/gaussx/issues/32), [#33](https://github.com/jejjohnson/gaussx/issues/33), [#34](https://github.com/jejjohnson/gaussx/issues/34), [#35](https://github.com/jejjohnson/gaussx/issues/35), [#69](https://github.com/jejjohnson/gaussx/issues/69)) ([#93](https://github.com/jejjohnson/gaussx/issues/93)) ([cb40d2a](https://github.com/jejjohnson/gaussx/commit/cb40d2a2da343b53f8a78dd34158394bf3e8a61e))
+
 ## [0.0.9](https://github.com/jejjohnson/gaussx/compare/v0.0.8...v0.0.9) (2026-04-07)
 
 
