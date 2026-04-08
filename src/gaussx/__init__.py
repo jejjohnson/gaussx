@@ -167,6 +167,7 @@ from gaussx._sugar import (
     trace_correction as trace_correction,
     trace_product as trace_product,
     unwhiten as unwhiten,
+    unwhiten_covariance as unwhiten_covariance,
     variational_elbo_gaussian as variational_elbo_gaussian,
     variational_elbo_mc as variational_elbo_mc,
     whiten_covariance as whiten_covariance,

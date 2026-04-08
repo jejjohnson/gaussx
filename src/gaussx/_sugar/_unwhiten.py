@@ -24,7 +24,7 @@ def unwhiten(
     return L.mv(m_tilde)
 
 
-def whiten_covariance(
+def unwhiten_covariance(
     L: lx.AbstractLinearOperator,
     S_tilde: lx.AbstractLinearOperator,
 ) -> lx.MatrixLinearOperator:
@@ -40,3 +40,7 @@ def whiten_covariance(
         Unwhitened covariance operator S.
     """
     return cov_transform(L.as_matrix(), S_tilde)
+
+
+# Backward-compatible alias (the old name was misleading — this unwhitens).
+whiten_covariance = unwhiten_covariance

@@ -60,7 +60,7 @@ class SVDLowRankUpdate(LowRankUpdate):
         self.V = V
         from gaussx._tags import low_rank_tag
 
-        # Stricter tag inference: identity check for orthonormal U, V
+        # Tag inference: U is V (same object) ⟹ symmetric update
         inferred: set[object] = set()
         if n_in == n_out and _safe_query(lx.is_symmetric, base) and U is V:
             inferred.add(lx.symmetric_tag)

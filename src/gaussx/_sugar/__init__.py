@@ -66,7 +66,7 @@ from gaussx._sugar._safe_cholesky import safe_cholesky
 from gaussx._sugar._schur import conditional_variance, schur_complement
 from gaussx._sugar._svgp import whitened_svgp_predict
 from gaussx._sugar._svgp_variance import svgp_variance_adjustment
-from gaussx._sugar._unwhiten import unwhiten, whiten_covariance
+from gaussx._sugar._unwhiten import unwhiten, unwhiten_covariance, whiten_covariance
 from gaussx._sugar._woodbury import woodbury_solve
 
 
@@ -127,6 +127,7 @@ __all__ = [
     "trace_correction",
     "trace_product",
     "unwhiten",
+    "unwhiten_covariance",
     "variational_elbo_gaussian",
     "variational_elbo_mc",
     "whiten_covariance",
