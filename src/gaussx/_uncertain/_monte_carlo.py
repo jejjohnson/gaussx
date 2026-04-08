@@ -8,9 +8,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
-import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._uncertain._assembly import assemble_propagation_result
 from gaussx._uncertain._integrator import AbstractIntegrator
 from gaussx._uncertain._types import GaussianState, PropagationResult
 
@@ -44,35 +44,41 @@ class MonteCarloIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via Monte Carlo sampling."""
+        if self.n_samples < 2:
+            msg = (
+                f"MonteCarloIntegrator requires n_samples >= 2 for "
+                f"Bessel-corrected covariance, got {self.n_samples}."
+            )
+            raise ValueError(msg)
         mu = state.mean
         Sigma = state.cov.as_matrix()
         N = mu.shape[0]
 
         key = self.key if self.key is not None else jr.key(0)
 
-        # Sample from input Gaussian
+        # Sample from input Gaussian: xᵢ = μ + L εᵢ
         L = jnp.linalg.cholesky(Sigma)
         eps = jr.normal(key, (self.n_samples, N))
-        x_samples = mu[None, :] + eps @ L.T  # (S, N)
+        chi = mu[None, :] + eps @ L.T  # (S, N)
 
         # Propagate samples
-        y_samples = jax.vmap(fn)(x_samples)  # (S, M)
+        Y = jax.vmap(fn)(chi)  # (S, M)
 
-        # Empirical output moments
-        mu_y = jnp.mean(y_samples, axis=0)
-        dy = y_samples - mu_y[None, :]
-        Sigma_y = (dy.T @ dy) / (self.n_samples - 1)
+        # Uniform weights = 1/S for empirical moments
+        # Use 1/(S−1) Bessel correction via covariance weights
+        S = self.n_samples
+        w_m = jnp.full(S, 1.0 / S)
+        w_c = jnp.full(S, 1.0 / (S - 1))
 
-        # Regularize
-        M = mu_y.shape[0]
+        result = assemble_propagation_result(chi, Y, mu, w_m, w_c)
+
+        # Add regularization jitter to output covariance
+        Sigma_y = result.state.cov.as_matrix()
+        M = Y.shape[1]
+        import lineax as lx
+
         Sigma_y = Sigma_y + self.regularization * jnp.eye(M)
-        Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)
-
-        # Cross-covariance
-        dx = x_samples - mu[None, :]
-        cross_cov = (dx.T @ dy) / (self.n_samples - 1)
-
         cov_y = lx.MatrixLinearOperator(Sigma_y, lx.positive_semidefinite_tag)
-        out_state = GaussianState(mean=mu_y, cov=cov_y)
+        out_state = GaussianState(mean=result.state.mean, cov=cov_y)
 
-        return PropagationResult(state=out_state, cross_cov=cross_cov)
+        return PropagationResult(state=out_state, cross_cov=result.cross_cov)

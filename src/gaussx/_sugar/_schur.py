@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import lineax as lx
 
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._primitives._solve import solve
 
 
 def schur_complement(
@@ -36,7 +34,9 @@ def schur_complement(
 
     # Solve K_ZZ w_j = k_xz_j for each row of K_XZ
     # W^T = vmap(solve(K_ZZ, ·))(K_XZ)  =>  (N, M)
-    W_T = jax.vmap(lambda row: solve(K_ZZ, row))(K_XZ)  # (N, M)
+    from gaussx._sugar._linalg import solve_rows
+
+    W_T = solve_rows(K_ZZ, K_XZ)  # (N, M)
     W = W_T.T  # (M, N)
 
     # Represent as K_XX + K_XZ @ (-I_M) @ W

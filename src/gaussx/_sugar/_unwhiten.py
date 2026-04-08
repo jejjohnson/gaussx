@@ -5,6 +5,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 
+from gaussx._sugar._linalg import cov_transform
+
 
 def unwhiten(
     m_tilde: jnp.ndarray,
@@ -22,14 +24,13 @@ def unwhiten(
     return L.mv(m_tilde)
 
 
-def whiten_covariance(
+def unwhiten_covariance(
     L: lx.AbstractLinearOperator,
     S_tilde: lx.AbstractLinearOperator,
 ) -> lx.MatrixLinearOperator:
-    """Unwhiten variational covariance: ``S = L @ S_tilde @ L^T``.
+    """Unwhiten variational covariance: S = L S̃ Lᵀ.
 
-    Computes the dense product ``L @ S_tilde @ L^T``. For large
-    systems, consider using structured operators directly.
+    Delegates to :func:`~gaussx.cov_transform`.
 
     Args:
         L: Cholesky factor, shape ``(M, M)``.
@@ -38,10 +39,8 @@ def whiten_covariance(
     Returns:
         Unwhitened covariance operator S.
     """
-    L_mat = L.as_matrix()
-    S_mat = S_tilde.as_matrix()
-    result = L_mat @ S_mat @ L_mat.T
-    tags = frozenset()
-    if lx.is_symmetric(S_tilde):
-        tags = frozenset({lx.symmetric_tag})
-    return lx.MatrixLinearOperator(result, tags)
+    return cov_transform(L.as_matrix(), S_tilde)
+
+
+# Backward-compatible alias (the old name was misleading — this unwhitens).
+whiten_covariance = unwhiten_covariance

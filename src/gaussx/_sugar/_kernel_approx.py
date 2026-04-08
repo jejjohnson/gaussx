@@ -8,7 +8,6 @@ from jaxtyping import Array, Float
 
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._solve import solve
 
 
 def nystrom_operator(
@@ -33,13 +32,14 @@ def nystrom_operator(
     Returns:
         :class:`~gaussx.LowRankUpdate` operator of shape ``(N, N)``.
     """
-    import jax
 
     L = cholesky(K_ZZ_op)
     # U = K_XZ @ L^{-T} = solve(L^T, K_XZ^T)^T
     # Solve L @ A_col = K_XZ^T_col for each column
+    from gaussx._sugar._linalg import solve_columns
+
     K_ZX = K_XZ.T  # (M, N)
-    A = jax.vmap(lambda col: solve(L, col), in_axes=1, out_axes=1)(K_ZX)
+    A = solve_columns(L, K_ZX)
     U = A.T  # (N, M)
 
     N = K_XZ.shape[0]

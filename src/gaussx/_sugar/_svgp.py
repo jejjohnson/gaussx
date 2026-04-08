@@ -7,7 +7,6 @@ import lineax as lx
 from einops import reduce
 
 from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._solve import solve
 
 
 def whitened_svgp_predict(
@@ -46,11 +45,11 @@ def whitened_svgp_predict(
     L_zz = cholesky(K_zz_op)
 
     # A = L_zz^{-1} K_xz^T  -> shape (M, N)
-    # Solve L_zz @ A_col = K_xz^T_col for each column of K_xz^T
-    import jax
+    # Solve L_zz @ A_col = K_xz^T_col for each column of K_xzᵀ
+    from gaussx._sugar._linalg import solve_columns
 
     K_zx = K_xz.T  # (M, N)
-    A = jax.vmap(lambda col: solve(L_zz, col), in_axes=1, out_axes=1)(K_zx)
+    A = solve_columns(L_zz, K_zx)
 
     # Predictive mean: f_loc = A^T @ u_mean = K_xz @ L_zz^{-T} @ u_mean
     f_loc = A.T @ u_mean

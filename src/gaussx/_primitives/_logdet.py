@@ -16,6 +16,18 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
 
+def cholesky_logdet(L: jnp.ndarray) -> jnp.ndarray:
+    """Compute log|A| from Cholesky factor L where A = L Lᵀ.
+
+    Args:
+        L: Lower-triangular Cholesky factor, shape ``(N, N)``.
+
+    Returns:
+        Scalar log-determinant.
+    """
+    return 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
+
+
 def logdet(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
     """Compute log |det(A)| with structural dispatch.
 
@@ -106,7 +118,7 @@ def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> jnp.ndarray:
     """
     from gaussx._primitives._solve import solve
 
-    U, S, V = operator.U, operator.S, operator.V
+    U, S, V = operator.U, operator.d, operator.V
 
     # logdet(L)
     ld_base = logdet(operator.base)

@@ -38,6 +38,8 @@ from gaussx._sugar._kernel_approx import (
 from gaussx._sugar._linalg import (
     cov_transform,
     diag_conditional_variance,
+    solve_columns,
+    solve_rows,
     trace_product,
 )
 from gaussx._sugar._loo import LOOResult, leave_one_out_cv
@@ -64,7 +66,7 @@ from gaussx._sugar._safe_cholesky import safe_cholesky
 from gaussx._sugar._schur import conditional_variance, schur_complement
 from gaussx._sugar._svgp import whitened_svgp_predict
 from gaussx._sugar._svgp_variance import svgp_variance_adjustment
-from gaussx._sugar._unwhiten import unwhiten, whiten_covariance
+from gaussx._sugar._unwhiten import unwhiten, unwhiten_covariance, whiten_covariance
 from gaussx._sugar._woodbury import woodbury_solve
 
 
@@ -117,12 +119,15 @@ __all__ = [
     "safe_cholesky",
     "schur_complement",
     "sigma_points",
+    "solve_columns",
+    "solve_rows",
     "stable_rbf_kernel",
     "stable_squared_distances",
     "svgp_variance_adjustment",
     "trace_correction",
     "trace_product",
     "unwhiten",
+    "unwhiten_covariance",
     "variational_elbo_gaussian",
     "variational_elbo_mc",
     "whiten_covariance",

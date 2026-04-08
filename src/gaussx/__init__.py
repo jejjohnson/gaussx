@@ -39,6 +39,7 @@ from gaussx._operators import (
 )
 from gaussx._primitives import (
     cholesky as cholesky,
+    cholesky_logdet as cholesky_logdet,
     diag as diag,
     eig as eig,
     eigvals as eigvals,
@@ -158,12 +159,15 @@ from gaussx._sugar import (
     safe_cholesky as safe_cholesky,
     schur_complement as schur_complement,
     sigma_points as sigma_points,
+    solve_columns as solve_columns,
+    solve_rows as solve_rows,
     stable_rbf_kernel as stable_rbf_kernel,
     stable_squared_distances as stable_squared_distances,
     svgp_variance_adjustment as svgp_variance_adjustment,
     trace_correction as trace_correction,
     trace_product as trace_product,
     unwhiten as unwhiten,
+    unwhiten_covariance as unwhiten_covariance,
     variational_elbo_gaussian as variational_elbo_gaussian,
     variational_elbo_mc as variational_elbo_mc,
     whiten_covariance as whiten_covariance,

@@ -7,7 +7,6 @@ multiple test sets reuse the same expensive linear solve.
 from __future__ import annotations
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import lineax as lx
 from einops import reduce
@@ -89,8 +88,7 @@ def predict_variance(
         Predictive variance, shape ``(Nt,)``.
     """
 
-    def _solve_row(row: jnp.ndarray) -> jnp.ndarray:
-        return dispatch_solve(operator, row, solver)
+    from gaussx._sugar._linalg import solve_rows
 
-    V = jax.vmap(_solve_row)(K_cross)
+    V = solve_rows(operator, K_cross, solver=solver)
     return K_test_diag - reduce(K_cross * V, "N M -> N", "sum")

@@ -9,6 +9,7 @@ import lineax as lx
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
+from gaussx._sugar._linalg import solve_rows
 
 
 class FilterState(eqx.Module):
@@ -78,9 +79,9 @@ def kalman_filter(
         S = obs_model @ P_pred @ obs_model.T + obs_noise  # innovation cov
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
-        # Kalman gain: K = P_pred @ H^T @ S^{-1}
+        # Kalman gain: K = P_pred Hᵀ S⁻¹
         PHt = P_pred @ obs_model.T  # (N, M)
-        K = jax.vmap(lambda row: dispatch_solve(S_op, row, solver))(PHt)  # (N, M)
+        K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
 
         x_filt_new = x_pred + K @ v
         P_filt_new = P_pred - K @ S @ K.T
@@ -133,11 +134,10 @@ def rts_smoother(
         x_smooth, P_smooth = carry
         x_filt, P_filt, x_pred, P_pred = inputs
 
-        # Smoother gain: G = P_filt @ A^T @ P_pred^{-1}
+        # Smoother gain: G = P_filt Aᵀ P⁻pred⁻¹
         P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
-        At = transition.T
-        G = P_filt @ At  # (N, N)
-        G = jax.vmap(lambda row: dispatch_solve(P_pred_op, row, solver))(G)  # (N, N)
+        G = P_filt @ transition.T  # (N, N)
+        G = solve_rows(P_pred_op, G, solver=solver)  # (N, N)
 
         x_smooth_new = x_filt + G @ (x_smooth - x_pred)
         P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
@@ -197,6 +197,6 @@ def kalman_gain(
     S = H_mat @ P_mat @ H_mat.T + R_mat  # (M, M)
     S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
-    # K = P H^T S^{-1}  =>  solve row by row
+    # K = P Hᵀ S⁻¹
     PHt = P_mat @ H_mat.T  # (N, M)
-    return jax.vmap(lambda row: dispatch_solve(S_op, row, solver))(PHt)  # (N, M)
+    return solve_rows(S_op, PHt, solver=solver)  # (N, M)
