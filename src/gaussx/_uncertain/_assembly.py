@@ -55,6 +55,6 @@ def assemble_propagation_result(
         axis=0,
     )
 
-    cov_y = lx.MatrixLinearOperator(Sigma_y, lx.positive_semidefinite_tag)
+    cov_y = lx.MatrixLinearOperator(Sigma_y, lx.symmetric_tag)
     out_state = GaussianState(mean=mu_y, cov=cov_y)
     return PropagationResult(state=out_state, cross_cov=cross_cov)

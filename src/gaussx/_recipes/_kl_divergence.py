@@ -7,6 +7,8 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jsla
 from jaxtyping import Array, Float
 
+from gaussx._primitives._logdet import cholesky_logdet
+
 
 def gauss_kl(
     q_mu: Float[Array, "M R"],
@@ -64,9 +66,7 @@ def gauss_kl(
             )  # (M,)
             trace_term = jnp.sum(q_var * Kinv_diag[:, None])
 
-            # log|K| - log|S|
-            from gaussx._primitives._logdet import cholesky_logdet
-
+            # log|K| − log|S|
             logdet_K = cholesky_logdet(L_K)
             logdet_S = jnp.sum(jnp.log(q_var))
             logdet_diff = R * logdet_K - logdet_S
@@ -80,8 +80,6 @@ def gauss_kl(
 
     # q_sqrt shape: (R, M, M) — full lower-triangular Cholesky factors
     # Hoist prior-only quantities outside the per-output computation.
-    from gaussx._primitives._logdet import cholesky_logdet
-
     logdet_K = cholesky_logdet(L_K) if L_K is not None else 0.0
 
     def _kl_single(

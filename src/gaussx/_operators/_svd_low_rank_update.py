@@ -6,7 +6,11 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import _to_frozenset
-from gaussx._operators._low_rank_update import LowRankUpdate, _safe_query
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    _is_nonnegative,
+    _safe_query,
+)
 
 
 class SVDLowRankUpdate(LowRankUpdate):
@@ -60,7 +64,7 @@ class SVDLowRankUpdate(LowRankUpdate):
         inferred: set[object] = set()
         if n_in == n_out and _safe_query(lx.is_symmetric, base) and U is V:
             inferred.add(lx.symmetric_tag)
-            if _safe_query(lx.is_positive_semidefinite, base):
+            if _safe_query(lx.is_positive_semidefinite, base) and _is_nonnegative(S):
                 inferred.add(lx.positive_semidefinite_tag)
         self.tags = _to_frozenset(tags) | frozenset(inferred) | {low_rank_tag}
 

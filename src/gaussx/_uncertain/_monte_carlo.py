@@ -44,6 +44,12 @@ class MonteCarloIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via Monte Carlo sampling."""
+        if self.n_samples < 2:
+            msg = (
+                f"MonteCarloIntegrator requires n_samples >= 2 for "
+                f"Bessel-corrected covariance, got {self.n_samples}."
+            )
+            raise ValueError(msg)
         mu = state.mean
         Sigma = state.cov.as_matrix()
         N = mu.shape[0]
