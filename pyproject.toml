@@ -59,7 +59,7 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
     "mkdocs-jupyter>=0.24",
-    "jupytext>=1.16",
+    "jupytext>=1.19.1",
     "ipykernel>=6.29",
 ]
 
