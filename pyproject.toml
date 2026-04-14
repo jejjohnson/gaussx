@@ -47,7 +47,7 @@ dev = [
     "numpyro>=0.15",
 ]
 lint = [
-    "ruff>=0.9",
+    "ruff>=0.15.10",
 ]
 typecheck = [
     "ty>=0.0.1a6",
