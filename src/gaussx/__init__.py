@@ -2,17 +2,21 @@
 
 __version__ = "0.0.10"
 
-from gaussx._distributions import (
+# Import the non-numpyro helpers directly from submodules. Avoid
+# ``from gaussx._distributions import ...`` so the optional numpyro guard
+# at the bottom of this file remains the single entry point that handles
+# missing numpyro.
+from gaussx._distributions._conditional import conditional as conditional
+from gaussx._distributions._gaussian import (
     add_jitter as add_jitter,
-    conditional as conditional,
-    dist_kl_divergence as dist_kl_divergence,
     gaussian_entropy as gaussian_entropy,
     gaussian_log_prob as gaussian_log_prob,
-    joseph_update as joseph_update,
     kl_standard_normal as kl_standard_normal,
-    project as project,
     quadratic_form as quadratic_form,
 )
+from gaussx._distributions._joseph import joseph_update as joseph_update
+from gaussx._distributions._kl import dist_kl_divergence as dist_kl_divergence
+from gaussx._distributions._project import project as project
 from gaussx._expfam import (
     GaussianExpFam as GaussianExpFam,
     expectation_to_meanvar as expectation_to_meanvar,
@@ -235,8 +239,8 @@ from gaussx._tags import (
 
 
 try:
-    from gaussx._distributions import (
-        MultivariateNormal as MultivariateNormal,
+    from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
+    from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
 except ModuleNotFoundError as _e:
