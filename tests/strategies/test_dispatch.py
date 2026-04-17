@@ -21,7 +21,7 @@ def _make_pd_operator(key, n=5):
 
 def test_gaussian_log_prob_with_solver(getkey):
     """gaussian_log_prob(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._gaussian import gaussian_log_prob
+    from gaussx._distributions._gaussian import gaussian_log_prob
 
     op = _make_pd_operator(getkey())
     mu = jnp.zeros(5)
@@ -33,7 +33,7 @@ def test_gaussian_log_prob_with_solver(getkey):
 
 def test_gaussian_entropy_with_solver(getkey):
     """gaussian_entropy(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._gaussian import gaussian_entropy
+    from gaussx._distributions._gaussian import gaussian_entropy
 
     op = _make_pd_operator(getkey())
     ref = gaussian_entropy(op)
@@ -43,7 +43,7 @@ def test_gaussian_entropy_with_solver(getkey):
 
 def test_quadratic_form_with_solver(getkey):
     """quadratic_form(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._gaussian import quadratic_form
+    from gaussx._distributions._gaussian import quadratic_form
 
     op = _make_pd_operator(getkey())
     x = jr.normal(getkey(), (5,))
@@ -54,7 +54,7 @@ def test_quadratic_form_with_solver(getkey):
 
 def test_kl_standard_normal_with_solver(getkey):
     """kl_standard_normal(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._gaussian import kl_standard_normal
+    from gaussx._distributions._gaussian import kl_standard_normal
 
     op = _make_pd_operator(getkey())
     m = jr.normal(getkey(), (5,))
@@ -68,7 +68,7 @@ def test_kl_standard_normal_with_solver(getkey):
 
 def test_log_mll_with_solver(getkey):
     """log_marginal_likelihood(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._inference import log_marginal_likelihood
+    from gaussx._inference._inference import log_marginal_likelihood
 
     op = _make_pd_operator(getkey())
     mu = jnp.zeros(5)
@@ -80,7 +80,7 @@ def test_log_mll_with_solver(getkey):
 
 def test_trace_correction_with_solver(getkey):
     """trace_correction(solver=DenseSolver()) should match default."""
-    from gaussx._sugar._inference import trace_correction
+    from gaussx._inference._inference import trace_correction
 
     N, M = 6, 3
     K_xx = _make_pd_operator(getkey(), N)
@@ -96,7 +96,7 @@ def test_trace_correction_with_solver(getkey):
 
 def test_natural_to_mean_cov_with_solver(getkey):
     """natural_to_mean_cov(solver=DenseSolver()) should match default."""
-    from gaussx._recipes._natural import mean_cov_to_natural, natural_to_mean_cov
+    from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
 
     op = _make_pd_operator(getkey())
     mu = jr.normal(getkey(), (5,))
@@ -109,7 +109,7 @@ def test_natural_to_mean_cov_with_solver(getkey):
 
 def test_mean_cov_to_natural_with_solver(getkey):
     """mean_cov_to_natural(solver=DenseSolver()) should match default."""
-    from gaussx._recipes._natural import mean_cov_to_natural
+    from gaussx._expfam._natural import mean_cov_to_natural
 
     op = _make_pd_operator(getkey())
     mu = jr.normal(getkey(), (5,))
@@ -124,7 +124,7 @@ def test_mean_cov_to_natural_with_solver(getkey):
 
 def test_kalman_filter_with_solver(getkey):
     """kalman_filter(solver=DenseSolver()) should match default."""
-    from gaussx._recipes._kalman import kalman_filter
+    from gaussx._ssm._kalman import kalman_filter
 
     N_state, M_obs, T = 3, 2, 5
     A = jnp.eye(N_state) + 0.01 * jr.normal(getkey(), (N_state, N_state))
@@ -143,7 +143,7 @@ def test_kalman_filter_with_solver(getkey):
 
 def test_kalman_gain_with_solver(getkey):
     """kalman_gain(solver=DenseSolver()) should match default."""
-    from gaussx._recipes._kalman import kalman_gain
+    from gaussx._ssm._kalman import kalman_gain
 
     N_state, M_obs = 3, 2
     P_mat = jr.normal(getkey(), (N_state, N_state))

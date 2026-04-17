@@ -7,7 +7,7 @@ import jax.numpy as jnp
 import lineax as lx
 from einops import einsum
 
-from gaussx._primitives._inv import inv
+from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
 
@@ -49,8 +49,7 @@ class GaussianExpFam(eqx.Module):
         Returns:
             A ``GaussianExpFam`` instance.
         """
-        eta1 = solve(Sigma, mu)
-        eta2 = -0.5 * inv(Sigma)
+        eta1, eta2 = mean_cov_to_natural(mu, Sigma)
         return GaussianExpFam(eta1=eta1, eta2=eta2)
 
     @staticmethod
@@ -83,10 +82,7 @@ def to_expectation(
     Returns:
         Tuple ``(mu, Sigma)`` — mean vector and covariance operator.
     """
-    neg2_eta2 = -2.0 * expfam.eta2
-    mu = solve(neg2_eta2, expfam.eta1)
-    Sigma = inv(neg2_eta2)
-    return mu, Sigma
+    return natural_to_mean_cov(expfam.eta1, expfam.eta2)
 
 
 def to_natural(
@@ -102,9 +98,7 @@ def to_natural(
     Returns:
         Tuple ``(eta1, eta2)`` — natural parameters.
     """
-    eta1 = solve(Sigma, mu)
-    eta2 = -0.5 * inv(Sigma)
-    return eta1, eta2
+    return mean_cov_to_natural(mu, Sigma)
 
 
 def log_partition(expfam: GaussianExpFam) -> jnp.ndarray:

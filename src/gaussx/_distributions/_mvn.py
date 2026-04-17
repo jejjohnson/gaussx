@@ -13,6 +13,10 @@ from einops import rearrange
 from jaxtyping import Array, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
+from gaussx._distributions._gaussian import (
+    _gaussian_log_prob_residual,
+    gaussian_entropy,
+)
 from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
 from gaussx._strategies._auto import AutoSolver
@@ -79,11 +83,9 @@ class MultivariateNormal(dist.Distribution):
         )
 
     def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
-        alpha = self.solver.solve(self.cov_operator, residual)
-        quad = jnp.sum(residual * alpha, axis=-1)
-        ld = self.solver.logdet(self.cov_operator)
-        n = self.loc.shape[-1]
-        return -0.5 * (n * jnp.log(2.0 * jnp.pi) + ld + quad)
+        return _gaussian_log_prob_residual(
+            residual, self.cov_operator, solver=self.solver
+        )
 
     @validate_sample
     def log_prob(self, value: Float[Array, ...]) -> Float[Array, ...]:
@@ -120,6 +122,4 @@ class MultivariateNormal(dist.Distribution):
         )
 
     def entropy(self) -> Float[Array, ""]:
-        n = self.loc.shape[-1]
-        ld = self.solver.logdet(self.cov_operator)
-        return 0.5 * (n * (1.0 + jnp.log(2.0 * jnp.pi)) + ld)
+        return gaussian_entropy(self.cov_operator, solver=self.solver)
