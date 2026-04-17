@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import matfree.stochtrace
+from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -19,8 +20,8 @@ def diag(
     *,
     stochastic: bool = False,
     num_probes: int = 20,
-    key: jnp.ndarray | None = None,
-) -> jnp.ndarray:
+    key: jax.Array | None = None,
+) -> Float[Array, " n"]:
     """Extract the diagonal of an operator as a 1D array.
 
     When ``stochastic=True``, uses Hutchinson's diagonal estimator
@@ -48,16 +49,16 @@ def diag(
     return jnp.diag(operator.as_matrix())
 
 
-def _diag_block_diag(operator: BlockDiag) -> jnp.ndarray:
+def _diag_block_diag(operator: BlockDiag) -> Float[Array, " n"]:
     return jnp.concatenate([diag(op) for op in operator.operators])
 
 
-def _diag_kronecker(operator: Kronecker) -> jnp.ndarray:
+def _diag_kronecker(operator: Kronecker) -> Float[Array, " n"]:
     """diag(A kron B) = kron(diag(A), diag(B))."""
     return ft.reduce(jnp.kron, (diag(op) for op in operator.operators))
 
 
-def _diag_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
+def _diag_block_tridiag(operator: BlockTriDiag) -> Float[Array, " n"]:
     """Extract block-diagonal entries of a block-tridiagonal operator."""
     from einops import rearrange
 
@@ -69,8 +70,8 @@ def _diag_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
 def _diag_stochastic(
     operator: lx.AbstractLinearOperator,
     num_probes: int,
-    key: jnp.ndarray | None,
-) -> jnp.ndarray:
+    key: jax.Array | None,
+) -> Float[Array, " n"]:
     """Hutchinson diagonal estimator via matfree."""
     if key is None:
         key = jax.random.PRNGKey(0)

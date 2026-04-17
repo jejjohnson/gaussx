@@ -8,8 +8,8 @@ operator. For moment-based expectation parameters ``(m1, m2)`` see
 
 from __future__ import annotations
 
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._primitives._inv import inv
 from gaussx._strategies._base import AbstractSolverStrategy
@@ -17,11 +17,11 @@ from gaussx._strategies._dispatch import dispatch_solve
 
 
 def natural_to_mean_cov(
-    eta1: jnp.ndarray,
+    eta1: Float[Array, " N"],
     eta2: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Convert natural parameters to mean/covariance.
 
     Given natural parameters ``(eta1, eta2)`` where
@@ -47,11 +47,11 @@ def natural_to_mean_cov(
 
 
 def mean_cov_to_natural(
-    mu: jnp.ndarray,
+    mu: Float[Array, " N"],
     Sigma: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Convert mean/covariance to natural parameters.
 
     Given mean ``mu`` and covariance ``Sigma``:

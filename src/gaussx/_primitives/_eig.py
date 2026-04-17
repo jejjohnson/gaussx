@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import functools as ft
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import matfree.decomp
 import matfree.eig
 from jax.scipy.linalg import block_diag as _block_diag
+from jaxtyping import Array
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
@@ -19,8 +21,8 @@ def eig(
     operator: lx.AbstractLinearOperator,
     *,
     rank: int | None = None,
-    key: jnp.ndarray | None = None,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    key: jax.Array | None = None,
+) -> tuple[Array, Array]:
     """Compute eigenvalues and eigenvectors.
 
     For symmetric operators returns real eigenvalues via ``eigh``.
@@ -53,8 +55,8 @@ def eigvals(
     operator: lx.AbstractLinearOperator,
     *,
     rank: int | None = None,
-    key: jnp.ndarray | None = None,
-) -> jnp.ndarray:
+    key: jax.Array | None = None,
+) -> Array:
     """Compute eigenvalues only.
 
     When ``rank`` is given, returns the top-k eigenvalues via
@@ -82,7 +84,7 @@ def eigvals(
 
 def _eig_diagonal(
     operator: lx.DiagonalLinearOperator,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[Array, Array]:
     d = lx.diagonal(operator)
     n = d.shape[0]
     return d, jnp.eye(n, dtype=d.dtype)
@@ -90,7 +92,7 @@ def _eig_diagonal(
 
 def _eig_block_diag(
     operator: BlockDiag,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[Array, Array]:
     vals_list = []
     vecs_list = []
     for op in operator.operators:
@@ -104,7 +106,7 @@ def _eig_block_diag(
 
 def _eig_kronecker(
     operator: Kronecker,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[Array, Array]:
     """eig(A kron B) = (kron(eigvals), kron(eigvecs))."""
     factor_eigs = [eig(op) for op in operator.operators]
     vals = ft.reduce(jnp.kron, (v for v, _ in factor_eigs))
@@ -112,7 +114,7 @@ def _eig_kronecker(
     return vals, vecs
 
 
-def _eigvals_kronecker(operator: Kronecker) -> jnp.ndarray:
+def _eigvals_kronecker(operator: Kronecker) -> Array:
     """eigvals(A kron B) = kron(eigvals(A), eigvals(B))."""
     return ft.reduce(jnp.kron, (eigvals(op) for op in operator.operators))
 
@@ -120,8 +122,8 @@ def _eigvals_kronecker(operator: Kronecker) -> jnp.ndarray:
 def _eig_partial(
     operator: lx.AbstractLinearOperator,
     rank: int,
-    key: jnp.ndarray | None,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    key: jax.Array | None,
+) -> tuple[Array, Array]:
     """Partial eigendecomposition via matfree Lanczos."""
     if key is None:
         key = jr.PRNGKey(0)
@@ -140,14 +142,14 @@ def _eig_partial(
 
 def _eig_dense(
     operator: lx.AbstractLinearOperator,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[Array, Array]:
     mat = operator.as_matrix()
     if lx.is_symmetric(operator):
         return jnp.linalg.eigh(mat)
     return jnp.linalg.eig(mat)
 
 
-def _eigvals_dense(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
+def _eigvals_dense(operator: lx.AbstractLinearOperator) -> Array:
     mat = operator.as_matrix()
     if lx.is_symmetric(operator):
         return jnp.linalg.eigvalsh(mat)

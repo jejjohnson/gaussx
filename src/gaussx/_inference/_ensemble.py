@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._operators._low_rank_update import LowRankUpdate
 
 
 def ensemble_covariance(
-    particles: jnp.ndarray,
+    particles: Float[Array, "J N"],
 ) -> LowRankUpdate:
     """Empirical covariance from an ensemble as a low-rank operator.
 
@@ -38,9 +39,9 @@ def ensemble_covariance(
 
 
 def ensemble_cross_covariance(
-    particles_theta: jnp.ndarray,
-    particles_G: jnp.ndarray,
-) -> jnp.ndarray:
+    particles_theta: Float[Array, "J N"],
+    particles_G: Float[Array, "J M"],
+) -> Float[Array, "N M"]:
     """Cross-covariance between two ensemble sets.
 
     Computes ``C^{theta,G} = (1/J) sum_j (theta_j - bar)(G_j - bar)^T``.

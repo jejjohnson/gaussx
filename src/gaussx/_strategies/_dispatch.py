@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolveStrategy
 
 
 def dispatch_solve(
     operator: lx.AbstractLinearOperator,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: AbstractSolveStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     """Solve ``A x = b`` via *solver* or structural-dispatch primitive.
 
     Args:
@@ -37,7 +37,7 @@ def dispatch_logdet(
     solver: AbstractLogdetStrategy | None = None,
     *,
     key: jax.Array | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Compute ``log |det(A)|`` via *solver* or structural-dispatch primitive.
 
     Args:

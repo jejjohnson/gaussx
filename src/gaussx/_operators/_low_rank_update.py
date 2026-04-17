@@ -204,7 +204,7 @@ def _infer_tags(
     return frozenset(inferred)
 
 
-def _arrays_match(x: jnp.ndarray, y: jnp.ndarray) -> bool:
+def _arrays_match(x: Array, y: Array) -> bool:
     """Best-effort equality check that stays safe under tracing."""
     if x is y:
         return True
@@ -216,7 +216,7 @@ def _arrays_match(x: jnp.ndarray, y: jnp.ndarray) -> bool:
         return False
 
 
-def _is_nonnegative(x: jnp.ndarray) -> bool:
+def _is_nonnegative(x: Array) -> bool:
     """Return True only when non-negativity is known concretely."""
     try:
         return bool(jnp.all(x >= 0))

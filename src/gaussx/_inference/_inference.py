@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._primitives._inv import inv
@@ -13,12 +14,12 @@ from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 def log_marginal_likelihood(
-    loc: jnp.ndarray,
+    loc: Float[Array, " N"],
     cov_operator: lx.AbstractLinearOperator,
-    y: jnp.ndarray,
+    y: Float[Array, " N"],
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """GP log marginal likelihood.
 
     Computes::
@@ -46,13 +47,13 @@ def log_marginal_likelihood(
 
 
 def gaussian_expected_log_lik(
-    y: jnp.ndarray,
-    q_mu: jnp.ndarray,
+    y: Float[Array, " N"],
+    q_mu: Float[Array, " N"],
     q_cov: lx.AbstractLinearOperator,
     noise: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     r"""Expected log-likelihood ``E_q[log N(y | f, R)]``.
 
     Computes::
@@ -89,11 +90,11 @@ def gaussian_expected_log_lik(
 
 def trace_correction(
     K_xx: lx.AbstractLinearOperator,
-    K_xz: jnp.ndarray,
+    K_xz: Float[Array, "N M"],
     K_zz: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolveStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Trace term in Titsias collapsed ELBO.
 
     Computes::
@@ -127,12 +128,12 @@ def trace_correction(
 
 
 def cavity_distribution(
-    post_mean: jnp.ndarray,
+    post_mean: Float[Array, " N"],
     post_cov: lx.AbstractLinearOperator,
-    site_nat1: jnp.ndarray,
+    site_nat1: Float[Array, " N"],
     site_nat2: lx.AbstractLinearOperator,
     power: float = 1.0,
-) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Compute EP cavity distribution by removing a site.
 
     Computes::
@@ -163,10 +164,10 @@ def cavity_distribution(
 
 
 def newton_update(
-    mean: jnp.ndarray,
-    jacobian: jnp.ndarray,
-    hessian: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    mean: Float[Array, " N"],
+    jacobian: Float[Array, " N"],
+    hessian: Float[Array, "N N"],
+) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
     """Convert a Newton step to natural pseudo-likelihood parameters.
 
     Computes::
@@ -191,9 +192,9 @@ def newton_update(
 
 
 def process_noise_covariance(
-    A: jnp.ndarray,
-    Pinf: jnp.ndarray,
-) -> jnp.ndarray:
+    A: Float[Array, "N N"],
+    Pinf: Float[Array, "N N"],
+) -> Float[Array, "N N"]:
     """Compute process noise from stationary covariance.
 
     Computes::

@@ -98,7 +98,7 @@ class ScaledOperator(lx.AbstractLinearOperator):
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
         self.operator = operator
-        self.scalar = jnp.asarray(scalar).reshape(())
+        self.scalar = jnp.asarray(scalar)
         self._in_size = operator.in_size()
         self._out_size = operator.out_size()
         self._dtype = jnp.result_type(

@@ -7,9 +7,9 @@ multiple test sets reuse the same expensive linear solve.
 from __future__ import annotations
 
 import equinox as eqx
-import jax.numpy as jnp
 import lineax as lx
 from einops import reduce
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -25,12 +25,12 @@ class PredictionCache(eqx.Module):
         alpha: Solved weights ``K_y^{-1} y``, shape ``(N,)``.
     """
 
-    alpha: jnp.ndarray
+    alpha: Float[Array, " N"]
 
 
 def build_prediction_cache(
     operator: lx.AbstractLinearOperator,
-    y: jnp.ndarray,
+    y: Float[Array, " N"],
     *,
     solver: AbstractSolveStrategy | None = None,
 ) -> PredictionCache:
@@ -51,8 +51,8 @@ def build_prediction_cache(
 
 def predict_mean(
     cache: PredictionCache,
-    K_cross: jnp.ndarray,
-) -> jnp.ndarray:
+    K_cross: Float[Array, "Nt N"],
+) -> Float[Array, " Nt"]:
     """Predictive mean: ``mu* = K_*f @ alpha``.
 
     Args:
@@ -66,12 +66,12 @@ def predict_mean(
 
 
 def predict_variance(
-    K_cross: jnp.ndarray,
-    K_test_diag: jnp.ndarray,
+    K_cross: Float[Array, "Nt N"],
+    K_test_diag: Float[Array, " Nt"],
     operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolveStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, " Nt"]:
     """Predictive variance: ``sigma^2* = k_** - diag(K_*f K_y^{-1} K_f*)``.
 
     For each test point *i*, solves ``K_y v_i = K_cross[i, :]`` and

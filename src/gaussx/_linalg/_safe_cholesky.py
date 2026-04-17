@@ -5,11 +5,12 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._primitives._cholesky import cholesky
 
 
-def _chol_matrix(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
+def _chol_matrix(operator: lx.AbstractLinearOperator) -> Float[Array, "N N"]:
     """Route through the structured primitive and materialise the factor."""
     return cholesky(operator).as_matrix()
 
@@ -21,7 +22,7 @@ def safe_cholesky(
     max_jitter: float = 1e-2,
     max_retries: int = 5,
     growth_factor: float = 10.0,
-) -> jnp.ndarray:
+) -> Float[Array, "N N"]:
     """Cholesky decomposition with adaptive jitter for near-singular matrices.
 
     The first attempt routes through :func:`gaussx._primitives.cholesky`, so
@@ -46,7 +47,7 @@ def safe_cholesky(
         growth_factor: Multiplicative factor applied to jitter each retry.
 
     Returns:
-        Lower-triangular Cholesky factor as a dense ``jnp.ndarray``.
+        Lower-triangular Cholesky factor as a dense array.
         If all attempts fail the result will contain NaNs — this is
         intentional: JAX cannot raise exceptions inside ``jit``-traced
         code, so callers should check for NaNs when robustness matters.

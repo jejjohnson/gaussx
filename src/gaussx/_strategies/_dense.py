@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
@@ -23,8 +23,8 @@ class DenseSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         return _solve(operator, vector)
 
     def logdet(
@@ -32,5 +32,5 @@ class DenseSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         return _logdet(operator)

@@ -114,7 +114,7 @@ class BlockTriDiag(lx.AbstractLinearOperator):
         # Transposing: new (k+1,k) = old (k,k+1).T = sub[k].
         # So new sub_diagonal = self.sub_diagonal (unchanged).
         return BlockTriDiag(
-            jax.vmap(jnp.transpose)(self.diagonal),
+            rearrange(self.diagonal, "N i j -> N j i"),
             self.sub_diagonal,
             tags=lx.transpose_tags(self.tags),
         )
@@ -232,8 +232,8 @@ class LowerBlockTriDiag(lx.AbstractLinearOperator):
     def transpose(self) -> UpperBlockTriDiag:
         """Transpose gives upper block-bidiagonal."""
         return UpperBlockTriDiag(
-            jax.vmap(jnp.transpose)(self.diagonal),
-            jax.vmap(jnp.transpose)(self.sub_diagonal),
+            rearrange(self.diagonal, "N i j -> N j i"),
+            rearrange(self.sub_diagonal, "N i j -> N j i"),
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
@@ -308,8 +308,8 @@ class UpperBlockTriDiag(lx.AbstractLinearOperator):
 
     def transpose(self) -> LowerBlockTriDiag:
         return LowerBlockTriDiag(
-            jax.vmap(jnp.transpose)(self.diagonal),
-            jax.vmap(jnp.transpose)(self.super_diagonal),
+            rearrange(self.diagonal, "N i j -> N j i"),
+            rearrange(self.super_diagonal, "N i j -> N j i"),
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:

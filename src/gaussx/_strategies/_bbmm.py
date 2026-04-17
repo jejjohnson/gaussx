@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -44,8 +44,8 @@ class BBMMSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b via CG.
 
         Args:
@@ -67,7 +67,7 @@ class BBMMSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic log-determinant via Lanczos quadrature.
 
         Probe vectors are generated deterministically from ``self.seed``.
@@ -87,8 +87,8 @@ class BBMMSolver(AbstractSolverStrategy):
     def solve_and_logdet(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        vector: Float[Array, " n"],
+    ) -> tuple[Float[Array, " n"], Float[Array, ""]]:
         """Joint solve + logdet.
 
         Computes both solve(A, b) and logdet(A) sharing the

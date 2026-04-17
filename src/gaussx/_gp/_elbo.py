@@ -5,15 +5,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import jax.numpy as jnp
+from jaxtyping import Array, Float
 
 
 def variational_elbo_gaussian(
-    y: jnp.ndarray,
-    f_loc: jnp.ndarray,
-    f_var: jnp.ndarray,
+    y: Float[Array, " N"],
+    f_loc: Float[Array, " N"],
+    f_var: Float[Array, " N"],
     noise_var: float,
-    kl: jnp.ndarray,
-) -> jnp.ndarray:
+    kl: Float[Array, ""],
+) -> Float[Array, ""]:
     """Titsias collapsed ELBO for Gaussian likelihoods.
 
     Computes::
@@ -46,10 +47,10 @@ def variational_elbo_gaussian(
 
 
 def variational_elbo_mc(
-    log_likelihood_fn: Callable[[jnp.ndarray], jnp.ndarray],
-    f_samples: jnp.ndarray,
-    kl: jnp.ndarray,
-) -> jnp.ndarray:
+    log_likelihood_fn: Callable[[Float[Array, " N"]], Float[Array, ""]],
+    f_samples: Float[Array, "S N"],
+    kl: Float[Array, ""],
+) -> Float[Array, ""]:
     """Monte Carlo ELBO for non-conjugate likelihoods.
 
     Computes::

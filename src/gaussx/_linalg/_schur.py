@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._operators._low_rank_update import LowRankUpdate
 
 
 def schur_complement(
     K_XX: lx.AbstractLinearOperator,
-    K_XZ: jnp.ndarray,
+    K_XZ: Float[Array, "N M"],
     K_ZZ: lx.AbstractLinearOperator,
 ) -> LowRankUpdate:
     """Schur complement: ``K_XX - K_XZ @ K_ZZ^{-1} @ K_ZX``.
@@ -48,10 +49,10 @@ def schur_complement(
 
 
 def conditional_variance(
-    K_XX_diag: jnp.ndarray,
-    A_X: jnp.ndarray,
+    K_XX_diag: Float[Array, " N"],
+    A_X: Float[Array, "N M"],
     S_u: lx.AbstractLinearOperator,
-) -> jnp.ndarray:
+) -> Float[Array, " N"]:
     """Predictive variance for GP conditionals.
 
     Computes::

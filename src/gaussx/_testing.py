@@ -12,6 +12,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+from jaxtyping import Array, Bool, Float
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 
@@ -23,7 +24,7 @@ from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 
 def tree_allclose(
     x, y, *, rtol: float = 1e-5, atol: float = 1e-8
-) -> bool | jnp.ndarray:
+) -> bool | Bool[Array, ""]:
     """PyTree-aware approximate equality check.
 
     Wraps ``eqx.tree_equal`` with tolerance support. Matches the
@@ -37,7 +38,12 @@ def tree_allclose(
 # ---------------------------------------------------------------------------
 
 
-def random_pd_matrix(key: jax.Array, n: int, *, dtype=jnp.float64) -> jnp.ndarray:
+def random_pd_matrix(
+    key: jax.Array,
+    n: int,
+    *,
+    dtype=jnp.float64,
+) -> Float[Array, "n n"]:
     """Generate a random positive-definite n x n matrix."""
     A = jr.normal(key, (n, n), dtype=dtype)
     return A @ A.T + 0.1 * jnp.eye(n, dtype=dtype)
@@ -100,26 +106,29 @@ def random_low_rank_update(
 # ---------------------------------------------------------------------------
 
 
-def dense_solve(op: lx.AbstractLinearOperator, v: jnp.ndarray) -> jnp.ndarray:
+def dense_solve(
+    op: lx.AbstractLinearOperator,
+    v: Float[Array, " n"],
+) -> Float[Array, " n"]:
     """Solve via dense materialization (reference implementation)."""
     return jnp.linalg.solve(op.as_matrix(), v)
 
 
-def dense_logdet(op: lx.AbstractLinearOperator) -> jnp.ndarray:
+def dense_logdet(op: lx.AbstractLinearOperator) -> Float[Array, ""]:
     """Log-determinant via dense materialization."""
     return jnp.linalg.slogdet(op.as_matrix())[1]
 
 
-def dense_inv(op: lx.AbstractLinearOperator) -> jnp.ndarray:
+def dense_inv(op: lx.AbstractLinearOperator) -> Float[Array, "n n"]:
     """Inverse via dense materialization."""
     return jnp.linalg.inv(op.as_matrix())
 
 
-def dense_diag(op: lx.AbstractLinearOperator) -> jnp.ndarray:
+def dense_diag(op: lx.AbstractLinearOperator) -> Float[Array, " n"]:
     """Diagonal via dense materialization."""
     return jnp.diag(op.as_matrix())
 
 
-def dense_trace(op: lx.AbstractLinearOperator) -> jnp.ndarray:
+def dense_trace(op: lx.AbstractLinearOperator) -> Float[Array, ""]:
     """Trace via dense materialization."""
     return jnp.trace(op.as_matrix())

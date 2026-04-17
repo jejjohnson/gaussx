@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet
@@ -12,13 +13,13 @@ from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet
 
 def _minres_solve(
     matvec,
-    b: jnp.ndarray,
+    b: Float[Array, " N"],
     *,
     rtol: float = 1e-5,
     atol: float = 1e-5,
     max_steps: int = 1000,
     shift: float = 0.0,
-) -> jnp.ndarray:
+) -> Float[Array, " N"]:
     r"""Solve ``(A + shift I) x = b`` via MINRES for symmetric ``A``.
 
     Implements the Lanczos-based MINRES algorithm (Paige & Saunders, 1975).
@@ -180,8 +181,8 @@ class MINRESSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         return _minres_solve(
             operator.mv,
             vector,
@@ -196,7 +197,7 @@ class MINRESSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic ``log|det(A + shift I)|`` via Lanczos quadrature.
 
         Args:

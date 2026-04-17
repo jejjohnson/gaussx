@@ -6,6 +6,7 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import solve_rows
 from gaussx._strategies._base import AbstractSolverStrategy
@@ -23,21 +24,21 @@ class FilterState(eqx.Module):
         log_likelihood: Scalar — total log-likelihood.
     """
 
-    filtered_means: jnp.ndarray
-    filtered_covs: jnp.ndarray
-    predicted_means: jnp.ndarray
-    predicted_covs: jnp.ndarray
-    log_likelihood: jnp.ndarray
+    filtered_means: Float[Array, "T N"]
+    filtered_covs: Float[Array, "T N N"]
+    predicted_means: Float[Array, "T N"]
+    predicted_covs: Float[Array, "T N N"]
+    log_likelihood: Float[Array, ""]
 
 
 def kalman_filter(
-    transition: jnp.ndarray,
-    obs_model: jnp.ndarray,
-    process_noise: jnp.ndarray,
-    obs_noise: jnp.ndarray,
-    observations: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
+    transition: Float[Array, "N N"],
+    obs_model: Float[Array, "M N"],
+    process_noise: Float[Array, "N N"],
+    obs_noise: Float[Array, "M M"],
+    observations: Float[Array, "T M"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> FilterState:
@@ -111,11 +112,11 @@ def kalman_filter(
 
 def rts_smoother(
     filter_state: FilterState,
-    transition: jnp.ndarray,
-    process_noise: jnp.ndarray,
+    transition: Float[Array, "N N"],
+    process_noise: Float[Array, "N N"],
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Rauch-Tung-Striebel backward smoother.
 
     Args:
@@ -177,7 +178,7 @@ def kalman_gain(
     R: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, "N M"]:
     """Compute Kalman gain ``K = P @ H^T @ (H @ P @ H^T + R)^{-1}``.
 
     Args:

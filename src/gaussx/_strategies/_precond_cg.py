@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import matfree.low_rank
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -46,8 +47,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b via preconditioned CG.
 
         Args:
@@ -93,7 +94,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic log-determinant via Lanczos quadrature.
 
         Args:

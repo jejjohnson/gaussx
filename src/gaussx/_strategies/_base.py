@@ -6,8 +6,8 @@ import abc
 
 import equinox as eqx
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 
 class AbstractSolveStrategy(eqx.Module):
@@ -22,8 +22,8 @@ class AbstractSolveStrategy(eqx.Module):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b."""
         ...
 
@@ -45,7 +45,7 @@ class AbstractLogdetStrategy(eqx.Module):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Compute log |det(A)|.
 
         Args:

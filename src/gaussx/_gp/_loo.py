@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._strategies._base import AbstractSolveStrategy
@@ -20,19 +22,19 @@ class LOOResult(eqx.Module):
         loo_variances: Per-point LOO predictive variances, shape ``(N,)``.
     """
 
-    loo_log_likelihood: jnp.ndarray
-    loo_means: jnp.ndarray
-    loo_variances: jnp.ndarray
+    loo_log_likelihood: Float[Array, ""]
+    loo_means: Float[Array, " N"]
+    loo_variances: Float[Array, " N"]
 
 
 def leave_one_out_cv(
     operator: lx.AbstractLinearOperator,
-    y: jnp.ndarray,
+    y: Float[Array, " N"],
     *,
     solver: AbstractSolveStrategy | None = None,
     diag_inv_method: str = "solve",
     diag_inv_num_probes: int = 30,
-    diag_inv_key: jnp.ndarray | None = None,
+    diag_inv_key: jax.Array | None = None,
 ) -> LOOResult:
     """LOO-CV via the bordered-system identity.
 

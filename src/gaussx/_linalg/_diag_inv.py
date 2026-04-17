@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 from einops import reduce
+from jaxtyping import Array, Float
 
 from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._strategies._base import AbstractSolveStrategy
@@ -17,9 +18,9 @@ def diag_inv(
     *,
     method: str = "auto",
     num_probes: int = 30,
-    key: jnp.ndarray | None = None,
+    key: jax.Array | None = None,
     solver: AbstractSolveStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, " N"]:
     """Compute the diagonal of the inverse of a linear operator.
 
     Returns ``diag(A⁻¹)`` without forming the full inverse matrix.
@@ -61,7 +62,7 @@ def diag_inv(
     raise ValueError(msg)
 
 
-def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
+def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> Float[Array, " N"]:
     """Exact diagonal of A⁻¹ via Cholesky factorisation.
 
     Uses :func:`safe_cholesky` for robustness on ill-conditioned
@@ -79,13 +80,13 @@ def _diag_inv_solve(
     operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolveStrategy | None,
-) -> jnp.ndarray:
+) -> Float[Array, " N"]:
     """Exact diagonal of A⁻¹ via repeated solves against basis vectors."""
     n = operator.in_size()
     dtype = operator.out_structure().dtype
     I = jnp.eye(n, dtype=dtype)
 
-    def _single_basis(e_i: jnp.ndarray) -> jnp.ndarray:
+    def _single_basis(e_i: Float[Array, " N"]) -> Float[Array, ""]:
         Ainv_ei = dispatch_solve(operator, e_i, solver)
         return jnp.sum(e_i * Ainv_ei)
 
@@ -96,9 +97,9 @@ def _diag_inv_hutchinson(
     operator: lx.AbstractLinearOperator,
     *,
     num_probes: int,
-    key: jnp.ndarray | None,
+    key: jax.Array | None,
     solver: AbstractSolveStrategy | None,
-) -> jnp.ndarray:
+) -> Float[Array, " N"]:
     """Stochastic diagonal estimator via Hutchinson's trick.
 
     Generates Rademacher probe vectors z, solves A⁻¹ z, and
@@ -111,7 +112,7 @@ def _diag_inv_hutchinson(
     dtype = operator.out_structure().dtype
     keys = jax.random.split(key, num_probes)
 
-    def _single_probe(k: jnp.ndarray) -> jnp.ndarray:
+    def _single_probe(k: jax.Array) -> Float[Array, " N"]:
         z = 2.0 * jax.random.bernoulli(k, shape=(n,)).astype(dtype) - 1.0
         Ainv_z = dispatch_solve(operator, z, solver)
         return z * Ainv_z

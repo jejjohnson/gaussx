@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
 import matfree.lstsq
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -44,8 +44,8 @@ class LSMRSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " m"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b via LSMR.
 
         Args:
@@ -73,7 +73,7 @@ class LSMRSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic log-determinant via Lanczos quadrature.
 
         Args:

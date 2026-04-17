@@ -5,17 +5,18 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 from einops import reduce
+from jaxtyping import Array, Float
 
 from gaussx._primitives._cholesky import cholesky
 
 
 def whitened_svgp_predict(
     K_zz_op: lx.AbstractLinearOperator,
-    K_xz: jnp.ndarray,
-    u_mean: jnp.ndarray,
-    u_chol: jnp.ndarray,
-    K_xx_diag: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    K_xz: Float[Array, "N M"],
+    u_mean: Float[Array, " M"],
+    u_chol: Float[Array, "M M"],
+    K_xx_diag: Float[Array, " N"],
+) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
     r"""Whitened SVGP prediction: mean and variance at test points.
 
     Computes the predictive mean and variance for a sparse variational

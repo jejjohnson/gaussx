@@ -12,6 +12,35 @@ from jaxtyping import Array, Float
 from gaussx._primitives._eig import eig
 
 
+_AXIS_NAMES = tuple("abcdefghijklmnopqrstuvwxyz")
+
+
+def _reshape_flat_to_grid(
+    values: Float[Array, " N"],
+    grid_shape: tuple[int, ...],
+) -> Array:
+    axes = _AXIS_NAMES[: len(grid_shape)]
+    axis_lengths = dict(zip(axes, grid_shape, strict=True))
+    grid_pattern = " ".join(axes)
+    return rearrange(values, f"({grid_pattern}) -> {grid_pattern}", **axis_lengths)
+
+
+def _move_axis_to_last(values: Array, axis: int) -> Array:
+    axes = list(_AXIS_NAMES[: values.ndim])
+    source_pattern = " ".join(axes)
+    target_axes = [name for i, name in enumerate(axes) if i != axis] + [axes[axis]]
+    target_pattern = " ".join(target_axes)
+    return rearrange(values, f"{source_pattern} -> {target_pattern}")
+
+
+def _move_last_axis_to(values: Array, axis: int) -> Array:
+    axes = list(_AXIS_NAMES[: values.ndim])
+    source_axes = [name for i, name in enumerate(axes) if i != axis] + [axes[axis]]
+    source_pattern = " ".join(source_axes)
+    target_pattern = " ".join(axes)
+    return rearrange(values, f"{source_pattern} -> {target_pattern}")
+
+
 def kronecker_mll(
     K_factors: list[lx.AbstractLinearOperator],
     y: Float[Array, " N"],
@@ -155,14 +184,13 @@ def _kron_rotate(
     Reshapes y to the grid, applies each ``Q_i^T`` along its axis,
     then flattens back.
     """
-    x = rearrange(y, "(total) -> total", total=y.shape[0])
-    x = x.reshape(grid_shape)
+    x = _reshape_flat_to_grid(y, grid_shape)
 
     for i, Q_i in enumerate(vecs_list):
         # Move axis i to last position, apply Qᵢᵀ, move back
-        x = jnp.moveaxis(x, i, -1)
+        x = _move_axis_to_last(x, i)
         x = x @ Q_i  # (..., n_i) @ (n_i, n_i) -> (..., n_i)
-        x = jnp.moveaxis(x, -1, i)
+        x = _move_last_axis_to(x, i)
 
     return rearrange(x, "... -> (...)")
 
@@ -176,13 +204,13 @@ def _kron_matvec(
 
     Similar to the Roth column lemma approach.
     """
-    x = v.reshape(grid_shape)
+    x = _reshape_flat_to_grid(v, grid_shape)
 
     out_shape = []
     for i, A_i in enumerate(A_factors):
-        x = jnp.moveaxis(x, i, -1)
+        x = _move_axis_to_last(x, i)
         x = x @ A_i.T  # (..., n_i) @ (n_i, m_i) -> (..., m_i)
         out_shape.append(A_i.shape[0])
-        x = jnp.moveaxis(x, -1, i)
+        x = _move_last_axis_to(x, i)
 
     return rearrange(x, "... -> (...)")

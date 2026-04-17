@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import (
     AbstractLogdetStrategy,
@@ -41,8 +41,8 @@ class ComposedSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b using the solve strategy."""
         return self.solve_strategy.solve(operator, vector)
 
@@ -51,6 +51,6 @@ class ComposedSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Compute log |det(A)| using the logdet strategy."""
         return self.logdet_strategy.logdet(operator, key=key)

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import matfree.decomp
 import matfree.eig
+from jaxtyping import Array, Float
 
 
 def svd(
     operator: lx.AbstractLinearOperator,
     *,
     rank: int | None = None,
-    key: jnp.ndarray | None = None,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    key: jax.Array | None = None,
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
     """Compute the singular value decomposition ``A = U diag(s) V^T``.
 
     When ``rank`` is given, computes a partial (truncated) SVD via
@@ -40,7 +42,7 @@ def svd(
 
 def _svd_diagonal(
     operator: lx.DiagonalLinearOperator,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> tuple[Float[Array, "n n"], Float[Array, " n"], Float[Array, "n n"]]:
     d = lx.diagonal(operator)
     n = d.shape[0]
     s = jnp.abs(d)
@@ -53,8 +55,8 @@ def _svd_diagonal(
 def _svd_partial(
     operator: lx.AbstractLinearOperator,
     rank: int,
-    key: jnp.ndarray | None,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    key: jax.Array | None,
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
     """Partial SVD via matfree bidiagonalization."""
     if key is None:
         key = jr.PRNGKey(0)
@@ -73,7 +75,7 @@ def _svd_partial(
 
 def _svd_dense(
     operator: lx.AbstractLinearOperator,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
     mat = operator.as_matrix()
     U, s, Vt = jnp.linalg.svd(mat, full_matrices=False)  # type: ignore[arg-type]
     return U, s, Vt
