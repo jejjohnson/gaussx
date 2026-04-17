@@ -6,10 +6,10 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._linalg._linalg import trace_product
 from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
-from gaussx._sugar._linalg import trace_product
 
 
 def dist_kl_divergence(
