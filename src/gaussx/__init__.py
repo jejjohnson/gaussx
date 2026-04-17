@@ -233,6 +233,5 @@ try:
         MultivariateNormal as MultivariateNormal,
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
-except ModuleNotFoundError as _e:
-    if _e.name != "numpyro":
-        raise
+except (ModuleNotFoundError, ImportError):
+    pass
