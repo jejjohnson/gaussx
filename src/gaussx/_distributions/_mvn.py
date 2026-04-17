@@ -6,7 +6,6 @@ from typing import ClassVar
 
 import jax
 import jax.numpy as jnp
-import jax.typing
 import lineax as lx
 import numpyro.distributions as dist
 from einops import rearrange
@@ -23,7 +22,19 @@ from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
-_BATCH_AXIS_NAMES = tuple("abcdefghijklmnopqrstuvwxyz")
+def _axis_names(count: int) -> tuple[str, ...]:
+    names = []
+    for index in range(count):
+        value = index
+        chars = []
+        while True:
+            value, remainder = divmod(value, 26)
+            chars.append(chr(ord("a") + remainder))
+            if value == 0:
+                break
+            value -= 1
+        names.append("".join(reversed(chars)))
+    return tuple(names)
 
 
 def _reshape_batch(
@@ -32,7 +43,7 @@ def _reshape_batch(
 ) -> Float[Array, "*batch"]:
     if not batch_shape:
         return values[0]
-    batch_axes = _BATCH_AXIS_NAMES[: len(batch_shape)]
+    batch_axes = _axis_names(len(batch_shape))
     axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
     batch_pattern = " ".join(batch_axes)
     return rearrange(values, f"({batch_pattern}) -> {batch_pattern}", **axis_lengths)
@@ -44,7 +55,7 @@ def _reshape_samples(
 ) -> Float[Array, "*batch N"]:
     if not batch_shape:
         return values[0]
-    batch_axes = _BATCH_AXIS_NAMES[: len(batch_shape)]
+    batch_axes = _axis_names(len(batch_shape))
     axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
     batch_pattern = " ".join(batch_axes)
     return rearrange(

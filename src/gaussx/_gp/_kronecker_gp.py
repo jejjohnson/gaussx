@@ -12,21 +12,42 @@ from jaxtyping import Array, Float
 from gaussx._primitives._eig import eig
 
 
-_AXIS_NAMES = tuple("abcdefghijklmnopqrstuvwxyz")
+def _axis_names(count: int) -> tuple[str, ...]:
+    names = []
+    for index in range(count):
+        value = index
+        chars = []
+        while True:
+            value, remainder = divmod(value, 26)
+            chars.append(chr(ord("a") + remainder))
+            if value == 0:
+                break
+            value -= 1
+        names.append("".join(reversed(chars)))
+    return tuple(names)
+
+
+def _normalize_axis(axis: int, ndim: int) -> int:
+    normalized = axis % ndim
+    if normalized < 0 or normalized >= ndim:
+        msg = f"axis {axis} is out of bounds for array with ndim {ndim}"
+        raise ValueError(msg)
+    return normalized
 
 
 def _reshape_flat_to_grid(
     values: Float[Array, " N"],
     grid_shape: tuple[int, ...],
 ) -> Array:
-    axes = _AXIS_NAMES[: len(grid_shape)]
+    axes = _axis_names(len(grid_shape))
     axis_lengths = dict(zip(axes, grid_shape, strict=True))
     grid_pattern = " ".join(axes)
     return rearrange(values, f"({grid_pattern}) -> {grid_pattern}", **axis_lengths)
 
 
 def _move_axis_to_last(values: Array, axis: int) -> Array:
-    axes = list(_AXIS_NAMES[: values.ndim])
+    axis = _normalize_axis(axis, values.ndim)
+    axes = list(_axis_names(values.ndim))
     source_pattern = " ".join(axes)
     target_axes = [name for i, name in enumerate(axes) if i != axis] + [axes[axis]]
     target_pattern = " ".join(target_axes)
@@ -34,7 +55,8 @@ def _move_axis_to_last(values: Array, axis: int) -> Array:
 
 
 def _move_last_axis_to(values: Array, axis: int) -> Array:
-    axes = list(_AXIS_NAMES[: values.ndim])
+    axis = _normalize_axis(axis, values.ndim)
+    axes = list(_axis_names(values.ndim))
     source_axes = [name for i, name in enumerate(axes) if i != axis] + [axes[axis]]
     source_pattern = " ".join(source_axes)
     target_pattern = " ".join(axes)
