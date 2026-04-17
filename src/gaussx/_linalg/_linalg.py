@@ -14,7 +14,7 @@ from gaussx._strategies._dispatch import dispatch_solve
 
 
 def cov_transform(
-    J: jnp.ndarray,
+    J: Float[Array, "M N"],
     cov_operator: lx.AbstractLinearOperator,
 ) -> lx.MatrixLinearOperator:
     """Covariance propagation through a linear map: ``J @ Sigma @ J^T``.
@@ -40,7 +40,7 @@ def cov_transform(
 def trace_product(
     A: lx.AbstractLinearOperator,
     B: lx.AbstractLinearOperator,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Trace of a matrix product: ``tr(A @ B)`` without forming the product.
 
     Uses the identity ``tr(AB) = sum(A * B^T)`` element-wise.
@@ -58,10 +58,10 @@ def trace_product(
 
 
 def diag_conditional_variance(
-    K_XX_diag: jnp.ndarray,
-    K_XZ: jnp.ndarray,
-    A_X: jnp.ndarray,
-) -> jnp.ndarray:
+    K_XX_diag: Float[Array, " N"],
+    K_XZ: Float[Array, "N M"],
+    A_X: Float[Array, "N M"],
+) -> Float[Array, " N"]:
     """Base conditional variance without variational covariance.
 
     Computes::

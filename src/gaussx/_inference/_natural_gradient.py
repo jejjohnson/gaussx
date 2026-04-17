@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -12,11 +13,11 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 
 def damped_natural_update(
     nat1_old: Float[Array, " d"],
-    nat2_old: lx.AbstractLinearOperator | Float[Array, ...],
+    nat2_old: lx.AbstractLinearOperator | Float[Array, "d d"],
     nat1_target: Float[Array, " d"],
-    nat2_target: lx.AbstractLinearOperator | Float[Array, ...],
+    nat2_target: lx.AbstractLinearOperator | Float[Array, "d d"],
     lr: float = 1.0,
-) -> tuple[Float[Array, " d"], lx.AbstractLinearOperator | Float[Array, ...]]:
+) -> tuple[Float[Array, " d"], lx.AbstractLinearOperator | Float[Array, "d d"]]:
     r"""Damped update in natural parameter space.
 
     The universal primitive for iterative approximate inference
@@ -40,8 +41,8 @@ def damped_natural_update(
     """
     nat1_new = (1.0 - lr) * nat1_old + lr * nat1_target
 
-    if isinstance(nat2_old, jnp.ndarray) and isinstance(nat2_target, jnp.ndarray):
-        nat2_new: lx.AbstractLinearOperator | jnp.ndarray = (
+    if isinstance(nat2_old, jax.Array) and isinstance(nat2_target, jax.Array):
+        nat2_new: lx.AbstractLinearOperator | Float[Array, "d d"] = (
             1.0 - lr
         ) * nat2_old + lr * nat2_target
     elif isinstance(nat2_old, BlockTriDiag) and isinstance(nat2_target, BlockTriDiag):

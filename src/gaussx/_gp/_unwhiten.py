@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import cov_transform
 
 
 def unwhiten(
-    m_tilde: jnp.ndarray,
+    m_tilde: Float[Array, " M"],
     L: lx.AbstractLinearOperator,
-) -> jnp.ndarray:
+) -> Float[Array, " M"]:
     """Unwhiten variational mean: ``m = L @ m_tilde``.
 
     Args:

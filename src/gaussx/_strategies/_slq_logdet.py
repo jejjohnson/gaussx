@@ -8,6 +8,7 @@ import lineax as lx
 import matfree.decomp
 import matfree.funm
 import matfree.stochtrace
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractLogdetStrategy
 
@@ -42,7 +43,7 @@ class SLQLogdet(AbstractLogdetStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic ``log det(A)`` via Lanczos quadrature.
 
         Args:
@@ -95,7 +96,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         r"""Stochastic ``log|det(A + shift I)|`` via Lanczos quadrature.
 
         Args:
@@ -140,7 +141,7 @@ class DenseLogdet(AbstractLogdetStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Compute ``log |det(A)|`` via structural dispatch.
 
         Args:

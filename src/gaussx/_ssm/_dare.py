@@ -5,6 +5,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Bool, Float
 
 
 class DAREResult(eqx.Module):
@@ -16,18 +17,18 @@ class DAREResult(eqx.Module):
         converged: Scalar boolean indicating convergence.
     """
 
-    P_inf: jnp.ndarray
-    K_inf: jnp.ndarray
-    converged: jnp.ndarray
+    P_inf: Float[Array, "D D"]
+    K_inf: Float[Array, "D M"]
+    converged: Bool[Array, ""]
 
 
 def dare(
-    A: jnp.ndarray,
-    H: jnp.ndarray,
-    Q: jnp.ndarray,
-    R: jnp.ndarray,
+    A: Float[Array, "D D"],
+    H: Float[Array, "M D"],
+    Q: Float[Array, "D D"],
+    R: Float[Array, "M M"],
     *,
-    P_init: jnp.ndarray | None = None,
+    P_init: Float[Array, "D D"] | None = None,
     max_iter: int = 100,
     tol: float = 1e-8,
 ) -> DAREResult:
@@ -61,7 +62,9 @@ def dare(
     D = A.shape[0]
     I_D = jnp.eye(D)
 
-    def _step(P: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+    def _step(
+        P: Float[Array, "D D"],
+    ) -> tuple[Float[Array, "D D"], Float[Array, "D M"]]:
         """One predict-update step. Returns ``(P_new, K)``."""
         P_pred = A @ P @ A.T + Q
         S = H @ P_pred @ H.T + R
@@ -70,13 +73,15 @@ def dare(
         P_new = (I_D - K @ H) @ P_pred
         return P_new, K
 
-    def _cond(state: tuple[jnp.ndarray, int, jnp.ndarray]) -> jnp.ndarray:
+    def _cond(
+        state: tuple[Float[Array, "D D"], int, Bool[Array, ""]],
+    ) -> Bool[Array, ""]:
         _, i, converged = state
         return (i < max_iter) & (~converged)
 
     def _body(
-        state: tuple[jnp.ndarray, int, jnp.ndarray],
-    ) -> tuple[jnp.ndarray, int, jnp.ndarray]:
+        state: tuple[Float[Array, "D D"], int, Bool[Array, ""]],
+    ) -> tuple[Float[Array, "D D"], int, Bool[Array, ""]]:
         P_old, i, _ = state
         P_new, _ = _step(P_old)
         converged = jnp.max(jnp.abs(P_new - P_old)) < tol

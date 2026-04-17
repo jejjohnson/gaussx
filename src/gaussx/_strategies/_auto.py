@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -30,8 +30,8 @@ class AutoSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         """Solve A x = b with automatically selected algorithm.
 
         Args:
@@ -48,7 +48,7 @@ class AutoSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Compute log |det(A)| with automatically selected algorithm.
 
         Args:

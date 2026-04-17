@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._primitives._trace import trace
 from gaussx._strategies._base import (
@@ -19,10 +20,10 @@ _LOG_2PI = jnp.log(2.0 * jnp.pi)
 
 def quadratic_form(
     operator: lx.AbstractLinearOperator,
-    x: jnp.ndarray,
+    x: Float[Array, " N"],
     *,
     solver: AbstractSolveStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Compute ``x^T A^{-1} x`` via a single solve.
 
     Args:
@@ -38,11 +39,11 @@ def quadratic_form(
 
 
 def _gaussian_log_prob_residual(
-    residual: jnp.ndarray,
+    residual: Float[Array, " N"],
     cov_operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Gaussian log-prob given a pre-computed residual ``value - loc``."""
     N = residual.shape[-1]
     alpha = dispatch_solve(cov_operator, residual, solver)
@@ -52,12 +53,12 @@ def _gaussian_log_prob_residual(
 
 
 def gaussian_log_prob(
-    loc: jnp.ndarray,
+    loc: Float[Array, " N"],
     cov_operator: lx.AbstractLinearOperator,
-    value: jnp.ndarray,
+    value: Float[Array, " N"],
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Multivariate normal log-probability.
 
     Computes::
@@ -85,7 +86,7 @@ def gaussian_entropy(
     cov_operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractLogdetStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """Entropy of a multivariate normal ``N(mu, Sigma)``.
 
     Computes::
@@ -108,11 +109,11 @@ def gaussian_entropy(
 
 
 def kl_standard_normal(
-    m: jnp.ndarray,
+    m: Float[Array, " N"],
     S: lx.AbstractLinearOperator,
     *,
     solver: AbstractLogdetStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """KL divergence ``KL(N(m, S) || N(0, I))``.
 
     Computes::

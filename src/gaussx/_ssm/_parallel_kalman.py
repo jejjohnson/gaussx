@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Float
 
 from gaussx._ssm._kalman import FilterState
 
 
 def parallel_kalman_filter(
-    transition: jnp.ndarray,
-    obs_model: jnp.ndarray,
-    process_noise: jnp.ndarray,
-    obs_noise: jnp.ndarray,
-    observations: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
+    transition: Float[Array, "N N"],
+    obs_model: Float[Array, "M N"],
+    process_noise: Float[Array, "N N"],
+    obs_noise: Float[Array, "M M"],
+    observations: Float[Array, "T M"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
 ) -> FilterState:
     """Kalman filter with dense array operations via ``jax.lax.scan``.
 
@@ -68,9 +69,9 @@ def parallel_kalman_filter(
 
 def parallel_rts_smoother(
     filter_state: FilterState,
-    transition: jnp.ndarray,
-    process_noise: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    transition: Float[Array, "N N"],
+    process_noise: Float[Array, "N N"],
+) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Dense RTS smoother for outputs produced by ``parallel_kalman_filter``.
 
     The previous associative-scan formulation was not algebraically

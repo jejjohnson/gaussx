@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._primitives._solve import solve
 
 
 def woodbury_solve(
     base: lx.AbstractLinearOperator,
-    U: jnp.ndarray,
-    D: jnp.ndarray,
-    b: jnp.ndarray,
-) -> jnp.ndarray:
+    U: Float[Array, "N k"],
+    D: Float[Array, " k"],
+    b: Float[Array, " N"],
+) -> Float[Array, " N"]:
     """Standalone Woodbury identity solve: ``(L + U diag(D) U^T)^{-1} b``.
 
     Convenience function for cases where the user has the components

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+from jaxtyping import Array, Float
 
 
 def pairwise_marginals(
-    means: jnp.ndarray,
-    covariances: jnp.ndarray,
-    cross_covariances: jnp.ndarray,
-) -> tuple[jnp.ndarray, jnp.ndarray]:
+    means: Float[Array, "T d"],
+    covariances: Float[Array, "T d d"],
+    cross_covariances: Float[Array, "Tm1 d d"],
+) -> tuple[Float[Array, "Tm1 two_d"], Float[Array, "Tm1 two_d two_d"]]:
     r"""Joint p(x_k, x_{k+1}) for each consecutive pair.
 
     For each pair ``(k, k+1)``, the joint distribution is::
@@ -35,12 +36,12 @@ def pairwise_marginals(
     """
 
     def _single_pair(
-        m_k: jnp.ndarray,
-        m_kp1: jnp.ndarray,
-        P_k: jnp.ndarray,
-        P_kp1: jnp.ndarray,
-        C_k: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        m_k: Float[Array, " d"],
+        m_kp1: Float[Array, " d"],
+        P_k: Float[Array, "d d"],
+        P_kp1: Float[Array, "d d"],
+        C_k: Float[Array, "d d"],
+    ) -> tuple[Float[Array, " two_d"], Float[Array, "two_d two_d"]]:
         joint_mean = jnp.concatenate([m_k, m_kp1])
         joint_cov = jnp.block(
             [

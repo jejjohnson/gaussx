@@ -98,7 +98,14 @@ class ScaledOperator(lx.AbstractLinearOperator):
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
         self.operator = operator
-        self.scalar = jnp.asarray(scalar).reshape(())
+        scalar_array = jnp.asarray(scalar)
+        if scalar_array.ndim != 0:
+            msg = (
+                "ScaledOperator scalar must be a rank-0 scalar, got "
+                f"shape {scalar_array.shape}."
+            )
+            raise ValueError(msg)
+        self.scalar = scalar_array
         self._in_size = operator.in_size()
         self._out_size = operator.out_size()
         self._dtype = jnp.result_type(

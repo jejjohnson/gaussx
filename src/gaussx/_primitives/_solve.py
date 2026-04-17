@@ -7,6 +7,7 @@ import functools as ft
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import (
@@ -22,10 +23,10 @@ from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
 def solve(
     operator: lx.AbstractLinearOperator,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     *,
     solver: lx.AbstractLinearSolver | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     """Solve ``A x = b`` with structural dispatch.
 
     Args:
@@ -58,17 +59,18 @@ def solve(
 
 
 def _solve_diagonal(
-    operator: lx.DiagonalLinearOperator, vector: jnp.ndarray
-) -> jnp.ndarray:
+    operator: lx.DiagonalLinearOperator,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
     diag = lx.diagonal(operator)
     return vector / diag
 
 
 def _solve_block_diag(
     operator: BlockDiag,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     results = []
     offset = 0
     for op in operator.operators:
@@ -81,9 +83,9 @@ def _solve_block_diag(
 
 def _solve_kronecker(
     operator: Kronecker,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     """Solve (A1 kron A2 kron ... kron Ak) x = b.
 
     Uses the same reshape trick as Kronecker.mv but with
@@ -104,9 +106,9 @@ def _solve_kronecker(
 
 def _solve_low_rank(
     operator: LowRankUpdate,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     """Woodbury identity: (L + U D V^T)^{-1} b.
 
     (L + U D V^T)^{-1} = L^{-1} - L^{-1} U C^{-1} V^T L^{-1}
@@ -137,9 +139,9 @@ def _solve_low_rank(
 
 def _solve_svd_low_rank(
     operator: SVDLowRankUpdate,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     """Woodbury identity for SVDLowRankUpdate: (L + U S V^T)^{-1} b.
 
     Same as _solve_low_rank but uses S (singular values) instead of d.
@@ -169,8 +171,8 @@ def _solve_svd_low_rank(
 
 def _solve_kronecker_sum(
     operator: KroneckerSum,
-    vector: jnp.ndarray,
-) -> jnp.ndarray:
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
     """Solve (A (+) B) x = b via eigendecomposition.
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
@@ -193,8 +195,8 @@ def _solve_kronecker_sum(
 
 def _solve_block_tridiag(
     operator: BlockTriDiag,
-    vector: jnp.ndarray,
-) -> jnp.ndarray:
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
     """Solve via block-banded Cholesky then forward/backward substitution."""
     from gaussx._primitives._cholesky import cholesky
 
@@ -207,8 +209,8 @@ def _solve_block_tridiag(
 
 def _solve_lower_block_tridiag(
     operator: LowerBlockTriDiag,
-    vector: jnp.ndarray,
-) -> jnp.ndarray:
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
     """Forward substitution for lower block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
@@ -232,8 +234,8 @@ def _solve_lower_block_tridiag(
 
 def _solve_upper_block_tridiag(
     operator: UpperBlockTriDiag,
-    vector: jnp.ndarray,
-) -> jnp.ndarray:
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
     """Backward substitution for upper block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
@@ -260,9 +262,9 @@ def _solve_upper_block_tridiag(
 
 def _solve_fallback(
     operator: lx.AbstractLinearOperator,
-    vector: jnp.ndarray,
+    vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
-) -> jnp.ndarray:
+) -> Float[Array, " n"]:
     if solver is None:
         solver = lx.AutoLinearSolver(well_posed=True)
     return lx.linear_solve(operator, vector, solver).value

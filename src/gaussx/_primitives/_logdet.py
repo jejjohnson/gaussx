@@ -7,6 +7,7 @@ import functools as ft
 import jax
 import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
@@ -16,7 +17,7 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
 
-def cholesky_logdet(L: jnp.ndarray) -> jnp.ndarray:
+def cholesky_logdet(L: Float[Array, "N N"]) -> Float[Array, ""]:
     """Compute log|A| from Cholesky factor L where A = L Lᵀ.
 
     Args:
@@ -28,7 +29,7 @@ def cholesky_logdet(L: jnp.ndarray) -> jnp.ndarray:
     return 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
 
 
-def logdet(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
+def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     """Compute log |det(A)| with structural dispatch.
 
     Args:
@@ -56,16 +57,16 @@ def logdet(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
     return _logdet_dense(operator)
 
 
-def _logdet_diagonal(operator: lx.DiagonalLinearOperator) -> jnp.ndarray:
+def _logdet_diagonal(operator: lx.DiagonalLinearOperator) -> Float[Array, ""]:
     diag = lx.diagonal(operator)
     return jnp.sum(jnp.log(jnp.abs(diag)))
 
 
-def _logdet_block_diag(operator: BlockDiag) -> jnp.ndarray:
+def _logdet_block_diag(operator: BlockDiag) -> Float[Array, ""]:
     return ft.reduce(jnp.add, (logdet(op) for op in operator.operators))
 
 
-def _logdet_kronecker(operator: Kronecker) -> jnp.ndarray:
+def _logdet_kronecker(operator: Kronecker) -> Float[Array, ""]:
     """logdet(A1 kron A2 kron ... kron Ak).
 
     For two factors: logdet(A kron B) = n_B * logdet(A) + n_A * logdet(B).
@@ -80,7 +81,7 @@ def _logdet_kronecker(operator: Kronecker) -> jnp.ndarray:
     return result
 
 
-def _logdet_low_rank(operator: LowRankUpdate) -> jnp.ndarray:
+def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
     """Matrix determinant lemma: det(L + U D V^T) = det(C) det(D) det(L).
 
     where C = D^{-1} + V^T L^{-1} U is the k x k capacitance matrix.
@@ -110,7 +111,7 @@ def _logdet_low_rank(operator: LowRankUpdate) -> jnp.ndarray:
     return ld_base + ld_C + ld_d
 
 
-def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> jnp.ndarray:
+def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> Float[Array, ""]:
     """Matrix determinant lemma for SVDLowRankUpdate: det(L + U S V^T).
 
     logdet = logdet(L) + logdet(C) + sum(log|S_i|)
@@ -140,7 +141,7 @@ def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> jnp.ndarray:
     return ld_base + ld_C + ld_S
 
 
-def _logdet_kronecker_sum(operator: KroneckerSum) -> jnp.ndarray:
+def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)) for all i,j."""
 
     evals_a = jnp.linalg.eigvalsh(operator.A.as_matrix())
@@ -149,7 +150,7 @@ def _logdet_kronecker_sum(operator: KroneckerSum) -> jnp.ndarray:
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
 
 
-def _logdet_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
+def _logdet_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
     """logdet via banded Cholesky: logdet(A) = 2 * logdet(L)."""
     from gaussx._primitives._cholesky import cholesky
 
@@ -157,14 +158,16 @@ def _logdet_block_tridiag(operator: BlockTriDiag) -> jnp.ndarray:
     return 2.0 * logdet(L)
 
 
-def _logdet_lower_block_tridiag(operator: LowerBlockTriDiag) -> jnp.ndarray:
+def _logdet_lower_block_tridiag(
+    operator: LowerBlockTriDiag,
+) -> Float[Array, ""]:
     """logdet of lower block-bidiagonal = sum of logdet of diagonal blocks."""
     return jnp.sum(
         jax.vmap(lambda L: jnp.sum(jnp.log(jnp.abs(jnp.diag(L)))))(operator.diagonal)
     )
 
 
-def _logdet_dense(operator: lx.AbstractLinearOperator) -> jnp.ndarray:
+def _logdet_dense(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     mat = operator.as_matrix()
     _, ld = jnp.linalg.slogdet(mat)
     return ld

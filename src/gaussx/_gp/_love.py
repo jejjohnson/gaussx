@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -28,7 +29,7 @@ class LOVECache(eqx.Module):
 def love_cache(
     K_op: lx.AbstractLinearOperator,
     lanczos_order: int = 50,
-    key: jnp.ndarray | None = None,
+    key: jax.Array | None = None,
 ) -> LOVECache:
     r"""Precompute Lanczos factorization of ``K^{-1}`` for fast variance.
 

@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -35,8 +35,8 @@ class CGSolver(AbstractSolverStrategy):
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
-        vector: jnp.ndarray,
-    ) -> jnp.ndarray:
+        vector: Float[Array, " n"],
+    ) -> Float[Array, " n"]:
         solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
         return lx.linear_solve(operator, vector, solver).value
 
@@ -45,7 +45,7 @@ class CGSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         *,
         key: jax.Array | None = None,
-    ) -> jnp.ndarray:
+    ) -> Float[Array, ""]:
         """Stochastic log-determinant via Lanczos quadrature.
 
         Args:

@@ -6,6 +6,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import lineax as lx
 from einops import einsum
+from jaxtyping import Array, Float
 
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
 from gaussx._primitives._logdet import logdet
@@ -32,12 +33,12 @@ class GaussianExpFam(eqx.Module):
             Represents ``-0.5 * Lambda`` where Lambda is the precision.
     """
 
-    eta1: jnp.ndarray
+    eta1: Float[Array, " N"]
     eta2: lx.AbstractLinearOperator
 
     @staticmethod
     def from_mean_cov(
-        mu: jnp.ndarray,
+        mu: Float[Array, " N"],
         Sigma: lx.AbstractLinearOperator,
     ) -> GaussianExpFam:
         """Construct from mean and covariance.
@@ -54,7 +55,7 @@ class GaussianExpFam(eqx.Module):
 
     @staticmethod
     def from_mean_prec(
-        mu: jnp.ndarray,
+        mu: Float[Array, " N"],
         Lambda: lx.AbstractLinearOperator,
     ) -> GaussianExpFam:
         """Construct from mean and precision.
@@ -73,7 +74,7 @@ class GaussianExpFam(eqx.Module):
 
 def to_expectation(
     expfam: GaussianExpFam,
-) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Convert natural to expectation parameters.
 
     Args:
@@ -86,9 +87,9 @@ def to_expectation(
 
 
 def to_natural(
-    mu: jnp.ndarray,
+    mu: Float[Array, " N"],
     Sigma: lx.AbstractLinearOperator,
-) -> tuple[jnp.ndarray, lx.AbstractLinearOperator]:
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Convert expectation to natural parameters.
 
     Args:
@@ -101,7 +102,7 @@ def to_natural(
     return mean_cov_to_natural(mu, Sigma)
 
 
-def log_partition(expfam: GaussianExpFam) -> jnp.ndarray:
+def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:
     r"""Log-partition function ``A(eta)``.
 
     .. math::
@@ -150,7 +151,9 @@ def fisher_info(
     return -2.0 * expfam.eta2
 
 
-def sufficient_stats(x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+def sufficient_stats(
+    x: Float[Array, "*batch N"],
+) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     """Compute sufficient statistics ``T(x) = [x, x x^T]``.
 
     Args:
@@ -169,7 +172,7 @@ def sufficient_stats(x: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
 def kl_divergence(
     q: GaussianExpFam,
     p: GaussianExpFam,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     """KL divergence ``KL(q || p)`` via Bregman divergence.
 
     .. math::

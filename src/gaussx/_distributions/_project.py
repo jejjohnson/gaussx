@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
+from jaxtyping import Array, Float
 
 
 def project(
-    K_XZ: jnp.ndarray,
+    K_XZ: Float[Array, "B M"],
     L_Z: lx.AbstractLinearOperator,
-) -> jnp.ndarray:
+) -> Float[Array, "B M"]:
     """Compute A_X = K_XZ @ K_ZZ^{-1} via Cholesky solve.
 
     Solves ``L_Z @ L_Z^T @ A_X^T = K_XZ^T`` using forward/backward

@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 from einops import einsum, rearrange, repeat
+from jaxtyping import Array, Float
 
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._primitives._inv import inv
@@ -15,7 +16,7 @@ from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 def _build_likelihood_precision(
-    emission_model: jnp.ndarray,
+    emission_model: Array,
     obs_noise: lx.AbstractLinearOperator,
     N: int,
     d: int,
@@ -61,10 +62,10 @@ def _build_likelihood_precision(
 
 
 def _build_data_vector(
-    emission_model: jnp.ndarray,
+    emission_model: Array,
     obs_noise: lx.AbstractLinearOperator,
-    observations: jnp.ndarray,
-) -> jnp.ndarray:
+    observations: Float[Array, "N d_obs"],
+) -> Float[Array, " Nd"]:
     """Build the data contribution to the posterior mean equation.
 
     Computes ``H^T R^{-1} y`` for each time step.  The observation
@@ -96,12 +97,12 @@ def _build_data_vector(
 
 def spingp_log_likelihood(
     prior_precision: BlockTriDiag,
-    emission_model: jnp.ndarray,
+    emission_model: Array,
     obs_noise: lx.AbstractLinearOperator,
-    observations: jnp.ndarray,
+    observations: Float[Array, "N d_obs"],
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> jnp.ndarray:
+) -> Float[Array, ""]:
     r"""Log marginal likelihood via sparse inverse GP formulation.
 
     Computes the log marginal likelihood using the precision-form
@@ -175,12 +176,12 @@ def spingp_log_likelihood(
 
 def spingp_posterior(
     prior_precision: BlockTriDiag,
-    emission_model: jnp.ndarray,
+    emission_model: Array,
     obs_noise: lx.AbstractLinearOperator,
-    observations: jnp.ndarray,
+    observations: Float[Array, "N d_obs"],
     *,
     solver: AbstractSolverStrategy | None = None,
-) -> tuple[jnp.ndarray, BlockTriDiag]:
+) -> tuple[Float[Array, " Nd"], BlockTriDiag]:
     r"""Posterior mean and precision via SpInGP.
 
     Computes the posterior by adding likelihood precision sites to the

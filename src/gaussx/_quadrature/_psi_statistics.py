@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+import jax
 import jax.numpy as jnp
 from einops import rearrange
 from jaxtyping import Array, Float
@@ -21,23 +22,23 @@ class AnalyticalPsiStatistics(Protocol):
     analytical formulae instead of requiring numerical integration.
     """
 
-    def psi0(self, state: GaussianState) -> jnp.ndarray:
+    def psi0(self, state: GaussianState) -> Float[Array, ""]:
         """Compute Ψ₀ = E[k(x, x)] (scalar)."""
         ...
 
     def psi1(
         self,
         state: GaussianState,
-        X_train: jnp.ndarray,
-    ) -> jnp.ndarray:
+        X_train: Float[Array, "M D"],
+    ) -> Float[Array, " M"]:
         """Compute Ψ₁ᵢ = E[k(x, xᵢ)], shape ``(M,)``."""
         ...
 
     def psi2(
         self,
         state: GaussianState,
-        X_train: jnp.ndarray,
-    ) -> jnp.ndarray:
+        X_train: Float[Array, "M D"],
+    ) -> Float[Array, "M M"]:
         """Compute Ψ₂ᵢⱼ = E[k(x, xᵢ) k(x, xⱼ)], shape ``(M, M)``."""
         ...
 
@@ -88,19 +89,17 @@ def compute_psi_statistics(
         )
         raise ValueError(msg)
 
-    import jax
-
     # ── Numerical fallback ────────────────────────────────────────
 
     # Ψ₀ = E[k(x, x)]
-    def _k_self(x: jnp.ndarray) -> jnp.ndarray:
+    def _k_self(x: Float[Array, " D"]) -> Float[Array, " 1"]:
         return jnp.atleast_1d(kernel(x, x))  # type: ignore[operator]
 
     psi0_result = integrator.integrate(_k_self, state)
     psi0 = psi0_result.state.mean[0]  # scalar
 
     # Ψ₁ᵢ = E[k(x, xᵢ)]
-    def _k_cross(x: jnp.ndarray) -> jnp.ndarray:
+    def _k_cross(x: Float[Array, " D"]) -> Float[Array, " M"]:
         return jax.vmap(lambda xj: kernel(x, xj))(X_train)  # type: ignore[operator]
 
     psi1_result = integrator.integrate(_k_cross, state)
@@ -109,7 +108,7 @@ def compute_psi_statistics(
     # Ψ₂ᵢⱼ = E[k(x, xᵢ) k(x, xⱼ)]
     M = X_train.shape[0]
 
-    def _k_outer(x: jnp.ndarray) -> jnp.ndarray:
+    def _k_outer(x: Float[Array, " D"]) -> Float[Array, " flat"]:
         kx = jax.vmap(lambda xj: kernel(x, xj))(X_train)  # type: ignore[operator]
         return rearrange(jnp.outer(kx, kx), "i j -> (i j)")  # (M²,)
 

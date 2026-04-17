@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 from einops import rearrange
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, Int
 
 
 def create_grid(
     grid_sizes: list[int] | tuple[int, ...],
     grid_bounds: list[tuple[float, float]] | tuple[tuple[float, float], ...],
-) -> list[jnp.ndarray]:
+) -> list[Float[Array, " n"]]:
     """Create a regular grid from per-dimension sizes and bounds.
 
     Args:
@@ -26,7 +26,7 @@ def create_grid(
     ]
 
 
-def grid_data(grid: list[jnp.ndarray]) -> Float[Array, "G D"]:
+def grid_data(grid: list[Float[Array, " n"]]) -> Float[Array, "G D"]:
     """Expand a grid to the full Cartesian product of grid points.
 
     Args:
@@ -67,8 +67,8 @@ def _cubic_weights_1d(t: Float[Array, " B"]) -> Float[Array, "B four"]:
 
 def cubic_interpolation_weights(
     x_target: Float[Array, "B D"],
-    grid: list[jnp.ndarray],
-) -> tuple[jnp.ndarray, Float[Array, "B K"]]:
+    grid: list[Float[Array, " n"]],
+) -> tuple[Int[Array, "B K"], Float[Array, "B K"]]:
     """Compute cubic interpolation indices and weights for SKI.
 
     For each target point, finds the 4ᴰ nearest grid neighbors and
