@@ -1,5 +1,6 @@
 """GaussX primitives -- Layer 0 pure functions with structural dispatch."""
 
+from gaussx._primitives._chandrupatla import Chandrupatla
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._diag import diag
 from gaussx._primitives._eig import eig, eigvals
@@ -9,9 +10,14 @@ from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import SqrtOperator, sqrt
 from gaussx._primitives._svd import svd
 from gaussx._primitives._trace import trace
+from gaussx._primitives.quantile import (
+    mixture_quantile,
+    mixture_quantile_gaussian_approx,
+)
 
 
 __all__ = [
+    "Chandrupatla",
     "InverseOperator",
     "SqrtOperator",
     "cholesky",
@@ -21,6 +27,8 @@ __all__ = [
     "eigvals",
     "inv",
     "logdet",
+    "mixture_quantile",
+    "mixture_quantile_gaussian_approx",
     "solve",
     "sqrt",
     "svd",
