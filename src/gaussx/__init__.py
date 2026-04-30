@@ -129,6 +129,7 @@ from gaussx._operators import (
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
 )
 from gaussx._primitives import (
+    Chandrupatla as Chandrupatla,
     cholesky as cholesky,
     cholesky_logdet as cholesky_logdet,
     diag as diag,
@@ -136,6 +137,8 @@ from gaussx._primitives import (
     eigvals as eigvals,
     inv as inv,
     logdet as logdet,
+    mixture_quantile as mixture_quantile,
+    mixture_quantile_gaussian_approx as mixture_quantile_gaussian_approx,
     solve as solve,
     sqrt as sqrt,
     svd as svd,

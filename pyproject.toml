@@ -27,6 +27,7 @@ dependencies = [
     "matfree>=0.3",
     "jaxtyping>=0.2",
     "einops>=0.8",
+    "optimistix>=0.1.0",
 ]
 
 [project.urls]
