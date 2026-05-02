@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.12](https://github.com/jejjohnson/gaussx/compare/v0.0.11...v0.0.12) (2026-05-02)
+
+
+### Features
+
+* route all linear algebra through dispatch infrastructure and expose solver parameter ([#154](https://github.com/jejjohnson/gaussx/issues/154)) ([400754a](https://github.com/jejjohnson/gaussx/commit/400754ac1639440ffea27d7b4239b95f5e617963))
+* structural dispatch for eigh/submatrix/lyapunov; cleaner inverse + trace_product ([#158](https://github.com/jejjohnson/gaussx/issues/158)) ([98140fc](https://github.com/jejjohnson/gaussx/commit/98140fc52d292890a1e7648e4c37e5ea580059fe))
+
 ## [0.0.11](https://github.com/jejjohnson/gaussx/compare/v0.0.10...v0.0.11) (2026-05-02)
 
 
