@@ -210,7 +210,7 @@ class TestParamsGradients:
             rtol=1e-4,
         )
 
-    def test_jvp_matches_dense(self, getkey):
+    def test_jvp_wrt_params_matches_dense(self, getkey):
         X = jr.normal(getkey(), (8, 2))
         Z = jr.normal(getkey(), (5, 2))
         params = _make_params(getkey())
