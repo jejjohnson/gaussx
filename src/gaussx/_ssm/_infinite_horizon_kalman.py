@@ -5,10 +5,15 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from einops import rearrange, repeat
 from jaxtyping import Array, Float
 
+from gaussx._linalg._linalg import solve_rows
+from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 class InfiniteHorizonState(eqx.Module):
@@ -40,6 +45,7 @@ def infinite_horizon_filter(
     dare_result: DAREResult | None = None,
     max_iter: int = 100,
     tol: float = 1e-8,
+    solver: AbstractSolverStrategy | None = None,
 ) -> InfiniteHorizonState:
     """Infinite-horizon Kalman filter with fixed steady-state gain.
 
@@ -64,6 +70,8 @@ def infinite_horizon_filter(
             is ``None``).
         tol: DARE convergence tolerance (used only if ``dare_result``
             is ``None``).
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         An ``InfiniteHorizonState`` with filtered/predicted means,
@@ -77,6 +85,7 @@ def infinite_horizon_filter(
             obs_noise,
             max_iter=max_iter,
             tol=tol,
+            solver=solver,
         )
 
     P_inf = dare_result.P_inf  # (N, N)
@@ -88,7 +97,9 @@ def infinite_horizon_filter(
     # Precompute steady-state quantities
     P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
     S_inf = obs_model @ P_pred_inf @ obs_model.T + obs_noise  # (M, M)
-    L_S = jnp.linalg.cholesky(S_inf)  # (M, M)
+    L_S = cholesky(  # (M, M)
+        lx.MatrixLinearOperator(S_inf, lx.positive_semidefinite_tag)
+    ).as_matrix()
     from gaussx._primitives._logdet import cholesky_logdet
 
     ld_inf = cholesky_logdet(L_S)  # scalar
@@ -138,6 +149,8 @@ def infinite_horizon_smoother(
     transition: Float[Array, "N N"],
     dare_result: DAREResult,
     process_noise: Float[Array, "N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Infinite-horizon RTS smoother with fixed steady-state gain.
 
@@ -152,6 +165,8 @@ def infinite_horizon_smoother(
         transition: State transition matrix A, shape ``(N, N)``.
         dare_result: DARE result used in the filter.
         process_noise: Process noise covariance Q, shape ``(N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
@@ -162,7 +177,8 @@ def infinite_horizon_smoother(
 
     # Steady-state smoother gain: G∞ = P∞ Aᵀ P⁻pred⁻¹
     N = transition.shape[0]
-    G_inf = jnp.linalg.solve(P_pred_inf.T, (P_inf @ transition.T).T).T  # (N, N)
+    P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
+    G_inf = solve_rows(P_pred_inf_op, P_inf @ transition.T, solver=solver)  # (N, N)
 
     # Solve discrete Lyapunov equation:
     # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
@@ -170,8 +186,9 @@ def infinite_horizon_smoother(
     rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T  # (N, N)
     identity = jnp.eye(N * N, dtype=P_inf.dtype)  # (N², N²)
     kron_term = jnp.kron(G_inf, G_inf)  # (N², N²)
+    lyapunov_op = lx.MatrixLinearOperator(identity - kron_term)
     P_smooth_inf = rearrange(
-        jnp.linalg.solve(identity - kron_term, rearrange(rhs, "n1 n2 -> (n1 n2)")),
+        dispatch_solve(lyapunov_op, rearrange(rhs, "n1 n2 -> (n1 n2)"), solver),
         "(n1 n2) -> n1 n2",
         n1=N,
         n2=N,

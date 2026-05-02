@@ -5,7 +5,11 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from jaxtyping import Array, Bool, Float
+
+from gaussx._linalg._linalg import solve_columns
+from gaussx._strategies._base import AbstractSolverStrategy
 
 
 class DAREResult(eqx.Module):
@@ -31,6 +35,7 @@ def dare(
     P_init: Float[Array, "D D"] | None = None,
     max_iter: int = 100,
     tol: float = 1e-8,
+    solver: AbstractSolverStrategy | None = None,
 ) -> DAREResult:
     """Discrete Algebraic Riccati Equation solver.
 
@@ -51,6 +56,8 @@ def dare(
         P_init: Initial covariance guess, shape ``(D, D)``. Defaults to ``Q``.
         max_iter: Maximum number of iterations.
         tol: Convergence tolerance on the element-wise max absolute change.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         A :class:`DAREResult` containing the steady-state covariance,
@@ -69,7 +76,8 @@ def dare(
         P_pred = A @ P @ A.T + Q
         S = H @ P_pred @ H.T + R
         # K = P_pred @ H.T @ S⁻¹, computed via solve for numerical stability.
-        K = jnp.linalg.solve(S, H @ P_pred).T
+        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        K = solve_columns(S_op, H @ P_pred, solver=solver).T
         P_new = (I_D - K @ H) @ P_pred
         return P_new, K
 

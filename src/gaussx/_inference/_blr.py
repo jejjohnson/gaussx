@@ -6,9 +6,13 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from einops import reduce
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
+
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def blr_diag_update(
@@ -62,6 +66,8 @@ def blr_full_update(
     grad: Float[Array, " d"],
     hessian: Float[Array, "d d"],
     lr: float,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " d"], Float[Array, "d d"]]:
     r"""Full-rank natural parameter BLR update step.
 
@@ -78,13 +84,16 @@ def blr_full_update(
         hessian: Hessian of log-likelihood (negative for log-concave),
             shape ``(d, d)``.
         lr: Learning rate / damping factor.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(nat1_new, nat2_new)`` — updated natural parameters.
     """
     # Current mean from natural parameters: mu = solve(-2*eta2, eta1)
     Lambda = -2.0 * nat2
-    mu = jnp.linalg.solve(Lambda, nat1)
+    Lambda_op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
+    mu = dispatch_solve(Lambda_op, nat1, solver)
 
     # Target natural parameters from Newton step
     nat1_target = grad - hessian @ mu

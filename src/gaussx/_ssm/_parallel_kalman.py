@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._linalg._linalg import solve_rows
+from gaussx._primitives._inv import inv
 from gaussx._ssm._kalman import FilterState
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_logdet
 
 
 def parallel_kalman_filter(
@@ -17,6 +22,8 @@ def parallel_kalman_filter(
     observations: Float[Array, "T M"],
     init_mean: Float[Array, " N"],
     init_cov: Float[Array, "N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> FilterState:
     """Kalman filter with dense array operations via ``jax.lax.scan``.
 
@@ -32,6 +39,8 @@ def parallel_kalman_filter(
         observations: Observed data y, shape ``(T, M)``.
         init_mean: Initial state mean x0, shape ``(N,)``.
         init_cov: Initial state covariance P0, shape ``(N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         A ``FilterState`` with filtered/predicted means, covariances,
@@ -46,11 +55,12 @@ def parallel_kalman_filter(
         P_pred = transition @ P_filt @ transition.T + process_noise
         v = y_t - obs_model @ x_pred
         S = obs_model @ P_pred @ obs_model.T + obs_noise
-        S_inv = jnp.linalg.inv(S)
+        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        S_inv = inv(S_op).as_matrix()
         K = P_pred @ obs_model.T @ S_inv
         x_new = x_pred + K @ v
         P_new = P_pred - K @ S @ K.T
-        _, ld = jnp.linalg.slogdet(S)
+        ld = dispatch_logdet(S_op, solver)
         ll_inc = -0.5 * (v @ S_inv @ v + ld + M * log_2pi)
         return (x_new, P_new, ll + ll_inc), (x_new, P_new, x_pred, P_pred)
 
@@ -71,6 +81,8 @@ def parallel_rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "N N"],
     process_noise: Float[Array, "N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Dense RTS smoother for outputs produced by ``parallel_kalman_filter``.
 
@@ -83,6 +95,8 @@ def parallel_rts_smoother(
             ``parallel_kalman_filter``.
         transition: State transition matrix A, shape ``(N, N)``.
         process_noise: Process noise covariance Q, shape ``(N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
@@ -93,7 +107,8 @@ def parallel_rts_smoother(
         x_smooth, P_smooth = carry
         x_filt, P_filt, x_pred, P_pred = inputs
 
-        G = jnp.linalg.solve(P_pred.T, (P_filt @ transition.T).T).T
+        P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
+        G = solve_rows(P_pred_op, P_filt @ transition.T, solver=solver)
         x_smooth_new = x_filt + G @ (x_smooth - x_pred)
         P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
         return (x_smooth_new, P_smooth_new), (x_smooth_new, P_smooth_new)
