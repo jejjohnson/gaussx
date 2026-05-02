@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.11](https://github.com/jejjohnson/gaussx/compare/v0.0.10...v0.0.11) (2026-05-02)
+
+
+### Features
+
+* promote pyrox primitives into gaussx ([#130](https://github.com/jejjohnson/gaussx/issues/130)) ([#131](https://github.com/jejjohnson/gaussx/issues/131)) ([dbb7ed5](https://github.com/jejjohnson/gaussx/commit/dbb7ed554c9a788ded4de782d1a13142cc4486ad))
+
+
+### Bug Fixes
+
+* address PR review comments ([f4a9371](https://github.com/jejjohnson/gaussx/commit/f4a937104cef3b46dd48fbe51f759504423d03d5))
+
 ## [0.0.10](https://github.com/jejjohnson/gaussx/compare/v0.0.9...v0.0.10) (2026-04-08)
 
 
