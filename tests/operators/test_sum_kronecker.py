@@ -271,3 +271,28 @@ class TestJAX:
         g = jax.grad(loss)(A1_mat)
         assert g.shape == (2, 2)
         assert jnp.all(jnp.isfinite(g))
+
+
+def test_eigendecompose_with_diagonal_factor_avoids_eigh(getkey):
+    """When kron2's factors are Diagonal, per-factor eig dispatches to the
+    Diagonal path (no jnp.linalg.eigh on a materialized matrix).
+
+    The joint diagonalization step requires kron1 factors to be symmetric
+    so the ``transformed`` matrix passed to ``eigh`` is symmetric.
+    """
+    from gaussx._testing import random_pd_matrix
+
+    A1_mat = random_pd_matrix(getkey(), 2)
+    B1_mat = random_pd_matrix(getkey(), 3)
+    A2_diag = jnp.abs(jr.normal(getkey(), (2,))) + 1.0
+    B2_diag = jnp.abs(jr.normal(getkey(), (3,))) + 1.0
+
+    A1 = lx.MatrixLinearOperator(A1_mat, lx.symmetric_tag)
+    B1 = lx.MatrixLinearOperator(B1_mat, lx.symmetric_tag)
+    A2 = lx.DiagonalLinearOperator(A2_diag)
+    B2 = lx.DiagonalLinearOperator(B2_diag)
+    SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+
+    evals, Q = SK.eigendecompose()
+    reconstructed = Q @ jnp.diag(evals) @ Q.T
+    assert tree_allclose(reconstructed, SK.as_matrix(), rtol=1e-4, atol=1e-6)

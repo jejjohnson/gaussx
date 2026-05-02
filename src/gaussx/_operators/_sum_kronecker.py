@@ -115,11 +115,15 @@ class SumKronecker(lx.AbstractLinearOperator):
         if not lx.is_symmetric(A2_op) or not lx.is_symmetric(B2_op):
             raise ValueError("eigendecompose requires kron2 factors to be symmetric.")
 
-        A1, B1 = (op.as_matrix() for op in self.kron1.operators)
-        A2, B2 = A2_op.as_matrix(), B2_op.as_matrix()
+        from gaussx._primitives._eig import eig
 
-        evals_c, Q_C = jnp.linalg.eigh(A2)
-        evals_d, Q_D = jnp.linalg.eigh(B2)
+        A1, B1 = (op.as_matrix() for op in self.kron1.operators)
+
+        # Per-factor eigendecomposition routed through the structural
+        # primitive: Diagonal / BlockDiag / nested Kronecker factors of
+        # ``A_2`` or ``B_2`` skip materialization here.
+        evals_c, Q_C = eig(A2_op)
+        evals_d, Q_D = eig(B2_op)
 
         # Transform first pair into eigenbasis of second pair
         A1_tilde = Q_C.T @ A1 @ Q_C
