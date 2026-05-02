@@ -142,10 +142,15 @@ def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> Float[Array, ""]:
 
 
 def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
-    """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)) for all i,j."""
+    """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)).
 
-    evals_a = jnp.linalg.eigvalsh(operator.A.as_matrix())
-    evals_b = jnp.linalg.eigvalsh(operator.B.as_matrix())
+    Dispatches ``eigvals`` through :func:`gaussx.eigvals` so structured
+    factors avoid materialization.
+    """
+    from gaussx._primitives._eig import eigvals
+
+    evals_a = eigvals(operator.A)
+    evals_b = eigvals(operator.B)
     eig_mat = evals_a[None, :] + evals_b[:, None]
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
 

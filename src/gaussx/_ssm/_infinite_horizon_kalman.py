@@ -6,14 +6,14 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import rearrange, repeat
+from einops import repeat
 from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import solve_rows
+from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
 from gaussx._strategies._base import AbstractSolverStrategy
-from gaussx._strategies._dispatch import dispatch_solve
 
 
 class InfiniteHorizonState(eqx.Module):
@@ -176,27 +176,17 @@ def infinite_horizon_smoother(
     P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
 
     # Steady-state smoother gain: G∞ = P∞ Aᵀ P⁻pred⁻¹
-    N = transition.shape[0]
     P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
     G_inf = solve_rows(P_pred_inf_op, P_inf @ transition.T, solver=solver)  # (N, N)
 
     # Solve discrete Lyapunov equation:
     # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
-    # ⟺ (I − G∞ ⊗ G∞) vec(P_smooth) = vec(P∞ − G∞ P⁻pred G∞ᵀ)
+    # ⟺ P_smooth − G∞ P_smooth G∞ᵀ = P∞ − G∞ P⁻pred G∞ᵀ
+    # Routed through :func:`discrete_lyapunov_solve` which uses a
+    # per-factor eigendecomposition of ``G∞`` instead of materializing
+    # the ``(N², N²)`` Kronecker matrix ``I − G∞ ⊗ G∞``.
     rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T  # (N, N)
-    identity = jnp.eye(N * N, dtype=P_inf.dtype)  # (N², N²)
-    kron_term = jnp.kron(G_inf, G_inf)  # (N², N²)
-    lyapunov_op = lx.MatrixLinearOperator(identity - kron_term)
-    # ``I - kron(G_inf, G_inf)`` is generally non-symmetric, so PSD-only
-    # iterative strategies (CG, BBMM, PreconditionedCG, MINRES) are not
-    # valid here. Always use structural dispatch for this solve, even if
-    # the caller supplied a ``solver`` for the upstream PSD systems.
-    P_smooth_inf = rearrange(
-        dispatch_solve(lyapunov_op, rearrange(rhs, "n1 n2 -> (n1 n2)")),
-        "(n1 n2) -> n1 n2",
-        n1=N,
-        n2=N,
-    )  # (N, N)
+    P_smooth_inf = discrete_lyapunov_solve(G_inf, rhs)
     P_smooth_inf = 0.5 * (P_smooth_inf + P_smooth_inf.T)  # enforce symmetry
 
     T = filter_state.filtered_means.shape[0]

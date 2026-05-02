@@ -24,6 +24,14 @@ def cov_transform(
     Used in error propagation, Kalman filter updates, and
     first-order uncertainty propagation.
 
+    Exploits structure where it can:
+
+    - **Diagonal** ``cov_operator``: computes ``(J * d) @ J^T`` directly,
+      skipping the ``(N, N)`` materialization of ``Sigma``.
+
+    Otherwise materializes ``Sigma`` and forms the dense product. The
+    returned operator is always tagged symmetric when the input is.
+
     Args:
         J: Jacobian or linear map, shape ``(M, N)``.
         cov_operator: Input covariance, shape ``(N, N)``.
@@ -31,11 +39,17 @@ def cov_transform(
     Returns:
         Transformed covariance operator, shape ``(M, M)``.
     """
-    Sigma = cov_operator.as_matrix()
-    result = J @ Sigma @ J.T
-    tags = frozenset()
+    tags: frozenset[object] = frozenset()
     if lx.is_symmetric(cov_operator):
         tags = frozenset({lx.symmetric_tag})
+
+    if isinstance(cov_operator, lx.DiagonalLinearOperator):
+        d = lx.diagonal(cov_operator)
+        result = (J * d[None, :]) @ J.T
+        return lx.MatrixLinearOperator(result, tags)
+
+    Sigma = cov_operator.as_matrix()
+    result = J @ Sigma @ J.T
     return lx.MatrixLinearOperator(result, tags)
 
 
@@ -43,9 +57,19 @@ def trace_product(
     A: lx.AbstractLinearOperator,
     B: lx.AbstractLinearOperator,
 ) -> Float[Array, ""]:
-    """Trace of a matrix product: ``tr(A @ B)`` without forming the product.
+    """Trace of a matrix product: ``tr(A @ B)`` with structural dispatch.
 
-    Uses the identity ``tr(AB) = sum(A * B^T)`` element-wise.
+    Uses operator structure where possible to avoid materialization:
+
+    - **Both diagonal**: ``sum(diag(A) * diag(B))``.
+    - **Diagonal × general** (or vice versa): contract the diagonal with
+      the diagonal of the other operator (no full materialization).
+    - **Matched** :class:`gaussx.BlockDiag` (same block sizes): sum of
+      per-block ``trace_product``.
+    - **Matched** :class:`gaussx.Kronecker` (same factor structure):
+      ``prod_i tr(A_i @ B_i)``.
+    - Otherwise falls back to ``sum(A * B^T)`` on the materialized
+      matrices — the same O(N²) cost the previous implementation paid.
 
     Args:
         A: Linear operator, shape ``(N, N)``.
@@ -54,6 +78,59 @@ def trace_product(
     Returns:
         Scalar ``tr(A @ B)``.
     """
+    from gaussx._operators._block_diag import BlockDiag
+    from gaussx._operators._kronecker import Kronecker
+    from gaussx._primitives._diag import diag
+
+    # Both diagonal: O(N) inner product of diagonals.
+    if isinstance(A, lx.DiagonalLinearOperator) and isinstance(
+        B, lx.DiagonalLinearOperator
+    ):
+        return jnp.sum(lx.diagonal(A) * lx.diagonal(B))
+
+    # Diagonal × anything: tr(D @ B) = sum(diag(D) * diag(B)).
+    if isinstance(A, lx.DiagonalLinearOperator):
+        return jnp.sum(lx.diagonal(A) * diag(B))
+    if isinstance(B, lx.DiagonalLinearOperator):
+        return jnp.sum(diag(A) * lx.diagonal(B))
+
+    # Matched BlockDiag: tr(blockdiag(A_i) @ blockdiag(B_i)) = sum_i tr(A_i @ B_i).
+    if (
+        isinstance(A, BlockDiag)
+        and isinstance(B, BlockDiag)
+        and len(A.operators) == len(B.operators)
+        and all(
+            a.in_size() == b.in_size()
+            for a, b in zip(A.operators, B.operators, strict=True)
+        )
+    ):
+        parts = [
+            trace_product(a, b) for a, b in zip(A.operators, B.operators, strict=True)
+        ]
+        return jnp.sum(jnp.stack(parts))
+
+    # Matched Kronecker: tr((A1⊗A2⊗…) @ (B1⊗B2⊗…)) = prod_i tr(A_i @ B_i).
+    if (
+        isinstance(A, Kronecker)
+        and isinstance(B, Kronecker)
+        and len(A.operators) == len(B.operators)
+        and all(
+            a.in_size() == b.in_size()
+            for a, b in zip(A.operators, B.operators, strict=True)
+        )
+    ):
+        parts = [
+            trace_product(a, b) for a, b in zip(A.operators, B.operators, strict=True)
+        ]
+        return jnp.prod(jnp.stack(parts))
+
+    return _trace_product_dense(A, B)
+
+
+def _trace_product_dense(
+    A: lx.AbstractLinearOperator, B: lx.AbstractLinearOperator
+) -> Float[Array, ""]:
+    """Dense fallback: ``sum(A * B^T)`` element-wise."""
     A_mat = A.as_matrix()
     B_mat = B.as_matrix()
     return reduce(A_mat * B_mat.T, "i j -> ", "sum")

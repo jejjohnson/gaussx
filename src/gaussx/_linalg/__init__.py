@@ -9,9 +9,11 @@ from gaussx._linalg._linalg import (
     cov_transform,
     diag_conditional_variance,
     solve_columns,
+    solve_matrix,
     solve_rows,
     trace_product,
 )
+from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._linalg._mixed_precision import (
     stable_rbf_kernel,
     stable_squared_distances,
@@ -28,9 +30,11 @@ __all__ = [
     "cov_transform",
     "diag_conditional_variance",
     "diag_inv",
+    "discrete_lyapunov_solve",
     "safe_cholesky",
     "schur_complement",
     "solve_columns",
+    "solve_matrix",
     "solve_rows",
     "stable_rbf_kernel",
     "stable_squared_distances",

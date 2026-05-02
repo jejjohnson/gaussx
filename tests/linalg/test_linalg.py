@@ -104,3 +104,69 @@ def test_diag_conditional_variance_zero_projection(getkey):
     A_X = jnp.zeros((N, M))
     result = diag_conditional_variance(K_XX_diag, K_XZ, A_X)
     assert tree_allclose(result, K_XX_diag)
+
+
+def test_trace_product_diagonal_diagonal(getkey):
+    """Both diagonal: should hit the structural path and match dense."""
+    N = 4
+    da = jr.normal(getkey(), (N,))
+    db = jr.normal(getkey(), (N,))
+    A = lx.DiagonalLinearOperator(da)
+    B = lx.DiagonalLinearOperator(db)
+    result = trace_product(A, B)
+    expected = jnp.trace(jnp.diag(da) @ jnp.diag(db))
+    assert tree_allclose(result, expected, rtol=1e-6)
+
+
+def test_trace_product_diagonal_full(getkey):
+    """Diagonal × general: contract via diag(B)."""
+    N = 5
+    d = jr.normal(getkey(), (N,))
+    Bmat = jr.normal(getkey(), (N, N))
+    A = lx.DiagonalLinearOperator(d)
+    B = lx.MatrixLinearOperator(Bmat)
+    result = trace_product(A, B)
+    expected = jnp.trace(jnp.diag(d) @ Bmat)
+    assert tree_allclose(result, expected, rtol=1e-6)
+
+
+def test_trace_product_block_diag_matched(getkey):
+    """Matched BlockDiag: sum of per-block trace_product."""
+    from gaussx import BlockDiag
+
+    A = BlockDiag(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (4, 4))),
+    )
+    B = BlockDiag(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (4, 4))),
+    )
+    expected = jnp.trace(A.as_matrix() @ B.as_matrix())
+    assert tree_allclose(trace_product(A, B), expected, rtol=1e-5)
+
+
+def test_trace_product_kronecker_matched(getkey):
+    """Matched Kronecker: product of per-factor trace_product."""
+    from gaussx import Kronecker
+
+    A = Kronecker(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+    )
+    B = Kronecker(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+    )
+    expected = jnp.trace(A.as_matrix() @ B.as_matrix())
+    assert tree_allclose(trace_product(A, B), expected, rtol=1e-5)
+
+
+def test_cov_transform_diagonal_avoids_full_materialization(getkey):
+    """DiagonalLinearOperator covariance: J diag(d) J^T should match dense."""
+    N, M = 6, 3
+    d = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
+    op = lx.DiagonalLinearOperator(d)
+    J = jr.normal(getkey(), (M, N))
+    expected = J @ jnp.diag(d) @ J.T
+    assert tree_allclose(cov_transform(J, op).as_matrix(), expected, rtol=1e-5)

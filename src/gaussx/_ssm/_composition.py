@@ -65,7 +65,20 @@ class ProductSDE(SDEKernel):
         return self.kernel1.state_dim * self.kernel2.state_dim
 
     def sde_params(self) -> SDEParams:
-        """Return Kronecker-structured SDE parameters."""
+        """Return Kronecker-structured SDE parameters.
+
+        Note:
+            ``SDEParams`` currently types its fields as dense
+            ``jaxtyping.Float[Array, ...]``. The Kronecker products
+            below are dense materializations of size
+            ``(state_dim, state_dim)``, where ``state_dim`` is
+            ``kernel1.state_dim * kernel2.state_dim`` — for typical SSM
+            kernels (Matérn-3/2, periodic) this is ≤ 32, so the
+            materialization is bounded and cheap. A future refactor
+            could expose a parallel ``sde_operators()`` method that
+            returns :class:`gaussx.Kronecker` operators for downstream
+            filters that can exploit the structure (issue #153).
+        """
         p1 = self.kernel1.sde_params()
         p2 = self.kernel2.sde_params()
 

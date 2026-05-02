@@ -12,6 +12,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._eig import eigvals as _gaussx_eigvals
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
@@ -112,8 +113,9 @@ class AssumedDensityFilter(AbstractIntegrator):
 
         diagnostics: dict = {}
         if compute_diagnostics:
-            # Compute non-Gaussianity diagnostics
-            eigvals = jnp.linalg.eigvalsh(Sigma_y)
+            # Compute non-Gaussianity diagnostics via the gaussx
+            # eigvals primitive (dispatches on operator structure).
+            eigvals = _gaussx_eigvals(cov_y)
             min_eigval = jnp.min(eigvals)
             max_eigval = jnp.max(eigvals)
             cond = max_eigval / jnp.maximum(min_eigval, 1e-30)

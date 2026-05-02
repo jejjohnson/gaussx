@@ -102,8 +102,10 @@ class KroneckerSum(lx.AbstractLinearOperator):
             Tuple ``(eigenvalues, Q)`` where ``Q = Q_A (x) Q_B``
             and eigenvalues are ``lambda^A_i + lambda^B_j`` for all pairs.
         """
-        evals_a, evecs_a = jnp.linalg.eigh(self.A.as_matrix())
-        evals_b, evecs_b = jnp.linalg.eigh(self.B.as_matrix())
+        from gaussx._primitives._eig import eig
+
+        evals_a, evecs_a = eig(self.A)
+        evals_b, evecs_b = eig(self.B)
         # Eigenvalues: lambda_a_i + lambda_b_j for all (i, j) pairs
         eigenvalues = rearrange(evals_a[:, None] + evals_b[None, :], "a b -> (a b)")
         # Eigenvectors: Q_A (x) Q_B

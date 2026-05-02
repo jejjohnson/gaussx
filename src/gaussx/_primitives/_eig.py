@@ -15,6 +15,7 @@ from jaxtyping import Array
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
 
 
 def eig(
@@ -46,6 +47,8 @@ def eig(
         return _eig_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _eig_kronecker(operator)
+    if isinstance(operator, KroneckerSum):
+        return _eig_kronecker_sum(operator)
     if rank is not None:
         return _eig_partial(operator, rank, key)
     return _eig_dense(operator)
@@ -76,6 +79,8 @@ def eigvals(
         return jnp.concatenate([eigvals(op) for op in operator.operators])
     if isinstance(operator, Kronecker):
         return _eigvals_kronecker(operator)
+    if isinstance(operator, KroneckerSum):
+        return _eigvals_kronecker_sum(operator)
     if rank is not None:
         vals, _ = _eig_partial(operator, rank, key)
         return vals
@@ -117,6 +122,30 @@ def _eig_kronecker(
 def _eigvals_kronecker(operator: Kronecker) -> Array:
     """eigvals(A kron B) = kron(eigvals(A), eigvals(B))."""
     return ft.reduce(jnp.kron, (eigvals(op) for op in operator.operators))
+
+
+def _eig_kronecker_sum(
+    operator: KroneckerSum,
+) -> tuple[Array, Array]:
+    """eig(A (+) B) via per-factor eigendecomposition.
+
+    A (+) B = (Q_A ⊗ Q_B) diag(λ^A_i + λ^B_j) (Q_A ⊗ Q_B)^T.
+    """
+    evals_a, evecs_a = eig(operator.A)
+    evals_b, evecs_b = eig(operator.B)
+    eigenvalues = jnp.reshape(
+        evals_a[:, None] + evals_b[None, :],
+        (-1,),
+    )
+    Q = jnp.kron(evecs_a, evecs_b)
+    return eigenvalues, Q
+
+
+def _eigvals_kronecker_sum(operator: KroneckerSum) -> Array:
+    """eigvals(A (+) B) = sum-pairs of eigvals — no factor materialization."""
+    evals_a = eigvals(operator.A)
+    evals_b = eigvals(operator.B)
+    return jnp.reshape(evals_a[:, None] + evals_b[None, :], (-1,))
 
 
 def _eig_partial(

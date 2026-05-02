@@ -173,14 +173,19 @@ def _solve_kronecker_sum(
     operator: KroneckerSum,
     vector: Float[Array, " n"],
 ) -> Float[Array, " n"]:
-    """Solve (A (+) B) x = b via eigendecomposition.
+    """Solve (A (+) B) x = b via per-factor eigendecomposition.
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
+    Dispatches the per-factor ``eigh`` through :func:`gaussx.eig` so
+    structured factors (Diagonal, BlockDiag, Kronecker, KroneckerSum)
+    avoid materialization.
     """
     from einops import rearrange
 
-    evals_a, Q_a = jnp.linalg.eigh(operator.A.as_matrix())
-    evals_b, Q_b = jnp.linalg.eigh(operator.B.as_matrix())
+    from gaussx._primitives._eig import eig
+
+    evals_a, Q_a = eig(operator.A)
+    evals_b, Q_b = eig(operator.B)
     n_a, n_b = operator._n_a, operator._n_b
     # Rotate into eigenbasis: c = (Q_A^T (x) Q_B^T) b
     X = rearrange(vector, "(a b) -> b a", a=n_a, b=n_b)
