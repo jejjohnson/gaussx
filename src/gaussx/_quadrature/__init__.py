@@ -20,6 +20,13 @@ from gaussx._quadrature._gp_predict import (
 )
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._likelihood import AbstractLikelihood, GaussianLikelihood
+from gaussx._quadrature._likelihoods import (
+    BernoulliLikelihood,
+    HeteroscedasticGaussianLikelihood,
+    PoissonLikelihood,
+    SoftmaxLikelihood,
+    StudentTLikelihood,
+)
 from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._psi_statistics import (
     AnalyticalPsiStatistics,
@@ -31,6 +38,7 @@ from gaussx._quadrature._quadrature import (
     sigma_points,
 )
 from gaussx._quadrature._taylor import TaylorIntegrator
+from gaussx._quadrature._tilted_moments import ep_tilted_moments
 from gaussx._quadrature._types import GaussianState, PropagationResult
 from gaussx._quadrature._unscented import UnscentedIntegrator
 
@@ -40,17 +48,23 @@ __all__ = [
     "AbstractLikelihood",
     "AnalyticalPsiStatistics",
     "AssumedDensityFilter",
+    "BernoulliLikelihood",
     "GaussHermiteIntegrator",
     "GaussianLikelihood",
     "GaussianState",
+    "HeteroscedasticGaussianLikelihood",
     "MonteCarloIntegrator",
+    "PoissonLikelihood",
     "PropagationResult",
+    "SoftmaxLikelihood",
+    "StudentTLikelihood",
     "TaylorIntegrator",
     "UnscentedIntegrator",
     "compute_psi_statistics",
     "cost_expectation",
     "cubature_points",
     "elbo",
+    "ep_tilted_moments",
     "expected_log_likelihood",
     "gauss_hermite_points",
     "gradient_expectation",
