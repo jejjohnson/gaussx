@@ -108,6 +108,26 @@ class TestConditional:
         assert jnp.allclose(cond_mean, expected_mean, atol=1e-4)
         assert jnp.allclose(cond_cov.as_matrix(), expected_cov, atol=1e-4)
 
+    def test_conditional_with_dense_solver_matches_default(self):
+        """Passing solver=DenseSolver() must match default structural dispatch."""
+        n = 5
+        key = jax.random.PRNGKey(123)
+        k1, k2 = jax.random.split(key)
+        mu = jax.random.normal(k1, (n,))
+        Sigma = _make_psd_mat(k2, n)
+        cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+
+        obs_idx = jnp.array([0, 3])
+        obs_values = jnp.array([1.0, -1.0])
+
+        default_mean, default_cov = gaussx.conditional(mu, cov, obs_idx, obs_values)
+        dense_mean, dense_cov = gaussx.conditional(
+            mu, cov, obs_idx, obs_values, solver=gaussx.DenseSolver()
+        )
+
+        assert jnp.allclose(dense_mean, default_mean, atol=1e-5)
+        assert jnp.allclose(dense_cov.as_matrix(), default_cov.as_matrix(), atol=1e-5)
+
     def test_duplicate_obs_idx_raises(self):
         """Duplicate observed indices should raise a clear validation error."""
         mu = jnp.zeros(4)

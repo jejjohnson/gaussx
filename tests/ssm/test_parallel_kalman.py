@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 
-from gaussx import FilterState, kalman_filter, rts_smoother
+from gaussx import DenseSolver, FilterState, kalman_filter, rts_smoother
 from gaussx._ssm._parallel_kalman import (
     parallel_kalman_filter,
     parallel_rts_smoother,
@@ -82,3 +82,35 @@ def test_parallel_rts_matches_sequential(getkey):
 
     assert tree_allclose(par_means, seq_means, rtol=1e-4)
     assert tree_allclose(par_covs, seq_covs, rtol=1e-4)
+
+
+def test_parallel_kf_with_dense_solver_matches_default(getkey):
+    """Passing solver=DenseSolver() must match the default dispatch path."""
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (6, 2))
+
+    default_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
+    dense_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, solver=DenseSolver())
+
+    assert tree_allclose(
+        dense_state.filtered_means, default_state.filtered_means, rtol=1e-5
+    )
+    assert tree_allclose(
+        dense_state.filtered_covs, default_state.filtered_covs, rtol=1e-5
+    )
+    assert tree_allclose(
+        dense_state.log_likelihood, default_state.log_likelihood, rtol=1e-4
+    )
+
+
+def test_parallel_rts_with_dense_solver_matches_default(getkey):
+    """Smoother solver=DenseSolver() must match the default dispatch path."""
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (5, 2))
+
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
+    default_means, default_covs = parallel_rts_smoother(state, A, Q)
+    dense_means, dense_covs = parallel_rts_smoother(state, A, Q, solver=DenseSolver())
+
+    assert tree_allclose(dense_means, default_means, rtol=1e-5)
+    assert tree_allclose(dense_covs, default_covs, rtol=1e-5)

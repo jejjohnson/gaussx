@@ -187,8 +187,12 @@ def infinite_horizon_smoother(
     identity = jnp.eye(N * N, dtype=P_inf.dtype)  # (N², N²)
     kron_term = jnp.kron(G_inf, G_inf)  # (N², N²)
     lyapunov_op = lx.MatrixLinearOperator(identity - kron_term)
+    # ``I - kron(G_inf, G_inf)`` is generally non-symmetric, so PSD-only
+    # iterative strategies (CG, BBMM, PreconditionedCG, MINRES) are not
+    # valid here. Always use structural dispatch for this solve, even if
+    # the caller supplied a ``solver`` for the upstream PSD systems.
     P_smooth_inf = rearrange(
-        dispatch_solve(lyapunov_op, rearrange(rhs, "n1 n2 -> (n1 n2)"), solver),
+        dispatch_solve(lyapunov_op, rearrange(rhs, "n1 n2 -> (n1 n2)")),
         "(n1 n2) -> n1 n2",
         n1=N,
         n2=N,

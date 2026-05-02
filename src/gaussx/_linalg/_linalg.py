@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
 import lineax as lx
 from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -117,6 +119,37 @@ def solve_columns(
         in_axes=1,
         out_axes=1,
     )(matrix)
+
+
+def solve_matrix(
+    operator: lx.AbstractLinearOperator,
+    matrix: Float[Array, "N K"],
+    *,
+    solver: AbstractSolveStrategy | None = None,
+) -> Float[Array, "N K"]:
+    """Solve ``A X = B`` with a single factorization on the matrix RHS.
+
+    When ``solver`` is ``None`` and ``A`` is positive semidefinite, this
+    factors ``A = L L^T`` once via :func:`gaussx.cholesky` and then uses
+    a single ``cho_solve`` on the full matrix RHS — avoiding the
+    per-column re-factorization incurred by :func:`solve_columns`.
+
+    For non-PSD operators (or when a custom ``solver`` is supplied),
+    falls back to :func:`solve_columns`.
+
+    Args:
+        operator: Linear operator A, shape ``(N, N)``.
+        matrix: Right-hand side B, shape ``(N, K)``.
+        solver: Optional solver strategy. When provided, dispatch is
+            delegated column-by-column via :func:`solve_columns`.
+
+    Returns:
+        Solution X = A⁻¹ B, shape ``(N, K)``.
+    """
+    if solver is None and lx.is_positive_semidefinite(operator):
+        L = cholesky(operator).as_matrix()
+        return jax.scipy.linalg.cho_solve((L, True), matrix)
+    return solve_columns(operator, matrix, solver=solver)
 
 
 def solve_rows(

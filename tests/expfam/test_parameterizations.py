@@ -189,6 +189,78 @@ class TestFullCycle:
 # -------------------------------------------------------------------
 
 
+class TestBatched:
+    """Batched (``*batch``) inputs flatten/vmap correctly through every conversion."""
+
+    def _make_batched(self, key, batch_shape, N):
+        keys = jr.split(key, len(batch_shape) + 2)
+        mu = jr.normal(keys[0], (*batch_shape, N))
+
+        def _one(k):
+            return jnp.linalg.cholesky(random_pd_matrix(k, N))
+
+        flat = jr.split(keys[1], int(jnp.prod(jnp.array(batch_shape))))
+        S_flat = jax.vmap(_one)(flat)
+        S_sqrt = S_flat.reshape((*batch_shape, N, N))
+        return mu, S_sqrt
+
+    def test_meanvar_natural_batched_roundtrip(self, getkey):
+        N = 3
+        batch_shape = (2, 4)
+        mu, S_sqrt = self._make_batched(getkey(), batch_shape, N)
+
+        eta1, eta2 = meanvar_to_natural(mu, S_sqrt)
+        assert eta1.shape == (*batch_shape, N)
+        assert eta2.shape == (*batch_shape, N, N)
+
+        mu_rec, S_sqrt_rec = natural_to_meanvar(eta1, eta2)
+        Sigma_orig = S_sqrt @ jnp.swapaxes(S_sqrt, -1, -2)
+        Sigma_rec = S_sqrt_rec @ jnp.swapaxes(S_sqrt_rec, -1, -2)
+        assert tree_allclose(mu_rec, mu, rtol=1e-4)
+        assert tree_allclose(Sigma_rec, Sigma_orig, rtol=1e-4)
+
+    def test_meanvar_expectation_batched_roundtrip(self, getkey):
+        N = 4
+        batch_shape = (3,)
+        mu, S_sqrt = self._make_batched(getkey(), batch_shape, N)
+
+        m1, m2 = meanvar_to_expectation(mu, S_sqrt)
+        assert m1.shape == (*batch_shape, N)
+        assert m2.shape == (*batch_shape, N, N)
+
+        mu_rec, S_sqrt_rec = expectation_to_meanvar(m1, m2)
+        Sigma_orig = S_sqrt @ jnp.swapaxes(S_sqrt, -1, -2)
+        Sigma_rec = S_sqrt_rec @ jnp.swapaxes(S_sqrt_rec, -1, -2)
+        assert tree_allclose(mu_rec, mu, rtol=1e-4)
+        assert tree_allclose(Sigma_rec, Sigma_orig, rtol=1e-4)
+
+    def test_natural_expectation_batched_roundtrip(self, getkey):
+        N = 3
+        batch_shape = (2, 2)
+        mu, S_sqrt = self._make_batched(getkey(), batch_shape, N)
+        eta1, eta2 = meanvar_to_natural(mu, S_sqrt)
+
+        m1, m2 = natural_to_expectation(eta1, eta2)
+        assert m1.shape == (*batch_shape, N)
+        assert m2.shape == (*batch_shape, N, N)
+
+        eta1_rec, eta2_rec = expectation_to_natural(m1, m2)
+        assert tree_allclose(eta1_rec, eta1, rtol=1e-4)
+        assert tree_allclose(eta2_rec, eta2, rtol=1e-4)
+
+    def test_batched_matches_loop(self, getkey):
+        """Batched output equals loop-over-batch single-instance call."""
+        N = 3
+        batch_shape = (5,)
+        mu, S_sqrt = self._make_batched(getkey(), batch_shape, N)
+
+        eta1_b, eta2_b = meanvar_to_natural(mu, S_sqrt)
+        for i in range(batch_shape[0]):
+            eta1_i, eta2_i = meanvar_to_natural(mu[i], S_sqrt[i])
+            assert tree_allclose(eta1_b[i], eta1_i, rtol=1e-5)
+            assert tree_allclose(eta2_b[i], eta2_i, rtol=1e-5)
+
+
 class TestGradient:
     def test_grad_meanvar_to_natural(self, getkey):
         N = 3

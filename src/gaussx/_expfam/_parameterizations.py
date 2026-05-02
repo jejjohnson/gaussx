@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float
 
@@ -29,8 +30,6 @@ from gaussx._strategies._dispatch import dispatch_solve
 def meanvar_to_natural(
     mu: Float[Array, "*batch N"],
     S_sqrt: Float[Array, "*batch N N"],
-    *,
-    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     r"""Convert mean/variance (Cholesky) to natural parameters.
 
@@ -40,29 +39,26 @@ def meanvar_to_natural(
     - ``eta1 = Sigma^{-1} mu``
     - ``eta2 = -0.5 * Sigma^{-1}``
 
-    Uses the Cholesky factor directly to avoid forming ``Sigma``.
+    Uses the Cholesky factor directly via triangular solves; no solver
+    parameter is exposed because the underlying systems are triangular
+    rather than symmetric/PSD, and iterative strategies (CG, BBMM,
+    PreconditionedCG, MINRES) are not valid here.
 
     Args:
         mu: Mean vector, shape ``(*batch, N)``.
         S_sqrt: Lower-triangular Cholesky factor, shape ``(*batch, N, N)``.
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(eta1, eta2)`` of natural parameters.
     """
 
     def _core(mu_s: Float[Array, " N"], s_sqrt_s: Float[Array, "N N"]):
-        L_op = lx.MatrixLinearOperator(s_sqrt_s, lx.lower_triangular_tag)
-        LT_op = lx.MatrixLinearOperator(s_sqrt_s.T, lx.upper_triangular_tag)
-        # eta1 = Sigma^{-1} mu = S_sqrt^{-T} S_sqrt^{-1} mu
-        alpha = dispatch_solve(L_op, mu_s, solver)
-        eta1_s = dispatch_solve(LT_op, alpha, solver)
-        # eta2 = -0.5 * Sigma^{-1} via triangular solves
+        # eta1 = Sigma^{-1} mu = S_sqrt^{-T} S_sqrt^{-1} mu via cho_solve.
+        eta1_s = jax.scipy.linalg.cho_solve((s_sqrt_s, True), mu_s)
+        # eta2 = -0.5 * Sigma^{-1}, computed by a single matrix cho_solve.
         N = s_sqrt_s.shape[0]
         identity = jnp.eye(N, dtype=s_sqrt_s.dtype)
-        sigma_inv_rhs = solve_columns(L_op, identity, solver=solver)
-        Sigma_inv = solve_columns(LT_op, sigma_inv_rhs, solver=solver)
+        Sigma_inv = jax.scipy.linalg.cho_solve((s_sqrt_s, True), identity)
         return eta1_s, -0.5 * Sigma_inv
 
     *batch, N = mu.shape
@@ -141,8 +137,6 @@ def meanvar_to_expectation(
 def expectation_to_meanvar(
     m1: Float[Array, "*batch N"],
     m2: Float[Array, "*batch N N"],
-    *,
-    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     r"""Convert expectation parameters to mean/variance (Cholesky).
 
@@ -152,11 +146,12 @@ def expectation_to_meanvar(
     - ``Sigma = m2 - m1 @ m1^T``
     - ``S_sqrt = cholesky(Sigma)``
 
+    No solver parameter is exposed because the only linear-algebra
+    operation is Cholesky factorization, which is structurally fixed.
+
     Args:
         m1: First moment (mean), shape ``(*batch, N)``.
         m2: Second moment, shape ``(*batch, N, N)``.
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(mu, S_sqrt)`` where ``S_sqrt`` is the lower-triangular

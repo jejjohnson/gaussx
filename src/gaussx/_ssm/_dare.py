@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._linalg._linalg import solve_columns
+from gaussx._linalg._linalg import solve_matrix
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -75,9 +75,10 @@ def dare(
         """One predict-update step. Returns ``(P_new, K)``."""
         P_pred = A @ P @ A.T + Q
         S = H @ P_pred @ H.T + R
-        # K = P_pred @ H.T @ S⁻¹, computed via solve for numerical stability.
+        # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
+        # on the matrix RHS for numerical stability and efficiency.
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
-        K = solve_columns(S_op, H @ P_pred, solver=solver).T
+        K = solve_matrix(S_op, H @ P_pred, solver=solver).T
         P_new = (I_D - K @ H) @ P_pred
         return P_new, K
 
