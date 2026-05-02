@@ -36,6 +36,17 @@ def discrete_lyapunov_solve(
     The standard sufficient condition — ``G`` is stable
     (spectral radius < 1) — guarantees this.
 
+    .. warning::
+
+        This implementation assumes ``G`` is **diagonalizable**. For
+        defective ``G`` (e.g., a Jordan block with eigenvalue magnitude
+        ``< 1``) the eigenvector matrix ``V`` is singular and this
+        solve will return ``NaN`` / ``inf``. The discrete Lyapunov
+        equation still has a unique solution in that case, but
+        recovering it requires a Schur decomposition (Bartels-Stewart),
+        which JAX does not currently expose. Fall back to the
+        vectorized ``(I − G ⊗ G)`` solve for those operators.
+
     Args:
         G: Square matrix, shape ``(N, N)``. Should be stable for a
             unique steady-state solution.
@@ -47,10 +58,19 @@ def discrete_lyapunov_solve(
         ``P - G P G^T = Q``.
     """
     eigs, V = jnp.linalg.eig(G)
-    Vinv = jnp.linalg.inv(V)
-    # Q in the eigenbasis: V^{-1} Q V^{-T}
-    Q_tilde = Vinv @ Q.astype(V.dtype) @ Vinv.T
+    # Use solves rather than an explicit ``inv(V)``: more stable, and
+    # cheaper when V is well-conditioned. We need
+    #     Q_tilde = V^{-1} Q V^{-T}
+    # so first solve V Y = Q for Y = V^{-1} Q, then solve V Z = Y^T for
+    # Z = V^{-1} Y^T = V^{-1} Q (V^{-1})^T (so Q_tilde = Z^T = V^{-1} Q V^{-T}).
+    Q_complex = Q.astype(V.dtype)
+    Y = jnp.linalg.solve(V, Q_complex)
+    Q_tilde = jnp.linalg.solve(V, Y.T).T
     denom = 1.0 - eigs[:, None] * eigs[None, :]
     P_tilde = Q_tilde / denom
     P = V @ P_tilde @ V.T
-    return jnp.real(P)
+    P_real = jnp.real(P)
+    # Symmetrize to eliminate residual floating-point asymmetry —
+    # consistent with conditional / infinite_horizon_smoother covariance
+    # post-processing.
+    return 0.5 * (P_real + P_real.T)

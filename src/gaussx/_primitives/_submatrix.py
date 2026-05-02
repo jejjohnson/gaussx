@@ -37,11 +37,26 @@ def submatrix(
     Returns:
         Dense sub-matrix ``A[ix_(row_idx, col_idx)]`` of shape ``(R, C)``.
     """
+    n = operator.in_size()
+    row_idx = _normalize_indices(row_idx, n)
+    col_idx = _normalize_indices(col_idx, n)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _submatrix_diagonal(operator, row_idx, col_idx)
     if isinstance(operator, BlockDiag):
         return _submatrix_block_diag(operator, row_idx, col_idx)
     return operator.as_matrix()[jnp.ix_(row_idx, col_idx)]
+
+
+def _normalize_indices(
+    idx: Int[Array, " K"],
+    n: int,
+) -> Int[Array, " K"]:
+    """Map negative indices to their canonical non-negative positions.
+
+    Mirrors NumPy/JAX indexing: ``idx[idx < 0] += n``.
+    """
+    idx = jnp.asarray(idx)
+    return jnp.where(idx < 0, idx + n, idx)
 
 
 def _submatrix_diagonal(
@@ -63,18 +78,24 @@ def _submatrix_block_diag(
 ) -> Float[Array, "R C"]:
     """Sub-matrix of a block-diagonal operator without forming the full matrix.
 
-    Materializes only the blocks that intersect the requested indices.
-    For workloads where indices touch many blocks, the cost approaches
-    the dense fallback; the win is when the indices stay within a few
-    blocks.
+    Materializes every block once (so it can be stacked and gathered
+    from), then masks off-block entries to zero. The win over the dense
+    fallback is that we never materialize the full ``(N, N)`` matrix —
+    only the union of the per-block matrices, plus a single padded
+    stack of size ``(num_blocks, max_block_size, max_block_size)``.
+    Block sizes are static (operator structure is a PyTree leaf), so
+    the bookkeeping is jit-compatible.
+
+    For workloads where the requested indices stay within a few blocks
+    a future optimization could materialize only the touched blocks.
     """
-    offsets = []
-    cumulative = 0
-    for op in operator.operators:
-        offsets.append(cumulative)
-        cumulative += op.in_size()
-    offsets = jnp.asarray(offsets)
-    sizes = jnp.asarray([op.in_size() for op in operator.operators])
+    block_sizes = [op.in_size() for op in operator.operators]
+    offsets_list = [0]
+    for s in block_sizes[:-1]:
+        offsets_list.append(offsets_list[-1] + s)
+    offsets = jnp.asarray(offsets_list)
+    # Static, computed in Python — keeps this jit-compatible.
+    max_size = max(block_sizes)
 
     def _block_index(
         idx: Int[Array, " K"],
@@ -89,8 +110,6 @@ def _submatrix_block_diag(
 
     # Materialize each block once; pull entries from the right block.
     block_mats = [op.as_matrix() for op in operator.operators]
-    # Pad each block to the max block size so we can stack and index.
-    max_size = int(sizes.max())
     padded = jnp.stack(
         [
             jnp.pad(

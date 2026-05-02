@@ -74,3 +74,65 @@ class TestSubmatrixBlockDiag:
         assert jnp.allclose(
             submatrix(block_diag, rows, cols), full[jnp.ix_(rows, cols)]
         )
+
+
+# ---------------------------------------------------------------------------
+# JIT compatibility & negative indices
+# ---------------------------------------------------------------------------
+
+
+class TestSubmatrixJit:
+    def test_block_diag_under_jit(self, getkey):
+        import jax
+
+        a = random_pd_matrix(getkey(), 3)
+        b = random_pd_matrix(getkey(), 4)
+        block_diag = BlockDiag(
+            lx.MatrixLinearOperator(a, lx.positive_semidefinite_tag),
+            lx.MatrixLinearOperator(b, lx.positive_semidefinite_tag),
+        )
+        rows = jnp.array([0, 4, 6])
+        cols = jnp.array([1, 5, 6])
+
+        jitted = jax.jit(submatrix)
+        result = jitted(block_diag, rows, cols)
+        expected = block_diag.as_matrix()[jnp.ix_(rows, cols)]
+        assert jnp.allclose(result, expected)
+
+
+class TestNegativeIndices:
+    def test_dense_negative_indices_match_ix(self, getkey):
+        n = 6
+        A = random_pd_matrix(getkey(), n)
+        op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+        rows = jnp.array([-1, 0, -3])
+        cols = jnp.array([-2, 1])
+        normalized_rows = jnp.where(rows < 0, rows + n, rows)
+        normalized_cols = jnp.where(cols < 0, cols + n, cols)
+        expected = A[jnp.ix_(normalized_rows, normalized_cols)]
+        assert jnp.allclose(submatrix(op, rows, cols), expected)
+
+    def test_diagonal_negative_indices(self):
+        d = jnp.array([1.0, 2.0, 3.0, 4.0])
+        op = lx.DiagonalLinearOperator(d)
+        rows = jnp.array([-1, -2])  # → (3, 2)
+        cols = jnp.array([3, -3])  # → (3, 1)
+        # (0,0): row=3, col=3 → 4.0 ; (0,1): 3 vs 1 → 0
+        # (1,0): row=2, col=3 → 0   ; (1,1): 2 vs 1 → 0
+        expected = jnp.array([[4.0, 0.0], [0.0, 0.0]])
+        assert jnp.allclose(submatrix(op, rows, cols), expected)
+
+    def test_block_diag_negative_indices_match_dense(self, getkey):
+        a = random_pd_matrix(getkey(), 3)
+        b = random_pd_matrix(getkey(), 4)
+        block_diag = BlockDiag(
+            lx.MatrixLinearOperator(a, lx.positive_semidefinite_tag),
+            lx.MatrixLinearOperator(b, lx.positive_semidefinite_tag),
+        )
+        n = 7
+        rows = jnp.array([-1, -7, 2])  # → (6, 0, 2)
+        cols = jnp.array([-2, -5])  # → (5, 2)
+        normalized_rows = jnp.where(rows < 0, rows + n, rows)
+        normalized_cols = jnp.where(cols < 0, cols + n, cols)
+        expected = block_diag.as_matrix()[jnp.ix_(normalized_rows, normalized_cols)]
+        assert jnp.allclose(submatrix(block_diag, rows, cols), expected)

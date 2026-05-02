@@ -173,19 +173,25 @@ def _solve_kronecker_sum(
     operator: KroneckerSum,
     vector: Float[Array, " n"],
 ) -> Float[Array, " n"]:
-    """Solve (A (+) B) x = b via per-factor eigendecomposition.
+    """Solve (A (+) B) x = b via per-factor symmetric eigendecomposition.
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
-    Dispatches the per-factor ``eigh`` through :func:`gaussx.eig` so
-    structured factors (Diagonal, BlockDiag, Kronecker, KroneckerSum)
-    avoid materialization.
+
+    Requires the factors ``A`` and ``B`` to be symmetric so the
+    eigenvector matrices are orthonormal — the formula above uses
+    ``Q^T`` as the inverse rotation. Structured factors (Diagonal,
+    BlockDiag, Kronecker, KroneckerSum) skip materialization; otherwise
+    falls back to ``jnp.linalg.eigh`` on the materialized factor.
     """
     from einops import rearrange
 
-    from gaussx._primitives._eig import eig
-
-    evals_a, Q_a = eig(operator.A)
-    evals_b, Q_b = eig(operator.B)
+    # The decomposition requires symmetric factors so the eigenvector
+    # matrices are orthonormal (the formula uses ``Q^T`` as the inverse
+    # rotation). We always invoke an ``eigh``-equivalent path even for
+    # untagged operators — matching the pre-existing assumption that
+    # ``KroneckerSum`` factors are symmetric.
+    evals_a, Q_a = _eigh_factor(operator.A)
+    evals_b, Q_b = _eigh_factor(operator.B)
     n_a, n_b = operator._n_a, operator._n_b
     # Rotate into eigenbasis: c = (Q_A^T (x) Q_B^T) b
     X = rearrange(vector, "(a b) -> b a", a=n_a, b=n_b)
@@ -273,3 +279,27 @@ def _solve_fallback(
     if solver is None:
         solver = lx.AutoLinearSolver(well_posed=True)
     return lx.linear_solve(operator, vector, solver).value
+
+
+def _eigh_factor(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    """Symmetric eigendecomposition of a Kronecker-sum factor.
+
+    Always returns an ``eigh``-equivalent ``(eigenvalues, Q)`` with
+    orthonormal ``Q`` — callers (``_solve_kronecker_sum``,
+    ``KroneckerSum.eigendecompose``) rely on ``Q.T == Q^{-1}``.
+
+    Diagonal operators get a free structural shortcut. For anything
+    else we materialize and call ``jnp.linalg.eigh`` directly — this
+    matches the pre-#158 behavior and stays correct for the common
+    case of *numerically* symmetric matrices wrapped as plain
+    ``MatrixLinearOperator`` without ``symmetric_tag``. Routing through
+    ``gaussx.eig`` is unsafe here because for untagged factors that
+    primitive falls back to ``jnp.linalg.eig``, which returns general
+    (non-orthonormal) eigenvectors.
+    """
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        d = lx.diagonal(operator)
+        return d, jnp.eye(d.shape[0], dtype=d.dtype)
+    return jnp.linalg.eigh(operator.as_matrix())
