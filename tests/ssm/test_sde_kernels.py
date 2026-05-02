@@ -116,6 +116,40 @@ class TestProductSDE:
         kern = ProductSDE(kernel1=k1, kernel2=k2)
         assert kern.state_dim == 2
 
+    def test_discretise_matches_dense_expm(self):
+        """ProductSDE.discretise via Kronecker expm equals dense expm(F*dt)."""
+        import jax.scipy.linalg as jsl
+
+        k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(2.0), order=1)
+        k2 = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(0.5))
+        kern = ProductSDE(kernel1=k1, kernel2=k2)
+        dt = jnp.array(0.3)
+
+        A, Q = kern.discretise(dt)
+
+        # Reference: dense expm of the full F.
+        params = kern.sde_params()
+        A_ref = jsl.expm(params.F * dt)
+        Q_ref = params.P_inf - A_ref @ params.P_inf @ A_ref.T
+        Q_ref = 0.5 * (Q_ref + Q_ref.T)
+
+        assert jnp.allclose(A, A_ref, atol=1e-6)
+        assert jnp.allclose(Q, Q_ref, atol=1e-6)
+
+    def test_discretise_kronecker_structure(self):
+        """A = expm(F1*dt) ⊗ expm(F2*dt) is exactly Kronecker-structured."""
+        import jax.scipy.linalg as jsl
+
+        k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(2.0), order=1)
+        k2 = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(0.5))
+        kern = ProductSDE(kernel1=k1, kernel2=k2)
+        dt = jnp.array(0.25)
+
+        A, _ = kern.discretise(dt)
+        A1 = jsl.expm(k1.sde_params().F * dt)
+        A2 = jsl.expm(k2.sde_params().F * dt)
+        assert jnp.allclose(A, jnp.kron(A1, A2), atol=1e-10)
+
 
 class TestQuasiPeriodicSDE:
     def test_is_product(self):
