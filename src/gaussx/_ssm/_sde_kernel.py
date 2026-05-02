@@ -78,6 +78,7 @@ class SDEKernel(eqx.Module):
         params = self.sde_params()
         A = jsl.expm(params.F * dt)
         Q = params.P_inf - A @ params.P_inf @ A.T
+        Q = 0.5 * (Q + Q.T)
         return A, Q
 
     def discretise_sequence(

@@ -35,8 +35,11 @@ class MaternSDE(SDEKernel):
             return self._matern12()
         elif self.order == 1:
             return self._matern32()
-        else:
+        elif self.order == 2:
             return self._matern52()
+        else:
+            msg = f"Unsupported Matern order {self.order}; must be 0, 1, or 2"
+            raise ValueError(msg)
 
     def _matern12(self) -> SDEParams:
         lam = 1.0 / self.lengthscale
