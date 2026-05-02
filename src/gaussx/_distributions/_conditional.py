@@ -7,6 +7,7 @@ import lineax as lx
 from jaxtyping import Array, Float, Int
 
 from gaussx._linalg._linalg import solve_matrix
+from gaussx._primitives._submatrix import submatrix
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
@@ -59,13 +60,13 @@ def conditional(
     mask = jnp.ones(N, dtype=bool).at[obs_idx].set(False)
     free_idx = jnp.where(mask, size=N - obs_idx.shape[0])[0]
 
-    # Materialize covariance (required for index-based slicing)
-    Sigma = cov.as_matrix()
-
-    # Extract sub-blocks
-    Sigma_AA = Sigma[jnp.ix_(free_idx, free_idx)]
-    Sigma_AB = Sigma[jnp.ix_(free_idx, obs_idx)]
-    Sigma_BB = Sigma[jnp.ix_(obs_idx, obs_idx)]
+    # Extract sub-blocks via structural dispatch — avoids materializing
+    # the full ``(N, N)`` joint covariance for structured operators
+    # (Diagonal, BlockDiag). Falls back to full materialization for
+    # unstructured operators where there is no efficient alternative.
+    Sigma_AA = submatrix(cov, free_idx, free_idx)
+    Sigma_AB = submatrix(cov, free_idx, obs_idx)
+    Sigma_BB = submatrix(cov, obs_idx, obs_idx)
 
     mu_A = loc[free_idx]
     mu_B = loc[obs_idx]

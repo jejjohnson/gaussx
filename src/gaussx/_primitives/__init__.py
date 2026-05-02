@@ -7,6 +7,7 @@ from gaussx._primitives._inv import InverseOperator, inv
 from gaussx._primitives._logdet import cholesky_logdet, logdet
 from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import SqrtOperator, sqrt
+from gaussx._primitives._submatrix import submatrix
 from gaussx._primitives._svd import svd
 from gaussx._primitives._trace import trace
 
@@ -23,6 +24,7 @@ __all__ = [
     "logdet",
     "solve",
     "sqrt",
+    "submatrix",
     "svd",
     "trace",
 ]

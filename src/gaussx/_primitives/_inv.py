@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
 import lineax as lx
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
@@ -74,6 +76,19 @@ class InverseOperator(lx.AbstractLinearOperator):
         return solve(self.original, vector, solver=self._solver)
 
     def as_matrix(self):
+        # PSD path: A = L L^T => A^{-1} = L^{-T} L^{-1}, computed via two
+        # triangular solves. More stable and faster than jnp.linalg.inv.
+        # Handles a leading batch shape (..., n, n) — ``L.shape[-1]`` and a
+        # broadcast identity keep the cho_solve call rank-correct.
+        if lx.is_positive_semidefinite(self.original):
+            from gaussx._primitives._cholesky import cholesky
+
+            L = cholesky(self.original).as_matrix()
+            n = L.shape[-1]
+            identity = jnp.broadcast_to(
+                jnp.eye(n, dtype=L.dtype), (*L.shape[:-2], n, n)
+            )
+            return jax.scipy.linalg.cho_solve((L, True), identity)
         return jnp.linalg.inv(self.original.as_matrix())
 
     def transpose(self):

@@ -100,3 +100,46 @@ def test_eigvals_kronecker(getkey):
     )
     expected = jnp.kron(d1, d2)
     assert tree_allclose(eigvals(K), expected)
+
+
+# ----------------------------------------------------------------
+# KroneckerSum dispatch
+# ----------------------------------------------------------------
+
+
+def test_eig_kronecker_sum_matches_dense(getkey):
+    """eig(A ⊕ B) via per-factor eigendecomposition matches dense eigh."""
+    import jax.numpy as jnp
+    import lineax as lx
+
+    from gaussx import KroneckerSum, eig
+    from gaussx._testing import random_pd_matrix
+
+    A = random_pd_matrix(getkey(), 3)
+    B = random_pd_matrix(getkey(), 4)
+    op = KroneckerSum(
+        lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
+    )
+    vals, _vecs = eig(op)
+    vals_ref = jnp.linalg.eigvalsh(op.as_matrix())
+    assert jnp.allclose(jnp.sort(vals), jnp.sort(vals_ref), atol=1e-6)
+
+
+def test_eigvals_kronecker_sum_matches_dense(getkey):
+    """eigvals(A ⊕ B) avoids materializing the full (n_a·n_b)² matrix."""
+    import jax.numpy as jnp
+    import lineax as lx
+
+    from gaussx import KroneckerSum, eigvals
+    from gaussx._testing import random_pd_matrix
+
+    A = random_pd_matrix(getkey(), 3)
+    B = random_pd_matrix(getkey(), 5)
+    op = KroneckerSum(
+        lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
+    )
+    vals = eigvals(op)
+    vals_ref = jnp.linalg.eigvalsh(op.as_matrix())
+    assert jnp.allclose(jnp.sort(vals), jnp.sort(vals_ref), atol=1e-6)

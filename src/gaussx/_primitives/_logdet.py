@@ -142,10 +142,23 @@ def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> Float[Array, ""]:
 
 
 def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
-    """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)) for all i,j."""
+    """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)).
 
-    evals_a = jnp.linalg.eigvalsh(operator.A.as_matrix())
-    evals_b = jnp.linalg.eigvalsh(operator.B.as_matrix())
+    Assumes symmetric factors so the eigenvalues are real. Diagonal
+    factors get a structural shortcut; other operators are
+    materialized and decomposed via ``jnp.linalg.eigvalsh`` — using
+    the structural :func:`gaussx.eigvals` would silently fall back to
+    ``jnp.linalg.eigvals`` for untagged operators and could return
+    complex values that break the log.
+    """
+
+    def _factor_evals(op):
+        if isinstance(op, lx.DiagonalLinearOperator):
+            return lx.diagonal(op)
+        return jnp.linalg.eigvalsh(op.as_matrix())
+
+    evals_a = _factor_evals(operator.A)
+    evals_b = _factor_evals(operator.B)
     eig_mat = evals_a[None, :] + evals_b[:, None]
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
 

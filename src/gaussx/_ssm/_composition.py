@@ -5,6 +5,7 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
+from jaxtyping import Array, Float
 
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 
@@ -65,7 +66,20 @@ class ProductSDE(SDEKernel):
         return self.kernel1.state_dim * self.kernel2.state_dim
 
     def sde_params(self) -> SDEParams:
-        """Return Kronecker-structured SDE parameters."""
+        """Return Kronecker-structured SDE parameters.
+
+        Note:
+            ``SDEParams`` currently types its fields as dense
+            ``jaxtyping.Float[Array, ...]``. The Kronecker products
+            below are dense materializations of size
+            ``(state_dim, state_dim)``, where ``state_dim`` is
+            ``kernel1.state_dim * kernel2.state_dim`` — for typical SSM
+            kernels (Matérn-3/2, periodic) this is ≤ 32, so the
+            materialization is bounded and cheap. A future refactor
+            could expose a parallel ``sde_operators()`` method that
+            returns :class:`gaussx.Kronecker` operators for downstream
+            filters that can exploit the structure (issue #153).
+        """
         p1 = self.kernel1.sde_params()
         p2 = self.kernel2.sde_params()
 
@@ -79,6 +93,50 @@ class ProductSDE(SDEKernel):
         P_inf = jnp.kron(p1.P_inf, p2.P_inf)
 
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
+
+    def discretise(
+        self,
+        dt: Float[Array, ""],
+    ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
+        r"""Discretise via the Kronecker matrix-exponential identity.
+
+        For a product kernel ``F = F_1 \oplus F_2 = F_1 \otimes I + I \otimes F_2``,
+        the factors ``F_1 \otimes I`` and ``I \otimes F_2`` commute, so
+
+        .. math::
+
+            \exp(F \, dt) = \exp(F_1 \, dt) \otimes \exp(F_2 \, dt).
+
+        This computes two ``expm`` calls of size ``d_1`` and ``d_2``
+        each, plus one Kronecker product, instead of one ``expm`` of
+        size ``d_1 \cdot d_2``. Numerically equivalent to the dense
+        ``expm`` on ``F`` but cheaper for moderate factor sizes.
+
+        ``Q = P_\infty - A P_\infty A^T`` is computed densely from the
+        resulting ``A``; with ``P_\infty = P_{\infty,1} \otimes
+        P_{\infty,2}`` this could itself be expressed as a Kronecker
+        difference, but is left dense to keep the consumer-facing
+        ``(A, Q)`` interface unchanged.
+
+        Args:
+            dt: Time step (scalar, positive).
+
+        Returns:
+            Tuple ``(A, Q)`` matching :meth:`SDEKernel.discretise`.
+        """
+        p1 = self.kernel1.sde_params()
+        p2 = self.kernel2.sde_params()
+        A1 = jsl.expm(p1.F * dt)
+        A2 = jsl.expm(p2.F * dt)
+        A = jnp.kron(A1, A2)
+
+        # Use the per-factor stationary covariances directly; building
+        # the full ``F`` via ``self.sde_params()`` would defeat the
+        # whole point of this override.
+        P_inf = jnp.kron(p1.P_inf, p2.P_inf)
+        Q = P_inf - A @ P_inf @ A.T
+        Q = 0.5 * (Q + Q.T)
+        return A, Q
 
 
 class QuasiPeriodicSDE(ProductSDE):

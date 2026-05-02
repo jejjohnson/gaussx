@@ -96,14 +96,33 @@ class KroneckerSum(lx.AbstractLinearOperator):
     def eigendecompose(
         self,
     ) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
-        """Eigendecompose via per-factor eigendecomposition.
+        """Symmetric eigendecomposition via per-factor decomposition.
+
+        Assumes both factors are symmetric so the returned
+        ``Q = Q_A ⊗ Q_B`` is orthonormal — callers rely on
+        ``self == Q @ diag(eigenvalues) @ Q.T``. Diagonal factors get a
+        structural shortcut; other operators are materialized and
+        decomposed via ``jnp.linalg.eigh``. We deliberately avoid
+        routing untagged factors through :func:`gaussx.eig` because
+        that primitive falls back to ``jnp.linalg.eig`` for untagged
+        operators and would return general (non-orthonormal)
+        eigenvectors — breaking the ``Q.T == Q^{-1}`` contract for the
+        common case of numerically symmetric matrices wrapped as plain
+        :class:`lineax.MatrixLinearOperator`.
 
         Returns:
-            Tuple ``(eigenvalues, Q)`` where ``Q = Q_A (x) Q_B``
-            and eigenvalues are ``lambda^A_i + lambda^B_j`` for all pairs.
+            Tuple ``(eigenvalues, Q)`` where ``Q = Q_A ⊗ Q_B`` and the
+            eigenvalues are ``lambda^A_i + lambda^B_j`` for all pairs.
         """
-        evals_a, evecs_a = jnp.linalg.eigh(self.A.as_matrix())
-        evals_b, evecs_b = jnp.linalg.eigh(self.B.as_matrix())
+
+        def _factor_eigh(op):
+            if isinstance(op, lx.DiagonalLinearOperator):
+                d = lx.diagonal(op)
+                return d, jnp.eye(d.shape[0], dtype=d.dtype)
+            return jnp.linalg.eigh(op.as_matrix())
+
+        evals_a, evecs_a = _factor_eigh(self.A)
+        evals_b, evecs_b = _factor_eigh(self.B)
         # Eigenvalues: lambda_a_i + lambda_b_j for all (i, j) pairs
         eigenvalues = rearrange(evals_a[:, None] + evals_b[None, :], "a b -> (a b)")
         # Eigenvectors: Q_A (x) Q_B
