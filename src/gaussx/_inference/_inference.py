@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
 from gaussx._primitives._inv import inv
 from gaussx._primitives._trace import trace
 from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
@@ -26,7 +26,7 @@ def log_marginal_likelihood(
 
         log p(y) = -0.5 * (y-mu)^T K^{-1} (y-mu) - 0.5 * log|K| - N/2 * log(2pi)
 
-    Equivalent to ``gaussian_log_prob`` but named for GP convention.
+    Delegates to :func:`gaussx.gaussian_log_prob`.
 
     Args:
         loc: Prior mean, shape ``(N,)``.
@@ -38,12 +38,7 @@ def log_marginal_likelihood(
     Returns:
         Scalar log marginal likelihood.
     """
-    N = y.shape[-1]
-    residual = y - loc
-    alpha = dispatch_solve(cov_operator, residual, solver)
-    quad = residual @ alpha
-    ld = dispatch_logdet(cov_operator, solver)
-    return -0.5 * (quad + ld + N * _LOG_2PI)
+    return gaussian_log_prob(loc, cov_operator, y, solver=solver)
 
 
 def gaussian_expected_log_lik(
