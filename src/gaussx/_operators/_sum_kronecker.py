@@ -112,8 +112,15 @@ class SumKronecker(lx.AbstractLinearOperator):
             ``self == Q @ diag(eigenvalues) @ Q^T``.
         """
         A2_op, B2_op = self.kron2.operators
+        A1_op, B1_op = self.kron1.operators
+        # The final ``eigh(transformed)`` call requires ``transformed`` to
+        # be symmetric, which in turn requires *both* kron pairs to have
+        # symmetric factors (so that ``A1_tilde`` and ``B1_tilde`` stay
+        # symmetric under the ``Q^T A Q`` rotation).
         if not lx.is_symmetric(A2_op) or not lx.is_symmetric(B2_op):
             raise ValueError("eigendecompose requires kron2 factors to be symmetric.")
+        if not lx.is_symmetric(A1_op) or not lx.is_symmetric(B1_op):
+            raise ValueError("eigendecompose requires kron1 factors to be symmetric.")
 
         from gaussx._primitives._eig import eig
 

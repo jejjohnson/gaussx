@@ -273,13 +273,19 @@ class TestJAX:
         assert jnp.all(jnp.isfinite(g))
 
 
-def test_eigendecompose_with_diagonal_factor_avoids_eigh(getkey):
-    """When kron2's factors are Diagonal, per-factor eig dispatches to the
-    Diagonal path (no jnp.linalg.eigh on a materialized matrix).
+def test_eigendecompose_supports_diagonal_kron2_factors(getkey, monkeypatch):
+    """SumKronecker.eigendecompose accepts Diagonal kron2 factors and
+    routes their per-factor eig through the structural primitive,
+    *not* through ``jnp.linalg.eigh`` on a materialized matrix.
 
-    The joint diagonalization step requires kron1 factors to be symmetric
-    so the ``transformed`` matrix passed to ``eigh`` is symmetric.
+    Asserts both correctness (Q diag(evals) Q^T == SK.as_matrix()) and
+    that the Diagonal-factor path was taken (no fallback to
+    ``jnp.linalg.eigh`` on those factors). The joint diagonalization
+    step still calls ``jnp.linalg.eigh`` on the ``(n_c·n_d, n_c·n_d)``
+    transformed matrix, which is unavoidable.
     """
+    import jax.numpy as _jnp
+
     from gaussx._testing import random_pd_matrix
 
     A1_mat = random_pd_matrix(getkey(), 2)
@@ -293,6 +299,39 @@ def test_eigendecompose_with_diagonal_factor_avoids_eigh(getkey):
     B2 = lx.DiagonalLinearOperator(B2_diag)
     SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
 
+    # Wrap jnp.linalg.eigh so we can count calls and inspect argument
+    # shapes. The Diagonal-factor path should produce *exactly one*
+    # eigh call — on the transformed (n_c·n_d, n_c·n_d) matrix.
+    eigh_calls: list[tuple[int, int]] = []
+    real_eigh = _jnp.linalg.eigh
+
+    def spy_eigh(mat, *args, **kwargs):
+        eigh_calls.append(mat.shape)
+        return real_eigh(mat, *args, **kwargs)
+
+    monkeypatch.setattr(_jnp.linalg, "eigh", spy_eigh)
+
     evals, Q = SK.eigendecompose()
     reconstructed = Q @ jnp.diag(evals) @ Q.T
     assert tree_allclose(reconstructed, SK.as_matrix(), rtol=1e-4, atol=1e-6)
+
+    # No (2, 2) or (3, 3) eigh calls on the Diagonal kron2 factors.
+    assert (2, 2) not in eigh_calls
+    assert (3, 3) not in eigh_calls
+    # The single remaining eigh is on the (6, 6) transformed matrix.
+    assert (6, 6) in eigh_calls
+
+
+def test_eigendecompose_rejects_nonsymmetric_kron1(getkey):
+    """Non-symmetric kron1 factors should raise ValueError, not silently
+    return wrong results from ``eigh`` on a non-symmetric matrix."""
+    A1 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))  # not tagged symmetric
+    B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
+    A2_mat = jr.normal(getkey(), (2, 2))
+    B2_mat = jr.normal(getkey(), (3, 3))
+    A2 = lx.MatrixLinearOperator(A2_mat @ A2_mat.T, lx.symmetric_tag)
+    B2 = lx.MatrixLinearOperator(B2_mat @ B2_mat.T, lx.symmetric_tag)
+    SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+
+    with pytest.raises(ValueError, match="kron1 factors"):
+        SK.eigendecompose()

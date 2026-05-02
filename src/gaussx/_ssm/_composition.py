@@ -130,8 +130,11 @@ class ProductSDE(SDEKernel):
         A2 = jsl.expm(p2.F * dt)
         A = jnp.kron(A1, A2)
 
-        params = self.sde_params()
-        Q = params.P_inf - A @ params.P_inf @ A.T
+        # Use the per-factor stationary covariances directly; building
+        # the full ``F`` via ``self.sde_params()`` would defeat the
+        # whole point of this override.
+        P_inf = jnp.kron(p1.P_inf, p2.P_inf)
+        Q = P_inf - A @ P_inf @ A.T
         Q = 0.5 * (Q + Q.T)
         return A, Q
 
