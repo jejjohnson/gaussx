@@ -175,6 +175,12 @@ def kl_divergence(
 ) -> Float[Array, ""]:
     """KL divergence ``KL(q || p)`` via Bregman divergence.
 
+    Exponential-family form of the KL divergence, operating directly on
+    natural parameters ``(eta1, eta2)``.  This is mathematically equivalent
+    to :func:`~gaussx._distributions._kl.dist_kl_divergence` but avoids
+    converting to mean/covariance form, making it efficient for natural
+    gradient computations.
+
     .. math::
 
         KL(q || p) = A(eta_p) - A(eta_q) - (eta_p - eta_q)^T nabla A(eta_q)
@@ -185,6 +191,10 @@ def kl_divergence(
 
     Returns:
         Scalar KL divergence.
+
+    See Also:
+        :func:`~gaussx._distributions._kl.dist_kl_divergence`: General KL
+        in mean/covariance form with lineax operators.
     """
     A_p = log_partition(p)
     A_q = log_partition(q)

@@ -20,6 +20,17 @@ def dist_kl_divergence(
 ) -> Float[Array, ""]:
     r"""KL divergence ``KL(p || q)`` between two multivariate normals.
 
+    This is the **canonical KL implementation** for lineax-operator covariances.
+    The specialised variants below all compute the same quantity but with
+    different parameterisations suited to their use cases:
+
+    - :func:`~gaussx._distributions._gaussian.kl_standard_normal` —
+      special case ``KL(N(m, S) || N(0, I))``; avoids matrix inversion.
+    - :func:`~gaussx._gp._gauss_kl.gauss_kl` — Cholesky-parameterised form
+      for GP/SVGP models; supports multi-output and diagonal ``q_sqrt``.
+    - :func:`~gaussx._expfam._gaussian.kl_divergence` — Bregman-divergence
+      form operating on natural parameters for the exponential family.
+
     .. math::
 
         KL(p \| q) = \frac{1}{2}\bigl(
