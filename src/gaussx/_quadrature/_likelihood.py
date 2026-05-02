@@ -108,11 +108,8 @@ class GaussianLikelihood(AbstractLikelihood):
 
         where ``R = noise_var * I``.
         """
-        from gaussx._primitives._trace import trace
+        from gaussx._inference._inference import gaussian_expected_log_lik
 
         N = self.y.shape[-1]
-        residual = self.y - q_mu
-        quad = jnp.sum(residual**2) / self.noise_var
-        log_noise = N * jnp.log(self.noise_var)
-        tr_term = trace(q_cov) / self.noise_var
-        return -0.5 * (N * _LOG_2PI + log_noise + quad + tr_term)
+        noise = lx.DiagonalLinearOperator(jnp.full(N, self.noise_var))
+        return gaussian_expected_log_lik(self.y, q_mu, q_cov, noise)
