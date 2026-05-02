@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
+import lineax as lx
 from jaxtyping import Array, Float
+
+from gaussx._linalg._linalg import solve_columns
+from gaussx._primitives._inv import inv
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def conditional_interpolate(
@@ -15,6 +20,8 @@ def conditional_interpolate(
     P_prev: Float[Array, "d d"],
     mu_next: Float[Array, " d"],
     P_next: Float[Array, "d d"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " d"], Float[Array, "d d"]]:
     r"""Interpolated marginal at time ``t`` given posteriors at ``t^-`` and ``t^+``.
 
@@ -43,6 +50,8 @@ def conditional_interpolate(
         P_prev: Marginal covariance at ``t^-``, shape ``(d, d)``.
         mu_next: Marginal mean at ``t^+``, shape ``(d,)``.
         P_next: Marginal covariance at ``t^+``, shape ``(d, d)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(mean, cov)`` — interpolated marginal at ``t``.
@@ -52,17 +61,20 @@ def conditional_interpolate(
     P_fwd = A_fwd @ P_prev @ A_fwd.T + Q_fwd
 
     # Forward information
-    Lambda_fwd = jnp.linalg.inv(P_fwd)
-    eta1_fwd = jnp.linalg.solve(P_fwd, m_fwd)
+    P_fwd_op = lx.MatrixLinearOperator(P_fwd, lx.positive_semidefinite_tag)
+    Lambda_fwd = inv(P_fwd_op).as_matrix()
+    eta1_fwd = dispatch_solve(P_fwd_op, m_fwd, solver)
 
     # Backward information from t+
     S_bwd = P_next + Q_bwd
-    Lambda_bwd = A_bwd.T @ jnp.linalg.solve(S_bwd, A_bwd)
-    eta1_bwd = A_bwd.T @ jnp.linalg.solve(S_bwd, mu_next)
+    S_bwd_op = lx.MatrixLinearOperator(S_bwd, lx.positive_semidefinite_tag)
+    Lambda_bwd = A_bwd.T @ solve_columns(S_bwd_op, A_bwd, solver=solver)
+    eta1_bwd = A_bwd.T @ dispatch_solve(S_bwd_op, mu_next, solver)
 
     # Fuse forward and backward
     Lambda = Lambda_fwd + Lambda_bwd
-    P = jnp.linalg.inv(Lambda)
+    Lambda_op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
+    P = inv(Lambda_op).as_matrix()
     m = P @ (eta1_fwd + eta1_bwd)
 
     return m, P

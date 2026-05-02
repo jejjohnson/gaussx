@@ -10,6 +10,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._primitives._cholesky import cholesky
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 
@@ -285,14 +286,14 @@ def uncertain_gp_predict_mc(
         Tuple ``(mean, variance)`` — scalar predictive moments.
     """
     mu = state.mean
-    Sigma = state.cov.as_matrix()
+    N = mu.shape[0]
 
     if key is None:
         key = jr.key(0)
 
     # Sample inputs
-    L = jnp.linalg.cholesky(Sigma)
-    eps = jr.normal(key, (n_particles, mu.shape[0]))
+    L = cholesky(state.cov).as_matrix()
+    eps = jr.normal(key, (n_particles, N))
     x_samples = mu[None, :] + eps @ L.T
 
     # Predict at each sample

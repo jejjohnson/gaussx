@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import lineax as lx
 from einops import einsum, rearrange
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._primitives._inv import inv
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def ssm_to_naturals(
@@ -15,6 +19,8 @@ def ssm_to_naturals(
     Q: Float[Array, "N d d"],
     mu_0: Float[Array, " d"],
     P_0: Float[Array, "d d"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " Nd"], BlockTriDiag]:
     r"""Convert SSM parameters to natural parameters.
 
@@ -35,6 +41,8 @@ def ssm_to_naturals(
             process noise at step ``k``.
         mu_0: Initial mean, shape ``(d,)``.
         P_0: Initial covariance, shape ``(d, d)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(theta_linear, theta_precision)`` where
@@ -54,9 +62,13 @@ def ssm_to_naturals(
         msg = "Q[0] must match P_0 so the returned natural parameters are consistent"
         raise ValueError(msg)
 
-    # Invert all process noise covariances
-    Q_inv = jnp.linalg.inv(Q)  # (N, d, d)
-    P_0_inv = jnp.linalg.inv(P_0)
+    # Invert all process noise covariances (batch over N)
+    def _inv_single(q):
+        return inv(lx.MatrixLinearOperator(q, lx.positive_semidefinite_tag)).as_matrix()
+
+    Q_inv = jax.vmap(_inv_single)(Q)  # (N, d, d)
+    P_0_op = lx.MatrixLinearOperator(P_0, lx.positive_semidefinite_tag)
+    P_0_inv = inv(P_0_op).as_matrix()
 
     # Future contributions: A_k^T Q_{k+1}^{-1} A_k for k = 0..N-2
     future = jax.vmap(lambda Ak, Qinv_kp1: Ak.T @ Qinv_kp1 @ Ak)(
@@ -86,7 +98,7 @@ def ssm_to_naturals(
     # Linear natural parameter: eta1 = Lambda @ mu
     # For zero-mean transitions, only the initial condition contributes
     theta_linear = jnp.zeros(N * d, dtype=Q.dtype)
-    eta1_0 = jnp.linalg.solve(P_0, mu_0)
+    eta1_0 = dispatch_solve(P_0_op, mu_0, solver)
     theta_linear = theta_linear.at[:d].set(eta1_0)
 
     return theta_linear, theta_precision
@@ -95,6 +107,8 @@ def ssm_to_naturals(
 def naturals_to_ssm(
     theta_linear: Float[Array, " Nd"],
     theta_precision: BlockTriDiag,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[
     Float[Array, "Nm1 d d"],
     Float[Array, "N d d"],
@@ -110,6 +124,10 @@ def naturals_to_ssm(
         theta_linear: Natural location parameter, shape ``(N*d,)``.
         theta_precision: Natural precision parameter as
             :class:`~gaussx.BlockTriDiag` (eta2 convention).
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            matrix inverse operations in this function.
 
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` where:
@@ -118,6 +136,7 @@ def naturals_to_ssm(
         - ``mu_0``: Initial mean, shape ``(d,)``.
         - ``P_0``: Initial covariance, shape ``(d, d)``.
     """
+    del solver  # inv does not accept a solver; parameter reserved for future use
     d = theta_precision._block_size
 
     # Convert from eta2 to raw precision
@@ -132,7 +151,9 @@ def naturals_to_ssm(
 
     def _backward_step(Q_next_inv, inputs):
         diag_k, sub_k = inputs
-        Q_next = jnp.linalg.inv(Q_next_inv)
+        Q_next = inv(
+            lx.MatrixLinearOperator(Q_next_inv, lx.positive_semidefinite_tag)
+        ).as_matrix()
         # sub_k = -Q_{k+1}^{-1} A_k, so A_k = -Q_{k+1} @ sub_k
         A_k = -Q_next @ sub_k
         # Q_k^{-1} = diag_k - A_k^T @ Q_next_inv @ A_k
@@ -152,9 +173,14 @@ def naturals_to_ssm(
     # A_rev is (N-1, d, d), Q_inv_rev is (N-1, d, d) for k=0..N-2
     A = A_rev
 
-    # Q: invert all Q_inv values
+    # Q: invert all Q_inv values (batch over N)
+    def _inv_single(q_inv):
+        return inv(
+            lx.MatrixLinearOperator(q_inv, lx.positive_semidefinite_tag)
+        ).as_matrix()
+
     Q_inv_all = jnp.concatenate([Q_inv_rev, Q_last_inv[None]], axis=0)
-    Q = jnp.linalg.inv(Q_inv_all)
+    Q = jax.vmap(_inv_single)(Q_inv_all)
 
     # Recover initial conditions
     P_0 = Q[0]

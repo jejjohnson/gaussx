@@ -11,6 +11,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._primitives._cholesky import cholesky
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
@@ -75,13 +76,12 @@ class AssumedDensityFilter(AbstractIntegrator):
     ) -> tuple[PropagationResult, dict]:
         """Core implementation with optional diagnostics."""
         mu = state.mean
-        Sigma = state.cov.as_matrix()
         N = mu.shape[0]
 
         key = self.key if self.key is not None else jr.key(0)
 
         # Sample from input Gaussian
-        L = jnp.linalg.cholesky(Sigma)
+        L = cholesky(state.cov).as_matrix()
         eps = jr.normal(key, (self.n_samples, N))
         x_samples = mu[None, :] + eps @ L.T
 

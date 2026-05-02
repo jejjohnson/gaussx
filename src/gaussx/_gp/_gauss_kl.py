@@ -5,15 +5,20 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsla
+import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._logdet import cholesky_logdet
+from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def gauss_kl(
     q_mu: Float[Array, "M R"],
     q_sqrt: Float[Array, "R M M"] | Float[Array, "M R"],
     K: Float[Array, "M M"] | None = None,
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
     r"""KL divergence ``KL[q(u) || p(u)]`` between Gaussian distributions.
 
@@ -34,17 +39,26 @@ def gauss_kl(
         q_sqrt: Variational Cholesky factor or diagonal std devs.
         K: Prior covariance matrix, shape ``(M, M)``.
             If ``None``, uses white prior (identity).
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            Cholesky decomposition in this function.
 
     Returns:
         Scalar KL divergence summed over all ``R`` output dimensions.
     """
+    del solver  # cholesky does not accept a solver; parameter reserved for future use
     M = q_mu.shape[0]
     R = q_mu.shape[1]
 
     is_diagonal = q_sqrt.ndim == 2
 
     # Prior Cholesky factor
-    L_K = jnp.linalg.cholesky(K) if K is not None else None
+    L_K = (
+        cholesky(lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)).as_matrix()
+        if K is not None
+        else None
+    )
 
     if is_diagonal:
         # q_sqrt shape: (M, R) — diagonal standard deviations

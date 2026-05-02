@@ -6,7 +6,9 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
-from gaussx._primitives._solve import solve
+from gaussx._linalg._linalg import solve_matrix
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def conditional(
@@ -14,6 +16,8 @@ def conditional(
     cov: lx.AbstractLinearOperator,
     obs_idx: Int[Array, " M"],
     obs_values: Float[Array, " M"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " R"], lx.AbstractLinearOperator]:
     r"""Compute ``p(x_A | x_B = b)`` from a joint Gaussian ``p(x_A, x_B)``.
 
@@ -31,6 +35,8 @@ def conditional(
         cov: Covariance operator of the joint distribution, shape ``(N, N)``.
         obs_idx: Indices of the observed variables, shape ``(M,)``.
         obs_values: Observed values, shape ``(M,)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(cond_mean, cond_cov)`` — mean and covariance of the
@@ -67,15 +73,15 @@ def conditional(
     # Sigma_BB^{-1} (b - mu_B)
     residual = obs_values - mu_B
     Sigma_BB_op = lx.MatrixLinearOperator(Sigma_BB, lx.positive_semidefinite_tag)
-    alpha = solve(Sigma_BB_op, residual)
+    alpha = dispatch_solve(Sigma_BB_op, residual, solver)
 
     # Conditional mean: mu_A + Sigma_AB @ alpha
     cond_mean = mu_A + Sigma_AB @ alpha
 
-    # Sigma_BB^{-1} Sigma_BA
+    # Sigma_BB^{-1} Sigma_BA — single matrix solve (one factorization for
+    # the whole RHS in the default PSD path).
     Sigma_BA = Sigma_AB.T
-    # Solve Sigma_BB @ X = Sigma_BA for X, column by column
-    X = jnp.linalg.solve(Sigma_BB, Sigma_BA)
+    X = solve_matrix(Sigma_BB_op, Sigma_BA, solver=solver)
 
     # Conditional covariance: Sigma_AA - Sigma_AB @ X
     cond_cov_mat = Sigma_AA - Sigma_AB @ X

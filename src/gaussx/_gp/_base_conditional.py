@@ -5,8 +5,12 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsla
+import lineax as lx
 from einops import rearrange, repeat
 from jaxtyping import Array, Float
+
+from gaussx._primitives._cholesky import cholesky
+from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def base_conditional(
@@ -17,6 +21,7 @@ def base_conditional(
     *,
     q_sqrt: Float[Array, "R M M"] | Float[Array, "M R"] | None = None,
     white: bool = False,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "N R"], Float[Array, ...]]:
     r"""Gaussian conditional distribution via Schur complement.
 
@@ -47,15 +52,22 @@ def base_conditional(
             Full: ``(R, M, M)``, diagonal: ``(M, R)``, or ``None``.
         white: If ``True``, ``f`` and ``q_sqrt`` are in whitened space
             (prior is ``N(0, I)``).
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            Cholesky decomposition in this function.
 
     Returns:
         ``(mean, var)`` where ``mean`` has shape ``(N, R)`` and ``var``
         has shape ``(N, N, R)`` (full K_nn) or ``(N, R)`` (diagonal K_nn).
     """
+    del solver  # cholesky does not accept a solver; parameter reserved for future use
     R = f.shape[1]
 
     # Cholesky of prior
-    L_mm = jnp.linalg.cholesky(K_mm)  # (M, M)
+    L_mm = cholesky(  # (M, M)
+        lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag)
+    ).as_matrix()
 
     # A = L_mm^{-1} K_mn  ->  (M, N)
     A = jsla.solve_triangular(L_mm, K_mn, lower=True)

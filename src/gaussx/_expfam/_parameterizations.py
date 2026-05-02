@@ -14,8 +14,17 @@ operate on raw JAX arrays (not lineax operators).
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
+import lineax as lx
 from jaxtyping import Array, Float
+
+from gaussx._linalg._linalg import solve_columns
+from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._inv import inv
+from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def meanvar_to_natural(
@@ -30,7 +39,10 @@ def meanvar_to_natural(
     - ``eta1 = Sigma^{-1} mu``
     - ``eta2 = -0.5 * Sigma^{-1}``
 
-    Uses the Cholesky factor directly to avoid forming ``Sigma``.
+    Uses the Cholesky factor directly via triangular solves; no solver
+    parameter is exposed because the underlying systems are triangular
+    rather than symmetric/PSD, and iterative strategies (CG, BBMM,
+    PreconditionedCG, MINRES) are not valid here.
 
     Args:
         mu: Mean vector, shape ``(*batch, N)``.
@@ -39,21 +51,30 @@ def meanvar_to_natural(
     Returns:
         Tuple ``(eta1, eta2)`` of natural parameters.
     """
-    # eta1 = Sigma^{-1} mu via triangular solves
-    alpha = jnp.linalg.solve(S_sqrt, mu[..., None])[..., 0]  # S_sqrt^{-1} mu
-    eta1 = jnp.linalg.solve(S_sqrt.mT, alpha[..., None])[..., 0]  # S_sqrt^{-T} alpha
 
-    # eta2 = -0.5 * Sigma^{-1}; avoid forming S_sqrt^{-1} explicitly.
-    identity = jnp.eye(S_sqrt.shape[-1], dtype=S_sqrt.dtype)
-    sigma_inv_rhs = jnp.linalg.solve(S_sqrt, identity)
-    Sigma_inv = jnp.linalg.solve(S_sqrt.mT, sigma_inv_rhs)
-    eta2 = -0.5 * Sigma_inv
-    return eta1, eta2
+    def _core(mu_s: Float[Array, " N"], s_sqrt_s: Float[Array, "N N"]):
+        # eta1 = Sigma^{-1} mu = S_sqrt^{-T} S_sqrt^{-1} mu via cho_solve.
+        eta1_s = jax.scipy.linalg.cho_solve((s_sqrt_s, True), mu_s)
+        # eta2 = -0.5 * Sigma^{-1}, computed by a single matrix cho_solve.
+        N = s_sqrt_s.shape[0]
+        identity = jnp.eye(N, dtype=s_sqrt_s.dtype)
+        Sigma_inv = jax.scipy.linalg.cho_solve((s_sqrt_s, True), identity)
+        return eta1_s, -0.5 * Sigma_inv
+
+    *batch, N = mu.shape
+    if not batch:
+        return _core(mu, S_sqrt)
+    mu_flat = mu.reshape(-1, N)
+    s_flat = S_sqrt.reshape(-1, N, N)
+    eta1_flat, eta2_flat = jax.vmap(_core)(mu_flat, s_flat)
+    return eta1_flat.reshape(mu.shape), eta2_flat.reshape(S_sqrt.shape)
 
 
 def natural_to_meanvar(
     eta1: Float[Array, "*batch N"],
     eta2: Float[Array, "*batch N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     r"""Convert natural parameters to mean/variance (Cholesky).
 
@@ -66,15 +87,28 @@ def natural_to_meanvar(
     Args:
         eta1: Natural location parameter, shape ``(*batch, N)``.
         eta2: Natural quadratic parameter, shape ``(*batch, N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(mu, S_sqrt)`` where ``S_sqrt`` is the lower-triangular
         Cholesky factor of the covariance.
     """
-    Sigma = jnp.linalg.inv(-2.0 * eta2)
-    mu = (Sigma @ eta1[..., None])[..., 0]
-    S_sqrt = jnp.linalg.cholesky(Sigma)
-    return mu, S_sqrt
+
+    def _core(e1: Float[Array, " N"], e2: Float[Array, "N N"]):
+        Lambda_op = lx.MatrixLinearOperator(-2.0 * e2, lx.positive_semidefinite_tag)
+        mu_s = dispatch_solve(Lambda_op, e1, solver)
+        Sigma = inv(Lambda_op).as_matrix()
+        Sigma_op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        return mu_s, cholesky(Sigma_op).as_matrix()
+
+    *batch, N = eta1.shape
+    if not batch:
+        return _core(eta1, eta2)
+    eta1_flat = eta1.reshape(-1, N)
+    eta2_flat = eta2.reshape(-1, N, N)
+    mu_flat, s_flat = jax.vmap(_core)(eta1_flat, eta2_flat)
+    return mu_flat.reshape(eta1.shape), s_flat.reshape(eta2.shape)
 
 
 def meanvar_to_expectation(
@@ -112,6 +146,9 @@ def expectation_to_meanvar(
     - ``Sigma = m2 - m1 @ m1^T``
     - ``S_sqrt = cholesky(Sigma)``
 
+    No solver parameter is exposed because the only linear-algebra
+    operation is Cholesky factorization, which is structurally fixed.
+
     Args:
         m1: First moment (mean), shape ``(*batch, N)``.
         m2: Second moment, shape ``(*batch, N, N)``.
@@ -120,15 +157,26 @@ def expectation_to_meanvar(
         Tuple ``(mu, S_sqrt)`` where ``S_sqrt`` is the lower-triangular
         Cholesky factor of the covariance.
     """
-    mu = m1
-    Sigma = m2 - m1[..., None] * m1[..., None, :]
-    S_sqrt = jnp.linalg.cholesky(Sigma)
-    return mu, S_sqrt
+
+    def _core(m1_s: Float[Array, " N"], m2_s: Float[Array, "N N"]):
+        Sigma = m2_s - m1_s[:, None] * m1_s[None, :]
+        Sigma_op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        return m1_s, cholesky(Sigma_op).as_matrix()
+
+    *batch, N = m1.shape
+    if not batch:
+        return _core(m1, m2)
+    m1_flat = m1.reshape(-1, N)
+    m2_flat = m2.reshape(-1, N, N)
+    mu_flat, s_flat = jax.vmap(_core)(m1_flat, m2_flat)
+    return mu_flat.reshape(m1.shape), s_flat.reshape(m2.shape)
 
 
 def natural_to_expectation(
     eta1: Float[Array, "*batch N"],
     eta2: Float[Array, "*batch N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     r"""Convert natural parameters to expectation parameters.
 
@@ -142,20 +190,34 @@ def natural_to_expectation(
     Args:
         eta1: Natural location parameter, shape ``(*batch, N)``.
         eta2: Natural quadratic parameter, shape ``(*batch, N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(m1, m2)`` of expectation parameters.
     """
-    Sigma = jnp.linalg.inv(-2.0 * eta2)
-    mu = (Sigma @ eta1[..., None])[..., 0]
-    m1 = mu
-    m2 = mu[..., None] * mu[..., None, :] + Sigma
-    return m1, m2
+
+    def _core(e1: Float[Array, " N"], e2: Float[Array, "N N"]):
+        Lambda_op = lx.MatrixLinearOperator(-2.0 * e2, lx.positive_semidefinite_tag)
+        mu_s = dispatch_solve(Lambda_op, e1, solver)
+        Sigma = inv(Lambda_op).as_matrix()
+        m2_s = mu_s[:, None] * mu_s[None, :] + Sigma
+        return mu_s, m2_s
+
+    *batch, N = eta1.shape
+    if not batch:
+        return _core(eta1, eta2)
+    eta1_flat = eta1.reshape(-1, N)
+    eta2_flat = eta2.reshape(-1, N, N)
+    m1_flat, m2_flat = jax.vmap(_core)(eta1_flat, eta2_flat)
+    return m1_flat.reshape(eta1.shape), m2_flat.reshape(eta2.shape)
 
 
 def expectation_to_natural(
     m1: Float[Array, "*batch N"],
     m2: Float[Array, "*batch N N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
     r"""Convert expectation parameters to natural parameters.
 
@@ -168,15 +230,26 @@ def expectation_to_natural(
     Args:
         m1: First moment (mean), shape ``(*batch, N)``.
         m2: Second moment, shape ``(*batch, N, N)``.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch.
 
     Returns:
         Tuple ``(eta1, eta2)`` of natural parameters.
     """
-    Sigma = m2 - m1[..., None] * m1[..., None, :]
-    eta1 = jnp.linalg.solve(Sigma, m1[..., None])[..., 0]
-    Sigma_inv = jnp.linalg.solve(
-        Sigma,
-        jnp.eye(Sigma.shape[-1], dtype=Sigma.dtype),
-    )
-    eta2 = -0.5 * Sigma_inv
-    return eta1, eta2
+
+    def _core(m1_s: Float[Array, " N"], m2_s: Float[Array, "N N"]):
+        Sigma = m2_s - m1_s[:, None] * m1_s[None, :]
+        Sigma_op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
+        eta1_s = dispatch_solve(Sigma_op, m1_s, solver)
+        N = m1_s.shape[0]
+        identity = jnp.eye(N, dtype=m1_s.dtype)
+        Sigma_inv = solve_columns(Sigma_op, identity, solver=solver)
+        return eta1_s, -0.5 * Sigma_inv
+
+    *batch, N = m1.shape
+    if not batch:
+        return _core(m1, m2)
+    m1_flat = m1.reshape(-1, N)
+    m2_flat = m2.reshape(-1, N, N)
+    eta1_flat, eta2_flat = jax.vmap(_core)(m1_flat, m2_flat)
+    return eta1_flat.reshape(m1.shape), eta2_flat.reshape(m2.shape)

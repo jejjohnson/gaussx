@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
+import lineax as lx
 from jax import lax
 from jaxtyping import Array, Float
+
+from gaussx._primitives._cholesky import cholesky
+from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def collapsed_elbo(
@@ -15,6 +19,7 @@ def collapsed_elbo(
     noise_var: float,
     *,
     jitter: float = 1e-6,
+    solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
     """Collapsed ELBO (Titsias bound) for sparse GP regression.
 
@@ -34,16 +39,24 @@ def collapsed_elbo(
         noise_var: Observation noise variance σ² (scalar).
         jitter: Diagonal jitter for numerical stability in Cholesky
             decomposition of K_zz.
+        solver: Optional solver strategy for structured linear algebra.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            Cholesky decompositions in this function.
 
     Returns:
         Scalar ELBO value.
     """
+    del solver  # cholesky does not accept a solver; parameter reserved for future use
     N = y.shape[0]
     M = K_zz.shape[0]
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # L_zz L_zzᵀ = K_zz + jitter · I
-    L_zz = jnp.linalg.cholesky(K_zz + jitter * jnp.eye(M))  # (M, M)
+    K_zz_jitter = K_zz + jitter * jnp.eye(M)
+    L_zz = cholesky(  # (M, M)
+        lx.MatrixLinearOperator(K_zz_jitter, lx.positive_semidefinite_tag)
+    ).as_matrix()
 
     # V = L_zz⁻¹ K_xzᵀ
     V = lax.linalg.triangular_solve(
@@ -55,7 +68,9 @@ def collapsed_elbo(
 
     # B = I_M + σ⁻² V Vᵀ
     B = jnp.eye(M) + (1.0 / noise_var) * (V @ V.T)  # (M, M)
-    L_B = jnp.linalg.cholesky(B)  # (M, M)
+    L_B = cholesky(  # (M, M)
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
+    ).as_matrix()
 
     # log|Q_ff + σ²I| = N log σ² + log|B|
     from gaussx._primitives._logdet import cholesky_logdet

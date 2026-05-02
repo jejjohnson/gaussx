@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import jax.random as jr
 from jaxtyping import Array, Float
 
+from gaussx._primitives._cholesky import cholesky
 from gaussx._quadrature._assembly import assemble_propagation_result
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState, PropagationResult
@@ -51,13 +52,12 @@ class MonteCarloIntegrator(AbstractIntegrator):
             )
             raise ValueError(msg)
         mu = state.mean
-        Sigma = state.cov.as_matrix()
         N = mu.shape[0]
 
         key = self.key if self.key is not None else jr.key(0)
 
         # Sample from input Gaussian: xᵢ = μ + L εᵢ
-        L = jnp.linalg.cholesky(Sigma)
+        L = cholesky(state.cov).as_matrix()
         eps = jr.normal(key, (self.n_samples, N))
         chi = mu[None, :] + eps @ L.T  # (S, N)
 
