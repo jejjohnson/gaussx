@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
-from gaussx._linalg._linalg import solve_columns
+from gaussx._linalg._linalg import solve_matrix
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
@@ -78,10 +78,10 @@ def conditional(
     # Conditional mean: mu_A + Sigma_AB @ alpha
     cond_mean = mu_A + Sigma_AB @ alpha
 
-    # Sigma_BB^{-1} Sigma_BA
+    # Sigma_BB^{-1} Sigma_BA — single matrix solve (one factorization for
+    # the whole RHS in the default PSD path).
     Sigma_BA = Sigma_AB.T
-    # Solve Sigma_BB @ X = Sigma_BA for X, column by column
-    X = solve_columns(Sigma_BB_op, Sigma_BA, solver=solver)
+    X = solve_matrix(Sigma_BB_op, Sigma_BA, solver=solver)
 
     # Conditional covariance: Sigma_AA - Sigma_AB @ X
     cond_cov_mat = Sigma_AA - Sigma_AB @ X

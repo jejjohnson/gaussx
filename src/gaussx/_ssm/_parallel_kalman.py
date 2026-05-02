@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import solve_matrix, solve_rows
+from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
@@ -55,12 +58,20 @@ def parallel_kalman_filter(
         v = y_t - obs_model @ x_pred
         S = obs_model @ P_pred @ obs_model.T + obs_noise
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
-        # K = (P_pred @ H^T) @ S^{-1}, computed via a single matrix solve.
-        K = solve_matrix(S_op, obs_model @ P_pred, solver=solver).T
+        # In the default (no custom solver) path, factor S exactly once
+        # via Cholesky and reuse it for the gain, log-det, and the
+        # quadratic term — avoiding three independent factorizations.
+        if solver is None:
+            L_S = cholesky(S_op).as_matrix()
+            K = jax.scipy.linalg.cho_solve((L_S, True), obs_model @ P_pred).T
+            Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)
+            ld = cholesky_logdet(L_S)
+        else:
+            K = solve_matrix(S_op, obs_model @ P_pred, solver=solver).T
+            Sinv_v = dispatch_solve(S_op, v, solver)
+            ld = dispatch_logdet(S_op, solver)
         x_new = x_pred + K @ v
         P_new = P_pred - K @ S @ K.T
-        ld = dispatch_logdet(S_op, solver)
-        Sinv_v = dispatch_solve(S_op, v, solver)
         ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
         return (x_new, P_new, ll + ll_inc), (x_new, P_new, x_pred, P_pred)
 
