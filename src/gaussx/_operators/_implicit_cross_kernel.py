@@ -13,6 +13,7 @@ from einops import rearrange
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
+from gaussx._operators._kernel_jvp import _kernel_mv_with_jvp
 
 
 # ---------------------------------------------------------------------------
@@ -57,16 +58,6 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
         )
         return rearrange(Kv, "B bs -> (B bs)")[:n]
 
-    @jax.custom_jvp
-    def cross_kernel_mv(
-        params: PyTree,
-        X_data: Float[Array, "N D"],
-        X_inducing: Float[Array, "M D"],
-        v: Float[Array, " M"],
-    ) -> Float[Array, " N"]:
-        return _impl(params, X_data, X_inducing, v)
-
-    @cross_kernel_mv.defjvp
     def cross_kernel_mv_jvp(
         primals: tuple[
             PyTree,
@@ -127,7 +118,7 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
             tangent_out, "B bs -> (B bs)"
         )[:n]
 
-    return cross_kernel_mv
+    return _kernel_mv_with_jvp(_impl, cross_kernel_mv_jvp)
 
 
 class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):

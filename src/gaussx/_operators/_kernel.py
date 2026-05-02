@@ -12,6 +12,7 @@ import lineax as lx
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
+from gaussx._operators._kernel_jvp import _kernel_mv_with_jvp
 
 
 # ---------------------------------------------------------------------------
@@ -46,16 +47,6 @@ def _make_kernel_mv(kernel_fn: Callable) -> Callable:
         _, Kv = jax.lax.scan(body_fn, None, X1)
         return Kv
 
-    @jax.custom_jvp
-    def kernel_mv(
-        params: PyTree,
-        X1: Float[Array, "N D"],
-        X2: Float[Array, "M D"],
-        v: Float[Array, " M"],
-    ) -> Float[Array, " N"]:
-        return _kernel_mv_impl(params, X1, X2, v)
-
-    @kernel_mv.defjvp
     def kernel_mv_jvp(
         primals: tuple[
             PyTree,
@@ -96,7 +87,7 @@ def _make_kernel_mv(kernel_fn: Callable) -> Callable:
         primal_out, tangent_out = jax.vmap(row_jvp)((X1, dX1))
         return primal_out, tangent_out
 
-    return kernel_mv
+    return _kernel_mv_with_jvp(_kernel_mv_impl, kernel_mv_jvp)
 
 
 # ---------------------------------------------------------------------------
