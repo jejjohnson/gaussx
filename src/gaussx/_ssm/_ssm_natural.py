@@ -125,7 +125,9 @@ def naturals_to_ssm(
         theta_precision: Natural precision parameter as
             :class:`~gaussx.BlockTriDiag` (eta2 convention).
         solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            matrix inverse operations in this function.
 
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` where:

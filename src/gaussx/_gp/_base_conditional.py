@@ -53,7 +53,9 @@ def base_conditional(
         white: If ``True``, ``f`` and ``q_sqrt`` are in whitened space
             (prior is ``N(0, I)``).
         solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            Cholesky decomposition in this function.
 
     Returns:
         ``(mean, var)`` where ``mean`` has shape ``(N, R)`` and ``var``

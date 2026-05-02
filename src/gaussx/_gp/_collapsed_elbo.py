@@ -40,7 +40,9 @@ def collapsed_elbo(
         jitter: Diagonal jitter for numerical stability in Cholesky
             decomposition of K_zz.
         solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
+            When ``None``, falls back to structural dispatch. This parameter
+            is accepted for API consistency but is not currently used by the
+            Cholesky decompositions in this function.
 
     Returns:
         Scalar ELBO value.
