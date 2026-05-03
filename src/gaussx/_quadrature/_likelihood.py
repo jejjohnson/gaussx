@@ -106,13 +106,22 @@ class GaussianLikelihood(AbstractLikelihood):
 
             E_q[log N(y|f,R)] = log N(y | q_mu, R) - 0.5 tr(R^{-1} q_cov)
 
-        where ``R = noise_var * I``.
+        where ``R = noise_var * I``. Delegates the log-density term to
+        :func:`gaussx.gaussian_log_prob` (which exploits the diagonal
+        noise structure) and computes the trace correction directly via
+        the structural ``trace(q_cov) / noise_var`` shortcut, so
+        Kronecker/BlockDiag-structured ``q_cov`` keeps its O(n)
+        ``prod(trace_factor)`` / per-block ``trace`` fast paths instead
+        of materializing through ``trace_product(R^{-1}, q_cov)``.
         """
+        from gaussx._distributions._gaussian import gaussian_log_prob
         from gaussx._primitives._trace import trace
 
         N = self.y.shape[-1]
-        residual = self.y - q_mu
-        quad = jnp.sum(residual**2) / self.noise_var
-        log_noise = N * jnp.log(self.noise_var)
+        noise = lx.DiagonalLinearOperator(jnp.full(N, self.noise_var))
+        log_pdf = gaussian_log_prob(q_mu, noise, self.y)
+        # Structural fast path: tr(R^{-1} q_cov) = trace(q_cov) / noise_var
+        # for scalar isotropic noise. ``trace`` dispatches on operator
+        # structure (Kronecker, BlockDiag, …) via gaussx primitives.
         tr_term = trace(q_cov) / self.noise_var
-        return -0.5 * (N * _LOG_2PI + log_noise + quad + tr_term)
+        return log_pdf - 0.5 * tr_term
