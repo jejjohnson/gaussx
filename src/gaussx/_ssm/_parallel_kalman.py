@@ -28,6 +28,11 @@ from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
+def _sym(X: Float[Array, "N N"]) -> Float[Array, "N N"]:
+    """Symmetrise a covariance-like matrix to absorb floating-point noise."""
+    return 0.5 * (X + X.T)
+
+
 # ----------------------------------------------------------------
 # Filter element builders
 # ----------------------------------------------------------------
@@ -37,13 +42,14 @@ def _first_filter_element_active(F, H, Q, R, y, m0, P0):
     """t=0 element absorbing the initial prior (predict + update)."""
     N = F.shape[0]
     m_pred = F @ m0
-    P_pred = F @ P0 @ F.T + Q
-    S = H @ P_pred @ H.T + R
-    # K = P_pred H^T S^{-1}
-    K = jnp.linalg.solve(S, H @ P_pred).T
+    P_pred = _sym(F @ P0 @ F.T + Q)
+    HPpred = H @ P_pred  # (M, N)
+    S = _sym(HPpred @ H.T + R)
+    L_S = jnp.linalg.cholesky(S)
+    K = jax.scipy.linalg.cho_solve((L_S, True), HPpred).T  # (N, M)
     A = jnp.zeros((N, N), dtype=F.dtype)
     b = m_pred + K @ (y - H @ m_pred)
-    C = P_pred - K @ H @ P_pred
+    C = _sym(P_pred - K @ HPpred)
     eta = jnp.zeros(N, dtype=F.dtype)
     J = jnp.zeros((N, N), dtype=F.dtype)
     return A, b, C, eta, J
@@ -54,37 +60,32 @@ def _first_filter_element_masked(F, Q, m0, P0):
     N = F.shape[0]
     A = jnp.zeros((N, N), dtype=F.dtype)
     b = F @ m0
-    C = F @ P0 @ F.T + Q
+    C = _sym(F @ P0 @ F.T + Q)
     eta = jnp.zeros(N, dtype=F.dtype)
     J = jnp.zeros((N, N), dtype=F.dtype)
     return A, b, C, eta, J
 
 
 def _generic_filter_element_active(F, H, Q, R, y):
-    """Generic t>=1 element: predict from x_{t-1} fixed, then update with y."""
+    """Generic t>=1 element: predict from x_{t-1} fixed, then update with y.
+
+    ``S = H Q H^T + R`` is factored once; the gain, innovation solve,
+    and information solve all reuse the Cholesky factor.
+    """
     N = F.shape[0]
-    S = H @ Q @ H.T + R
-    # K = Q H^T S^{-1}
-    K = jnp.linalg.solve(S, H @ Q).T
+    HQ = H @ Q  # (M, N)
+    S = _sym(HQ @ H.T + R)
+    L_S = jnp.linalg.cholesky(S)
+    # K = Q H^T S^{-1} = (S^{-1} (H Q))^T
+    K = jax.scipy.linalg.cho_solve((L_S, True), HQ).T  # (N, M)
     A = (jnp.eye(N, dtype=F.dtype) - K @ H) @ F
     b = K @ y
-    C = Q - K @ H @ Q
-    HF = H @ F
-    Sinv_y = jnp.linalg.solve(S, y)
+    C = _sym(Q - K @ HQ)
+    HF = H @ F  # (M, N)
+    Sinv_y = jax.scipy.linalg.cho_solve((L_S, True), y)  # (M,)
+    Sinv_HF = jax.scipy.linalg.cho_solve((L_S, True), HF)  # (M, N)
     eta = HF.T @ Sinv_y
-    Sinv_HF = jnp.linalg.solve(S, HF)
-    J = HF.T @ Sinv_HF
-    return A, b, C, eta, J
-
-
-def _generic_filter_element_masked(F, Q):
-    """Predict-only element for masked steps."""
-    N = F.shape[0]
-    A = F
-    b = jnp.zeros(N, dtype=F.dtype)
-    C = Q
-    eta = jnp.zeros(N, dtype=F.dtype)
-    J = jnp.zeros((N, N), dtype=F.dtype)
+    J = _sym(HF.T @ Sinv_HF)
     return A, b, C, eta, J
 
 
@@ -101,22 +102,22 @@ def _filter_combine(elem1, elem2):
     A1, b1, C1, eta1, J1 = elem1
     A2, b2, C2, eta2, J2 = elem2
     N = A1.shape[0]
-    I = jnp.eye(N, dtype=A1.dtype)
+    eye = jnp.eye(N, dtype=A1.dtype)
 
     # temp1 = A2 @ (I + C1 J2)^{-1}
-    I_C1J2 = I + C1 @ J2
+    I_C1J2 = eye + C1 @ J2
     temp1 = jnp.linalg.solve(I_C1J2.T, A2.T).T
 
     A = temp1 @ A1
     b = temp1 @ (b1 + C1 @ eta2) + b2
-    C = temp1 @ C1 @ A2.T + C2
+    C = _sym(temp1 @ C1 @ A2.T + C2)
 
     # temp2 = A1.T @ (I + J2 C1)^{-1}
-    I_J2C1 = I + J2 @ C1
+    I_J2C1 = eye + J2 @ C1
     temp2 = jnp.linalg.solve(I_J2C1.T, A1).T
 
     eta = temp2 @ (eta2 - J2 @ b1) + eta1
-    J = temp2 @ J2 @ A1 + J1
+    J = _sym(temp2 @ J2 @ A1 + J1)
 
     return A, b, C, eta, J
 
@@ -124,14 +125,14 @@ def _filter_combine(elem1, elem2):
 def _smoother_combine(elem1, elem2):
     """Combine two smoothing elements (Särkkä 2021, §III.B).
 
-    ``elem1`` is the earlier-time block, ``elem2`` the later-time block;
-    the recurrence is m_smooth_t = E_t m_smooth_{t+1} + g_t.
+    Encodes ``m_smooth_t = E_t m_smooth_{t+1} + g_t`` so combining
+    left-to-right gives ``E_left @ E_right`` and ``E_left @ g_right + g_left``.
     """
     E1, g1, L1 = elem1
     E2, g2, L2 = elem2
     E = E1 @ E2
     g = E1 @ g2 + g1
-    L = E1 @ L2 @ E1.T + L1
+    L = _sym(E1 @ L2 @ E1.T + L1)
     return E, g, L
 
 
@@ -157,7 +158,8 @@ def parallel_kalman_filter(
     Numerically equivalent to :func:`gaussx.kalman_filter` but with
     ``O(log T)`` parallel depth on accelerators. Same generalised
     contract (TI / TV / operator-typed inputs, optional mask, scalar
-    log-likelihood).
+    log-likelihood). Empty observation windows (``T == 0``) return a
+    zero-length :class:`FilterState` with ``log_likelihood == 0``.
 
     Args:
         transition: State transition matrix or operator.
@@ -173,7 +175,7 @@ def parallel_kalman_filter(
             not currently threaded through the per-element solves; the
             covariance-form combinator uses unstructured dense solves.
             See #165 for the square-root variant tracking the structured
-            path.
+            solver path.
 
     Returns:
         :class:`FilterState` with filtered / predicted means and covs
@@ -181,27 +183,45 @@ def parallel_kalman_filter(
     """
     del solver  # not currently threaded through; see docstring + #165
 
-    M = observations.shape[-1]
+    M_obs = observations.shape[-1]
     T = observations.shape[0]
+    N = init_mean.shape[0]
+
+    # Empty observation window: match kalman_filter's empty-scan output.
+    if T == 0:
+        return FilterState(
+            filtered_means=jnp.zeros((0, N), dtype=init_mean.dtype),
+            filtered_covs=jnp.zeros((0, N, N), dtype=init_cov.dtype),
+            predicted_means=jnp.zeros((0, N), dtype=init_mean.dtype),
+            predicted_covs=jnp.zeros((0, N, N), dtype=init_cov.dtype),
+            log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
+        )
+
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
         transition, obs_model, process_noise, obs_noise, T=T, mask=mask
     )
 
-    # ----- Build per-step elements -----
-    def _build_generic(F, H, Q, R, y, m):
-        return jax.lax.cond(
-            m,
-            lambda: _generic_filter_element_active(F, H, Q, R, y),
-            lambda: _generic_filter_element_masked(F, Q),
-        )
+    # Build per-step elements. ``vmap`` of ``lax.cond`` evaluates both
+    # branches and selects, so we instead substitute mask-aware safe
+    # inputs (H=0, R=I, y=0 for masked steps) into a single active path.
+    # With those substitutions the active builder collapses to
+    # (F, 0, Q, 0, 0) — exactly the predict-only element — and the
+    # Cholesky operates on the well-conditioned identity, so even
+    # garbage in masked H / R / y can't NaN the gradient.
+    def _build_step(F, H, Q, R, y, m):
+        H_eff = jnp.where(m, H, jnp.zeros_like(H))
+        R_eff = jnp.where(m, R, jnp.eye(M_obs, dtype=R.dtype))
+        y_eff = jnp.where(m, y, jnp.zeros_like(y))
+        return _generic_filter_element_active(F, H_eff, Q, R_eff, y_eff)
 
-    elems = jax.vmap(_build_generic)(
+    elems = jax.vmap(_build_step)(
         A_seq, H_seq, Q_seq, R_seq, observations, mask_seq
     )
 
-    # Patch element 0 to absorb the initial prior.
+    # Patch element 0 to absorb the initial prior. Outer ``lax.cond``
+    # genuinely skips the inactive branch (no ``vmap`` wrapping here).
     first = jax.lax.cond(
         mask_seq[0],
         lambda: _first_filter_element_active(
@@ -219,28 +239,33 @@ def parallel_kalman_filter(
         _filter_combine, elems
     )
     filtered_means = b_out
-    filtered_covs = C_out
+    filtered_covs = jax.vmap(_sym)(C_out)
 
-    # ----- Reconstruct predicted means / covs from filtered + transition -----
+    # Reconstruct predicted means / covs from filtered + transition.
     prev_means = jnp.concatenate([init_mean[None], filtered_means[:-1]], axis=0)
     prev_covs = jnp.concatenate([init_cov[None], filtered_covs[:-1]], axis=0)
 
     def _predict_step(F, m, P, Q):
-        return F @ m, F @ P @ F.T + Q
+        return F @ m, _sym(F @ P @ F.T + Q)
 
     predicted_means, predicted_covs = jax.vmap(_predict_step)(
         A_seq, prev_means, prev_covs, Q_seq
     )
 
-    # ----- Log-likelihood from innovations (mask-gated) -----
+    # Log-likelihood from innovations. Same safe substitution as the
+    # element builder so masked steps don't drive the Cholesky through
+    # ill-conditioned user-supplied R / NaN gradients.
     def _ll_contrib(y, m_pred, P_pred, H, R, m):
-        v = y - H @ m_pred
-        S = H @ P_pred @ H.T + R
+        H_eff = jnp.where(m, H, jnp.zeros_like(H))
+        R_eff = jnp.where(m, R, jnp.eye(M_obs, dtype=R.dtype))
+        y_eff = jnp.where(m, y, jnp.zeros_like(y))
+        v = y_eff - H_eff @ m_pred
+        S = _sym(H_eff @ P_pred @ H_eff.T + R_eff)
         L = jnp.linalg.cholesky(S)
         Sinv_v = jax.scipy.linalg.cho_solve((L, True), v)
         quad = v @ Sinv_v
         logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
-        contrib = -0.5 * (quad + logdet + M * log_2pi)
+        contrib = -0.5 * (quad + logdet + M_obs * log_2pi)
         return jnp.where(m, contrib, jnp.zeros_like(contrib))
 
     ll_contribs = jax.vmap(_ll_contrib)(
@@ -290,7 +315,12 @@ def parallel_rts_smoother(
     T = f_means.shape[0]
     N = f_means.shape[-1]
 
-    # Normalise transition to a (T, N, N) stack — operators TI-only.
+    if T == 0:
+        return (
+            jnp.zeros((0, N), dtype=f_means.dtype),
+            jnp.zeros((0, N, N), dtype=f_covs.dtype),
+        )
+
     A_dense = _materialise(transition)
     A_op = transition if isinstance(transition, lx.AbstractLinearOperator) else None
     if A_dense.ndim == 2:
@@ -304,16 +334,13 @@ def parallel_rts_smoother(
     else:
         raise ValueError(f"transition must have ndim 2 or 3, got {A_dense.ndim}.")
 
-    # ----- Build per-step smoother elements -----
-    # Inner elements (t = 0..T-2): standard smoother gain w.r.t. the
-    # predicted state at t+1 reached through A_seq[t+1].
     def _build_inner(f_mean, f_cov, p_mean_next, p_cov_next, A_next):
-        # G = f_cov @ A_next.T @ inv(p_cov_next)   (p_cov is symmetric)
+        # G = f_cov @ A_next.T @ inv(p_cov_next); p_cov_next is symmetric.
         rhs = f_cov @ A_next.T  # (N, N)
         G = jnp.linalg.solve(p_cov_next, rhs.T).T
         E = G
         g = f_mean - G @ p_mean_next
-        L = f_cov - G @ p_cov_next @ G.T
+        L = _sym(f_cov - G @ p_cov_next @ G.T)
         return E, g, L
 
     inner_E, inner_g, inner_L = jax.vmap(_build_inner)(
@@ -327,8 +354,8 @@ def parallel_rts_smoother(
     g = jnp.concatenate([inner_g, last_g], axis=0)
     L = jnp.concatenate([inner_L, last_L], axis=0)
 
-    # ----- Reverse associative scan -----
     _E_out, smoothed_means, smoothed_covs = jax.lax.associative_scan(
         _smoother_combine, (E, g, L), reverse=True
     )
+    smoothed_covs = jax.vmap(_sym)(smoothed_covs)
     return smoothed_means, smoothed_covs
