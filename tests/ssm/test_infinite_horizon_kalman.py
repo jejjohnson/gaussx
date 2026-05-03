@@ -143,3 +143,21 @@ class TestInfiniteHorizonSmoother:
 
         s_means, _s_covs = smooth(filt)
         assert jnp.all(jnp.isfinite(s_means))
+
+
+def test_infinite_horizon_filter_obs_noise_diagonal_operator(getkey):
+    """infinite_horizon_filter with operator-typed R matches the array form."""
+    import lineax as lx
+
+    N, M, T = 3, 2, 8
+    A = 0.9 * jnp.eye(N)
+    H = jax.random.normal(getkey(), (M, N)) * 0.5
+    Q = 0.1 * jnp.eye(N)
+    R_diag = jnp.array([0.3, 0.5])
+    R = jnp.diag(R_diag)
+    obs = jax.random.normal(getkey(), (T, M))
+
+    ref = infinite_horizon_filter(A, H, Q, R, obs)
+    op = infinite_horizon_filter(A, H, Q, lx.DiagonalLinearOperator(R_diag), obs)
+    assert jnp.allclose(ref.filtered_means, op.filtered_means, atol=1e-5)
+    assert jnp.allclose(ref.log_likelihood, op.log_likelihood, atol=1e-4)

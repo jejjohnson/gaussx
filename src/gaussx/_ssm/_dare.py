@@ -9,6 +9,7 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._linalg._linalg import solve_matrix
+from gaussx._ssm._utils import _materialise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -27,10 +28,10 @@ class DAREResult(eqx.Module):
 
 
 def dare(
-    A: Float[Array, "D D"],
-    H: Float[Array, "M D"],
-    Q: Float[Array, "D D"],
-    R: Float[Array, "M M"],
+    A: Float[Array, "D D"] | lx.AbstractLinearOperator,
+    H: Float[Array, "M D"] | lx.AbstractLinearOperator,
+    Q: Float[Array, "D D"] | lx.AbstractLinearOperator,
+    R: Float[Array, "M M"] | lx.AbstractLinearOperator,
     *,
     P_init: Float[Array, "D D"] | None = None,
     max_iter: int = 100,
@@ -49,10 +50,10 @@ def dare(
     Convergence is declared when ``max|P_new - P_old| < tol``.
 
     Args:
-        A: Transition matrix, shape ``(D, D)``.
-        H: Observation matrix, shape ``(M, D)``.
-        Q: Process noise covariance, shape ``(D, D)``.
-        R: Observation noise covariance, shape ``(M, M)``.
+        A: Transition matrix or operator, shape ``(D, D)``.
+        H: Observation matrix or operator, shape ``(M, D)``.
+        Q: Process noise covariance or operator, shape ``(D, D)``.
+        R: Observation noise covariance or operator, shape ``(M, M)``.
         P_init: Initial covariance guess, shape ``(D, D)``. Defaults to ``Q``.
         max_iter: Maximum number of iterations.
         tol: Convergence tolerance on the element-wise max absolute change.
@@ -63,23 +64,28 @@ def dare(
         A :class:`DAREResult` containing the steady-state covariance,
         Kalman gain, and convergence flag.
     """
-    if P_init is None:
-        P_init = Q
+    A_dense = _materialise(A)
+    H_dense = _materialise(H)
+    Q_dense = _materialise(Q)
+    R_dense = _materialise(R)
 
-    D = A.shape[0]
+    if P_init is None:
+        P_init = Q_dense
+
+    D = A_dense.shape[0]
     I_D = jnp.eye(D)
 
     def _step(
         P: Float[Array, "D D"],
     ) -> tuple[Float[Array, "D D"], Float[Array, "D M"]]:
         """One predict-update step. Returns ``(P_new, K)``."""
-        P_pred = A @ P @ A.T + Q
-        S = H @ P_pred @ H.T + R
+        P_pred = A_dense @ P @ A_dense.T + Q_dense
+        S = H_dense @ P_pred @ H_dense.T + R_dense
         # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
         # on the matrix RHS for numerical stability and efficiency.
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
-        K = solve_matrix(S_op, H @ P_pred, solver=solver).T
-        P_new = (I_D - K @ H) @ P_pred
+        K = solve_matrix(S_op, H_dense @ P_pred, solver=solver).T
+        P_new = (I_D - K @ H_dense) @ P_pred
         return P_new, K
 
     def _cond(
