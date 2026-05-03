@@ -294,19 +294,12 @@ print("Max |Schur - conditional cov|:", jnp.max(jnp.abs(schur_mat - cond_cov)))
 # `gaussx.conditional_variance` computes this efficiently without
 # forming the full $n_* \times n_*$ matrix.
 #
-# It expects a projection matrix
-# $A = K_{*f}\,(K_{ff} + \sigma^2 I)^{-1}$ and a "residual"
-# covariance $S_u$. For exact GP prediction with no approximation,
-# $S_u = 0$, so the predictive variance is
-# $\text{diag}(K_{**}) - \text{diag}(A\,K_{ff}\,A^\top)$.
-# Equivalently we can use $A$ directly and set $S_u$ to the zero
-# operator, but the cleaner path is to note that
-# `conditional_variance(K_diag, A, S_u)` computes
-# $K_\text{diag} + \text{diag}(A\,S_u\,A^\top)$.
-#
-# We use the identity: predictive variance =
-# $\text{diag}(K_{**}) - \text{diag}(K_{*f}\,\alpha_\text{cols})$
-# where $\alpha_\text{cols} = (K_{ff})^{-1} K_{f*}$.
+# It expects the prior diagonal $K_{**,\text{diag}}$, the cross
+# covariance $K_{*f}$, and the projection $A_X = K_{*f}\,K_{ff}^{-1}$,
+# and computes the Schur complement diagonal
+# $\text{diag}(K_{**}) - \text{diag}(A_X\,K_{f*})$.  Pass an optional
+# variational covariance ``S_u`` to add the variational correction
+# $\text{diag}(A_X\,S_u\,A_X^\top)$ used in sparse-GP predictives.
 
 # %%
 # Projection: A = K_sf @ K_ff^{-1}, shape (n_test, n_train)
@@ -315,18 +308,13 @@ A = V  # already computed above as vmap(solve(K_ff, .))(K_sf)
 # Diagonal of the prior
 K_ss_diag = variance * jnp.ones(n_test)
 
-# For exact GP: S_u captures the "correction" term.
-# predictive_var = K_ss_diag - diag(K_sf @ K_ff^{-1} @ K_fs) + diag(A @ S_u @ A^T)
-# With S_u = 0, we recover the standard formula.  But conditional_variance
-# computes K_ss_diag + diag(A @ S_u @ A^T), so we set
-# K_ss_diag_adjusted = K_ss_diag - diag(K_sf @ V^T) and S_u = 0.
+# For exact GP: predictive_var = diag(K_**) - diag(A @ K_f*).
+# conditional_variance(K_XX_diag, K_XZ, A_X) returns exactly this
+# Schur-complement diagonal (clamped to >= 0).
 var_reduction = jnp.sum(K_sf * V, axis=1)  # diag(K_sf @ K_ff^{-1} @ K_fs)
 pred_var_manual = K_ss_diag - var_reduction
 
-# Via conditional_variance with S_u = 0
-S_zero = lx.MatrixLinearOperator(jnp.zeros((n_train, n_train)))
-adjusted_diag = K_ss_diag - var_reduction
-pred_var_cv = gaussx.conditional_variance(adjusted_diag, A, S_zero)
+pred_var_cv = gaussx.conditional_variance(K_ss_diag, K_sf, A)
 
 print("Max |variance difference|:", jnp.max(jnp.abs(pred_var_cv - pred_var_manual)))
 print(
