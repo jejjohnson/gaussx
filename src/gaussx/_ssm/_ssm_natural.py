@@ -1,4 +1,13 @@
-"""SSM <-> natural/expectation parameter transformations for Gauss-Markov models."""
+"""SSM <-> natural/expectation parameter transformations for Gauss-Markov models.
+
+These functions convert between Gauss-Markov state-space model (SSM) parameters
+and natural/expectation parameterizations of the joint Gaussian, exploiting the
+block-tridiagonal sparsity of the precision matrix.
+
+For **general-purpose** (dense or operator-based) Gaussian parameterization
+conversions see :mod:`gaussx._expfam._natural`. For **per-site** (scalar/
+diagonal EP) conversions see :mod:`gaussx._ssm._site_natural`.
+"""
 
 from __future__ import annotations
 

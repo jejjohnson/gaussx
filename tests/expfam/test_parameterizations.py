@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 
-from gaussx._expfam._parameterizations import (
+from gaussx._expfam._natural import (
     expectation_to_meanvar,
     expectation_to_natural,
     meanvar_to_expectation,
