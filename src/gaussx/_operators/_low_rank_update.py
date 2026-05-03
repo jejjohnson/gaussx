@@ -26,12 +26,16 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         V: Right factor, shape ``(n, k)``. Defaults to *U* for
             square operators, yielding the symmetric update
             ``L + U diag(d) Uᵀ``.
+        orthonormal: When ``True``, symmetry inference for orthonormal
+            factors uses object identity, so symmetric SVD-style updates
+            must pass the same array object for ``U`` and ``V``.
     """
 
     base: lx.AbstractLinearOperator
     U: Float[Array, "m k"]
     d: Float[Array, " k"]
     V: Float[Array, "n k"]
+    orthonormal: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
@@ -42,6 +46,7 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         V: Float[Array, "n k"] | None = None,
         *,
         tags: object | frozenset[object] = frozenset(),
+        orthonormal: bool = False,
     ) -> None:
         m = base.out_size()
         n = base.in_size()
@@ -69,9 +74,10 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         self.U = U
         self.d = d
         self.V = V
+        self.orthonormal = orthonormal
         from gaussx._tags import low_rank_tag
 
-        inferred_tags = _infer_tags(base, U, d, V)
+        inferred_tags = _infer_tags(base, U, d, V, orthonormal=orthonormal)
         self.tags = _to_frozenset(tags) | inferred_tags | {low_rank_tag}
 
     @property
@@ -98,6 +104,7 @@ class LowRankUpdate(lx.AbstractLinearOperator):
             self.d,
             self.U,
             tags=lx.transpose_tags(self.tags),
+            orthonormal=self.orthonormal,
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
@@ -147,7 +154,7 @@ def svd_low_rank_plus_diag(
     Returns:
         A ``LowRankUpdate`` with a ``DiagonalLinearOperator`` base.
     """
-    return _low_rank_update_with_diag_base(diag, U, S, V)
+    return _low_rank_update_with_diag_base(diag, U, S, V, orthonormal=True)
 
 
 def low_rank_plus_identity(
@@ -180,10 +187,12 @@ def _low_rank_update_with_diag_base(
     U: Float[Array, "n k"],
     d: Float[Array, " k"] | None = None,
     V: Float[Array, "n k"] | None = None,
+    *,
+    orthonormal: bool = False,
 ) -> LowRankUpdate:
     """Construct a low-rank update with a diagonal base operator."""
     base = _diagonal_base(diag)
-    return LowRankUpdate(base, U, d, V)
+    return LowRankUpdate(base, U, d, V, orthonormal=orthonormal)
 
 
 def _diagonal_base(diag: Float[Array, " n"]) -> lx.AbstractLinearOperator:
@@ -199,13 +208,23 @@ def _infer_tags(
     U: Float[Array, "m k"],
     d: Float[Array, " k"],
     V: Float[Array, "n k"],
+    *,
+    orthonormal: bool = False,
 ) -> frozenset[object]:
     """Infer stable structural tags without materializing the operator."""
     if base.in_size() != base.out_size():
         return frozenset()
 
     inferred: set[object] = set()
-    if _safe_query(lx.is_symmetric, base) and _arrays_match(U, V):
+    # Symmetry inference uses value-or-identity equality regardless of the
+    # orthonormal flag, so that callers passing ``V = U.copy()`` (a common
+    # SVD-construction pattern) still get a symmetric tag — matching the
+    # pre-consolidation ``SVDLowRankUpdate`` behavior. The ``orthonormal``
+    # flag still controls PSD inference below (where orthonormal updates
+    # with non-negative weights are PSD even when the base is just
+    # symmetric).
+    same_factors = _arrays_match(U, V)
+    if _safe_query(lx.is_symmetric, base) and same_factors:
         inferred.add(lx.symmetric_tag)
         if _safe_query(lx.is_positive_semidefinite, base) and _is_nonnegative(d):
             inferred.add(lx.positive_semidefinite_tag)
@@ -238,3 +257,48 @@ def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
         return bool(query(operator))
     except NotImplementedError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# Deprecated compatibility class
+# ---------------------------------------------------------------------------
+
+
+class SVDLowRankUpdate(LowRankUpdate):
+    """Deprecated subclass of :class:`LowRankUpdate` with ``orthonormal=True``.
+
+    Preserves the pre-consolidation public API for one release:
+
+    - Same constructor signature as the old class — ``S`` defaults to
+      ones (via the parent ``LowRankUpdate``) if omitted, and ``V``
+      defaults to ``U`` so calls like ``SVDLowRankUpdate(base, U, S)``
+      and ``SVDLowRankUpdate(base, U)`` continue to work.
+    - Inherits from :class:`LowRankUpdate` so ``isinstance`` /
+      ``issubclass`` checks and ``singledispatch`` registrations keyed
+      on this class keep working.
+    - Forces ``orthonormal=True`` and emits a
+      :class:`DeprecationWarning` on construction.
+
+    New code should construct ``LowRankUpdate(base, U, S, V,
+    orthonormal=True)`` (or use :func:`svd_low_rank_plus_diag`)
+    directly. Will be removed in a future release.
+    """
+
+    def __init__(
+        self,
+        base: lx.AbstractLinearOperator,
+        U: Float[Array, "n k"],
+        S: Float[Array, " k"] | None = None,
+        V: Float[Array, "n k"] | None = None,
+        *,
+        tags: object | frozenset[object] = frozenset(),
+    ) -> None:
+        import warnings
+
+        warnings.warn(
+            "SVDLowRankUpdate is deprecated; use "
+            "LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag().",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(base, U, S, V, tags=tags, orthonormal=True)
