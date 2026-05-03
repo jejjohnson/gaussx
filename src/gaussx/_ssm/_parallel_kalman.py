@@ -74,30 +74,37 @@ def parallel_kalman_filter(
         x_pred = A_op.mv(x_filt) if A_op is not None else A_t @ x_filt
         P_pred = A_t @ P_filt @ A_t.T + Q_t
 
-        v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
-        S = H_t @ P_pred @ H_t.T + R_t
-        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        # Update gated by mask via ``lax.cond`` — the predict-only
+        # branch skips the Cholesky / cho_solve / logdet entirely so
+        # masked timesteps don't perform the expensive update work and
+        # don't leak gradients through the dropped path.
+        def _do_update(_):
+            v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
+            S = H_t @ P_pred @ H_t.T + R_t
+            S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
-        # In the default (no custom solver) path, factor S exactly once
-        # via Cholesky and reuse it for the gain, log-det, and the
-        # quadratic term — avoiding three independent factorizations.
-        if solver is None:
-            L_S = cholesky(S_op).as_matrix()
-            K = jax.scipy.linalg.cho_solve((L_S, True), H_t @ P_pred).T
-            Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)
-            ld = cholesky_logdet(L_S)
-        else:
-            K = solve_matrix(S_op, H_t @ P_pred, solver=solver).T
-            Sinv_v = dispatch_solve(S_op, v, solver)
-            ld = dispatch_logdet(S_op, solver)
+            if solver is None:
+                L_S = cholesky(S_op).as_matrix()
+                K = jax.scipy.linalg.cho_solve((L_S, True), H_t @ P_pred).T
+                Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)
+                ld = cholesky_logdet(L_S)
+            else:
+                K = solve_matrix(S_op, H_t @ P_pred, solver=solver).T
+                Sinv_v = dispatch_solve(S_op, v, solver)
+                ld = dispatch_logdet(S_op, solver)
 
-        x_updated = x_pred + K @ v
-        P_updated = P_pred - K @ S @ K.T
-        ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
+            x_upd = x_pred + K @ v
+            P_upd = P_pred - K @ S @ K.T
+            ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
+            return x_upd, P_upd, ll_inc
 
-        x_new = jnp.where(mask_t, x_updated, x_pred)
-        P_new = jnp.where(mask_t, P_updated, P_pred)
-        ll_new = ll + jnp.where(mask_t, ll_inc, jnp.array(0.0))
+        def _skip_update(_):
+            return x_pred, P_pred, jnp.array(0.0)
+
+        x_new, P_new, ll_inc = jax.lax.cond(
+            mask_t, _do_update, _skip_update, operand=None
+        )
+        ll_new = ll + ll_inc
 
         return (x_new, P_new, ll_new), (x_new, P_new, x_pred, P_pred)
 

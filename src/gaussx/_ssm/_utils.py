@@ -9,7 +9,6 @@ sandwich sites.
 
 from __future__ import annotations
 
-import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
@@ -83,8 +82,10 @@ def _normalise_tv_inputs(
     has_operator = any(
         _is_operator_input(x) for x in (transition, obs_model, process_noise, obs_noise)
     )
+    # Detect 3D inputs across any array-like (jax.Array, numpy.ndarray,
+    # lists/tuples coerced through ``hasattr``) — not just ``jax.Array``.
     has_3d_array = any(
-        isinstance(x, jax.Array) and x.ndim == 3
+        not _is_operator_input(x) and getattr(x, "ndim", None) == 3
         for x in (transition, obs_model, process_noise, obs_noise)
     )
     if has_operator and has_3d_array:
@@ -100,9 +101,7 @@ def _normalise_tv_inputs(
     Q_dense = _materialise(process_noise)
     R_dense = _materialise(obs_noise)
 
-    def _broadcast_to_T(
-        x: Float[Array, ...], expected_ndim: int
-    ) -> Float[Array, ...]:
+    def _broadcast_to_T(x: Float[Array, ...], expected_ndim: int) -> Float[Array, ...]:
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)
             return jnp.broadcast_to(x, (T, *x.shape))
@@ -122,5 +121,15 @@ def _normalise_tv_inputs(
         mask_seq = jnp.ones((T,), dtype=bool)
     else:
         mask_seq = jnp.asarray(mask, dtype=bool)
+        # Allow scalar broadcast for ergonomic ``mask=True`` / ``mask=False``;
+        # otherwise require a 1D array of length T to give a clear error
+        # before the scan rather than a confusing tracing failure.
+        if mask_seq.ndim == 0:
+            mask_seq = jnp.broadcast_to(mask_seq, (T,))
+        elif mask_seq.shape != (T,):
+            raise ValueError(
+                f"mask must be a scalar or have shape ({T},); got shape "
+                f"{mask_seq.shape}."
+            )
 
     return A_seq, H_seq, Q_seq, R_seq, mask_seq, not has_3d_array

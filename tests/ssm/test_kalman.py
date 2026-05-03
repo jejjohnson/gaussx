@@ -344,3 +344,46 @@ def test_kalman_filter_tv_solver_matches_default(getkey):
 
     assert tree_allclose(default.filtered_means, dense.filtered_means, rtol=1e-5)
     assert tree_allclose(default.log_likelihood, dense.log_likelihood, rtol=1e-4)
+
+
+def test_mask_invalid_shape_raises(getkey):
+    """Wrong-shape mask must raise a clear ValueError before the scan."""
+    import pytest
+
+    N, M, T = 2, 1, 4
+    A = jnp.eye(N)
+    H = jnp.array([[1.0, 0.0]])
+    Q = 0.1 * jnp.eye(N)
+    R = 0.2 * jnp.eye(M)
+    y = jr.normal(getkey(), (T, M))
+    bad_mask = jnp.ones((T - 1,), dtype=bool)
+    with pytest.raises(ValueError, match=r"mask must be"):
+        kalman_filter(A, H, Q, R, y, jnp.zeros(N), jnp.eye(N), mask=bad_mask)
+
+
+def test_mask_scalar_broadcasts(getkey):
+    """Scalar mask should broadcast across T (ergonomic shortcut)."""
+    N, M, T = 2, 1, 4
+    A = 0.9 * jnp.eye(N)
+    H = jnp.array([[1.0, 0.0]])
+    Q = 0.1 * jnp.eye(N)
+    R = 0.2 * jnp.eye(M)
+    y = jr.normal(getkey(), (T, M))
+    full = kalman_filter(A, H, Q, R, y, jnp.zeros(N), jnp.eye(N), mask=jnp.array(True))
+    ref = kalman_filter(A, H, Q, R, y, jnp.zeros(N), jnp.eye(N))
+    assert tree_allclose(full.filtered_means, ref.filtered_means, rtol=1e-6)
+
+
+def test_mixed_numpy_3d_with_operator_raises(getkey):
+    """numpy.ndarray (not jax.Array) 3D stack must trigger the same TypeError."""
+    import numpy as np
+    import pytest
+
+    N, M, T = 2, 1, 4
+    A_seq_np = np.broadcast_to(0.9 * np.eye(N), (T, N, N))
+    H = jnp.array([[1.0, 0.0]])
+    Q_op = lx.DiagonalLinearOperator(jnp.array([0.1, 0.2]))
+    R = 0.2 * jnp.eye(M)
+    y = jr.normal(getkey(), (T, M))
+    with pytest.raises(TypeError, match="Time-varying"):
+        kalman_filter(A_seq_np, H, Q_op, R, y, jnp.zeros(N), jnp.eye(N))

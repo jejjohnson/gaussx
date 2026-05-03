@@ -60,9 +60,11 @@ def kalman_filter(
     **Operator inputs** (lineax ``BlockDiag`` / ``Kronecker`` /
     ``DiagonalLinearOperator`` / ``MaskedOperator`` / etc.) are accepted
     in the **time-invariant** signature only. The structural matvec
-    (``A @ x``, ``H @ x``) runs through the operator's ``mv``; the
-    sandwiches ``A P A^T`` / ``H P H^T`` materialise once outside the
-    scan.
+    (``A @ x``, ``H @ x``) runs through the operator's ``mv``;
+    operator-typed ``Q`` / ``R`` are materialised to dense arrays once
+    outside the scan (the per-step sandwiches ``A P A^T`` / ``H P H^T``
+    themselves run inside the scan because they depend on the evolving
+    ``P_filt``).
 
     Args:
         transition: State transition matrix ``A``. Shape ``(N, N)``,
@@ -117,27 +119,32 @@ def kalman_filter(
         x_pred = A_op.mv(x_filt) if A_op is not None else A_t @ x_filt
         P_pred = A_t @ P_filt @ A_t.T + Q_t
 
-        # --- Update ---
-        v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
-        S = H_t @ P_pred @ H_t.T + R_t  # innovation cov
-        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        # --- Update (gated by mask via lax.cond so the predict-only
+        #             branch evaluates neither the update arithmetic
+        #             nor produces gradients for the dropped path). ---
+        def _do_update(_):
+            v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
+            S = H_t @ P_pred @ H_t.T + R_t
+            S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
-        # Kalman gain: K = P_pred Hᵀ S⁻¹
-        PHt = P_pred @ H_t.T  # (N, M)
-        K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
+            PHt = P_pred @ H_t.T  # (N, M)
+            K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
 
-        x_updated = x_pred + K @ v
-        P_updated = P_pred - K @ S @ K.T
+            x_upd = x_pred + K @ v
+            P_upd = P_pred - K @ S @ K.T
 
-        # Log-likelihood increment
-        Sinv_v = dispatch_solve(S_op, v, solver)
-        ld = dispatch_logdet(S_op, solver)
-        ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
+            Sinv_v = dispatch_solve(S_op, v, solver)
+            ld = dispatch_logdet(S_op, solver)
+            ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
+            return x_upd, P_upd, ll_inc
 
-        # Mask: select between (predict-and-update) and (predict-only).
-        x_filt_new = jnp.where(mask_t, x_updated, x_pred)
-        P_filt_new = jnp.where(mask_t, P_updated, P_pred)
-        ll_new = ll + jnp.where(mask_t, ll_inc, jnp.array(0.0))
+        def _skip_update(_):
+            return x_pred, P_pred, jnp.array(0.0)
+
+        x_filt_new, P_filt_new, ll_inc = jax.lax.cond(
+            mask_t, _do_update, _skip_update, operand=None
+        )
+        ll_new = ll + ll_inc
 
         carry_new = (x_filt_new, P_filt_new, ll_new)
         outputs = (x_filt_new, P_filt_new, x_pred, P_pred)
