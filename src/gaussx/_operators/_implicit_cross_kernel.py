@@ -13,7 +13,7 @@ from einops import rearrange
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
-from gaussx._operators._kernel_jvp import _kernel_mv_with_jvp
+from gaussx._operators._utils import vmap_over_batch_dims
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +58,16 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
         )
         return rearrange(Kv, "B bs -> (B bs)")[:n]
 
+    @jax.custom_jvp
+    def cross_kernel_mv(
+        params: PyTree,
+        X_data: Float[Array, "N D"],
+        X_inducing: Float[Array, "M D"],
+        v: Float[Array, " M"],
+    ) -> Float[Array, " N"]:
+        return _impl(params, X_data, X_inducing, v)
+
+    @cross_kernel_mv.defjvp
     def cross_kernel_mv_jvp(
         primals: tuple[
             PyTree,
@@ -118,7 +128,7 @@ def _make_cross_kernel_mv(kernel_fn: Callable, batch_size: int) -> Callable:
             tangent_out, "B bs -> (B bs)"
         )[:n]
 
-    return _kernel_mv_with_jvp(_impl, cross_kernel_mv_jvp)
+    return cross_kernel_mv
 
 
 class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
@@ -144,21 +154,32 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
       differentiable hyperparameters and a ``jax.custom_jvp`` keeps
       first-order autodiff efficient.
 
+    Batched inputs are supported: ``X_data`` and ``X_inducing`` may
+    carry leading batch dimensions ``(*batch, N, D)`` /
+    ``(*batch, M, D)`` (with matching ``*batch``). In that case ``mv``
+    expects a vector of shape ``(*batch, M)`` and returns ``(*batch, N)``;
+    the transposed operator follows the symmetric pattern. ``as_matrix()``
+    returns a ``(*batch, N, M)`` tensor; ``in_structure()`` /
+    ``out_structure()`` report the batched shapes.
+
     Args:
         kernel_fn: Kernel function (see above for signature).
-        X_data: Data points, shape ``(N, D)``.
-        X_inducing: Inducing points, shape ``(M, D)``.
+        X_data: Data points, shape ``(*batch, N, D)``. Leading batch
+            dimensions are optional.
+        X_inducing: Inducing points, shape ``(*batch, M, D)`` with
+            ``*batch`` matching ``X_data``.
         batch_size: Number of rows of ``X_data`` processed per scan step.
         params: Optional pytree of kernel hyperparameters.
     """
 
     kernel_fn: Callable = eqx.field(static=True)
-    X_data: Float[Array, "N D"]
-    X_inducing: Float[Array, "M D"]
+    X_data: Float[Array, "*batch N D"]
+    X_inducing: Float[Array, "*batch M D"]
     params: Any
     batch_size: int = eqx.field(static=True)
     _n: int = eqx.field(static=True)
     _m: int = eqx.field(static=True)
+    _batch_shape: tuple[int, ...] = eqx.field(static=True)
     _has_params: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
     _kernel_mv: Callable = eqx.field(static=True)
@@ -177,13 +198,16 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
             raise ValueError(
                 f"batch_size must be a positive integer, got {batch_size}."
             )
+        if X_data.shape[:-2] != X_inducing.shape[:-2]:
+            raise ValueError("X_data and X_inducing must have matching batch shapes.")
         self.kernel_fn = kernel_fn
         self.X_data = X_data
         self.X_inducing = X_inducing
         self.params = params
         self.batch_size = batch_size
-        self._n = X_data.shape[0]
-        self._m = X_inducing.shape[0]
+        self._n = X_data.shape[-2]
+        self._m = X_inducing.shape[-2]
+        self._batch_shape = X_data.shape[:-2]
         self._has_params = params is not None
         normalized_tags = _to_frozenset(tags)
         if lx.positive_semidefinite_tag in normalized_tags:
@@ -198,33 +222,48 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
         else:
             self._kernel_mv = None  # type: ignore[assignment]
 
-    def mv(self, vector: Float[Array, " M"]) -> Float[Array, " N"]:
+    def mv(self, vector: Float[Array, "*batch M"]) -> Float[Array, "*batch N"]:
         """Compute ``K(X_data, X_inducing) @ v`` via batched scan.
 
         Peak memory per step is ``O(batch_size * M)``.
         """
-        if self._has_params:
-            return self._kernel_mv(self.params, self.X_data, self.X_inducing, vector)
+        if vector.shape[:-1] != self._batch_shape:
+            raise ValueError(
+                "vector must have leading batch dimensions matching X_data/X_inducing."
+            )
 
-        n = self._n
-        bs = self.batch_size
-        n_padded = ((n + bs - 1) // bs) * bs
-        pad_amount = n_padded - n
-        X_padded = jnp.pad(self.X_data, ((0, pad_amount), (0, 0)), mode="constant")
-        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
+        def mv_single(
+            X_data: Float[Array, "N D"],
+            X_inducing: Float[Array, "M D"],
+            v: Float[Array, " M"],
+        ) -> Float[Array, " N"]:
+            if self._has_params:
+                return self._kernel_mv(self.params, X_data, X_inducing, v)
 
-        def batch_matvec(
-            carry: None, X_batch: Float[Array, "batch_size D"]
-        ) -> tuple[None, Float[Array, " batch_size"]]:
-            K_batch = jax.vmap(
-                lambda x_i: jax.vmap(lambda z_j: self.kernel_fn(x_i, z_j))(
-                    self.X_inducing
-                )
-            )(X_batch)
-            return carry, K_batch @ vector
+            n = self._n
+            bs = self.batch_size
+            n_padded = ((n + bs - 1) // bs) * bs
+            pad_amount = n_padded - n
+            X_padded = jnp.pad(X_data, ((0, pad_amount), (0, 0)), mode="constant")
+            X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
 
-        _, results = jax.lax.scan(batch_matvec, None, X_batched)
-        return rearrange(results, "B bs -> (B bs)")[:n]
+            def batch_matvec(
+                carry: None, X_batch: Float[Array, "batch_size D"]
+            ) -> tuple[None, Float[Array, " batch_size"]]:
+                K_batch = jax.vmap(
+                    lambda x_i: jax.vmap(lambda z_j: self.kernel_fn(x_i, z_j))(
+                        X_inducing
+                    )
+                )(X_batch)
+                return carry, K_batch @ v
+
+            _, results = jax.lax.scan(batch_matvec, None, X_batched)
+            return rearrange(results, "B bs -> (B bs)")[:n]
+
+        if not self._batch_shape:
+            return mv_single(self.X_data, self.X_inducing, vector)
+        batched_mv = vmap_over_batch_dims(mv_single, len(self._batch_shape))
+        return batched_mv(self.X_data, self.X_inducing, vector)
 
     def transpose(self) -> _TransposedCrossKernelOperator:
         """Return the adjoint operator ``K^T``.
@@ -237,23 +276,28 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
             return self  # type: ignore[return-value]
         return _TransposedCrossKernelOperator(self, tags=lx.transpose_tags(self.tags))
 
-    def as_matrix(self) -> Float[Array, "N M"]:
+    def as_matrix(self) -> Float[Array, "*batch N M"]:
         """Materialize the full ``N x M`` cross-kernel matrix."""
         if self._has_params:
-            return jax.vmap(
+            matrix_fn = lambda X_data, X_inducing: jax.vmap(
                 lambda x_i: jax.vmap(lambda z_j: self.kernel_fn(self.params, x_i, z_j))(
-                    self.X_inducing
+                    X_inducing
                 )
-            )(self.X_data)
-        return jax.vmap(
-            lambda x_i: jax.vmap(lambda z_j: self.kernel_fn(x_i, z_j))(self.X_inducing)
-        )(self.X_data)
+            )(X_data)
+        else:
+            matrix_fn = lambda X_data, X_inducing: jax.vmap(
+                lambda x_i: jax.vmap(lambda z_j: self.kernel_fn(x_i, z_j))(X_inducing)
+            )(X_data)
+        if not self._batch_shape:
+            return matrix_fn(self.X_data, self.X_inducing)
+        batched_matrix_fn = vmap_over_batch_dims(matrix_fn, len(self._batch_shape))
+        return batched_matrix_fn(self.X_data, self.X_inducing)
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._m,), self.X_data.dtype)
+        return jax.ShapeDtypeStruct((*self._batch_shape, self._m), self.X_data.dtype)
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._n,), self.X_data.dtype)
+        return jax.ShapeDtypeStruct((*self._batch_shape, self._n), self.X_data.dtype)
 
 
 class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
@@ -276,7 +320,7 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
         self._parent = parent
         self.tags = tags
 
-    def mv(self, vector: Float[Array, " N"]) -> Float[Array, " M"]:
+    def mv(self, vector: Float[Array, "*batch N"]) -> Float[Array, "*batch M"]:
         r"""Compute ``K^T @ u`` via batched scan.
 
         Scans over batches of ``X_data``, building each
@@ -285,72 +329,101 @@ class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
         Peak memory per step: ``O(batch_size \times M)``.
         """
         parent = self._parent
-        n = parent._n
-        bs = parent.batch_size
-        n_padded = ((n + bs - 1) // bs) * bs
-        pad_amount = n_padded - n
-
-        X_padded = jnp.pad(parent.X_data, ((0, pad_amount), (0, 0)), mode="constant")
-        u_padded = jnp.pad(vector, (0, pad_amount), mode="constant")
-        X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
-        u_batched = rearrange(u_padded, "(B bs) -> B bs", bs=bs)
-
-        if parent._has_params:
-            kfn = parent.kernel_fn
-            params = parent.params
-            Z = parent.X_inducing
-
-            def batch_adjoint_params(
-                acc: Float[Array, " M"],
-                xu: tuple[Float[Array, "batch_size D"], Float[Array, " batch_size"]],
-            ) -> tuple[Float[Array, " M"], None]:
-                X_batch, u_batch = xu
-                K_batch = jax.vmap(
-                    lambda x_i: jax.vmap(lambda z_j: kfn(params, x_i, z_j))(Z)
-                )(X_batch)
-                acc = acc + K_batch.T @ u_batch
-                return acc, None
-
-            result, _ = jax.lax.scan(
-                batch_adjoint_params,
-                jnp.zeros(parent._m, dtype=parent.X_data.dtype),
-                (X_batched, u_batched),
+        if vector.shape[:-1] != parent._batch_shape:
+            raise ValueError(
+                "vector must have leading batch dimensions matching the parent "
+                "operator."
             )
-        else:
 
-            def batch_adjoint(
-                acc: Float[Array, " M"],
-                xu: tuple[Float[Array, "batch_size D"], Float[Array, " batch_size"]],
-            ) -> tuple[Float[Array, " M"], None]:
-                X_batch, u_batch = xu
-                K_batch = jax.vmap(
-                    lambda x_i: jax.vmap(lambda z_j: parent.kernel_fn(x_i, z_j))(
-                        parent.X_inducing
-                    )
-                )(X_batch)
-                acc = acc + K_batch.T @ u_batch
-                return acc, None
+        def mv_single(
+            X_data: Float[Array, "N D"],
+            X_inducing: Float[Array, "M D"],
+            u: Float[Array, " N"],
+        ) -> Float[Array, " M"]:
+            n = parent._n
+            bs = parent.batch_size
+            n_padded = ((n + bs - 1) // bs) * bs
+            pad_amount = n_padded - n
 
-            result, _ = jax.lax.scan(
-                batch_adjoint,
-                jnp.zeros(parent._m, dtype=parent.X_data.dtype),
-                (X_batched, u_batched),
-            )
-        return result
+            X_padded = jnp.pad(X_data, ((0, pad_amount), (0, 0)), mode="constant")
+            u_padded = jnp.pad(u, (0, pad_amount), mode="constant")
+            X_batched = rearrange(X_padded, "(B bs) D -> B bs D", bs=bs)
+            u_batched = rearrange(u_padded, "(B bs) -> B bs", bs=bs)
 
-    def as_matrix(self) -> Float[Array, "M N"]:
+            if parent._has_params:
+                kfn = parent.kernel_fn
+                params = parent.params
+
+                def batch_adjoint_params(
+                    acc: Float[Array, " M"],
+                    xu: tuple[
+                        Float[Array, "batch_size D"],
+                        Float[Array, " batch_size"],
+                    ],
+                ) -> tuple[Float[Array, " M"], None]:
+                    X_batch, u_batch = xu
+                    K_batch = jax.vmap(
+                        lambda x_i: jax.vmap(lambda z_j: kfn(params, x_i, z_j))(
+                            X_inducing
+                        )
+                    )(X_batch)
+                    acc = acc + K_batch.T @ u_batch
+                    return acc, None
+
+                result, _ = jax.lax.scan(
+                    batch_adjoint_params,
+                    jnp.zeros(parent._m, dtype=X_data.dtype),
+                    (X_batched, u_batched),
+                )
+            else:
+
+                def batch_adjoint(
+                    acc: Float[Array, " M"],
+                    xu: tuple[
+                        Float[Array, "batch_size D"],
+                        Float[Array, " batch_size"],
+                    ],
+                ) -> tuple[Float[Array, " M"], None]:
+                    X_batch, u_batch = xu
+                    K_batch = jax.vmap(
+                        lambda x_i: jax.vmap(lambda z_j: parent.kernel_fn(x_i, z_j))(
+                            X_inducing
+                        )
+                    )(X_batch)
+                    acc = acc + K_batch.T @ u_batch
+                    return acc, None
+
+                result, _ = jax.lax.scan(
+                    batch_adjoint,
+                    jnp.zeros(parent._m, dtype=X_data.dtype),
+                    (X_batched, u_batched),
+                )
+            return result
+
+        if not parent._batch_shape:
+            return mv_single(parent.X_data, parent.X_inducing, vector)
+        batched_mv = vmap_over_batch_dims(mv_single, len(parent._batch_shape))
+        return batched_mv(parent.X_data, parent.X_inducing, vector)
+
+    def as_matrix(self) -> Float[Array, "*batch M N"]:
         """Materialize ``K^T`` as a dense matrix."""
-        return self._parent.as_matrix().T
+        return jnp.swapaxes(self._parent.as_matrix(), -1, -2)
 
     def transpose(self) -> ImplicitCrossKernelOperator:
         """Return the original (non-transposed) operator."""
         return self._parent
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._parent._n,), self._parent.X_data.dtype)
+        return jax.ShapeDtypeStruct(
+            (*self._parent._batch_shape, self._parent._n),
+            self._parent.X_data.dtype,
+        )
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._parent._m,), self._parent.X_data.dtype)
+        return jax.ShapeDtypeStruct(
+            (*self._parent._batch_shape, self._parent._m),
+            self._parent.X_data.dtype,
+        )
 
 
 def implicit_cross_kernel(

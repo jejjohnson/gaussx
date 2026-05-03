@@ -12,7 +12,7 @@ import lineax as lx
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
-from gaussx._operators._kernel_jvp import _kernel_mv_with_jvp
+from gaussx._operators._utils import vmap_over_batch_dims
 
 
 # ---------------------------------------------------------------------------
@@ -44,6 +44,15 @@ def _make_implicit_kernel_mv(kernel_fn: Callable) -> Callable:
         _, Kv = jax.lax.scan(body_fn, None, X)
         return Kv
 
+    @jax.custom_jvp
+    def implicit_kernel_mv(
+        params: PyTree,
+        X: Float[Array, "N D"],
+        v: Float[Array, " N"],
+    ) -> Float[Array, " N"]:
+        return _impl(params, X, v)
+
+    @implicit_kernel_mv.defjvp
     def implicit_kernel_mv_jvp(
         primals: tuple[PyTree, Float[Array, "N D"], Float[Array, " N"]],
         tangents: tuple[PyTree, Float[Array, "N D"], Float[Array, " N"]],
@@ -74,7 +83,7 @@ def _make_implicit_kernel_mv(kernel_fn: Callable) -> Callable:
         primal_out, tangent_out = jax.vmap(row_jvp)((X, dX))
         return primal_out, tangent_out
 
-    return _kernel_mv_with_jvp(_impl, implicit_kernel_mv_jvp)
+    return implicit_kernel_mv
 
 
 class ImplicitKernelOperator(lx.AbstractLinearOperator):
@@ -97,18 +106,26 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
       differentiable hyperparameters via the ``params`` argument and a
       ``jax.custom_jvp`` keeps first-order autodiff efficient.
 
+    Batched inputs are supported: ``X`` may carry leading batch
+    dimensions ``(*batch, N, D)``. In that case ``mv`` expects a vector
+    of shape ``(*batch, N)`` and returns ``(*batch, N)``;
+    ``as_matrix()`` returns a ``(*batch, N, N)`` tensor;
+    ``in_structure()`` / ``out_structure()`` report the batched shapes.
+
     Args:
         kernel_fn: Kernel function (see above for signature).
-        X: Training points, shape ``(N, D)``.
+        X: Training points, shape ``(*batch, N, D)``. Leading batch
+            dimensions are optional.
         noise_var: Diagonal noise variance ``sigma^2``.
         params: Optional pytree of kernel hyperparameters.
     """
 
     kernel_fn: Callable = eqx.field(static=True)
-    X: Float[Array, "N D"]
+    X: Float[Array, "*batch N D"]
     noise_var: float = eqx.field(static=True)
     params: Any
     _size: int = eqx.field(static=True)
+    _batch_shape: tuple[int, ...] = eqx.field(static=True)
     _has_params: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
     _kernel_mv: Callable = eqx.field(static=True)
@@ -125,7 +142,8 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
         self.kernel_fn = kernel_fn
         self.X = X
         self.noise_var = noise_var
-        self._size = X.shape[0]
+        self._size = X.shape[-2]
+        self._batch_shape = X.shape[:-2]
         self._has_params = params is not None
         self.params = params
         normalized_tags = _to_frozenset(tags)
@@ -137,39 +155,56 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
         else:
             self._kernel_mv = None  # type: ignore[assignment]
 
-    def mv(self, vector: Float[Array, " N"]) -> Float[Array, " N"]:
+    def mv(self, vector: Float[Array, "*batch N"]) -> Float[Array, "*batch N"]:
         """Compute ``(K + sigma^2 I) @ v`` via scan over data points."""
-        if self._has_params:
-            Kv = self._kernel_mv(self.params, self.X, vector)
-        else:
+        if vector.shape[:-1] != self._batch_shape:
+            raise ValueError("vector must have leading batch dimensions matching X.")
+
+        def mv_single(
+            X: Float[Array, "N D"], v: Float[Array, " N"]
+        ) -> Float[Array, " N"]:
+            if self._has_params:
+                return self._kernel_mv(self.params, X, v)
 
             def row_dot(x_i: Float[Array, " D"]) -> Float[Array, ""]:
-                k_row = jax.vmap(lambda x_j: self.kernel_fn(x_i, x_j))(self.X)
-                return jnp.dot(k_row, vector)
+                k_row = jax.vmap(lambda x_j: self.kernel_fn(x_i, x_j))(X)
+                return jnp.dot(k_row, v)
 
             def body_fn(
                 carry: None, x_i: Float[Array, " D"]
             ) -> tuple[None, Float[Array, ""]]:
                 return carry, row_dot(x_i)
 
-            _, Kv = jax.lax.scan(body_fn, None, self.X)
+            _, Kv = jax.lax.scan(body_fn, None, X)
+            return Kv
+
+        if not self._batch_shape:
+            Kv = mv_single(self.X, vector)
+        else:
+            batched_mv = vmap_over_batch_dims(mv_single, len(self._batch_shape))
+            Kv = batched_mv(self.X, vector)
 
         if self.noise_var != 0.0:
             Kv = Kv + self.noise_var * vector
         return Kv
 
-    def as_matrix(self) -> Float[Array, "N N"]:
+    def as_matrix(self) -> Float[Array, "*batch N N"]:
         """Materialize the full kernel matrix (for debugging/testing)."""
         if self._has_params:
-            K = jax.vmap(
+            matrix_fn = lambda X: jax.vmap(
                 lambda x_i: jax.vmap(lambda x_j: self.kernel_fn(self.params, x_i, x_j))(
-                    self.X
+                    X
                 )
-            )(self.X)
+            )(X)
         else:
-            K = jax.vmap(
-                lambda x_i: jax.vmap(lambda x_j: self.kernel_fn(x_i, x_j))(self.X)
-            )(self.X)
+            matrix_fn = lambda X: jax.vmap(
+                lambda x_i: jax.vmap(lambda x_j: self.kernel_fn(x_i, x_j))(X)
+            )(X)
+        if not self._batch_shape:
+            K = matrix_fn(self.X)
+        else:
+            batched_matrix_fn = vmap_over_batch_dims(matrix_fn, len(self._batch_shape))
+            K = batched_matrix_fn(self.X)
         if self.noise_var != 0.0:
             K = K + self.noise_var * jnp.eye(self._size)
         return K
@@ -193,7 +228,7 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._size,), self.X.dtype)
+        return jax.ShapeDtypeStruct((*self._batch_shape, self._size), self.X.dtype)
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._size,), self.X.dtype)
+        return jax.ShapeDtypeStruct((*self._batch_shape, self._size), self.X.dtype)

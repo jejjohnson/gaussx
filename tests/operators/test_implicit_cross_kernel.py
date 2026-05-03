@@ -22,6 +22,12 @@ def _build_dense(kernel_fn, X1, X2):
     return jax.vmap(lambda x_i: jax.vmap(lambda x_j: kernel_fn(x_i, x_j))(X2))(X1)
 
 
+def _build_dense_batched(kernel_fn, X1, X2):
+    if X1.ndim == 2:
+        return _build_dense(kernel_fn, X1, X2)
+    return jax.vmap(lambda x1, x2: _build_dense_batched(kernel_fn, x1, x2))(X1, X2)
+
+
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
@@ -103,6 +109,32 @@ class TestMv:
         K_dense = _build_dense(_rbf, X, Z)
         assert tree_allclose(op.mv(v), K_dense @ v, rtol=1e-5)
 
+    def test_mv_matches_dense_batched(self, getkey):
+        X = jr.normal(getkey(), (2, 3, 11, 3))
+        Z = jr.normal(getkey(), (2, 3, 7, 3))
+        op = ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=4)
+        v = jr.normal(getkey(), (2, 3, 7))
+        K_dense = _build_dense_batched(_rbf, X, Z)
+        expected = jnp.matmul(K_dense, v[..., None]).squeeze(-1)
+        assert tree_allclose(op.mv(v), expected, rtol=1e-5)
+
+    def test_batched_structure_metadata(self, getkey):
+        """Operator and its transpose must report batched structures
+        consistent with the ``mv`` contract."""
+        X = jr.normal(getkey(), (2, 3, 11, 3))
+        Z = jr.normal(getkey(), (2, 3, 7, 3))
+        op = ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=4)
+        assert op.in_structure().shape == (2, 3, 7)
+        assert op.out_structure().shape == (2, 3, 11)
+        # Transpose swaps in/out and keeps the same batch axes.
+        op_T = op.T
+        assert op_T.in_structure().shape == (2, 3, 11)
+        assert op_T.out_structure().shape == (2, 3, 7)
+        v = jr.normal(getkey(), op.in_structure().shape)
+        op.mv(v)
+        u = jr.normal(getkey(), op_T.in_structure().shape)
+        op_T.mv(u)
+
 
 # ---------------------------------------------------------------------------
 # as_matrix
@@ -123,6 +155,14 @@ class TestAsMatrix:
         Z = jr.normal(getkey(), (M, 3))
         op = ImplicitCrossKernelOperator(_rbf, X, Z)
         assert op.as_matrix().shape == (N, M)
+
+    def test_as_matrix_matches_manual_batched(self, getkey):
+        X = jr.normal(getkey(), (2, 3, 10, 3))
+        Z = jr.normal(getkey(), (2, 3, 6, 3))
+        op = ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=4)
+        K_dense = _build_dense_batched(_rbf, X, Z)
+        assert op.as_matrix().shape == (2, 3, 10, 6)
+        assert tree_allclose(op.as_matrix(), K_dense, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +191,16 @@ class TestTranspose:
         op = ImplicitCrossKernelOperator(_rbf, X, Z)
         assert op.T.in_size() == 10
         assert op.T.out_size() == 6
+
+    def test_transpose_matrix_batched(self, getkey):
+        X = jr.normal(getkey(), (2, 3, 10, 3))
+        Z = jr.normal(getkey(), (2, 3, 6, 3))
+        op = ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=4)
+        assert tree_allclose(
+            op.T.as_matrix(),
+            jnp.swapaxes(op.as_matrix(), -1, -2),
+            rtol=1e-5,
+        )
 
 
 # ---------------------------------------------------------------------------

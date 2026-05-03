@@ -34,6 +34,14 @@ def _build_dense(kernel_fn, params, X1, X2):
     )
 
 
+def _build_dense_batched(kernel_fn, params, X1, X2):
+    if X1.ndim == 2:
+        return _build_dense(kernel_fn, params, X1, X2)
+    return jax.vmap(lambda x1, x2: _build_dense_batched(kernel_fn, params, x1, x2))(
+        X1, X2
+    )
+
+
 # ---------------------------------------------------------------------------
 # Construction
 # ---------------------------------------------------------------------------
@@ -110,6 +118,28 @@ class TestMv:
         K_dense = _build_dense(_rbf_kernel, params, X1, X2)
         assert tree_allclose(op.mv(v), K_dense @ v, rtol=1e-5)
 
+    def test_mv_matches_dense_batched(self, getkey):
+        X1 = jr.normal(getkey(), (2, 3, 8, 2))
+        X2 = jr.normal(getkey(), (2, 3, 5, 2))
+        params = _make_params(getkey())
+        op = KernelOperator(_rbf_kernel, X1, X2, params)
+        v = jr.normal(getkey(), (2, 3, 5))
+        K_dense = _build_dense_batched(_rbf_kernel, params, X1, X2)
+        expected = jnp.matmul(K_dense, v[..., None]).squeeze(-1)
+        assert tree_allclose(op.mv(v), expected, rtol=1e-5)
+
+    def test_batched_structure_metadata(self, getkey):
+        """Operator metadata must include leading batch axes so vectors
+        allocated from ``in_structure``/``out_structure`` line up with
+        the batched ``mv`` contract."""
+        X1 = jr.normal(getkey(), (2, 3, 8, 2))
+        X2 = jr.normal(getkey(), (2, 3, 5, 2))
+        op = KernelOperator(_rbf_kernel, X1, X2, _make_params(getkey()))
+        assert op.in_structure().shape == (2, 3, 5)
+        assert op.out_structure().shape == (2, 3, 8)
+        v = jr.normal(getkey(), op.in_structure().shape)
+        op.mv(v)  # would raise the batch-shape ValueError if shapes mismatched
+
 
 # ---------------------------------------------------------------------------
 # as_matrix
@@ -131,6 +161,15 @@ class TestAsMatrix:
         op = KernelOperator(_rbf_kernel, X, X, params)
         M = op.as_matrix()
         assert tree_allclose(M, M.T, rtol=1e-5)
+
+    def test_as_matrix_matches_manual_batched(self, getkey):
+        X1 = jr.normal(getkey(), (2, 3, 8, 2))
+        X2 = jr.normal(getkey(), (2, 3, 5, 2))
+        params = _make_params(getkey())
+        op = KernelOperator(_rbf_kernel, X1, X2, params)
+        K_dense = _build_dense_batched(_rbf_kernel, params, X1, X2)
+        assert op.as_matrix().shape == (2, 3, 8, 5)
+        assert tree_allclose(op.as_matrix(), K_dense, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------
