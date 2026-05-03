@@ -27,13 +27,13 @@ from gaussx._operators._lazy_algebra import (
 )
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
+    SVDLowRankUpdate,
     low_rank_plus_diag,
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
 from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sum_kronecker import SumKronecker
-from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 from gaussx._operators._toeplitz import Toeplitz
 from gaussx._tags import (
     is_block_diagonal,
@@ -61,11 +61,6 @@ def _(operator: BlockDiag) -> bool:
 
 @is_low_rank.register(LowRankUpdate)
 def _(operator: LowRankUpdate) -> bool:
-    return True
-
-
-@is_low_rank.register(SVDLowRankUpdate)
-def _(operator: SVDLowRankUpdate) -> bool:
     return True
 
 
@@ -98,11 +93,6 @@ def _(operator: LowRankUpdate) -> bool:
     return lx.symmetric_tag in operator.tags
 
 
-@lx.is_symmetric.register(SVDLowRankUpdate)
-def _(operator: SVDLowRankUpdate) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
 @lx.is_symmetric.register(KroneckerSum)
 def _(operator: KroneckerSum) -> bool:
     return lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)
@@ -128,11 +118,6 @@ def _(operator: LowRankUpdate) -> bool:
     return False
 
 
-@lx.is_diagonal.register(SVDLowRankUpdate)
-def _(operator: SVDLowRankUpdate) -> bool:
-    return False
-
-
 @lx.is_diagonal.register(KroneckerSum)
 def _(operator: KroneckerSum) -> bool:
     return False
@@ -155,11 +140,6 @@ def _(operator: Kronecker) -> bool:
 
 @lx.is_positive_semidefinite.register(LowRankUpdate)
 def _(operator: LowRankUpdate) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
-@lx.is_positive_semidefinite.register(SVDLowRankUpdate)
-def _(operator: SVDLowRankUpdate) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 

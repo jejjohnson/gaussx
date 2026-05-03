@@ -28,7 +28,7 @@
 # 2. Solving kernel systems with `CGSolver`, `PreconditionedCGSolver`,
 #    and `BBMMSolver`
 # 3. Using structural tags for metadata
-# 4. Exploiting SVD structure with `SVDLowRankUpdate`
+# 4. Exploiting orthonormal low-rank structure with `LowRankUpdate`
 # 5. Full GP prediction: implicit vs dense
 
 # %% [markdown]
@@ -56,8 +56,8 @@ jax.config.update("jax_enable_x64", True)
 # that lineax CG (used internally by gaussx strategies) can work.
 lx.is_negative_semidefinite.register(gaussx.ImplicitKernelOperator)(lambda _: False)
 lx.linearise.register(gaussx.ImplicitKernelOperator)(lambda op: op)
-lx.is_negative_semidefinite.register(gaussx.SVDLowRankUpdate)(lambda _: False)
-lx.linearise.register(gaussx.SVDLowRankUpdate)(lambda op: op)
+lx.is_negative_semidefinite.register(gaussx.LowRankUpdate)(lambda _: False)
+lx.linearise.register(gaussx.LowRankUpdate)(lambda op: op)
 
 # %% [markdown]
 # We generate a 1D GP regression problem with $N = 2000$ noisy
@@ -229,12 +229,21 @@ print(f"is_symmetric:              {gaussx.is_symmetric(op_tagged)}")
 print(f"is_positive_semidefinite:  {gaussx.is_positive_semidefinite(op_tagged)}")
 
 # %% [markdown]
-# ## 7. SVDLowRankUpdate
+# ## 7. Orthonormal low-rank updates via `LowRankUpdate`
 #
 # When a truncated SVD approximation of the kernel matrix is available
-# (e.g., from a Nystrom approximation), `SVDLowRankUpdate` represents
-# the operator as $L + U \operatorname{diag}(S) V^\top$ and exploits
-# the SVD structure for efficient solves and log-determinants.
+# (e.g., from a Nystrom approximation), `LowRankUpdate` can represent
+# the operator as $L + U \operatorname{diag}(S) V^\top$. Setting
+# `orthonormal=True` opts in to the SVD-specific PSD inference for
+# orthonormal updates with non-negative weights.
+#
+# Note: `orthonormal=True` does **not** by itself guarantee symmetric
+# tagging in this example, because $U_k$ and $V_k$ come from separate
+# slices of the SVD (`U_full[:, :rank]` and `Vt_full[:rank, :].T`) — the
+# resulting arrays are equal in value but distinct objects, so the
+# pre-consolidation value-equality check still applies. We pass
+# `tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})`
+# explicitly below to make the symmetry/PSD intent unambiguous.
 #
 # Here we compute a dense truncated SVD for demonstration. In practice,
 # you would obtain $U, S, V$ from a randomized or Nystrom method
@@ -254,14 +263,15 @@ V_k = Vt_full[:rank, :].T  # (N, rank)
 # Base operator: noise_var * I
 base_diag = lx.DiagonalLinearOperator(noise_var * jnp.ones(N))
 
-svd_op = gaussx.SVDLowRankUpdate(
+svd_op = gaussx.LowRankUpdate(
     base_diag,
     U_k,
     S_k,
     V_k,
     tags=frozenset({lx.positive_semidefinite_tag, lx.symmetric_tag}),
+    orthonormal=True,
 )
-print(f"SVDLowRankUpdate: rank-{rank} approximation")
+print(f"LowRankUpdate: rank-{rank} approximation")
 print(f"Operator size: {svd_op.in_size()} x {svd_op.out_size()}")
 
 # %%
@@ -368,8 +378,8 @@ plt.show()
 #   for faster CG convergence.
 # - **`BBMMSolver`** -- Joint solve + logdet via batched CG
 #   (Gardner et al. 2018).
-# - **`SVDLowRankUpdate`** -- SVD-parameterized low-rank structure
-#   for cheap solves and logdets.
+# - **`LowRankUpdate(..., orthonormal=True)`** -- SVD-parameterized
+#   low-rank structure for cheap solves and logdets.
 #
 # **When to use what:**
 #
@@ -380,5 +390,5 @@ plt.show()
 #   `ImplicitKernelOperator` amortizes matvec costs across solve and
 #   logdet. Use `PreconditionedCGSolver` if the system is
 #   ill-conditioned.
-# - **Low-rank structure available:** `SVDLowRankUpdate` exploits the
-#   factored form directly.
+# - **Low-rank structure available:** `LowRankUpdate(..., orthonormal=True)`
+#   exploits the factored form directly.
