@@ -37,6 +37,12 @@ def _build_dense(kernel_fn, params, X):
     return jax.vmap(lambda x_i: jax.vmap(lambda x_j: kernel_fn(params, x_i, x_j))(X))(X)
 
 
+def _build_dense_batched(kernel_fn, params, X):
+    if X.ndim == 2:
+        return _build_dense(kernel_fn, params, X)
+    return jax.vmap(lambda X_batch: _build_dense_batched(kernel_fn, params, X_batch))(X)
+
+
 # ---------------------------------------------------------------------------
 # Backward compatibility — no params
 # ---------------------------------------------------------------------------
@@ -109,6 +115,18 @@ class TestParamsMv:
         )
         K = _build_dense(_rbf_kernel_params, params, X) + 0.05 * jnp.eye(N)
         assert tree_allclose(op.as_matrix(), K, rtol=1e-5)
+
+    def test_batched_mv_and_as_matrix(self, getkey):
+        X = jr.normal(getkey(), (2, 3, 6, 2))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (2, 3, 6))
+        op = ImplicitKernelOperator(
+            _rbf_kernel_params, X, noise_var=0.05, params=params
+        )
+        K = _build_dense_batched(_rbf_kernel_params, params, X) + 0.05 * jnp.eye(6)
+        expected = jnp.matmul(K, v[..., None]).squeeze(-1)
+        assert tree_allclose(op.as_matrix(), K, rtol=1e-5)
+        assert tree_allclose(op.mv(v), expected, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------

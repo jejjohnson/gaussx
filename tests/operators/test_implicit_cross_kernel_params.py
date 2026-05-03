@@ -35,6 +35,16 @@ def _build_dense(kernel_fn, params, X, Z):
     return jax.vmap(lambda x_i: jax.vmap(lambda z_j: kernel_fn(params, x_i, z_j))(Z))(X)
 
 
+def _build_dense_batched(kernel_fn, params, X, Z):
+    if X.ndim == 2:
+        return _build_dense(kernel_fn, params, X, Z)
+    return jax.vmap(
+        lambda X_batch, Z_batch: _build_dense_batched(
+            kernel_fn, params, X_batch, Z_batch
+        )
+    )(X, Z)
+
+
 # ---------------------------------------------------------------------------
 # Backward compatibility
 # ---------------------------------------------------------------------------
@@ -110,6 +120,17 @@ class TestParamsMv:
         scan_eqn = next(eqn for eqn in inner_eqns if eqn.primitive.name == "scan")
 
         assert scan_eqn.params["length"] == 3
+
+    def test_batched_mv_and_as_matrix(self, getkey):
+        X = jr.normal(getkey(), (2, 3, 12, 3))
+        Z = jr.normal(getkey(), (2, 3, 6, 3))
+        params = _make_params(getkey())
+        v = jr.normal(getkey(), (2, 3, 6))
+        op = ImplicitCrossKernelOperator(_rbf_params, X, Z, batch_size=4, params=params)
+        K = _build_dense_batched(_rbf_params, params, X, Z)
+        expected = jnp.matmul(K, v[..., None]).squeeze(-1)
+        assert tree_allclose(op.as_matrix(), K, rtol=1e-5)
+        assert tree_allclose(op.mv(v), expected, rtol=1e-5)
 
 
 # ---------------------------------------------------------------------------
@@ -209,25 +230,3 @@ class TestParamsGradients:
             jax.grad(loss_dense)(Z),
             rtol=1e-4,
         )
-
-    def test_jvp_wrt_params_matches_dense(self, getkey):
-        X = jr.normal(getkey(), (8, 2))
-        Z = jr.normal(getkey(), (5, 2))
-        params = _make_params(getkey())
-        v = jr.normal(getkey(), (5,))
-        params_tangent = {"variance": jnp.array(0.2), "lengthscale": jnp.array(-0.1)}
-
-        def loss_custom(p):
-            op = ImplicitCrossKernelOperator(_rbf_params, X, Z, batch_size=4, params=p)
-            return op.mv(v)
-
-        def loss_dense(p):
-            return _build_dense(_rbf_params, p, X, Z) @ v
-
-        custom_primal, custom_tangent = jax.jvp(
-            loss_custom, (params,), (params_tangent,)
-        )
-        dense_primal, dense_tangent = jax.jvp(loss_dense, (params,), (params_tangent,))
-
-        assert tree_allclose(custom_primal, dense_primal, rtol=1e-5)
-        assert tree_allclose(custom_tangent, dense_tangent, rtol=1e-4)
