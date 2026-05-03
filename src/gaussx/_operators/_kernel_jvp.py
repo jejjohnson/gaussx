@@ -21,8 +21,12 @@ def _kernel_mv_with_jvp(
             ``jax.custom_jvp`` ``(primals, tangents)`` signature.
 
     Returns:
-        A callable with the same runtime signature as ``impl`` that dispatches
-        through ``jax.custom_jvp``.
+        A positional ``(*args)`` callable that forwards to ``impl`` and
+        dispatches through ``jax.custom_jvp``. Note that the returned
+        wrapper accepts only positional arguments — keyword-style calls
+        to ``impl`` are not preserved by this helper. Callers should
+        invoke the wrapper positionally (matching the ``primals`` tuple
+        the JVP rule receives).
 
     Example:
         ```python
