@@ -77,3 +77,19 @@ class TestDARE:
         P_init = jnp.eye(D)
         result = dare(A, H, Q, R, P_init=P_init)
         assert result.converged
+
+
+def test_dare_obs_noise_diagonal_operator(getkey):
+    """dare with operator-typed R matches the array form."""
+    import lineax as lx
+
+    D, M = 3, 2
+    A = 0.9 * jnp.eye(D)
+    H = jax.random.normal(getkey(), (M, D)) * 0.5
+    Q = 0.1 * jnp.eye(D)
+    R_diag = jnp.array([0.3, 0.5])
+    R = jnp.diag(R_diag)
+    ref = dare(A, H, Q, R)
+    op = dare(A, H, Q, lx.DiagonalLinearOperator(R_diag))
+    assert jnp.allclose(ref.P_inf, op.P_inf, atol=1e-5)
+    assert jnp.allclose(ref.K_inf, op.K_inf, atol=1e-5)

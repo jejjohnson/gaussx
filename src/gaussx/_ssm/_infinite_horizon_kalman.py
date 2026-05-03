@@ -13,6 +13,7 @@ from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
+from gaussx._ssm._utils import _materialise, _matvec
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -35,10 +36,10 @@ class InfiniteHorizonState(eqx.Module):
 
 
 def infinite_horizon_filter(
-    transition: Float[Array, "N N"],
-    obs_model: Float[Array, "M N"],
-    process_noise: Float[Array, "N N"],
-    obs_noise: Float[Array, "M M"],
+    transition: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    obs_model: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    obs_noise: Float[Array, "M M"] | lx.AbstractLinearOperator,
     observations: Float[Array, "T M"],
     init_mean: Float[Array, " N"] | None = None,
     *,
@@ -57,11 +58,16 @@ def infinite_horizon_filter(
         Update:   vₜ  = yₜ − H x⁻ₜ
                   xₜ  = x⁻ₜ + K∞ vₜ
 
+    All four operator/array arguments accept either a raw JAX array or
+    a :class:`lineax.AbstractLinearOperator`. Operator inputs preserve
+    their structural matvec inside the per-step scan; the sandwiches
+    materialise once outside the scan.
+
     Args:
-        transition: State transition matrix A, shape ``(N, N)``.
-        obs_model: Observation matrix H, shape ``(M, N)``.
-        process_noise: Process noise covariance Q, shape ``(N, N)``.
-        obs_noise: Observation noise covariance R, shape ``(M, M)``.
+        transition: State transition matrix or operator, shape ``(N, N)``.
+        obs_model: Observation matrix or operator, shape ``(M, N)``.
+        process_noise: Process noise covariance or operator, shape ``(N, N)``.
+        obs_noise: Observation noise covariance or operator, shape ``(M, M)``.
         observations: Observed data y, shape ``(T, M)``.
         init_mean: Initial state mean, shape ``(N,)``. Defaults to zeros.
         dare_result: Precomputed DARE result. If ``None``, calls
@@ -88,15 +94,20 @@ def infinite_horizon_filter(
             solver=solver,
         )
 
+    A_dense = _materialise(transition)
+    H_dense = _materialise(obs_model)
+    Q_dense = _materialise(process_noise)
+    R_dense = _materialise(obs_noise)
+
     P_inf = dare_result.P_inf  # (N, N)
     K_inf = dare_result.K_inf  # (N, M)
     T = observations.shape[0]
-    M = obs_model.shape[0]
-    N = transition.shape[0]
+    M = observations.shape[-1]
+    N = A_dense.shape[0]
 
     # Precompute steady-state quantities
-    P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
-    S_inf = obs_model @ P_pred_inf @ obs_model.T + obs_noise  # (M, M)
+    P_pred_inf = A_dense @ P_inf @ A_dense.T + Q_dense  # (N, N)
+    S_inf = H_dense @ P_pred_inf @ H_dense.T + R_dense  # (M, M)
     L_S = cholesky(  # (M, M)
         lx.MatrixLinearOperator(S_inf, lx.positive_semidefinite_tag)
     ).as_matrix()
@@ -107,13 +118,13 @@ def infinite_horizon_filter(
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
     I_N = jnp.eye(N)
-    P_filt_inf = (I_N - K_inf @ obs_model) @ P_pred_inf  # (N, N)
+    P_filt_inf = (I_N - K_inf @ H_dense) @ P_pred_inf  # (N, N)
 
     def step(carry, y_t):
         x_filt, ll = carry
 
-        x_pred = transition @ x_filt  # (N,)
-        v = y_t - obs_model @ x_pred  # (M,)  innovation
+        x_pred = _matvec(transition, x_filt)  # (N,)
+        v = y_t - _matvec(obs_model, x_pred)  # (M,)  innovation
         x_filt_new = x_pred + K_inf @ v  # (N,)
 
         # Log-likelihood increment (reuse precomputed Cholesky L_S)
@@ -146,9 +157,9 @@ def infinite_horizon_filter(
 
 def infinite_horizon_smoother(
     filter_state: InfiniteHorizonState,
-    transition: Float[Array, "N N"],
+    transition: Float[Array, "N N"] | lx.AbstractLinearOperator,
     dare_result: DAREResult,
-    process_noise: Float[Array, "N N"],
+    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
@@ -162,9 +173,9 @@ def infinite_horizon_smoother(
 
     Args:
         filter_state: Output of ``infinite_horizon_filter``.
-        transition: State transition matrix A, shape ``(N, N)``.
+        transition: State transition matrix or operator, shape ``(N, N)``.
         dare_result: DARE result used in the filter.
-        process_noise: Process noise covariance Q, shape ``(N, N)``.
+        process_noise: Process noise covariance or operator, shape ``(N, N)``.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
 
@@ -172,12 +183,14 @@ def infinite_horizon_smoother(
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
         ``(T, N)`` and ``(T, N, N)``.
     """
+    A_dense = _materialise(transition)
+    Q_dense = _materialise(process_noise)
     P_inf = dare_result.P_inf  # (N, N)
-    P_pred_inf = transition @ P_inf @ transition.T + process_noise  # (N, N)
+    P_pred_inf = A_dense @ P_inf @ A_dense.T + Q_dense  # (N, N)
 
     # Steady-state smoother gain: G∞ = P∞ Aᵀ P⁻pred⁻¹
     P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
-    G_inf = solve_rows(P_pred_inf_op, P_inf @ transition.T, solver=solver)  # (N, N)
+    G_inf = solve_rows(P_pred_inf_op, P_inf @ A_dense.T, solver=solver)  # (N, N)
 
     # Solve discrete Lyapunov equation:
     # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
