@@ -28,9 +28,9 @@ from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
-def _sym(X: Float[Array, "N N"]) -> Float[Array, "N N"]:
-    """Symmetrise a covariance-like matrix to absorb floating-point noise."""
-    return 0.5 * (X + X.T)
+def _sym(X: Float[Array, "... N N"]) -> Float[Array, "... N N"]:
+    """Symmetrise the trailing two axes (works on batched stacks too)."""
+    return 0.5 * (X + jnp.swapaxes(X, -1, -2))
 
 
 # ----------------------------------------------------------------
@@ -94,29 +94,41 @@ def _generic_filter_element_active(F, H, Q, R, y):
 # ----------------------------------------------------------------
 
 
+def _bmv(M, v):
+    """Batched matrix-vector product over the trailing axes."""
+    return jnp.einsum("...ij,...j->...i", M, v)
+
+
 def _filter_combine(elem1, elem2):
     """Combine two filtering elements (Särkkä 2021, §III.A).
 
     ``elem1`` is the earlier-time block, ``elem2`` the later-time block.
+    Operates on the trailing two axes; ``lax.associative_scan`` passes
+    batched chunks with a leading scan axis, so all matrix transposes
+    use ``swapaxes(-1, -2)`` rather than ``.T`` and matrix-vector
+    products use the explicit ``_bmv`` helper (Python ``@`` on
+    ``(..., N, N)`` and ``(..., N)`` does not broadcast a matvec).
     """
     A1, b1, C1, eta1, J1 = elem1
     A2, b2, C2, eta2, J2 = elem2
-    N = A1.shape[0]
+    N = A1.shape[-1]
     eye = jnp.eye(N, dtype=A1.dtype)
+    A2_T = jnp.swapaxes(A2, -1, -2)
 
     # temp1 = A2 @ (I + C1 J2)^{-1}
+    #       = swapaxes(solve((I + C1 J2)^T, A2^T), -1, -2)
     I_C1J2 = eye + C1 @ J2
-    temp1 = jnp.linalg.solve(I_C1J2.T, A2.T).T
+    temp1 = jnp.swapaxes(jnp.linalg.solve(jnp.swapaxes(I_C1J2, -1, -2), A2_T), -1, -2)
 
     A = temp1 @ A1
-    b = temp1 @ (b1 + C1 @ eta2) + b2
-    C = _sym(temp1 @ C1 @ A2.T + C2)
+    b = _bmv(temp1, b1 + _bmv(C1, eta2)) + b2
+    C = _sym(temp1 @ C1 @ A2_T + C2)
 
-    # temp2 = A1.T @ (I + J2 C1)^{-1}
+    # temp2 = A1^T @ (I + J2 C1)^{-1}
     I_J2C1 = eye + J2 @ C1
-    temp2 = jnp.linalg.solve(I_J2C1.T, A1).T
+    temp2 = jnp.swapaxes(jnp.linalg.solve(jnp.swapaxes(I_J2C1, -1, -2), A1), -1, -2)
 
-    eta = temp2 @ (eta2 - J2 @ b1) + eta1
+    eta = _bmv(temp2, eta2 - _bmv(J2, b1)) + eta1
     J = _sym(temp2 @ J2 @ A1 + J1)
 
     return A, b, C, eta, J
@@ -125,14 +137,19 @@ def _filter_combine(elem1, elem2):
 def _smoother_combine(elem1, elem2):
     """Combine two smoothing elements (Särkkä 2021, §III.B).
 
-    Encodes ``m_smooth_t = E_t m_smooth_{t+1} + g_t`` so combining
-    left-to-right gives ``E_left @ E_right`` and ``E_left @ g_right + g_left``.
+    Encodes ``m_smooth_t = E_t m_smooth_{t+1} + g_t``. Used inside
+    ``lax.associative_scan(..., reverse=True)``, which reverses the
+    sequence, runs a forward scan, then reverses the result — so under
+    the forward-scan call ``combine(left, right)`` the left arg is the
+    accumulated *later-time* chain and the right arg is the next
+    *earlier-time* element. The combined result represents the
+    earlier→later span starting at the right element's time.
     """
-    E1, g1, L1 = elem1
-    E2, g2, L2 = elem2
-    E = E1 @ E2
-    g = E1 @ g2 + g1
-    L = _sym(E1 @ L2 @ E1.T + L1)
+    E_later, g_later, L_later = elem1
+    E_earlier, g_earlier, L_earlier = elem2
+    E = E_earlier @ E_later
+    g = _bmv(E_earlier, g_later) + g_earlier
+    L = _sym(E_earlier @ L_later @ jnp.swapaxes(E_earlier, -1, -2) + L_earlier)
     return E, g, L
 
 
