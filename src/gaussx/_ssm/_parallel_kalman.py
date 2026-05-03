@@ -1,7 +1,7 @@
 """Parallel Kalman filter and RTS smoother via associative scan.
 
-Implements the Särkkä–García-Fernández (IEEE TAC 2021) parallel
-formulation of the linear-Gaussian Kalman filter and Rauch–Tung–Striebel
+Implements the Särkkä-García-Fernández (IEEE TAC 2021) parallel
+formulation of the linear-Gaussian Kalman filter and Rauch-Tung-Striebel
 smoother. The forward (filtering) and backward (smoothing) recurrences
 are recast as inclusive associative scans of per-step elements, which
 :func:`jax.lax.associative_scan` evaluates with ``O(log T)`` depth on
@@ -216,23 +216,29 @@ def parallel_kalman_filter(
         y_eff = jnp.where(m, y, jnp.zeros_like(y))
         return _generic_filter_element_active(F, H_eff, Q, R_eff, y_eff)
 
-    elems = jax.vmap(_build_step)(
-        A_seq, H_seq, Q_seq, R_seq, observations, mask_seq
-    )
+    elems = jax.vmap(_build_step)(A_seq, H_seq, Q_seq, R_seq, observations, mask_seq)
 
     # Patch element 0 to absorb the initial prior. Outer ``lax.cond``
     # genuinely skips the inactive branch (no ``vmap`` wrapping here).
     first = jax.lax.cond(
         mask_seq[0],
         lambda: _first_filter_element_active(
-            A_seq[0], H_seq[0], Q_seq[0], R_seq[0], observations[0],
-            init_mean, init_cov,
+            A_seq[0],
+            H_seq[0],
+            Q_seq[0],
+            R_seq[0],
+            observations[0],
+            init_mean,
+            init_cov,
         ),
         lambda: _first_filter_element_masked(
-            A_seq[0], Q_seq[0], init_mean, init_cov,
+            A_seq[0],
+            Q_seq[0],
+            init_mean,
+            init_cov,
         ),
     )
-    elems = tuple(arr.at[0].set(val) for arr, val in zip(elems, first))
+    elems = tuple(arr.at[0].set(val) for arr, val in zip(elems, first, strict=True))
 
     # ----- Associative scan -----
     _A_out, b_out, C_out, _eta_out, _J_out = jax.lax.associative_scan(
