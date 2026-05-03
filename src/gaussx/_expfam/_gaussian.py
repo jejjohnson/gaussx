@@ -173,7 +173,21 @@ def kl_divergence(
     q: GaussianExpFam,
     p: GaussianExpFam,
 ) -> Float[Array, ""]:
-    """KL divergence ``KL(q || p)`` via Bregman divergence.
+    """KL divergence ``KL(q || p)`` via the Bregman-divergence form on
+    natural parameters.
+
+    Exponential-family expression of the KL divergence in terms of the
+    log-partition ``A`` and the natural parameters of ``q`` and ``p``.
+    Mathematically equivalent to
+    :func:`~gaussx._distributions._kl.dist_kl_divergence`.
+
+    The current implementation evaluates the Bregman form by routing
+    through :func:`to_expectation` for the natural-gradient term
+    ``(eta_p - eta_q)^T nabla A(eta_q)`` and materializing ``Sigma_q``
+    and ``eta2`` to assemble the second moment. The benefit relative to
+    :func:`dist_kl_divergence` is keeping the gradient flowing in
+    natural-parameter space (suitable inside a natural-gradient loop),
+    not avoiding the dense conversion.
 
     .. math::
 
@@ -185,6 +199,10 @@ def kl_divergence(
 
     Returns:
         Scalar KL divergence.
+
+    See Also:
+        :func:`~gaussx._distributions._kl.dist_kl_divergence`: General KL
+        in mean/covariance form with lineax operators.
     """
     A_p = log_partition(p)
     A_q = log_partition(q)

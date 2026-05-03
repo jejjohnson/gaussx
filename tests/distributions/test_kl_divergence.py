@@ -75,3 +75,38 @@ class TestDistKLDivergence:
         kl_pq = gaussx.dist_kl_divergence(mu_p, cov_p, mu_q, cov_q)
         kl_qp = gaussx.dist_kl_divergence(mu_q, cov_q, mu_p, cov_p)
         assert not jnp.allclose(kl_pq, kl_qp, atol=1e-3)
+
+
+class TestKLStandardNormalConsistency:
+    """Verify kl_standard_normal is consistent with dist_kl_divergence."""
+
+    def test_matches_dist_kl_diagonal(self):
+        """kl_standard_normal matches dist_kl_divergence with identity prior."""
+        n = 4
+        key = jax.random.PRNGKey(7)
+        m = jax.random.normal(key, (n,))
+        diag = jnp.array([0.5, 1.0, 2.0, 3.0])
+        S = lx.DiagonalLinearOperator(diag)
+
+        result = gaussx.kl_standard_normal(m, S)
+
+        # Equivalent dist_kl_divergence call: KL(N(m,S) || N(0, I))
+        identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n,), m.dtype))
+        zero = jnp.zeros(n)
+        expected = gaussx.dist_kl_divergence(m, S, zero, identity)
+
+        assert jnp.allclose(result, expected, atol=1e-5)
+
+    def test_matches_dist_kl_dense(self):
+        """kl_standard_normal matches dist_kl_divergence for dense covariance."""
+        n = 3
+        m = jax.random.normal(jax.random.PRNGKey(42), (n,))
+        S_op = _make_psd_op(jax.random.PRNGKey(43), n)
+
+        result = gaussx.kl_standard_normal(m, S_op)
+
+        identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n,), m.dtype))
+        zero = jnp.zeros(n)
+        expected = gaussx.dist_kl_divergence(m, S_op, zero, identity)
+
+        assert jnp.allclose(result, expected, atol=1e-4)
