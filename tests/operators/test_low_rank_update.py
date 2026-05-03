@@ -248,6 +248,17 @@ def test_svd_low_rank_plus_diag(getkey):
     assert tree_allclose(lr.mv(v), lr.as_matrix() @ v)
 
 
+def test_svd_low_rank_plus_diag_matches_low_rank_plus_diag(getkey):
+    diag = jr.normal(getkey(), (4,))
+    U = jr.normal(getkey(), (4, 2))
+    S = jnp.abs(jr.normal(getkey(), (2,)))
+    V = jr.normal(getkey(), (4, 2))
+    lr = svd_low_rank_plus_diag(diag, U, S, V)
+    expected = low_rank_plus_diag(diag, U, S, V)
+    assert tree_allclose(lr.as_matrix(), expected.as_matrix())
+    assert tree_allclose(lr.d, expected.d)
+
+
 # ---------------------------------------------------------------------------
 # JAX transforms
 # ---------------------------------------------------------------------------

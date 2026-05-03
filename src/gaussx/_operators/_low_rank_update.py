@@ -127,8 +127,7 @@ def low_rank_plus_diag(
     Returns:
         A ``LowRankUpdate`` with a ``DiagonalLinearOperator`` base.
     """
-    base = _diagonal_base(diag)
-    return LowRankUpdate(base, U, d, V)
+    return _low_rank_update_with_diag_base(diag, U, d, V)
 
 
 def svd_low_rank_plus_diag(
@@ -148,8 +147,7 @@ def svd_low_rank_plus_diag(
     Returns:
         A ``LowRankUpdate`` with a ``DiagonalLinearOperator`` base.
     """
-    base = _diagonal_base(diag)
-    return LowRankUpdate(base, U, S, V)
+    return _low_rank_update_with_diag_base(diag, U, S, V)
 
 
 def low_rank_plus_identity(
@@ -174,6 +172,16 @@ def low_rank_plus_identity(
     """
     n = U.shape[0]
     diag = jnp.full(n, scale, dtype=U.dtype)
+    return _low_rank_update_with_diag_base(diag, U, d, V)
+
+
+def _low_rank_update_with_diag_base(
+    diag: Float[Array, " n"],
+    U: Float[Array, "n k"],
+    d: Float[Array, " k"] | None = None,
+    V: Float[Array, "n k"] | None = None,
+) -> LowRankUpdate:
+    """Construct a low-rank update with a diagonal base operator."""
     base = _diagonal_base(diag)
     return LowRankUpdate(base, U, d, V)
 
