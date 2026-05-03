@@ -1,4 +1,12 @@
-"""Per-site (scalar/diagonal) natural parameter conversions."""
+"""Per-site (scalar/diagonal) natural parameter conversions.
+
+These functions implement expectation-propagation (EP) site operations on
+scalar or diagonal Gaussians. They are not general-purpose Gaussian
+parameterization conversions — for those see :mod:`gaussx._expfam._natural`.
+
+For block-tridiagonal (SSM) parameterizations see
+:mod:`gaussx._ssm._ssm_natural`.
+"""
 
 from __future__ import annotations
 
