@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -50,37 +51,96 @@ def schur_complement(
 
 def conditional_variance(
     K_XX_diag: Float[Array, " N"],
-    A_X: Float[Array, "N M"],
-    S_u: lx.AbstractLinearOperator,
+    K_XZ: Float[Array, "N M"] | lx.AbstractLinearOperator | None = None,
+    A_X: Float[Array, "N M"] | None = None,
+    S_u: lx.AbstractLinearOperator | None = None,
 ) -> Float[Array, " N"]:
-    """Predictive variance for GP conditionals.
+    """Predictive variance: Schur complement diagonal plus optional variational
+    correction.
 
-    Computes::
+    Computes the diagonal of the conditional covariance::
 
-        diag(K_XX) - diag(A @ K_ZZ @ A^T) + diag(A @ S_u @ A^T)
+        diag(K_XX - A_X K_XZ^T) + diag(A_X S_u A_X^T)
 
-    which simplifies to::
+    where ``A_X = K_XZ K_ZZ^{-1}`` is the projection matrix.
+    Negative base variances are clamped to zero.
 
-        K_XX_diag + sum_j (A_X S_u A_X^T)_ii
-
-    In practice, ``A_X`` already absorbs the ``K_ZZ^{-1}`` projection,
-    so this computes::
-
-        K_XX_diag + diag(A_X @ S_u @ A_X^T)
-
-    The diagonal of ``A @ S_u @ A^T`` is computed row-by-row to avoid
-    materializing the full ``(N, N)`` product.
+    Without ``S_u`` this is the exact GP predictive variance (diagonal of the
+    Schur complement).  With ``S_u`` it is the sparse GP variational predictive
+    variance that adds a variational covariance correction.
 
     Args:
         K_XX_diag: Prior diagonal variances, shape ``(N,)``.
-        A_X: Projection matrix, shape ``(N, M)``.
-        S_u: Variational covariance, shape ``(M, M)``.
+        K_XZ: Cross-covariance matrix, shape ``(N, M)``.
+        A_X: Projection matrix ``K_XZ K_ZZ^{-1}``, shape ``(N, M)``.
+        S_u: Optional variational covariance, shape ``(M, M)``.  When
+            provided, adds ``diag(A_X S_u A_X^T)`` to the base variance.
 
     Returns:
         Predictive variances, shape ``(N,)``.
+
+    Note:
+        For one release the legacy three-positional-argument form
+        ``conditional_variance(base_diag, A_X, S_u)`` (where
+        ``base_diag`` was the *Schur* diagonal already, ``A_X`` was the
+        projection, and ``S_u`` was the variational covariance) is
+        still accepted: it is detected when the second positional
+        argument is a :class:`lineax.AbstractLinearOperator` (the old
+        ``S_u`` slot type). Such calls emit a
+        :class:`DeprecationWarning` and compute
+        ``base_diag + diag(A_X S_u A_X^T)`` without the
+        Schur subtraction.
     """
-    # diag(A @ S @ A^T) = sum_j (A * (S @ A^T)^T)  per row
+    # Backwards-compat: the legacy 3-positional signature was
+    # ``conditional_variance(base_diag, A_X, S_u)``. The pre-#152 docs
+    # called it as ``conditional_variance(adjusted_diag, A, S_u)`` with
+    # the second arg as the projection matrix and the third as the
+    # variational covariance operator. We can detect that pattern by
+    # the third positional being an AbstractLinearOperator (it
+    # corresponds to the old ``S_u``) while ``S_u`` is left at the
+    # default ``None``.
+    if (
+        S_u is None
+        and isinstance(A_X, lx.AbstractLinearOperator)
+        and isinstance(K_XZ, jax.Array)
+    ):
+        import warnings
+
+        warnings.warn(
+            "conditional_variance(base_diag, A_X, S_u) is deprecated; "
+            "use conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u). "
+            "The legacy form treats the first argument as the "
+            "precomputed Schur diagonal and skips the K_XZ-based "
+            "subtraction.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        legacy_A_X = K_XZ  # second positional was the projection matrix
+        legacy_S_u: lx.AbstractLinearOperator = A_X  # third was S_u
+        S_mat = legacy_S_u.as_matrix()
+        AS = legacy_A_X @ S_mat
+        diag_ASAt = jnp.sum(AS * legacy_A_X, axis=1)
+        return jnp.clip(K_XX_diag, 0.0) + diag_ASAt
+
+    if K_XZ is None or A_X is None:
+        raise TypeError(
+            "conditional_variance requires K_XZ and A_X (or the legacy "
+            f"(base_diag, A_X, S_u) call). Got K_XZ={K_XZ!r}, "
+            f"A_X={A_X!r}, S_u={S_u!r}."
+        )
+    if not isinstance(K_XZ, jax.Array):
+        raise TypeError(
+            "K_XZ must be a jax array; the legacy 3-positional form "
+            "passes an AbstractLinearOperator as the third positional "
+            "argument."
+        )
+
+    # Diagonal of Schur complement: diag(K_XX - K_XZ K_ZZ^{-1} K_ZX)
+    base = jnp.clip(K_XX_diag - jnp.sum(A_X * K_XZ, axis=1), 0.0)
+    if S_u is None:
+        return base
+    # Variational correction: diag(A_X S_u A_X^T)
     S_mat = S_u.as_matrix()
     AS = A_X @ S_mat  # (N, M)
     diag_ASAt = jnp.sum(AS * A_X, axis=1)  # (N,)
-    return K_XX_diag + diag_ASAt
+    return base + diag_ASAt

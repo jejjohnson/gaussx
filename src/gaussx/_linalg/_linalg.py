@@ -9,6 +9,7 @@ import lineax as lx
 from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._linalg._schur import conditional_variance as _conditional_variance
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolveStrategy
@@ -141,17 +142,12 @@ def diag_conditional_variance(
     K_XZ: Float[Array, "N M"],
     A_X: Float[Array, "N M"],
 ) -> Float[Array, " N"]:
-    """Base conditional variance without variational covariance.
+    """Diagonal of Schur complement: ``diag(K_XX - A K_ZX)``.
 
-    Computes::
-
-        var_i = K_XX_diag[i] - sum_m A_X[i,m] * K_XZ[i,m]
-
-    This is the Schur complement diagonal: ``diag(K_XX - A K_ZX)``
-    where ``A = K_XZ K_ZZ^{-1}``. Negative values are clamped to 0.
-
-    Used in sparse GP prediction as the base variance before adding
-    the variational covariance contribution.
+    Thin wrapper around :func:`gaussx.conditional_variance` (defined in
+    :func:`gaussx._linalg._schur.conditional_variance`) without a
+    variational covariance.  Use :func:`gaussx.conditional_variance`
+    directly when a variational correction ``S_u`` is also needed.
 
     Args:
         K_XX_diag: Prior diagonal variances, shape ``(N,)``.
@@ -161,8 +157,7 @@ def diag_conditional_variance(
     Returns:
         Conditional variances, shape ``(N,)``.
     """
-    correction = reduce(A_X * K_XZ, "N M -> N", "sum")
-    return jnp.clip(K_XX_diag - correction, 0.0)
+    return _conditional_variance(K_XX_diag, K_XZ, A_X)
 
 
 def solve_columns(
