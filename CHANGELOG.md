@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.13](https://github.com/jejjohnson/gaussx/compare/v0.0.12...v0.0.13) (2026-05-03)
+
+
+### Features
+
+* add batched input support to kernel operators ([#141](https://github.com/jejjohnson/gaussx/issues/141)) ([165a6f6](https://github.com/jejjohnson/gaussx/commit/165a6f6d9cd24e45f90677513aa8f5b05b488897))
+* **ssm:** operator-typed Kalman family + time-varying generalisation ([#162](https://github.com/jejjohnson/gaussx/issues/162)) ([cdf898d](https://github.com/jejjohnson/gaussx/commit/cdf898d3c7252efbaa5c322ea897058a675a464d))
+
 ## [0.0.12](https://github.com/jejjohnson/gaussx/compare/v0.0.11...v0.0.12) (2026-05-02)
 
 
