@@ -12,6 +12,7 @@ import lineax as lx
 from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_diag import _to_frozenset
+from gaussx._operators._kernel_jvp import _kernel_mv_with_jvp
 
 
 # ---------------------------------------------------------------------------
@@ -43,15 +44,6 @@ def _make_implicit_kernel_mv(kernel_fn: Callable) -> Callable:
         _, Kv = jax.lax.scan(body_fn, None, X)
         return Kv
 
-    @jax.custom_jvp
-    def implicit_kernel_mv(
-        params: PyTree,
-        X: Float[Array, "N D"],
-        v: Float[Array, " N"],
-    ) -> Float[Array, " N"]:
-        return _impl(params, X, v)
-
-    @implicit_kernel_mv.defjvp
     def implicit_kernel_mv_jvp(
         primals: tuple[PyTree, Float[Array, "N D"], Float[Array, " N"]],
         tangents: tuple[PyTree, Float[Array, "N D"], Float[Array, " N"]],
@@ -82,7 +74,7 @@ def _make_implicit_kernel_mv(kernel_fn: Callable) -> Callable:
         primal_out, tangent_out = jax.vmap(row_jvp)((X, dX))
         return primal_out, tangent_out
 
-    return implicit_kernel_mv
+    return _kernel_mv_with_jvp(_impl, implicit_kernel_mv_jvp)
 
 
 class ImplicitKernelOperator(lx.AbstractLinearOperator):
