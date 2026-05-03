@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.14](https://github.com/jejjohnson/gaussx/compare/v0.0.13...v0.0.14) (2026-05-03)
+
+
+### Bug Fixes
+
+* **ssm:** real parallel Kalman filter / RTS smoother via associative_scan ([#166](https://github.com/jejjohnson/gaussx/issues/166)) ([990b7d5](https://github.com/jejjohnson/gaussx/commit/990b7d522ff7f34e2dd188fd6c75aba53bc89cc8))
+
 ## [0.0.13](https://github.com/jejjohnson/gaussx/compare/v0.0.12...v0.0.13) (2026-05-03)
 
 
