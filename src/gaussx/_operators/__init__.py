@@ -396,6 +396,170 @@ def _(operator: _TransposedCrossKernelOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
+# is_negative_semidefinite registrations.
+# lineax 0.1.1 promoted this to a required dispatch (no default). None of the
+# gaussx operators claim NSD by construction — propagate to children where it
+# would be meaningful, otherwise return False.
+
+
+@lx.is_negative_semidefinite.register(BlockDiag)
+def _(operator: BlockDiag) -> bool:
+    return all(lx.is_negative_semidefinite(op) for op in operator.operators)
+
+
+@lx.is_negative_semidefinite.register(Kronecker)
+def _(operator: Kronecker) -> bool:
+    return False
+
+
+@lx.is_negative_semidefinite.register(LowRankUpdate)
+def _(operator: LowRankUpdate) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(KroneckerSum)
+def _(operator: KroneckerSum) -> bool:
+    return False
+
+
+@lx.is_negative_semidefinite.register(BlockTriDiag)
+def _(operator: BlockTriDiag) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(LowerBlockTriDiag)
+def _(operator: LowerBlockTriDiag) -> bool:
+    return False
+
+
+@lx.is_negative_semidefinite.register(UpperBlockTriDiag)
+def _(operator: UpperBlockTriDiag) -> bool:
+    return False
+
+
+@lx.is_negative_semidefinite.register(ImplicitKernelOperator)
+def _(operator: ImplicitKernelOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(MaskedOperator)
+def _(operator: MaskedOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(Toeplitz)
+def _(operator: Toeplitz) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(SumOperator)
+def _(operator: SumOperator) -> bool:
+    return all(lx.is_negative_semidefinite(op) for op in operator.operators)
+
+
+@lx.is_negative_semidefinite.register(ScaledOperator)
+def _(operator: ScaledOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(ProductOperator)
+def _(operator: ProductOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(SumKronecker)
+def _(operator: SumKronecker) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(InterpolatedOperator)
+def _(operator: InterpolatedOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(KernelOperator)
+def _(operator: KernelOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(ImplicitCrossKernelOperator)
+def _(operator: ImplicitCrossKernelOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(_TransposedCrossKernelOperator)
+def _(operator: _TransposedCrossKernelOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
+# is_tridiagonal / is_lower_triangular / is_upper_triangular registrations.
+# lineax 0.1.1 made all predicates required. None of the gaussx operators
+# claim element-wise tridiagonal or triangular structure (block-tridiagonal
+# is not the same as element tridiagonal); register False uniformly except
+# where already specialised above for LowerBlockTriDiag / UpperBlockTriDiag.
+
+_ALL_TRIDIAG_DEFAULTS = (
+    BlockDiag,
+    Kronecker,
+    LowRankUpdate,
+    KroneckerSum,
+    BlockTriDiag,
+    LowerBlockTriDiag,
+    UpperBlockTriDiag,
+    ImplicitKernelOperator,
+    MaskedOperator,
+    Toeplitz,
+    SumOperator,
+    ScaledOperator,
+    ProductOperator,
+    SumKronecker,
+    InterpolatedOperator,
+    KernelOperator,
+    ImplicitCrossKernelOperator,
+    _TransposedCrossKernelOperator,
+)
+
+_TRI_DEFAULTS = (
+    BlockDiag,
+    Kronecker,
+    LowRankUpdate,
+    KroneckerSum,
+    BlockTriDiag,
+    ImplicitKernelOperator,
+    MaskedOperator,
+    Toeplitz,
+    SumOperator,
+    ScaledOperator,
+    ProductOperator,
+    SumKronecker,
+    InterpolatedOperator,
+    KernelOperator,
+    ImplicitCrossKernelOperator,
+    _TransposedCrossKernelOperator,
+)
+
+for _cls in _ALL_TRIDIAG_DEFAULTS:
+    lx.is_tridiagonal.register(_cls)(lambda _operator: False)
+
+for _cls in _TRI_DEFAULTS:
+    lx.is_lower_triangular.register(_cls)(lambda _operator: False)
+    lx.is_upper_triangular.register(_cls)(lambda _operator: False)
+
+
+# LowerBlockTriDiag / UpperBlockTriDiag: PSD/NSD defaults (block triangular,
+# not generally PSD).
+
+
+@lx.is_positive_semidefinite.register(LowerBlockTriDiag)
+def _(operator: LowerBlockTriDiag) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(UpperBlockTriDiag)
+def _(operator: UpperBlockTriDiag) -> bool:
+    return False
+
+
 __all__ = [
     "BlockDiag",
     "BlockTriDiag",
