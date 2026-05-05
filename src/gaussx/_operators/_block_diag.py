@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -84,7 +86,6 @@ def _to_frozenset(x: object | frozenset[object]) -> frozenset[object]:
     """Convert a single tag or frozenset of tags to a frozenset."""
     if isinstance(x, frozenset):
         return x
-    try:
-        return frozenset(x)  # type: ignore[arg-type]
-    except TypeError:
-        return frozenset([x])
+    if isinstance(x, Iterable):
+        return frozenset(x)
+    return frozenset([x])

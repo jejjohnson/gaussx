@@ -182,7 +182,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
     _batch_shape: tuple[int, ...] = eqx.field(static=True)
     _has_params: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
-    _kernel_mv: Callable = eqx.field(static=True)
+    _kernel_mv: Callable | None = eqx.field(static=True)
 
     def __init__(
         self,
@@ -220,7 +220,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
         if self._has_params:
             self._kernel_mv = _make_cross_kernel_mv(kernel_fn, batch_size)
         else:
-            self._kernel_mv = None  # type: ignore[assignment]
+            self._kernel_mv = None
 
     def mv(self, vector: Float[Array, "*batch M"]) -> Float[Array, "*batch N"]:
         """Compute ``K(X_data, X_inducing) @ v`` via batched scan.
@@ -238,6 +238,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
             v: Float[Array, " M"],
         ) -> Float[Array, " N"]:
             if self._has_params:
+                assert self._kernel_mv is not None
                 return self._kernel_mv(self.params, X_data, X_inducing, v)
 
             n = self._n
@@ -273,7 +274,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
         ``(M,)`` result, keeping peak memory at ``O(batch_size x M)``.
         """
         if lx.symmetric_tag in self.tags:
-            return self  # type: ignore[return-value]
+            return _TransposedCrossKernelOperator(self, tags=self.tags)
         return _TransposedCrossKernelOperator(self, tags=lx.transpose_tags(self.tags))
 
     def as_matrix(self) -> Float[Array, "*batch N M"]:

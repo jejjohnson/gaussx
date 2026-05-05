@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import ClassVar
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -98,9 +96,9 @@ class MultivariateNormal(dist.Distribution):
         >>> d.log_prob(jnp.ones(3))
     """
 
-    arg_constraints: ClassVar[dict] = {"loc": dist.constraints.real_vector}
+    arg_constraints = {"loc": dist.constraints.real_vector}  # noqa: RUF012
     support = dist.constraints.real_vector
-    reparametrized_params: ClassVar[list] = ["loc"]
+    reparametrized_params = ["loc"]  # noqa: RUF012
     pytree_data_fields = ("loc", "cov_operator", "solver")
 
     def __init__(
@@ -139,7 +137,7 @@ class MultivariateNormal(dist.Distribution):
 
     def sample(
         self,
-        key: jax.dtypes.prng_key | None,
+        key: jax.Array | None,
         sample_shape: tuple[int, ...] = (),
     ) -> Float[Array, "*batch N"]:
         if key is None:

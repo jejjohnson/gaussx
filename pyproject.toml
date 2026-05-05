@@ -20,12 +20,12 @@ classifiers = [
     "Development Status :: 2 - Pre-Alpha",
 ]
 dependencies = [
-    "jax>=0.4",
-    "jaxlib>=0.4",
-    "equinox>=0.11",
-    "lineax>=0.1.0",
-    "matfree>=0.3",
-    "jaxtyping>=0.2",
+    "jax>=0.10",
+    "jaxlib>=0.10",
+    "equinox>=0.13.8",
+    "lineax>=0.1.1",
+    "matfree>=0.5",
+    "jaxtyping>=0.3",
     "einops>=0.8",
 ]
 
@@ -34,7 +34,7 @@ Repository = "https://github.com/jejjohnson/gaussx"
 
 [project.optional-dependencies]
 numpyro = [
-    "numpyro>=0.15",
+    "numpyro>=0.21",
 ]
 
 [dependency-groups]
@@ -44,14 +44,14 @@ dev = [
     "pytest-xdist>=3.5",
     "pre-commit>=3.7",
     "beartype>=0.18",
-    "numpyro>=0.15",
+    "numpyro>=0.21",
 ]
 lint = [
     "ruff>=0.15.10",
 ]
 typecheck = [
-    "ty>=0.0.1a6",
-    "numpyro>=0.15",
+    "ty>=0.0.34",
+    "numpyro>=0.21",
 ]
 docs = [
     "matplotlib>=3.8",

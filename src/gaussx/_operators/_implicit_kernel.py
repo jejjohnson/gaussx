@@ -128,7 +128,7 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
     _batch_shape: tuple[int, ...] = eqx.field(static=True)
     _has_params: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
-    _kernel_mv: Callable = eqx.field(static=True)
+    _kernel_mv: Callable | None = eqx.field(static=True)
 
     def __init__(
         self,
@@ -153,7 +153,7 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
         if self._has_params:
             self._kernel_mv = _make_implicit_kernel_mv(kernel_fn)
         else:
-            self._kernel_mv = None  # type: ignore[assignment]
+            self._kernel_mv = None
 
     def mv(self, vector: Float[Array, "*batch N"]) -> Float[Array, "*batch N"]:
         """Compute ``(K + sigma^2 I) @ v`` via scan over data points."""
@@ -164,6 +164,7 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
             X: Float[Array, "N D"], v: Float[Array, " N"]
         ) -> Float[Array, " N"]:
             if self._has_params:
+                assert self._kernel_mv is not None
                 return self._kernel_mv(self.params, X, v)
 
             def row_dot(x_i: Float[Array, " D"]) -> Float[Array, ""]:
