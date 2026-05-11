@@ -382,7 +382,7 @@ def test_eigendecompose_rejects_nonsymmetric_kron1(getkey):
         SK.eigendecompose()
 
 
-def test_sqrt_sumkronecker_returns_lanczos_operator(getkey, monkeypatch):
+def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
     SK = _make_psd_sum_kronecker(getkey)
     v = jr.normal(getkey(), (SK.in_size(),))
 

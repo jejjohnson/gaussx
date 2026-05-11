@@ -126,10 +126,8 @@ class SumKronecker(lx.AbstractLinearOperator):
         """
         if len(self.operators) != 2:
             count = len(self.operators)
-            suffix = "" if count == 1 else "s"
             raise ValueError(
-                "eigendecompose requires exactly two Kronecker products, "
-                f"got {count} product{suffix}."
+                f"eigendecompose requires exactly two Kronecker products, got {count}."
             )
         A2_op, B2_op = self.kron2.operators
         A1_op, B1_op = self.kron1.operators
