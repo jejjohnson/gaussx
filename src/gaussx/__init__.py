@@ -128,9 +128,12 @@ from gaussx._operators import (
     implicit_cross_kernel as implicit_cross_kernel,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
+    sumkronecker_sample as sumkronecker_sample,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
 )
 from gaussx._primitives import (
+    DenseFallbackWarning as DenseFallbackWarning,
+    SumKroneckerSqrt as SumKroneckerSqrt,
     cholesky as cholesky,
     cholesky_logdet as cholesky_logdet,
     diag as diag,

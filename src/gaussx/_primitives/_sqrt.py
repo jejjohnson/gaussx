@@ -10,6 +10,7 @@ import matfree.funm
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._sum_kronecker import SumKronecker
 
 
 def sqrt(
@@ -39,6 +40,10 @@ def sqrt(
         return _sqrt_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _sqrt_kronecker(operator)
+    if isinstance(operator, SumKronecker):
+        return _sqrt_sum_kronecker(
+            operator, lanczos_order=50 if lanczos_order is None else lanczos_order
+        )
     if lanczos_order is not None:
         return SqrtOperator(operator, lanczos_order)
     return _sqrt_dense(operator)
@@ -57,6 +62,14 @@ def _sqrt_block_diag(operator: BlockDiag) -> BlockDiag:
 
 def _sqrt_kronecker(operator: Kronecker) -> Kronecker:
     return Kronecker(*(sqrt(op) for op in operator.operators))
+
+
+def _sqrt_sum_kronecker(
+    operator: SumKronecker,
+    *,
+    lanczos_order: int = 50,
+) -> SumKroneckerSqrt:
+    return SumKroneckerSqrt(operator, lanczos_order=lanczos_order)
 
 
 def _sqrt_dense(
@@ -114,6 +127,19 @@ class SqrtOperator(lx.AbstractLinearOperator):
 
     def out_structure(self):
         return self.original.out_structure()
+
+
+class SumKroneckerSqrt(SqrtOperator):
+    """Lazy Lanczos square-root operator for ``SumKronecker`` covariances."""
+
+    original: SumKronecker
+
+    def __init__(
+        self,
+        original: SumKronecker,
+        lanczos_order: int = 50,
+    ) -> None:
+        super().__init__(original, lanczos_order=lanczos_order)
 
 
 # Register tags for SqrtOperator
