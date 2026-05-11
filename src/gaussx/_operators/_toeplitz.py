@@ -236,7 +236,7 @@ def _circulant_sqrt_spectrum(
     ).real
     scale = jnp.maximum(1.0, jnp.max(jnp.abs(spectrum)))
     tolerance = 100 * jnp.finfo(column.dtype).eps * scale
-    if bool(jnp.any(spectrum < -tolerance)):
+    if jnp.any(spectrum < -tolerance):
         raise ValueError(
             "Circulant embedding failed the Wood-Chan non-negativity condition "
             f"for embedding_factor={embedding_factor}; try "
