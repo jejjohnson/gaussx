@@ -156,7 +156,7 @@ class TestCirculantCholesky:
         with pytest.warns(RuntimeWarning, match="Falling back to dense Cholesky"):
             samples = toeplitz_sample(column, key=key, num_samples=4)
 
-        L = jnp.linalg.cholesky(_toeplitz_dense(column))
+        L = jnp.linalg.cholesky(Toeplitz(column).as_matrix())
         expected = jr.normal(key, (4, column.shape[0]), dtype=column.dtype) @ L.T
         assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
 
