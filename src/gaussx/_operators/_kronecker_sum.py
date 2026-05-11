@@ -146,15 +146,22 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
     ) -> None:
         evals_a, evecs_a = _eigh_factor(A)
         evals_b, evecs_b = _eigh_factor(B)
-        eigenvalues = evals_a[:, None] + evals_b[None, :]
+        eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
+            jnp.result_type(evals_a, evals_b, jnp.float32)
+        )
         # Scale by magnitude so invalid large-negative spectra get a fair tolerance.
         scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
         tolerance = (
-            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
-            * jnp.finfo(jnp.result_type(eigenvalues, jnp.float32)).eps
+            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR * jnp.finfo(eigenvalues.dtype).eps
         )
-        if bool(jnp.min(eigenvalues) < tolerance * scale):
-            raise ValueError("A ⊕ B must be positive semidefinite.")
+        min_eigenvalue = jnp.min(eigenvalues)
+        threshold = tolerance * scale
+        if bool(min_eigenvalue < threshold):
+            raise ValueError(
+                "A ⊕ B must be positive semidefinite; "
+                f"minimum eigenvalue {float(min_eigenvalue):.2e} is below "
+                f"threshold {float(threshold):.2e}."
+            )
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
         self.eigenvectors_a = evecs_a
