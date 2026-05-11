@@ -147,6 +147,7 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         evals_a, evecs_a = _eigh_factor(A)
         evals_b, evecs_b = _eigh_factor(B)
         eigenvalues = evals_a[:, None] + evals_b[None, :]
+        # Scale by magnitude so invalid large-negative spectra get a fair tolerance.
         scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
         tolerance = (
             -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
@@ -201,7 +202,7 @@ def kroneckersum_sample(
     num_samples: int = 1,
 ) -> Float[Array, "num_samples n_a n_b"]:
     """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions."""
-    if num_samples < 1:
+    if num_samples <= 0:
         raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
 
     sqrt_op = KroneckerSumSqrt(A_op, B_op)
