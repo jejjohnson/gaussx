@@ -67,6 +67,7 @@ from gaussx._inference import (
     damped_natural_update as damped_natural_update,
     ensemble_covariance as ensemble_covariance,
     ensemble_cross_covariance as ensemble_cross_covariance,
+    ensemble_kalman_gain as ensemble_kalman_gain,
     gauss_newton_precision as gauss_newton_precision,
     gaussian_expected_log_lik as gaussian_expected_log_lik,
     ggn_diagonal as ggn_diagonal,

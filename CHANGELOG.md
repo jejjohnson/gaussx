@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Features
+
+* **recipes:** add Bessel-corrected ensemble covariances and ensemble Kalman gain for downstream filterax adoption
+
 ## [0.0.14](https://github.com/jejjohnson/gaussx/compare/v0.0.13...v0.0.14) (2026-05-03)
 
 
