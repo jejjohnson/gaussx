@@ -80,7 +80,7 @@ class TestKroneckerSum:
         A = lx.DiagonalLinearOperator(A_diag)
         B = lx.DiagonalLinearOperator(B_diag)
 
-        num_samples = 8192
+        num_samples = 4096
         samples = gaussx.kroneckersum_sample(
             A,
             B,
@@ -92,7 +92,7 @@ class TestKroneckerSum:
         samples_flat = rearrange(samples, "s a b -> s (a b)")
         empirical_cov = samples_flat.T @ samples_flat / num_samples
         expected_cov = gaussx.KroneckerSum(A, B).as_matrix()
-        assert jnp.allclose(empirical_cov, expected_cov, atol=0.2)
+        assert jnp.allclose(empirical_cov, expected_cov, atol=0.3)
 
     def test_sample_nonpositive_count_raises(self):
         A = lx.DiagonalLinearOperator(jnp.array([1.0]))

@@ -129,7 +129,7 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
 
     eigenvectors_a: Float[Array, "a a"]
     eigenvectors_b: Float[Array, "b b"]
-    sqrt_eigenvalues: Float[Array, "b a"]
+    sqrt_eigenvalues: Float[Array, "a b"]
     _in_size: int = eqx.field(static=True)
     _out_size: int = eqx.field(static=True)
     _n_a: int = eqx.field(static=True)
@@ -143,9 +143,12 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
     ) -> None:
         evals_a, evecs_a = _eigh_factor(A)
         evals_b, evecs_b = _eigh_factor(B)
-        sqrt_eigenvalues = jnp.sqrt(
-            jnp.maximum(evals_b[:, None] + evals_a[None, :], 0.0)
-        )
+        eigenvalues = evals_a[:, None] + evals_b[None, :]
+        scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
+        tolerance = -100 * jnp.finfo(jnp.result_type(eigenvalues, jnp.float32)).eps
+        if bool(jnp.min(eigenvalues) < tolerance * scale):
+            raise ValueError("A ⊕ B must be positive semidefinite.")
+        sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
         self.eigenvectors_a = evecs_a
         self.eigenvectors_b = evecs_b
@@ -159,14 +162,14 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
         C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
-        C = self.sqrt_eigenvalues * C
+        C = self.sqrt_eigenvalues.T * C
         result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
         return rearrange(result, "b a -> (a b)")
 
     def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
         C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
-        C = C / self.sqrt_eigenvalues
+        C = C / self.sqrt_eigenvalues.T
         result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
         return rearrange(result, "b a -> (a b)")
 
@@ -193,7 +196,7 @@ def kroneckersum_sample(
 ) -> Float[Array, "num_samples n_a n_b"]:
     """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions."""
     if num_samples < 1:
-        raise ValueError(f"num_samples must be positive, got {num_samples}.")
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
 
     sqrt_op = KroneckerSumSqrt(A_op, B_op)
     eps = jax.random.normal(
