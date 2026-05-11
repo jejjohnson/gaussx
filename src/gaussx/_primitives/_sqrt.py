@@ -13,6 +13,9 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sum_kronecker import SumKronecker
 
 
+_DEFAULT_LANCZOS_ORDER = 50
+
+
 def sqrt(
     operator: lx.AbstractLinearOperator,
     *,
@@ -42,7 +45,10 @@ def sqrt(
         return _sqrt_kronecker(operator)
     if isinstance(operator, SumKronecker):
         return _sqrt_sum_kronecker(
-            operator, lanczos_order=50 if lanczos_order is None else lanczos_order
+            operator,
+            lanczos_order=(
+                _DEFAULT_LANCZOS_ORDER if lanczos_order is None else lanczos_order
+            ),
         )
     if lanczos_order is not None:
         return SqrtOperator(operator, lanczos_order)
@@ -67,7 +73,7 @@ def _sqrt_kronecker(operator: Kronecker) -> Kronecker:
 def _sqrt_sum_kronecker(
     operator: SumKronecker,
     *,
-    lanczos_order: int = 50,
+    lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
 ) -> SumKroneckerSqrt:
     return SumKroneckerSqrt(operator, lanczos_order=lanczos_order)
 
@@ -137,7 +143,7 @@ class SumKroneckerSqrt(SqrtOperator):
     def __init__(
         self,
         original: SumKronecker,
-        lanczos_order: int = 50,
+        lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
     ) -> None:
         super().__init__(original, lanczos_order=lanczos_order)
 

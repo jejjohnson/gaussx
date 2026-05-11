@@ -61,7 +61,9 @@ class TestConstruction:
             for _ in range(3)
         ]
         SK = SumKronecker(*terms)
-        expected = sum((term.as_matrix() for term in terms[1:]), terms[0].as_matrix())
+        expected = terms[0].as_matrix()
+        for term in terms[1:]:
+            expected = expected + term.as_matrix()
         assert tree_allclose(SK.as_matrix(), expected)
 
     def test_rejects_three_factor_kronecker(self, getkey):
@@ -398,19 +400,20 @@ def test_sqrt_sumkronecker_returns_lanczos_operator(getkey, monkeypatch):
 def test_sumkronecker_sample_matches_dense_reference(getkey):
     SK = _make_psd_sum_kronecker(getkey)
     key = getkey()
+    num_samples = 3
     samples = sumkronecker_sample(
         SK,
         key=key,
-        num_samples=3,
+        num_samples=num_samples,
         lanczos_order=SK.in_size(),
     )
 
-    eps = jr.normal(key, (3, SK.in_size()), dtype=SK.out_structure().dtype)
+    eps = jr.normal(key, (num_samples, SK.in_size()), dtype=SK.in_structure().dtype)
     vals, vecs = jnp.linalg.eigh(SK.as_matrix())
     dense_sqrt = vecs @ jnp.diag(jnp.sqrt(jnp.maximum(vals, 0.0))) @ vecs.T
     expected = jax.vmap(lambda e: dense_sqrt @ e)(eps)
 
-    assert samples.shape == (3, SK.in_size())
+    assert samples.shape == (num_samples, SK.in_size())
     assert tree_allclose(samples, expected, rtol=0.1, atol=1e-5)
 
 

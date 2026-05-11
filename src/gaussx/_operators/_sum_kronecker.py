@@ -125,7 +125,10 @@ class SumKronecker(lx.AbstractLinearOperator):
             ``self == Q @ diag(eigenvalues) @ Q^T``.
         """
         if len(self.operators) != 2:
-            raise ValueError("eigendecompose requires exactly two Kronecker products.")
+            raise ValueError(
+                "eigendecompose requires exactly two Kronecker products, "
+                f"got {len(self.operators)}."
+            )
         A2_op, B2_op = self.kron2.operators
         A1_op, B1_op = self.kron1.operators
         # The final ``eigh(transformed)`` call requires ``transformed`` to
@@ -190,6 +193,6 @@ def sumkronecker_sample(
 
     sqrt_op = sqrt(op, lanczos_order=lanczos_order)
     eps = jax.random.normal(
-        key, (num_samples, op.in_size()), dtype=op.out_structure().dtype
+        key, (num_samples, op.in_size()), dtype=op.in_structure().dtype
     )
     return jax.vmap(sqrt_op.mv)(eps)
