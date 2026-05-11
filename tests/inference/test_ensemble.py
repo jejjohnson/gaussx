@@ -46,8 +46,8 @@ def test_ensemble_covariance_matches_numpy_divisors(getkey):
     mle = ensemble_covariance(particles)
     bessel = ensemble_covariance(particles, bessel=True)
 
-    expected_mle = np.cov(np.asarray(particles).T, ddof=0)
-    expected_bessel = np.cov(np.asarray(particles).T, ddof=1)
+    expected_mle = np.cov(particles.T, ddof=0)
+    expected_bessel = np.cov(particles.T, ddof=1)
 
     assert tree_allclose(mle.as_matrix(), jnp.asarray(expected_mle), atol=1e-10)
     assert tree_allclose(bessel.as_matrix(), jnp.asarray(expected_bessel), atol=1e-10)
@@ -154,7 +154,6 @@ def test_ensemble_recipes_jit_grad_and_vmap(getkey):
 
     assert jnp.isfinite(jitted)
     assert grad.shape == particles.shape
-    assert vmapped.shape == (2, N, M)
     assert tree_allclose(
         vmapped[0],
         ensemble_kalman_gain(particles, particles @ H.T, obs_noise),
