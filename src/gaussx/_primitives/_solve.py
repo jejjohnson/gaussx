@@ -16,7 +16,7 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
@@ -49,6 +49,8 @@ def solve(
         return _solve_low_rank(operator, vector, solver)
     if isinstance(operator, KroneckerSum):
         return _solve_kronecker_sum(operator, vector)
+    if isinstance(operator, KroneckerSumSqrt):
+        return operator.solve(vector)
     if isinstance(operator, BlockTriDiag):
         return _solve_block_tridiag(operator, vector)
     if isinstance(operator, LowerBlockTriDiag):

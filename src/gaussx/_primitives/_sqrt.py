@@ -10,6 +10,7 @@ import matfree.funm
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 
 
 def sqrt(
@@ -39,6 +40,8 @@ def sqrt(
         return _sqrt_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _sqrt_kronecker(operator)
+    if isinstance(operator, KroneckerSum):
+        return _sqrt_kronecker_sum(operator)
     if lanczos_order is not None:
         return SqrtOperator(operator, lanczos_order)
     return _sqrt_dense(operator)
@@ -57,6 +60,10 @@ def _sqrt_block_diag(operator: BlockDiag) -> BlockDiag:
 
 def _sqrt_kronecker(operator: Kronecker) -> Kronecker:
     return Kronecker(*(sqrt(op) for op in operator.operators))
+
+
+def _sqrt_kronecker_sum(operator: KroneckerSum) -> KroneckerSumSqrt:
+    return KroneckerSumSqrt(operator.A, operator.B)
 
 
 def _sqrt_dense(

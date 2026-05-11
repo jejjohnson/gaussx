@@ -115,16 +115,100 @@ class KroneckerSum(lx.AbstractLinearOperator):
             eigenvalues are ``lambda^A_i + lambda^B_j`` for all pairs.
         """
 
-        def _factor_eigh(op):
-            if isinstance(op, lx.DiagonalLinearOperator):
-                d = lx.diagonal(op)
-                return d, jnp.eye(d.shape[0], dtype=d.dtype)
-            return jnp.linalg.eigh(op.as_matrix())
-
-        evals_a, evecs_a = _factor_eigh(self.A)
-        evals_b, evecs_b = _factor_eigh(self.B)
+        evals_a, evecs_a = _eigh_factor(self.A)
+        evals_b, evecs_b = _eigh_factor(self.B)
         # Eigenvalues: lambda_a_i + lambda_b_j for all (i, j) pairs
         eigenvalues = rearrange(evals_a[:, None] + evals_b[None, :], "a b -> (a b)")
         # Eigenvectors: Q_A (x) Q_B
         Q = jnp.kron(evecs_a, evecs_b)
         return eigenvalues, Q
+
+
+class KroneckerSumSqrt(lx.AbstractLinearOperator):
+    r"""Symmetric square root of ``A \oplus B`` via per-factor eigenvectors."""
+
+    eigenvectors_a: Float[Array, "a a"]
+    eigenvectors_b: Float[Array, "b b"]
+    sqrt_eigenvalues: Float[Array, "b a"]
+    _in_size: int = eqx.field(static=True)
+    _out_size: int = eqx.field(static=True)
+    _n_a: int = eqx.field(static=True)
+    _n_b: int = eqx.field(static=True)
+    _dtype: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        A: lx.AbstractLinearOperator,
+        B: lx.AbstractLinearOperator,
+    ) -> None:
+        evals_a, evecs_a = _eigh_factor(A)
+        evals_b, evecs_b = _eigh_factor(B)
+        sqrt_eigenvalues = jnp.sqrt(
+            jnp.maximum(evals_b[:, None] + evals_a[None, :], 0.0)
+        )
+
+        self.eigenvectors_a = evecs_a
+        self.eigenvectors_b = evecs_b
+        self.sqrt_eigenvalues = sqrt_eigenvalues
+        self._n_a = A.in_size()
+        self._n_b = B.in_size()
+        self._in_size = self._n_a * self._n_b
+        self._out_size = self._in_size
+        self._dtype = str(jnp.result_type(evecs_a, evecs_b, sqrt_eigenvalues))
+
+    def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
+        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
+        C = self.sqrt_eigenvalues * C
+        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
+        return rearrange(result, "b a -> (a b)")
+
+    def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
+        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
+        C = C / self.sqrt_eigenvalues
+        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
+        return rearrange(result, "b a -> (a b)")
+
+    def as_matrix(self) -> Float[Array, "n n"]:
+        basis = jnp.eye(self._in_size, dtype=jnp.dtype(self._dtype))
+        return jax.vmap(self.mv, in_axes=1, out_axes=1)(basis)
+
+    def transpose(self) -> KroneckerSumSqrt:
+        return self
+
+    def in_structure(self) -> jax.ShapeDtypeStruct:
+        return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
+
+    def out_structure(self) -> jax.ShapeDtypeStruct:
+        return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+
+
+def kroneckersum_sample(
+    A_op: lx.AbstractLinearOperator,
+    B_op: lx.AbstractLinearOperator,
+    *,
+    key: jax.Array,
+    num_samples: int = 1,
+) -> Float[Array, "num_samples n_a n_b"]:
+    """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions."""
+    if num_samples < 1:
+        raise ValueError(f"num_samples must be positive, got {num_samples}.")
+
+    sqrt_op = KroneckerSumSqrt(A_op, B_op)
+    eps = jax.random.normal(
+        key,
+        (num_samples, sqrt_op.in_size()),
+        dtype=jnp.dtype(sqrt_op._dtype),
+    )
+    samples = jax.vmap(sqrt_op.mv)(eps)
+    return rearrange(samples, "s (a b) -> s a b", a=sqrt_op._n_a, b=sqrt_op._n_b)
+
+
+def _eigh_factor(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        d = lx.diagonal(operator)
+        return d, jnp.eye(d.shape[0], dtype=d.dtype)
+    return jnp.linalg.eigh(operator.as_matrix())

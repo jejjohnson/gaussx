@@ -6,8 +6,8 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators import BlockDiag, Kronecker
-from gaussx._primitives import sqrt
+from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
+from gaussx._primitives import solve, sqrt
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -45,6 +45,32 @@ def test_sqrt_kronecker(getkey):
     assert isinstance(S, Kronecker)
     reconstructed = S.as_matrix() @ S.as_matrix()
     assert tree_allclose(reconstructed, K.as_matrix(), rtol=1e-4)
+
+
+def test_sqrt_kronecker_sum(getkey):
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
+    K = KroneckerSum(
+        lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
+    )
+    S = sqrt(K)
+    assert isinstance(S, KroneckerSumSqrt)
+    reconstructed = S.as_matrix() @ S.as_matrix()
+    assert tree_allclose(reconstructed, K.as_matrix(), rtol=1e-4)
+
+
+def test_sqrt_kronecker_sum_solve(getkey):
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
+    K = KroneckerSum(
+        lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag),
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
+    )
+    S = sqrt(K)
+    x = jr.normal(getkey(), (K.in_size(),))
+    y = S.mv(x)
+    assert tree_allclose(solve(S, y), x, rtol=1e-4)
 
 
 def test_sqrt_dense(getkey):
