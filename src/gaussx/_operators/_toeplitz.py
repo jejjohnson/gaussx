@@ -66,8 +66,8 @@ class ToeplitzCholesky(lx.AbstractLinearOperator):
     """Circulant-embedding factor for a symmetric positive Toeplitz matrix.
 
     The operator has shape ``(n, embedding_factor * n)``. Applying it to
-    standard normal white noise and taking the ``n`` outputs samples from
-    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
+    standard normal white noise and taking the first ``n`` outputs gives
+    samples from ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
     Wood--Chan non-negativity check is performed eagerly at construction time.
 
     Args:
@@ -235,6 +235,7 @@ def _circulant_sqrt_spectrum(
         _circulant_embedding(column, embedding_factor=embedding_factor),
     ).real
     scale = jnp.maximum(1.0, jnp.max(jnp.abs(spectrum)))
+    # Allow roundoff-sized negative FFT eigenvalues while rejecting real failures.
     tolerance = 100 * jnp.finfo(column.dtype).eps * scale
     if jnp.any(spectrum < -tolerance):
         raise ValueError(
