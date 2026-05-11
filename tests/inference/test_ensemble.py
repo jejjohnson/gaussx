@@ -98,7 +98,7 @@ def test_ensemble_kalman_gain_matches_dense_linear_gaussian(getkey):
     obs_var = jnp.linspace(0.2, 0.6, M)
     obs_noise = lx.DiagonalLinearOperator(obs_var)
 
-    K = ensemble_kalman_gain(particles, obs_particles, obs_noise)
+    K = ensemble_kalman_gain(particles, obs_particles, obs_noise, bessel=True)
 
     dev_x = particles - jnp.mean(particles, axis=0, keepdims=True)
     dev_y = obs_particles - jnp.mean(obs_particles, axis=0, keepdims=True)

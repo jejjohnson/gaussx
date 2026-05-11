@@ -94,9 +94,9 @@ def ensemble_kalman_gain(
         obs_particles: Prior ensemble in observation space, shape ``(J, M)``.
         obs_noise: Observation error covariance operator, shape ``(M, M)``.
         solver: Optional solver strategy. ``None`` uses structural dispatch.
-        bessel: Defaults to True, matching the unbiased EnKF convention.
-            Use False for maximum-likelihood recipes with a :math:`1/J`
-            divisor.
+        bessel: Defaults to True, unlike the lower-level covariance helpers,
+            because this recipe follows the unbiased EnKF convention. Use
+            False for maximum-likelihood recipes with a :math:`1/J` divisor.
 
     Returns:
         Dense Kalman gain of shape ``(N, M)``.
