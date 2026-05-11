@@ -27,8 +27,11 @@ def ensemble_covariance(
 
     Args:
         particles: Ensemble of shape ``(J, N)``.
-        bessel: If True, apply the :math:`1/(J-1)` Bessel correction
-            used throughout the ensemble Kalman filter literature.
+        bessel: If True, apply the ``1 / (J - 1)`` Bessel correction
+            used throughout the ensemble Kalman filter literature. This
+            lower-level helper defaults to False for backwards compatibility;
+            :func:`ensemble_kalman_gain` defaults to True for the EnKF
+            convention.
 
     Returns:
         A ``LowRankUpdate`` operator representing the empirical
@@ -60,8 +63,10 @@ def ensemble_cross_covariance(
     Args:
         particles_theta: First ensemble, shape ``(J, N)``.
         particles_G: Second ensemble, shape ``(J, M)``.
-        bessel: If True, apply the :math:`1/(J-1)` Bessel correction
-            used by ensemble Kalman filter recipes.
+        bessel: If True, apply the ``1 / (J - 1)`` Bessel correction
+            used by ensemble Kalman filter recipes. This lower-level helper
+            defaults to False for backwards compatibility; :func:`ensemble_kalman_gain`
+            defaults to True for the EnKF convention.
 
     Returns:
         Cross-covariance array of shape ``(N, M)``.
@@ -96,7 +101,7 @@ def ensemble_kalman_gain(
         solver: Optional solver strategy. ``None`` uses structural dispatch.
         bessel: Defaults to True, unlike the lower-level covariance helpers,
             because this recipe follows the unbiased EnKF convention. Use
-            False for maximum-likelihood recipes with a :math:`1/J` divisor.
+            False for maximum-likelihood recipes with a ``1 / J`` divisor.
 
     Returns:
         Dense Kalman gain of shape ``(N, M)``.

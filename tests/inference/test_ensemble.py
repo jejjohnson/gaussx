@@ -155,3 +155,7 @@ def test_ensemble_recipes_jit_grad_and_vmap(getkey):
     assert jnp.isfinite(jitted)
     assert grad.shape == particles.shape
     assert vmapped.shape == (2, N, M)
+    assert tree_allclose(
+        vmapped[0],
+        ensemble_kalman_gain(particles, particles @ H.T, obs_noise),
+    )
