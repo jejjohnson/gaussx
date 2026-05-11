@@ -67,7 +67,8 @@ class ToeplitzCholesky(lx.AbstractLinearOperator):
 
     The operator has shape ``(n, embedding_factor * n)``. Applying it to
     standard normal white noise and taking the ``n`` outputs samples from
-    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds.
+    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
+    Wood--Chan non-negativity check is performed eagerly at construction time.
 
     Args:
         column: First column of the Toeplitz matrix, shape ``(n,)``.
@@ -189,7 +190,8 @@ def toeplitz_sample(
         factor = ToeplitzCholesky(column, embedding_factor=embedding_factor)
     except ValueError as error:
         warnings.warn(
-            f"{error} Falling back to dense Cholesky sampling.",
+            f"Wood-Chan embedding failed: {error} "
+            "Falling back to dense Cholesky sampling.",
             RuntimeWarning,
             stacklevel=2,
         )
@@ -253,7 +255,7 @@ def _circulant_sqrt_mv(
         sqrt_spectrum * jnp.fft.rfft(vector),
         n=embedding_size,
     )
-    return result[:output_size].real
+    return result[:output_size]
 
 
 def _toeplitz_mv(

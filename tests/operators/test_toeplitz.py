@@ -153,7 +153,7 @@ class TestCirculantCholesky:
         column = jnp.array([3.2900615, -1.8108547, -0.6982663], dtype=jnp.float32)
         key = getkey()
 
-        with pytest.warns(RuntimeWarning, match="Wood-Chan"):
+        with pytest.warns(RuntimeWarning, match="Falling back to dense Cholesky"):
             samples = toeplitz_sample(column, key=key, num_samples=4)
 
         L = jnp.linalg.cholesky(_toeplitz_dense(column))
