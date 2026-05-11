@@ -12,6 +12,9 @@ from jaxtyping import Array, Float
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 
 
+_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR = 100
+
+
 class KroneckerSum(lx.AbstractLinearOperator):
     r"""Kronecker sum ``A \oplus B = A \otimes I_b + I_a \otimes B``.
 
@@ -145,7 +148,10 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         evals_b, evecs_b = _eigh_factor(B)
         eigenvalues = evals_a[:, None] + evals_b[None, :]
         scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
-        tolerance = -100 * jnp.finfo(jnp.result_type(eigenvalues, jnp.float32)).eps
+        tolerance = (
+            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
+            * jnp.finfo(jnp.result_type(eigenvalues, jnp.float32)).eps
+        )
         if bool(jnp.min(eigenvalues) < tolerance * scale):
             raise ValueError("A ⊕ B must be positive semidefinite.")
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
