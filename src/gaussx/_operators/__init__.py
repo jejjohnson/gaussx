@@ -34,7 +34,7 @@ from gaussx._operators._low_rank_update import (
 )
 from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sum_kronecker import SumKronecker
-from gaussx._operators._toeplitz import Toeplitz
+from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky, toeplitz_sample
 from gaussx._tags import (
     is_block_diagonal,
     is_block_tridiagonal,
@@ -578,9 +578,11 @@ __all__ = [
     "SumKronecker",
     "SumOperator",
     "Toeplitz",
+    "ToeplitzCholesky",
     "UpperBlockTriDiag",
     "implicit_cross_kernel",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "svd_low_rank_plus_diag",
+    "toeplitz_sample",
 ]

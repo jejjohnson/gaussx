@@ -7,8 +7,10 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
-from gaussx._operators import Toeplitz
+from gaussx._operators import Toeplitz, ToeplitzCholesky, toeplitz_sample
+from gaussx._primitives import cholesky
 from gaussx._testing import tree_allclose
 
 
@@ -100,6 +102,63 @@ class TestMv:
         T = Toeplitz(c)
         v = jr.normal(getkey(), (2,))
         assert tree_allclose(T.mv(v), T.as_matrix() @ v, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Circulant Cholesky / sampling
+# ---------------------------------------------------------------------------
+
+
+class TestCirculantCholesky:
+    def test_cholesky_reconstructs_dense_toeplitz(self):
+        n = 8
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 2.0)
+        T = Toeplitz(column, tags=lx.positive_semidefinite_tag)
+        L = cholesky(T)
+
+        assert isinstance(L, ToeplitzCholesky)
+        assert L.out_size() == n
+        assert L.in_size() == 2 * n
+        reconstructed = L.as_matrix() @ L.as_matrix().T
+        assert tree_allclose(reconstructed, T.as_matrix(), rtol=1e-5, atol=1e-5)
+
+    def test_transpose_is_adjoint(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
+        L = ToeplitzCholesky(column)
+        x = jr.normal(getkey(), (L.in_size(),))
+        y = jr.normal(getkey(), (L.out_size(),))
+
+        left = jnp.vdot(L.mv(x), y)
+        right = jnp.vdot(x, L.T.mv(y))
+        assert tree_allclose(left, right, rtol=1e-5, atol=1e-5)
+
+    def test_toeplitz_sample_identity_matches_white_noise(self, getkey):
+        n = 5
+        num_samples = 3
+        column = jnp.zeros(n, dtype=jnp.float32).at[0].set(1.0)
+        key = getkey()
+
+        samples = toeplitz_sample(column, key=key, num_samples=num_samples)
+        expected = jr.normal(
+            key,
+            (num_samples, 2 * n),
+            dtype=column.dtype,
+        )[:, :n]
+
+        assert samples.shape == (num_samples, n)
+        assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
+
+    def test_toeplitz_sample_falls_back_when_embedding_fails(self, getkey):
+        column = jnp.array([3.2900615, -1.8108547, -0.6982663], dtype=jnp.float32)
+        key = getkey()
+
+        with pytest.warns(RuntimeWarning, match="Wood-Chan"):
+            samples = toeplitz_sample(column, key=key, num_samples=4)
+
+        L = jnp.linalg.cholesky(_toeplitz_dense(column))
+        expected = jr.normal(key, (4, column.shape[0]), dtype=column.dtype) @ L.T
+        assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
 
 
 # ---------------------------------------------------------------------------
