@@ -75,7 +75,7 @@ class TestConstruction:
         with pytest.raises(ValueError, match="two-factor"):
             SumKronecker(k3, k2)
 
-    def test_rejects_size_mismatch(self, getkey):
+    def test_rejects_input_size_mismatch(self, getkey):
         k1 = Kronecker(
             lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
             lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),

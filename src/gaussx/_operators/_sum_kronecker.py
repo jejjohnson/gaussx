@@ -125,9 +125,11 @@ class SumKronecker(lx.AbstractLinearOperator):
             ``self == Q @ diag(eigenvalues) @ Q^T``.
         """
         if len(self.operators) != 2:
+            count = len(self.operators)
+            suffix = "" if count == 1 else "s"
             raise ValueError(
                 "eigendecompose requires exactly two Kronecker products, "
-                f"got {len(self.operators)}."
+                f"got {count} product{suffix}."
             )
         A2_op, B2_op = self.kron2.operators
         A1_op, B1_op = self.kron1.operators
