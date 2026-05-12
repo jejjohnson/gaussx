@@ -47,6 +47,14 @@ def matheron_update(
     prior_sample_target = jnp.asarray(prior_sample_target)
     prior_sample_conditioning = jnp.asarray(prior_sample_conditioning)
     observed_value = jnp.asarray(observed_value)
+    dtype = jnp.result_type(
+        prior_sample_target,
+        prior_sample_conditioning,
+        observed_value,
+    )
+    prior_sample_target = prior_sample_target.astype(dtype)
+    prior_sample_conditioning = prior_sample_conditioning.astype(dtype)
+    observed_value = observed_value.astype(dtype)
 
     if prior_sample_target.ndim != 2:
         raise ValueError("prior_sample_target must have shape (S, N_star).")

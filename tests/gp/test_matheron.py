@@ -25,6 +25,7 @@ def _joint_problem(getkey, num_target: int = 4, num_conditioning: int = 3):
 
 
 def _joint_samples(key, joint_cov, num_samples: int, num_target: int):
+    # Float32 needs a larger Cholesky jitter because it has fewer mantissa bits.
     jitter = 1e-6 if joint_cov.dtype == jnp.float32 else 1e-10
     jitter_matrix = jitter * jnp.eye(joint_cov.shape[0], dtype=joint_cov.dtype)
     L = jnp.linalg.cholesky(joint_cov + jitter_matrix)
@@ -40,6 +41,7 @@ def _joint_samples(key, joint_cov, num_samples: int, num_target: int):
 
 
 def _ks_statistic(x, y):
+    """Compute the two-sample Kolmogorov-Smirnov statistic."""
     x = jnp.sort(x)
     y = jnp.sort(y)
     values = jnp.sort(jnp.concatenate([x, y]))
@@ -111,6 +113,8 @@ def test_matheron_samples_match_schur_posterior_moments(getkey):
     sample_mean = jnp.mean(samples, axis=0)
     centered = samples - sample_mean
     sample_cov = centered.T @ centered / (num_samples - 1)
+    # The prior draws are whitened above, so these tolerances cover only the
+    # affine correction and Cholesky jitter rather than Monte Carlo error.
     assert jnp.allclose(sample_mean, posterior_mean, atol=8e-2)
     assert jnp.allclose(sample_cov, posterior_cov, rtol=5e-2, atol=1e-1)
 
@@ -140,6 +144,7 @@ def test_matheron_marginals_match_dense_posterior_samples(getkey):
             for i in range(K_sm.shape[0])
         ]
     )
+    # For two samples of size 2048, 0.08 is above the 1% critical value.
     assert jnp.all(marginal_ks < 0.08)
 
 
