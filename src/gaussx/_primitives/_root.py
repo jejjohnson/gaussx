@@ -186,8 +186,12 @@ def _pivoted_cholesky_root(
         pivot = jnp.argmax(residual_diag)
         pivot_val = residual_diag[pivot]
         pivot_col = residual[:, pivot]
-        mask = (pivot_val > floor).astype(dtype)
-        col = pivot_col / jnp.sqrt(jnp.maximum(pivot_val, floor)) * mask
+        col = jax.lax.cond(
+            pivot_val > floor,
+            lambda _: pivot_col / jnp.sqrt(pivot_val),
+            lambda _: jnp.zeros_like(pivot_col),
+            operand=None,
+        )
         root = root.at[:, i].set(col)
         residual = _symmetric_matrix(residual - jnp.outer(col, col))
         residual_diag = jnp.maximum(jnp.diag(residual), 0.0)

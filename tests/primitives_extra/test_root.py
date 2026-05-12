@@ -62,7 +62,7 @@ def test_pivoted_cholesky_root_diagonal():
 
 def test_root_matmul_sampling_covariance(getkey):
     num_samples = 4096
-    sampling_tol = 0.12
+    empirical_cov_tol = 0.12
     diag = jnp.array([1.0, 2.0, 3.0])
     op = lx.DiagonalLinearOperator(diag)
     root = root_decomposition(op, rank=3, method="svd")
@@ -76,8 +76,8 @@ def test_root_matmul_sampling_covariance(getkey):
     assert jnp.allclose(
         empirical,
         jnp.diag(diag),
-        rtol=sampling_tol,
-        atol=sampling_tol,
+        rtol=empirical_cov_tol,
+        atol=empirical_cov_tol,
     )
 
 
