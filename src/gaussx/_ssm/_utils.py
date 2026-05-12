@@ -142,7 +142,9 @@ def _normalise_tv_inputs(
                     "op must be provided to _broadcast_to_T."
                 )
             # Operator-mode placeholder keeps the scan pytree fixed without
-            # materializing the operator into a dense (T, M, N) array.
+            # materializing the operator into a dense (T, M, N) array. The
+            # empty array carries no matrix data; the operator is closed over
+            # separately by the caller.
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)

@@ -147,10 +147,10 @@ def sandwich(
 
 def _sandwich_tags(P: lx.AbstractLinearOperator) -> frozenset[object]:
     tags: set[object] = set()
-    if lx.is_symmetric(P):
-        tags.add(lx.symmetric_tag)
     if lx.is_positive_semidefinite(P):
         tags.update({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    elif lx.is_symmetric(P):
+        tags.add(lx.symmetric_tag)
     return frozenset(tags)
 
 

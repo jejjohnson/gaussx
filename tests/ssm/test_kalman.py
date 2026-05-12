@@ -16,7 +16,7 @@ from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 class LazyDiagonal(lx.DiagonalLinearOperator):
-    """Test helper that fails if a code path materializes the operator."""
+    """Test helper that asserts as_matrix is not called in the tested path."""
 
     def as_matrix(self):
         raise AssertionError("as_matrix should not be called")
