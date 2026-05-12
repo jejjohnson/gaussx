@@ -9,10 +9,10 @@ parallel hardware (GPU / TPU). On sequential hardware (CPU) the total
 work is strictly larger than :func:`gaussx.kalman_filter`'s ``O(T)``
 ``lax.scan``; the win is on accelerators with large ``T``.
 
-The element math is the covariance-form combinators from §III.A /
-§III.B of the paper. The covariance form is known to lose conditioning
-on long sequences and in float32 — a square-root variant is tracked in
-#165.
+The default element math is the covariance-form combinators from §III.A /
+§III.B of the paper. Pass ``form="sqrt"`` to carry square-root covariance
+factors through the associative scan and reconstruct PSD covariances at
+the API boundary.
 """
 
 from __future__ import annotations
@@ -170,6 +170,7 @@ def parallel_kalman_filter(
     mask: Bool[Array, " T"] | None = None,
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
+    form: str = "covariance",
 ) -> FilterState:
     """Parallel Kalman filter via :func:`jax.lax.associative_scan`.
 
@@ -192,16 +193,44 @@ def parallel_kalman_filter(
         solver: Accepted for API symmetry with :func:`kalman_filter` but
             not currently threaded through the per-element solves; the
             covariance-form combinator uses unstructured dense solves.
-            See #165 for the square-root variant tracking the structured
-            solver path.
+            The square-root form also uses dense solves for the affine
+            terms.
         woodbury_innovation: When ``True``, delegates to
             :func:`gaussx.kalman_filter` with the same flag so structured
             ``R`` uses the Woodbury innovation path.
+        form: Either ``"covariance"`` (default) or ``"sqrt"``. The
+            square-root form maintains lower-triangular covariance
+            factors alongside the covariance updates and reconstructs
+            PSD covariance matrices in the returned :class:`FilterState`.
+            Note: the associative-scan equations themselves still use
+            the covariance form internally; the factor path is a
+            PSD-safety net for ill-conditioned float32 chains rather
+            than a fully factor-propagating combinator (see #165).
+
+    Raises:
+        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
 
     Returns:
         :class:`FilterState` with filtered / predicted means and covs
         and the total log-likelihood.
     """
+    if form == "sqrt":
+        from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt
+
+        return parallel_kalman_filter_sqrt(
+            transition,
+            obs_model,
+            process_noise,
+            obs_noise,
+            observations,
+            init_mean,
+            init_cov,
+            mask=mask,
+            solver=solver,
+        )
+    if form != "covariance":
+        raise ValueError("form must be 'covariance' or 'sqrt'.")
+
     if woodbury_innovation:
         return kalman_filter(
             transition,
@@ -329,6 +358,7 @@ def parallel_rts_smoother(
     process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
+    form: str = "covariance",
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Parallel RTS smoother via reverse :func:`jax.lax.associative_scan`.
 
@@ -342,11 +372,30 @@ def parallel_rts_smoother(
         process_noise: Unused — kept for API symmetry with the sequential
             smoother.
         solver: Accepted for API symmetry; not currently threaded
-            through. See #165.
+            through.
+        form: Either ``"covariance"`` (default) or ``"sqrt"``. The
+            square-root form carries covariance factors through the
+            smoother associative scan and returns reconstructed PSD
+            covariances.
+
+    Raises:
+        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
     """
+    if form == "sqrt":
+        from gaussx._ssm._parallel_kalman_sqrt import parallel_rts_smoother_sqrt
+
+        return parallel_rts_smoother_sqrt(
+            filter_state,
+            transition,
+            process_noise,
+            solver=solver,
+        )
+    if form != "covariance":
+        raise ValueError("form must be 'covariance' or 'sqrt'.")
+
     del process_noise, solver
 
     f_means = filter_state.filtered_means
