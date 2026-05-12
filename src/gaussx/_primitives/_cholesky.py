@@ -10,7 +10,6 @@ import lineax as lx
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky
 
 
 def cholesky(
@@ -35,8 +34,6 @@ def cholesky(
         return _cholesky_kronecker(operator)
     if isinstance(operator, BlockTriDiag):
         return _cholesky_block_tridiag(operator)
-    if isinstance(operator, Toeplitz):
-        return _cholesky_toeplitz(operator)
     return _cholesky_dense(operator)
 
 
@@ -53,10 +50,6 @@ def _cholesky_block_diag(operator: BlockDiag) -> BlockDiag:
 
 def _cholesky_kronecker(operator: Kronecker) -> Kronecker:
     return Kronecker(*(cholesky(op) for op in operator.operators))
-
-
-def _cholesky_toeplitz(operator: Toeplitz) -> ToeplitzCholesky:
-    return ToeplitzCholesky(operator.column)
 
 
 def _cholesky_block_tridiag(operator: BlockTriDiag) -> LowerBlockTriDiag:

@@ -10,7 +10,6 @@ import lineax as lx
 import pytest
 
 from gaussx._operators import Toeplitz, ToeplitzCholesky, toeplitz_sample
-from gaussx._primitives import cholesky
 from gaussx._testing import tree_allclose
 
 
@@ -110,13 +109,12 @@ class TestMv:
 
 
 class TestCirculantCholesky:
-    def test_cholesky_reconstructs_dense_toeplitz(self):
+    def test_factor_reconstructs_dense_toeplitz(self):
         n = 8
         column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 2.0)
         T = Toeplitz(column, tags=lx.positive_semidefinite_tag)
-        L = cholesky(T)
+        L = ToeplitzCholesky(column)
 
-        assert isinstance(L, ToeplitzCholesky)
         assert L.out_size() == n
         assert L.in_size() == 2 * n
         reconstructed = L.as_matrix() @ L.as_matrix().T

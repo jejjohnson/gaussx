@@ -63,12 +63,16 @@ class Toeplitz(lx.AbstractLinearOperator):
 
 
 class ToeplitzCholesky(lx.AbstractLinearOperator):
-    """Circulant-embedding factor for a symmetric positive Toeplitz matrix.
+    """Circulant-embedding sample factor for a symmetric positive Toeplitz matrix.
 
-    The operator has shape ``(n, embedding_factor * n)``. Applying it to
-    standard normal white noise and taking the first ``n`` outputs gives
-    samples from ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
-    Wood--Chan non-negativity check is performed eagerly at construction time.
+    The operator has shape ``(n, embedding_factor * n)`` and satisfies
+    ``L @ L.T == Toeplitz(column)`` — it is a rectangular sample factor,
+    *not* a traditional lower-triangular Cholesky factor. Applying it to
+    standard normal white noise gives samples from
+    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
+    Wood--Chan non-negativity check is performed eagerly at construction
+    time (so the constructor is not JIT-friendly; use :func:`toeplitz_sample`
+    if a runtime fallback is desired).
 
     Args:
         column: First column of the Toeplitz matrix, shape ``(n,)``.
