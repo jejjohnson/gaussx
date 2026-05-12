@@ -9,6 +9,7 @@ sandwich sites.
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
@@ -44,6 +45,23 @@ def _matvec(
     return op_or_array @ vector
 
 
+def _as_operator(
+    op_or_array: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    tags: object | frozenset[object] = frozenset(),
+) -> lx.AbstractLinearOperator:
+    if isinstance(op_or_array, lx.AbstractLinearOperator):
+        return op_or_array
+    return lx.MatrixLinearOperator(op_or_array, tags)
+
+
+def _right_matmul_transpose(
+    matrix: Float[Array, "N N"],
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "N M"]:
+    eye = jnp.eye(operator.out_size(), dtype=matrix.dtype)
+    return matrix @ jax.vmap(operator.T.mv)(eye).T
+
+
 def _is_operator_input(value: object) -> bool:
     """True iff *value* is a lineax operator (and so signals TI mode)."""
     return isinstance(value, lx.AbstractLinearOperator)
@@ -57,6 +75,8 @@ def _normalise_tv_inputs(
     *,
     T: int,
     mask: Bool[Array, " T"] | None,
+    materialise_transition: bool = True,
+    materialise_obs: bool = True,
 ) -> tuple[
     Float[Array, "T N N"],
     Float[Array, "T M N"],
@@ -96,12 +116,28 @@ def _normalise_tv_inputs(
             "TV path."
         )
 
-    A_dense = _materialise(transition)
-    H_dense = _materialise(obs_model)
+    A_dense = (
+        _materialise(transition)
+        if materialise_transition or not _is_operator_input(transition)
+        else None
+    )
+    H_dense = (
+        _materialise(obs_model)
+        if materialise_obs or not _is_operator_input(obs_model)
+        else None
+    )
     Q_dense = _materialise(process_noise)
     R_dense = _materialise(obs_noise)
 
-    def _broadcast_to_T(x: Float[Array, ...], expected_ndim: int) -> Float[Array, ...]:
+    def _broadcast_to_T(
+        x: Float[Array, ...] | None,
+        expected_ndim: int,
+        op: lx.AbstractLinearOperator | None = None,
+    ) -> Float[Array, ...]:
+        if x is None:
+            if op is None:
+                raise TypeError("operator placeholder requires an operator input.")
+            return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)
             return jnp.broadcast_to(x, (T, *x.shape))
@@ -112,8 +148,16 @@ def _normalise_tv_inputs(
             f"{x.ndim} (shape={x.shape})."
         )
 
-    A_seq = _broadcast_to_T(A_dense, expected_ndim=3)
-    H_seq = _broadcast_to_T(H_dense, expected_ndim=3)
+    A_seq = _broadcast_to_T(
+        A_dense,
+        expected_ndim=3,
+        op=transition if isinstance(transition, lx.AbstractLinearOperator) else None,
+    )
+    H_seq = _broadcast_to_T(
+        H_dense,
+        expected_ndim=3,
+        op=obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None,
+    )
     Q_seq = _broadcast_to_T(Q_dense, expected_ndim=3)
     R_seq = _broadcast_to_T(R_dense, expected_ndim=3)
 

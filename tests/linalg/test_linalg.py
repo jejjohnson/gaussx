@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx import cov_transform, diag_conditional_variance, trace_product
+from gaussx import cov_transform, diag_conditional_variance, sandwich, trace_product
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -170,3 +171,103 @@ def test_cov_transform_diagonal_avoids_full_materialization(getkey):
     J = jr.normal(getkey(), (M, N))
     expected = J @ jnp.diag(d) @ J.T
     assert tree_allclose(cov_transform(J, op).as_matrix(), expected, rtol=1e-5)
+
+
+def test_sandwich_kronecker_matched(getkey):
+    """Matched Kronecker operators should sandwich per factor."""
+    from gaussx import Kronecker
+
+    A = Kronecker(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+    )
+    P = Kronecker(
+        lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2)),
+        lx.DiagonalLinearOperator(jnp.array([0.5, 1.0, 1.5])),
+    )
+
+    result = sandwich(A, P)
+    expected = A.as_matrix() @ P.as_matrix() @ A.as_matrix().T
+    assert isinstance(result, Kronecker)
+    assert tree_allclose(result.as_matrix(), expected, rtol=1e-6)
+
+
+def test_sandwich_block_diag_matched(getkey):
+    """Matched BlockDiag operators should sandwich block-by-block."""
+    from gaussx import BlockDiag
+
+    A = BlockDiag(
+        lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+        lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+    )
+    P = BlockDiag(
+        lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2)),
+        lx.DiagonalLinearOperator(jnp.array([0.5, 1.0, 1.5])),
+    )
+
+    result = sandwich(A, P)
+    expected = A.as_matrix() @ P.as_matrix() @ A.as_matrix().T
+    assert isinstance(result, BlockDiag)
+    assert tree_allclose(result.as_matrix(), expected, rtol=1e-6)
+
+
+def test_sandwich_diagonal_left(getkey):
+    """Diagonal A should scale rows/columns without materializing A."""
+    N = 5
+    d = jr.normal(getkey(), (N,))
+    P_mat = random_pd_matrix(getkey(), N)
+    A = lx.DiagonalLinearOperator(d)
+    P = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+
+    result = sandwich(A, P)
+    expected = jnp.diag(d) @ P_mat @ jnp.diag(d)
+    assert tree_allclose(result.as_matrix(), expected, rtol=1e-6)
+
+
+def test_sandwich_fallback_matches_dense(getkey):
+    """Unsupported pairs should fall back to the dense sandwich."""
+    A_mat = jr.normal(getkey(), (3, 5))
+    P_mat = random_pd_matrix(getkey(), 5)
+    A = lx.MatrixLinearOperator(A_mat)
+    P = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+
+    result = sandwich(A, P)
+    expected = A_mat @ P_mat @ A_mat.T
+    assert isinstance(result, lx.MatrixLinearOperator)
+    assert tree_allclose(result.as_matrix(), expected, rtol=1e-6)
+
+
+def test_cov_transform_accepts_operator_map(getkey):
+    """Operator-valued J should route through sandwich."""
+    A_mat = jr.normal(getkey(), (3, 5))
+    P_mat = random_pd_matrix(getkey(), 5)
+    A = lx.MatrixLinearOperator(A_mat)
+    P = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+
+    result = cov_transform(A, P)
+    expected = A_mat @ P_mat @ A_mat.T
+    assert tree_allclose(result.as_matrix(), expected, rtol=1e-6)
+
+
+def test_sandwich_jit_vmap_grad(getkey):
+    """sandwich should compose with JAX transforms."""
+    P_mat = random_pd_matrix(getkey(), 4)
+    P = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+    ds = jnp.stack(
+        [
+            jnp.array([1.0, 2.0, 3.0, 4.0]),
+            jnp.array([0.5, 1.5, 2.5, 3.5]),
+        ]
+    )
+
+    def total(d):
+        A = lx.DiagonalLinearOperator(d)
+        return jnp.sum(sandwich(A, P).as_matrix())
+
+    values = jax.jit(jax.vmap(total))(ds)
+    grads = jax.vmap(jax.grad(total))(ds)
+
+    assert values.shape == (2,)
+    assert grads.shape == ds.shape
+    assert jnp.all(jnp.isfinite(values))
+    assert jnp.all(jnp.isfinite(grads))

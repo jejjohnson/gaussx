@@ -15,6 +15,11 @@ from gaussx import (
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+class LazyDiagonal(lx.DiagonalLinearOperator):
+    def as_matrix(self):
+        raise AssertionError("as_matrix should not be called")
+
+
 def test_kalman_filter_constant_state(getkey):
     """With zero process noise and identity dynamics, filter should converge."""
     N, M, T = 2, 2, 5
@@ -155,6 +160,32 @@ class TestOperatorInputs:
         A_op = BlockDiag(lx.MatrixLinearOperator(A1), lx.MatrixLinearOperator(A2))
         op = kalman_filter(A_op, H, Q, R, y, x0, P0)
         assert tree_allclose(ref.filtered_means, op.filtered_means, rtol=1e-5)
+        assert tree_allclose(ref.log_likelihood, op.log_likelihood, rtol=1e-5)
+
+    def test_diagonal_transition_and_obs_avoid_materialization(self, getkey):
+        N, T = 3, 6
+        A_diag = jnp.array([0.9, 0.8, 0.7])
+        H_diag = jnp.array([1.0, 0.5, 1.5])
+        A = jnp.diag(A_diag)
+        H = jnp.diag(H_diag)
+        Q = 0.1 * jnp.eye(N)
+        R = 0.5 * jnp.eye(N)
+        y = jr.normal(getkey(), (T, N))
+        x0, P0 = jnp.zeros(N), jnp.eye(N)
+
+        ref = kalman_filter(A, H, Q, R, y, x0, P0)
+        op = kalman_filter(
+            LazyDiagonal(A_diag),
+            LazyDiagonal(H_diag),
+            Q,
+            R,
+            y,
+            x0,
+            P0,
+        )
+
+        assert tree_allclose(ref.filtered_means, op.filtered_means, rtol=1e-5)
+        assert tree_allclose(ref.filtered_covs, op.filtered_covs, rtol=1e-5)
         assert tree_allclose(ref.log_likelihood, op.log_likelihood, rtol=1e-5)
 
 
