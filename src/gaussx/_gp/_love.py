@@ -56,7 +56,7 @@ def love_cache(
         method="lanczos",
         key=key,
     ).root
-    # Recover 1 / λᵢ from each inverse-root column: ||R⁻[:, i]||² = 1 / λᵢ.
+    # For Lanczos inverse roots, recover 1 / λᵢ via ||R⁻[:, i]||² = 1 / λᵢ.
     inv_eigvals = jnp.sum(inverse_root**2, axis=0)
     floor = jnp.finfo(inv_eigvals.dtype).tiny
     Q = inverse_root / jnp.sqrt(jnp.maximum(inv_eigvals, floor))[None, :]

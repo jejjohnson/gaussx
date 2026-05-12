@@ -101,7 +101,10 @@ def root_inv_decomposition(
         return RootDecomposition(_svd_root(operator, rank, key, inverse=True))
     if method == "pivoted_cholesky":
         mat = _symmetric_matrix(operator.as_matrix())
-        inv_mat = _symmetric_matrix(jnp.linalg.inv(mat))
+        L = jnp.linalg.cholesky(mat)
+        identity = jnp.eye(n, dtype=mat.dtype)
+        inv_mat = jax.scipy.linalg.cho_solve((L, True), identity)
+        inv_mat = _symmetric_matrix(inv_mat)
         return RootDecomposition(_pivoted_cholesky_root(inv_mat, rank))
     raise ValueError(f"Unknown inverse-root decomposition method: {method!r}")
 
@@ -113,7 +116,7 @@ def _validate_square_rank(
     if operator.in_size() != operator.out_size():
         raise ValueError("root decompositions require a square operator")
     if rank < 1:
-        raise ValueError("rank must be positive")
+        raise ValueError("rank must be at least 1")
     n = operator.in_size()
     return n, min(rank, n)
 
