@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import numpy as np
+import pytest
 
 from gaussx import (
     ensemble_covariance,
@@ -158,3 +159,11 @@ def test_ensemble_recipes_jit_grad_and_vmap(getkey):
         vmapped[0],
         ensemble_kalman_gain(particles, particles @ H.T, obs_noise),
     )
+
+
+def test_ensemble_kalman_gain_rejects_mismatched_ensemble_size(getkey):
+    particles = jr.normal(getkey(), (10, 4))
+    obs_particles = jr.normal(getkey(), (8, 2))
+    obs_noise = lx.DiagonalLinearOperator(jnp.ones(2))
+    with pytest.raises(ValueError, match="ensemble size"):
+        ensemble_kalman_gain(particles, obs_particles, obs_noise)

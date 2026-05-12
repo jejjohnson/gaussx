@@ -106,6 +106,11 @@ def ensemble_kalman_gain(
     Returns:
         Dense Kalman gain of shape ``(N, M)``.
     """
+    if particles.shape[0] != obs_particles.shape[0]:
+        raise ValueError(
+            "particles and obs_particles must share the same ensemble size, "
+            f"got J={particles.shape[0]} and J={obs_particles.shape[0]}."
+        )
     cross_cov = ensemble_cross_covariance(
         particles,
         obs_particles,
