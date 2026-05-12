@@ -14,6 +14,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._operators._low_rank_update import LowRankUpdate
+
 
 def _materialise(
     op_or_array: Float[Array, ...] | lx.AbstractLinearOperator,
@@ -70,6 +72,49 @@ def _left_matmul(
 ) -> Float[Array, "M K"]:
     """Compute ``operator @ matrix`` columnwise via ``vmap(operator.mv)``."""
     return jax.vmap(operator.mv, in_axes=1, out_axes=1)(matrix)
+
+
+def _innovation_covariance(
+    H: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    P: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    R: Float[Array, "M M"] | lx.AbstractLinearOperator,
+    *,
+    woodbury: bool = False,
+) -> lx.AbstractLinearOperator:
+    """Build ``S = H P Hᵀ + R`` as dense or as a low-rank update.
+
+    When ``H`` is an operator, the dense path goes through
+    :func:`gaussx.sandwich` so matched ``Kronecker`` / ``BlockDiag`` /
+    diagonal structure is preserved during construction.
+
+    The Woodbury branch wraps ``R`` as the base of a
+    :class:`gaussx.LowRankUpdate`, so downstream solves and log-dets
+    require ``R`` to be invertible. If you anticipate (numerically)
+    singular ``R`` — e.g. a ``DiagonalLinearOperator`` with zeros —
+    leave ``woodbury=False`` so the full ``S = H P Hᵀ + R`` matrix is
+    factored directly.
+    """
+    # Import locally to avoid a cyclic _ssm <-> _linalg import.
+    from gaussx._linalg._linalg import sandwich
+
+    H_mat = _materialise(H)
+    P_mat = _materialise(P)
+    if woodbury:
+        base = (
+            R
+            if isinstance(R, lx.AbstractLinearOperator)
+            else lx.MatrixLinearOperator(_materialise(R), lx.positive_semidefinite_tag)
+        )
+        return LowRankUpdate(base, H_mat @ P_mat, V=H_mat)
+
+    # Structural sandwich when H is an operator: preserves matched
+    # Kronecker / BlockDiag / diagonal structure when applicable.
+    if isinstance(H, lx.AbstractLinearOperator):
+        P_op = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+        S = sandwich(H, P_op).as_matrix() + _materialise(R)
+    else:
+        S = H_mat @ P_mat @ H_mat.T + _materialise(R)
+    return lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
 
 def _is_operator_input(value: object) -> bool:

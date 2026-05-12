@@ -142,6 +142,41 @@ def test_parallel_kf_obs_noise_diagonal_operator(getkey):
     assert tree_allclose(ref.log_likelihood, op.log_likelihood, rtol=1e-5)
 
 
+def test_parallel_kf_woodbury_innovation_matches_sequential(getkey):
+    N, M, T = 4, 32, 5
+    A = 0.95 * jnp.eye(N)
+    H = jr.normal(getkey(), (M, N)) / jnp.sqrt(N)
+    Q = 0.05 * jnp.eye(N)
+    R_diag = 0.3 + 0.1 * jnp.linspace(0.0, 1.0, M)
+    obs = jr.normal(getkey(), (T, M))
+    x0, P0 = jnp.zeros(N), jnp.eye(N)
+
+    ref = kalman_filter(
+        A,
+        H,
+        Q,
+        lx.DiagonalLinearOperator(R_diag),
+        obs,
+        x0,
+        P0,
+        woodbury_innovation=True,
+    )
+    got = parallel_kalman_filter(
+        A,
+        H,
+        Q,
+        lx.DiagonalLinearOperator(R_diag),
+        obs,
+        x0,
+        P0,
+        woodbury_innovation=True,
+    )
+
+    assert tree_allclose(got.filtered_means, ref.filtered_means, rtol=1e-6)
+    assert tree_allclose(got.filtered_covs, ref.filtered_covs, rtol=1e-6)
+    assert tree_allclose(got.log_likelihood, ref.log_likelihood, rtol=1e-6)
+
+
 def test_parallel_kf_transition_block_diag_operator(getkey):
     from gaussx import BlockDiag
 

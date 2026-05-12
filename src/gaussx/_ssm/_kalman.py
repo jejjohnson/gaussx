@@ -10,6 +10,7 @@ from jaxtyping import Array, Bool, Float
 
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._ssm._utils import (
+    _innovation_covariance,
     _materialise,
     _normalise_tv_inputs,
     _right_matmul_transpose,
@@ -47,6 +48,7 @@ def kalman_filter(
     *,
     mask: Bool[Array, " T"] | None = None,
     solver: AbstractSolverStrategy | None = None,
+    woodbury_innovation: bool = False,
 ) -> FilterState:
     r"""Kalman filter forward pass via ``jax.lax.scan``.
 
@@ -89,6 +91,11 @@ def kalman_filter(
             for prediction on merged train/test grids.
         solver: Optional solver strategy. When ``None``, uses
             structural dispatch.
+        woodbury_innovation: When ``True``, build the innovation
+            covariance ``S = H P Hᵀ + R`` as a
+            :class:`gaussx.LowRankUpdate` so structured ``R`` can use
+            Woodbury solves/log-determinants. Defaults to ``False`` to
+            preserve the dense innovation path.
 
     Raises:
         TypeError: If operator-typed inputs are mixed with 3D ``(T, …)``
@@ -109,6 +116,7 @@ def kalman_filter(
     # broadcast 3D array contains ``A_seq[t]`` for each step.
     A_op = transition if isinstance(transition, lx.AbstractLinearOperator) else None
     H_op = obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None
+    R_op = obs_noise if isinstance(obs_noise, lx.AbstractLinearOperator) else None
     A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
         transition,
         obs_model,
@@ -118,6 +126,9 @@ def kalman_filter(
         mask=mask,
         materialise_transition=A_op is None,
         materialise_obs=H_op is None,
+        # Skip the O(T M²) dense broadcast of structured R when the
+        # Woodbury path consumes the operator directly.
+        materialise_obs_noise=not (woodbury_innovation and R_op is not None),
     )
 
     def step(carry, inputs):
@@ -138,14 +149,16 @@ def kalman_filter(
         #             nor produces gradients for the dropped path). ---
         def _do_update(_):
             v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
-            if H_op is not None:
-                P_pred_for_sandwich = lx.MatrixLinearOperator(
-                    P_pred, lx.positive_semidefinite_tag
-                )
-                S = sandwich(H_op, P_pred_for_sandwich).as_matrix() + R_t
-            else:
-                S = H_t @ P_pred @ H_t.T + R_t
-            S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+            # Resolve ``R`` for innovation: operator path uses the
+            # closed-over ``R_op`` (kept structural for Woodbury); array
+            # path falls back to the per-step ``R_t``.
+            R_innov = R_op if R_op is not None else R_t
+            # Resolve ``H`` similarly so the operator preserves structure
+            # in both the Woodbury and the structural-sandwich paths.
+            H_innov = H_op if H_op is not None else H_t
+            S_op = _innovation_covariance(
+                H_innov, P_pred, R_innov, woodbury=woodbury_innovation
+            )
 
             PHt = (
                 _right_matmul_transpose(P_pred, H_op)
@@ -155,7 +168,10 @@ def kalman_filter(
             K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
 
             x_upd = x_pred + K @ v
-            P_upd = P_pred - K @ S @ K.T
+            if woodbury_innovation:
+                P_upd = P_pred - K @ (H_t @ P_pred)
+            else:
+                P_upd = P_pred - K @ S_op.as_matrix() @ K.T
 
             Sinv_v = dispatch_solve(S_op, v, solver)
             ld = dispatch_logdet(S_op, solver)
@@ -282,6 +298,7 @@ def kalman_gain(
     R: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
+    woodbury_innovation: bool = False,
 ) -> Float[Array, "N M"]:
     """Compute Kalman gain ``K = P @ H^T @ (H @ P @ H^T + R)^{-1}``.
 
@@ -291,16 +308,16 @@ def kalman_gain(
         R: Observation noise operator, shape ``(M, M)``.
         solver: Optional solver strategy. When ``None``, uses
             structural dispatch.
+        woodbury_innovation: When ``True``, route the innovation
+            covariance through :class:`gaussx.LowRankUpdate`.
 
     Returns:
         Kalman gain matrix of shape ``(N, M)``.
     """
     P_mat = _materialise(P)
     H_mat = _materialise(H)
-    R_mat = _materialise(R)
 
-    S = H_mat @ P_mat @ H_mat.T + R_mat  # (M, M)
-    S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+    S_op = _innovation_covariance(H, P, R, woodbury=woodbury_innovation)
 
     # K = P Hᵀ S⁻¹
     PHt = P_mat @ H_mat.T  # (N, M)

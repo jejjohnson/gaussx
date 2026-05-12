@@ -11,16 +11,17 @@ from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
-from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
 from gaussx._ssm._utils import (
     _as_operator,
+    _innovation_covariance,
     _left_matmul,
     _materialise,
     _matvec,
     _right_matmul_transpose,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 class InfiniteHorizonState(eqx.Module):
@@ -53,6 +54,7 @@ def infinite_horizon_filter(
     max_iter: int = 100,
     tol: float = 1e-8,
     solver: AbstractSolverStrategy | None = None,
+    woodbury_innovation: bool = False,
 ) -> InfiniteHorizonState:
     """Infinite-horizon Kalman filter with fixed steady-state gain.
 
@@ -84,6 +86,9 @@ def infinite_horizon_filter(
             is ``None``).
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
+        woodbury_innovation: When ``True``, build the steady-state
+            innovation covariance as :class:`gaussx.LowRankUpdate` so
+            structured ``R`` can use Woodbury solves/log-determinants.
 
     Returns:
         An ``InfiniteHorizonState`` with filtered/predicted means,
@@ -98,12 +103,20 @@ def infinite_horizon_filter(
             max_iter=max_iter,
             tol=tol,
             solver=solver,
+            woodbury_innovation=woodbury_innovation,
         )
 
     A_op = _as_operator(transition)
     H_op = _as_operator(obs_model)
     Q_dense = _materialise(process_noise)
-    R_dense = _materialise(obs_noise)
+    # Keep ``R`` lazy when the Woodbury innovation path will consume the
+    # operator directly — avoids an O(M²) allocation for large structured
+    # noise.
+    R_for_innovation = (
+        obs_noise
+        if woodbury_innovation and isinstance(obs_noise, lx.AbstractLinearOperator)
+        else _materialise(obs_noise)
+    )
 
     P_inf = dare_result.P_inf  # (N, N)
     K_inf = dare_result.K_inf  # (N, M)
@@ -114,14 +127,10 @@ def infinite_horizon_filter(
     # Precompute steady-state quantities
     P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
     P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)
-    P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
-    S_inf = sandwich(H_op, P_pred_inf_op).as_matrix() + R_dense  # (M, M)
-    L_S = cholesky(  # (M, M)
-        lx.MatrixLinearOperator(S_inf, lx.positive_semidefinite_tag)
-    ).as_matrix()
-    from gaussx._primitives._logdet import cholesky_logdet
-
-    ld_inf = cholesky_logdet(L_S)  # scalar
+    S_inf = _innovation_covariance(
+        H_op, P_pred_inf, R_for_innovation, woodbury=woodbury_innovation
+    )
+    ld_inf = dispatch_logdet(S_inf, solver)  # scalar
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
@@ -135,8 +144,8 @@ def infinite_horizon_filter(
         v = y_t - _matvec(obs_model, x_pred)  # (M,)  innovation
         x_filt_new = x_pred + K_inf @ v  # (N,)
 
-        # Log-likelihood increment (reuse precomputed Cholesky L_S)
-        Sinv_v = jax.scipy.linalg.cho_solve((L_S, True), v)  # (M,)
+        # Log-likelihood increment.
+        Sinv_v = dispatch_solve(S_inf, v, solver)  # (M,)
         ll_inc = -0.5 * (v @ Sinv_v + ld_inf + M * log_2pi)
 
         return (x_filt_new, ll + ll_inc), (x_filt_new, x_pred)
