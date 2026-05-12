@@ -185,8 +185,12 @@ def _pivoted_cholesky_root(
         root, residual, residual_diag = carry
         pivot = jnp.argmax(residual_diag)
         pivot_val = residual_diag[pivot]
-        col = residual[:, pivot] / jnp.sqrt(jnp.maximum(pivot_val, floor))
-        col = jnp.where(pivot_val > 0.0, col, jnp.zeros_like(col))
+        pivot_col = residual[:, pivot]
+        col = jnp.where(
+            pivot_val > floor,
+            pivot_col / jnp.sqrt(pivot_val),
+            jnp.zeros_like(pivot_col),
+        )
         root = root.at[:, i].set(col)
         residual = _symmetric_matrix(residual - jnp.outer(col, col))
         residual_diag = jnp.maximum(jnp.diag(residual), 0.0)
