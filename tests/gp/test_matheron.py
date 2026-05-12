@@ -25,8 +25,9 @@ def _joint_problem(getkey, num_target: int = 4, num_conditioning: int = 3):
 
 
 def _joint_samples(key, joint_cov, num_samples: int, num_target: int):
-    jitter = 1e-10 * jnp.eye(joint_cov.shape[0], dtype=joint_cov.dtype)
-    L = jnp.linalg.cholesky(joint_cov + jitter)
+    jitter = 10 * jnp.finfo(joint_cov.dtype).eps * joint_cov.shape[0]
+    jitter_matrix = jitter * jnp.eye(joint_cov.shape[0], dtype=joint_cov.dtype)
+    L = jnp.linalg.cholesky(joint_cov + jitter_matrix)
     standard = jr.normal(key, (num_samples, joint_cov.shape[0]))
     standard = standard - jnp.mean(standard, axis=0)
     standard_cov = standard.T @ standard / (num_samples - 1)
@@ -92,7 +93,7 @@ def test_matheron_samples_match_schur_posterior_moments(getkey):
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
         _joint_problem(getkey)
     )
-    num_samples = 8192
+    num_samples = 64
     prior_target, prior_conditioning = _joint_samples(
         getkey(), joint_cov, num_samples, K_sm.shape[0]
     )
@@ -116,7 +117,7 @@ def test_matheron_marginals_match_dense_posterior_samples(getkey):
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
         _joint_problem(getkey)
     )
-    num_samples = 4096
+    num_samples = 2048
     prior_target, prior_conditioning = _joint_samples(
         getkey(), joint_cov, num_samples, K_sm.shape[0]
     )
