@@ -38,6 +38,7 @@ def ensemble_covariance(
         covariance, with a zero base and ``J``-column low-rank factor.
     """
     J, N = particles.shape
+    _check_ensemble_size(J, bessel)
     mean = jnp.mean(particles, axis=0)
     deviations = particles - mean[None, :]  # (J, N)
 
@@ -72,10 +73,21 @@ def ensemble_cross_covariance(
         Cross-covariance array of shape ``(N, M)``.
     """
     J = particles_theta.shape[0]
+    _check_ensemble_size(J, bessel)
     dev_theta = particles_theta - jnp.mean(particles_theta, axis=0, keepdims=True)
     dev_G = particles_G - jnp.mean(particles_G, axis=0, keepdims=True)
     divisor = J - 1 if bessel else J
     return (dev_theta.T @ dev_G) / divisor
+
+
+def _check_ensemble_size(J: int, bessel: bool) -> None:
+    if J < 1:
+        raise ValueError(f"Ensemble must have at least one particle, got J={J}.")
+    if bessel and J < 2:
+        raise ValueError(
+            "Bessel correction requires J >= 2 particles (divisor is J - 1); "
+            f"got J={J}. Pass bessel=False for a maximum-likelihood divisor."
+        )
 
 
 def ensemble_kalman_gain(

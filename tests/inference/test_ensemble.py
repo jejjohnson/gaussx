@@ -167,3 +167,30 @@ def test_ensemble_kalman_gain_rejects_mismatched_ensemble_size(getkey):
     obs_noise = lx.DiagonalLinearOperator(jnp.ones(2))
     with pytest.raises(ValueError, match="ensemble size"):
         ensemble_kalman_gain(particles, obs_particles, obs_noise)
+
+
+def test_ensemble_covariance_rejects_bessel_with_singleton(getkey):
+    particles = jr.normal(getkey(), (1, 4))
+    with pytest.raises(ValueError, match="Bessel"):
+        ensemble_covariance(particles, bessel=True)
+
+
+def test_ensemble_cross_covariance_rejects_bessel_with_singleton(getkey):
+    theta = jr.normal(getkey(), (1, 4))
+    G = jr.normal(getkey(), (1, 2))
+    with pytest.raises(ValueError, match="Bessel"):
+        ensemble_cross_covariance(theta, G, bessel=True)
+
+
+def test_ensemble_kalman_gain_rejects_bessel_with_singleton(getkey):
+    particles = jr.normal(getkey(), (1, 4))
+    obs_particles = jr.normal(getkey(), (1, 2))
+    obs_noise = lx.DiagonalLinearOperator(jnp.ones(2))
+    # default bessel=True for ensemble_kalman_gain
+    with pytest.raises(ValueError, match="Bessel"):
+        ensemble_kalman_gain(particles, obs_particles, obs_noise)
+
+
+def test_ensemble_covariance_rejects_empty_ensemble(getkey):
+    with pytest.raises(ValueError, match="at least one particle"):
+        ensemble_covariance(jnp.zeros((0, 4)))
