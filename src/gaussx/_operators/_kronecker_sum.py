@@ -144,6 +144,15 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         A: lx.AbstractLinearOperator,
         B: lx.AbstractLinearOperator,
     ) -> None:
+        # The symmetric sqrt is well-defined only when A and B are
+        # symmetric PSD. Without these tags, ``jnp.linalg.eigh`` would
+        # silently use only the lower triangle and return wrong
+        # eigenvectors for non-symmetric inputs.
+        if not lx.is_symmetric(A) or not lx.is_symmetric(B):
+            raise ValueError(
+                "KroneckerSumSqrt requires both factors to be symmetric "
+                "(tag them with lx.symmetric_tag or lx.positive_semidefinite_tag)."
+            )
         evals_a, evecs_a = _eigh_factor(A)
         evals_b, evecs_b = _eigh_factor(B)
         eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(

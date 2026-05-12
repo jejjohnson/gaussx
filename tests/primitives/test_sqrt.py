@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
 from gaussx._primitives import solve, sqrt
@@ -58,6 +59,17 @@ def test_sqrt_kronecker_sum(getkey):
     assert isinstance(S, KroneckerSumSqrt)
     reconstructed = S.as_matrix() @ S.as_matrix()
     assert tree_allclose(reconstructed, K.as_matrix(), rtol=1e-4)
+
+
+def test_kronecker_sum_sqrt_rejects_nonsymmetric_factor(getkey):
+    A = jr.normal(getkey(), (2, 2))  # untagged: not symmetric
+    B = random_pd_matrix(getkey(), 3)
+    K = KroneckerSum(
+        lx.MatrixLinearOperator(A),
+        lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag),
+    )
+    with pytest.raises(ValueError, match="symmetric"):
+        sqrt(K)
 
 
 def test_sqrt_kronecker_sum_solve(getkey):
