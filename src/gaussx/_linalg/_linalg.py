@@ -75,7 +75,22 @@ def sandwich(
     A: lx.AbstractLinearOperator,
     P: lx.AbstractLinearOperator,
 ) -> lx.AbstractLinearOperator:
-    """Return ``A @ P @ A.T`` exploiting compatible operator structure."""
+    """Return ``A @ P @ A.T`` exploiting compatible operator structure.
+
+    Args:
+        A: Linear map with shape ``(M, N)``.
+        P: Covariance operator with shape ``(N, N)``.
+
+    Returns:
+        Transformed covariance operator with shape ``(M, M)``.
+
+    Example:
+        ```python
+        A = gaussx.Kronecker(A1, A2)
+        P = gaussx.Kronecker(P1, P2)
+        S = gaussx.sandwich(A, P)
+        ```
+    """
     _check_sandwich_shapes(A, P)
     tags = _sandwich_tags(P)
 

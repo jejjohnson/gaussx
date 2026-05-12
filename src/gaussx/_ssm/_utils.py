@@ -136,7 +136,9 @@ def _normalise_tv_inputs(
     ) -> Float[Array, ...]:
         if x is None:
             if op is None:
-                raise TypeError("operator placeholder requires an operator input.")
+                raise TypeError("When x is None in operator mode, op must be provided.")
+            # Operator-mode placeholder keeps the scan pytree fixed without
+            # materialising the operator into a dense (T, M, N) array.
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)
