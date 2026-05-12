@@ -30,7 +30,7 @@ class TestEigenProPreconditioner:
         X = jnp.linspace(-1.0, 1.0, 10)[:, None]
         K = _kernel_matrix(X) + 1e-3 * jnp.eye(X.shape[0])
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
-        # Keeps k=3 below m while leaving λ_{k+1} available for D.
+        # Ensures k=3 < m=6, leaving λ_4 available for correction weights.
         subsample_size = 6
 
         precond = eigenpro_preconditioner(
@@ -114,7 +114,7 @@ class TestEigenProStepSize:
             beta=jnp.array(5.0),
         )
 
-        step_size = jax.jit(lambda p: eigenpro_step_size(p, 4))(precond)
+        step_size = jax.jit(eigenpro_step_size)(precond, jnp.array(4))
 
         assert step_size > 0.0
 
