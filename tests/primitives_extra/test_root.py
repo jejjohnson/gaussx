@@ -61,17 +61,24 @@ def test_pivoted_cholesky_root_diagonal():
 
 
 def test_root_matmul_sampling_covariance(getkey):
+    num_samples = 4096
+    sampling_tol = 0.12
     diag = jnp.array([1.0, 2.0, 3.0])
     op = lx.DiagonalLinearOperator(diag)
     root = root_decomposition(op, rank=3, method="svd")
 
-    eps = jax.random.normal(getkey(), (4096, root.rank))
+    eps = jax.random.normal(getkey(), (num_samples, root.rank))
     samples = root.matmul(eps)
     centered = samples - jnp.mean(samples, axis=0)
     empirical = centered.T @ centered / (samples.shape[0] - 1)
 
-    assert samples.shape == (4096, 3)
-    assert jnp.allclose(empirical, jnp.diag(diag), rtol=0.12, atol=0.12)
+    assert samples.shape == (num_samples, 3)
+    assert jnp.allclose(
+        empirical,
+        jnp.diag(diag),
+        rtol=sampling_tol,
+        atol=sampling_tol,
+    )
 
 
 def test_whitening_reconstructs_identity(getkey):
