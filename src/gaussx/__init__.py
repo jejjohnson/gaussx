@@ -79,10 +79,14 @@ from gaussx._inference import (
     trace_correction as trace_correction,
 )
 from gaussx._kernels import (
+    EigenProPreconditioner as EigenProPreconditioner,
     center_kernel as center_kernel,
     centering_operator as centering_operator,
     create_grid as create_grid,
     cubic_interpolation_weights as cubic_interpolation_weights,
+    eigenpro_correction as eigenpro_correction,
+    eigenpro_preconditioner as eigenpro_preconditioner,
+    eigenpro_step_size as eigenpro_step_size,
     grid_data as grid_data,
     hsic as hsic,
     mmd_squared as mmd_squared,
