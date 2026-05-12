@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
+from einops import rearrange
 
 import gaussx
 
@@ -72,6 +73,55 @@ class TestKroneckerSum:
         reconstructed = Q @ jnp.diag(evals) @ Q.T
         expected = kron_sum.as_matrix()
         assert jnp.allclose(reconstructed, expected, atol=1e-4)
+
+    def test_sample_shape_and_covariance(self):
+        A_diag = jnp.array([1.0, 2.0])
+        B_diag = jnp.array([0.5, 1.5, 2.5])
+        A = lx.DiagonalLinearOperator(A_diag)
+        B = lx.DiagonalLinearOperator(B_diag)
+
+        num_samples = 4096
+        samples = gaussx.kronecker_sum_sample(
+            A,
+            B,
+            key=jax.random.PRNGKey(123),
+            num_samples=num_samples,
+        )
+
+        assert samples.shape == (num_samples, 2, 3)
+        samples_flat = rearrange(samples, "s a b -> s (a b)")
+        empirical_cov = samples_flat.T @ samples_flat / num_samples
+        expected_cov = gaussx.KroneckerSum(A, B).as_matrix()
+        assert jnp.allclose(empirical_cov, expected_cov, atol=0.15)
+
+    def test_sample_nonpositive_count_raises(self):
+        A = lx.DiagonalLinearOperator(jnp.array([1.0]))
+        B = lx.DiagonalLinearOperator(jnp.array([1.0]))
+        with pytest.raises(ValueError, match="num_samples"):
+            gaussx.kronecker_sum_sample(
+                A,
+                B,
+                key=jax.random.PRNGKey(0),
+                num_samples=0,
+            )
+
+    def test_sqrt_rejects_materially_negative_spectrum(self):
+        # A ⊕ B has eigenvalues a_i + b_j; pick factors so one combination
+        # is clearly negative beyond float32 roundoff.
+        A = lx.DiagonalLinearOperator(jnp.array([1.0, -3.0]))
+        B = lx.DiagonalLinearOperator(jnp.array([0.5, 1.0]))
+        # tag as symmetric since DiagonalLinearOperator already is
+        with pytest.raises(ValueError, match="positive semidefinite"):
+            gaussx.KroneckerSumSqrt(A, B)
+
+    def test_sqrt_rejects_non_square_factor(self):
+        # A non-square factor cannot have a well-defined Kronecker sum
+        # (lineax forbids symmetric_tag on non-square, so the operator is
+        # untagged; the square check is what we are validating)
+        non_square = lx.MatrixLinearOperator(jnp.eye(2, 3))
+        B = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        with pytest.raises(ValueError, match="square"):
+            gaussx.KroneckerSumSqrt(non_square, B)
 
     def test_tags(self, kron_sum):
         assert gaussx.is_kronecker_sum(kron_sum)
