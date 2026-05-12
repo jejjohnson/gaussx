@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -69,17 +67,20 @@ class ToeplitzCholesky(lx.AbstractLinearOperator):
     ``L @ L.T == Toeplitz(column)`` — it is a rectangular sample factor,
     *not* a traditional lower-triangular Cholesky factor. Applying it to
     standard normal white noise gives samples from
-    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds. The
-    Wood--Chan non-negativity check is performed eagerly at construction
-    time (so the constructor is not JIT-friendly; use :func:`toeplitz_sample`
-    if a runtime fallback is desired).
+    ``𝒩(0, Toeplitz(column))`` when the Wood--Chan condition holds.
+
+    The Wood--Chan non-negativity check is implemented with
+    ``eqx.error_if`` so it is JIT-friendly: the error fires at evaluation
+    time rather than tracing time. If the embedding's spectrum has a
+    materially negative eigenvalue, bump ``embedding_factor`` (typically
+    ``4`` or ``8`` suffices for well-behaved covariances).
 
     Args:
         column: First column of the Toeplitz matrix, shape ``(n,)``.
         embedding_factor: Circulant embedding size as a multiple of ``n``.
     """
 
-    sqrt_spectrum: Float[Array, " m"]
+    sqrt_spectrum: Float[Array, " m_rfft"]
     _size: int = eqx.field(static=True)
     _embedding_size: int = eqx.field(static=True)
     _dtype: str = eqx.field(static=True)
@@ -177,6 +178,12 @@ def toeplitz_sample(
 ) -> Float[Array, "num_samples n"]:
     """Sample from ``𝒩(0, Toeplitz(column))`` via FFT circulant embedding.
 
+    The Wood--Chan non-negativity check is JIT-friendly (via
+    ``eqx.error_if``). If the embedding fails for the given
+    ``embedding_factor``, the error fires at evaluation time — bump
+    ``embedding_factor`` (typically ``4`` or ``8``) for difficult
+    covariances rather than relying on a runtime fallback.
+
     Args:
         column: First column of the covariance matrix.
         key: JAX PRNG key used to draw white noise.
@@ -190,19 +197,7 @@ def toeplitz_sample(
         raise ValueError("num_samples must be at least 1.")
 
     column = _as_floating_column(column)
-    try:
-        factor = ToeplitzCholesky(column, embedding_factor=embedding_factor)
-    except ValueError as error:
-        warnings.warn(
-            f"Wood-Chan embedding failed: {error} "
-            "Falling back to dense Cholesky sampling.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        L = jnp.linalg.cholesky(Toeplitz(column).as_matrix())
-        noise = jr.normal(key, (num_samples, column.shape[0]), dtype=column.dtype)
-        return noise @ L.T
-
+    factor = ToeplitzCholesky(column, embedding_factor=embedding_factor)
     noise = jr.normal(key, (num_samples, factor.in_size()), dtype=column.dtype)
     return jax.vmap(factor.mv)(noise)
 
@@ -234,24 +229,27 @@ def _circulant_sqrt_spectrum(
     column: Float[Array, " n"],
     *,
     embedding_factor: int,
-) -> Float[Array, " m"]:
+) -> Float[Array, " m_rfft"]:
     spectrum = jnp.fft.rfft(
         _circulant_embedding(column, embedding_factor=embedding_factor),
     ).real
     scale = jnp.maximum(1.0, jnp.max(jnp.abs(spectrum)))
-    # Allow roundoff-sized negative FFT eigenvalues while rejecting real failures.
+    # Allow roundoff-sized negative FFT eigenvalues while rejecting real
+    # failures. Uses eqx.error_if so the check is JIT-friendly (raises at
+    # evaluation time rather than tracing time).
     tolerance = 100 * jnp.finfo(column.dtype).eps * scale
-    if jnp.any(spectrum < -tolerance):
-        raise ValueError(
-            "Circulant embedding failed the Wood-Chan non-negativity condition "
-            f"for embedding_factor={embedding_factor}; try "
-            f"embedding_factor={2 * embedding_factor}."
-        )
+    spectrum = eqx.error_if(
+        spectrum,
+        jnp.any(spectrum < -tolerance),
+        f"Circulant embedding failed the Wood-Chan non-negativity condition "
+        f"for embedding_factor={embedding_factor}; "
+        f"try embedding_factor={2 * embedding_factor}.",
+    )
     return jnp.sqrt(jnp.clip(spectrum, min=0.0))
 
 
 def _circulant_sqrt_mv(
-    sqrt_spectrum: Float[Array, " m"],
+    sqrt_spectrum: Float[Array, " m_rfft"],
     vector: Float[Array, " m"],
     output_size: int,
 ) -> Float[Array, " n"]:

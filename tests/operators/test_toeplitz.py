@@ -147,16 +147,34 @@ class TestCirculantCholesky:
         assert samples.shape == (num_samples, n)
         assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
 
-    def test_toeplitz_sample_falls_back_when_embedding_fails(self, getkey):
+    def test_toeplitz_sample_raises_when_embedding_fails(self, getkey):
+        # Column whose 2× circulant embedding has a materially negative
+        # eigenvalue — bumping ``embedding_factor`` is the documented remedy.
         column = jnp.array([3.2900615, -1.8108547, -0.6982663], dtype=jnp.float32)
+        with pytest.raises(Exception, match="Wood-Chan"):
+            jax.block_until_ready(
+                toeplitz_sample(column, key=getkey(), num_samples=4)
+            )
+
+    def test_toeplitz_sample_jit_compatible(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
         key = getkey()
+        jitted = eqx.filter_jit(
+            lambda c, k: toeplitz_sample(c, key=k, num_samples=2)
+        )
+        samples = jitted(column, key)
+        assert samples.shape == (2, n)
+        assert jnp.all(jnp.isfinite(samples))
 
-        with pytest.warns(RuntimeWarning, match="Falling back to dense Cholesky"):
-            samples = toeplitz_sample(column, key=key, num_samples=4)
-
-        L = jnp.linalg.cholesky(Toeplitz(column).as_matrix())
-        expected = jr.normal(key, (4, column.shape[0]), dtype=column.dtype) @ L.T
-        assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
+    def test_toeplitz_cholesky_mv_jit_compatible(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
+        L = ToeplitzCholesky(column)
+        v = jr.normal(getkey(), (L.in_size(),))
+        result = eqx.filter_jit(L.mv)(v)
+        assert result.shape == (n,)
+        assert jnp.all(jnp.isfinite(result))
 
 
 # ---------------------------------------------------------------------------
