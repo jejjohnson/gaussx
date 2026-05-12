@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+from jax.test_util import check_grads
 
 from gaussx import (
     BlockDiag,
@@ -110,7 +111,7 @@ def test_kalman_gain_shape(getkey):
     assert K.shape == (N, M)
 
 
-def _woodbury_model(getkey, M=512, k=8, T=2):
+def _make_woodbury_test_model(getkey, M=512, k=8, T=2):
     A = 0.95 * jnp.eye(k)
     H = jr.normal(getkey(), (M, k)) / jnp.sqrt(k)
     Q = 0.01 * jnp.eye(k)
@@ -122,7 +123,7 @@ def _woodbury_model(getkey, M=512, k=8, T=2):
 
 
 def test_innovation_covariance_woodbury_returns_low_rank_update(getkey):
-    _, H, _, R_diag, _, _, P0 = _woodbury_model(getkey, M=32, k=4, T=1)
+    _, H, _, R_diag, _, _, P0 = _make_woodbury_test_model(getkey, M=32, k=4, T=1)
     R = lx.DiagonalLinearOperator(R_diag)
 
     S = _innovation_covariance(H, P0, R, woodbury=True)
@@ -132,7 +133,7 @@ def test_innovation_covariance_woodbury_returns_low_rank_update(getkey):
 
 
 def test_kalman_filter_woodbury_innovation_diagonal_matches_dense(getkey):
-    A, H, Q, R_diag, y, x0, P0 = _woodbury_model(getkey)
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
     R = jnp.diag(R_diag)
 
     ref = kalman_filter(A, H, Q, R, y, x0, P0)
@@ -153,7 +154,7 @@ def test_kalman_filter_woodbury_innovation_diagonal_matches_dense(getkey):
 
 
 def test_kalman_filter_woodbury_innovation_blockdiag_matches_dense(getkey):
-    A, H, Q, R_diag, y, x0, P0 = _woodbury_model(getkey)
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
     R = jnp.diag(R_diag)
     blocks = [
         lx.DiagonalLinearOperator(block)
@@ -178,7 +179,7 @@ def test_kalman_filter_woodbury_innovation_blockdiag_matches_dense(getkey):
 
 
 def test_kalman_filter_woodbury_innovation_jit_and_grad(getkey):
-    A, H, Q, R_diag, y, x0, P0 = _woodbury_model(getkey, M=64, k=4, T=3)
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey, M=16, k=4, T=3)
 
     def log_likelihood(noise_scale, observations):
         return kalman_filter(
@@ -199,6 +200,12 @@ def test_kalman_filter_woodbury_innovation_jit_and_grad(getkey):
 
     assert jnp.isfinite(jitted_log_likelihood)
     assert jnp.isfinite(noise_scale_gradient)
+    check_grads(
+        lambda noise_scale: log_likelihood(noise_scale, y),
+        (jnp.array(1.0),),
+        order=1,
+        modes=["rev"],
+    )
 
 
 # ----------------------------------------------------------------

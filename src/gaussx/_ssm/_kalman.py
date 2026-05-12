@@ -11,6 +11,7 @@ from jaxtyping import Array, Bool, Float
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._ssm._utils import (
     _innovation_covariance,
+    _left_matmul,
     _materialise,
     _normalise_tv_inputs,
     _right_matmul_transpose,
@@ -169,7 +170,13 @@ def kalman_filter(
 
             x_upd = x_pred + K @ v
             if woodbury_innovation:
-                P_upd = P_pred - K @ (H_t @ P_pred)
+                # Avoid materialising S for the covariance update. Use
+                # the operator path when available (H_t is a (0, 0)
+                # placeholder under operator mode).
+                HP_pred = (
+                    _left_matmul(H_op, P_pred) if H_op is not None else H_t @ P_pred
+                )
+                P_upd = P_pred - K @ HP_pred
             else:
                 P_upd = P_pred - K @ S_op.as_matrix() @ K.T
 
