@@ -12,6 +12,9 @@ from jaxtyping import Array, Float
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 
 
+_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR = 100
+
+
 class KroneckerSum(lx.AbstractLinearOperator):
     r"""Kronecker sum ``A \oplus B = A \otimes I_b + I_a \otimes B``.
 
@@ -115,16 +118,151 @@ class KroneckerSum(lx.AbstractLinearOperator):
             eigenvalues are ``lambda^A_i + lambda^B_j`` for all pairs.
         """
 
-        def _factor_eigh(op):
-            if isinstance(op, lx.DiagonalLinearOperator):
-                d = lx.diagonal(op)
-                return d, jnp.eye(d.shape[0], dtype=d.dtype)
-            return jnp.linalg.eigh(op.as_matrix())
-
-        evals_a, evecs_a = _factor_eigh(self.A)
-        evals_b, evecs_b = _factor_eigh(self.B)
+        evals_a, evecs_a = _eigh_factor(self.A)
+        evals_b, evecs_b = _eigh_factor(self.B)
         # Eigenvalues: lambda_a_i + lambda_b_j for all (i, j) pairs
         eigenvalues = rearrange(evals_a[:, None] + evals_b[None, :], "a b -> (a b)")
         # Eigenvectors: Q_A (x) Q_B
         Q = jnp.kron(evecs_a, evecs_b)
         return eigenvalues, Q
+
+
+class KroneckerSumSqrt(lx.AbstractLinearOperator):
+    r"""Symmetric square root of ``A \oplus B`` via per-factor eigenvectors."""
+
+    eigenvectors_a: Float[Array, "a a"]
+    eigenvectors_b: Float[Array, "b b"]
+    sqrt_eigenvalues: Float[Array, "a b"]
+    _in_size: int = eqx.field(static=True)
+    _out_size: int = eqx.field(static=True)
+    _n_a: int = eqx.field(static=True)
+    _n_b: int = eqx.field(static=True)
+    _dtype: str = eqx.field(static=True)
+
+    def __init__(
+        self,
+        A: lx.AbstractLinearOperator,
+        B: lx.AbstractLinearOperator,
+    ) -> None:
+        if A.in_size() != A.out_size():
+            raise ValueError(
+                f"A must be square, got in_size={A.in_size()}, out_size={A.out_size()}."
+            )
+        if B.in_size() != B.out_size():
+            raise ValueError(
+                f"B must be square, got in_size={B.in_size()}, out_size={B.out_size()}."
+            )
+        # The symmetric sqrt is well-defined only when A and B are
+        # symmetric PSD. Without these tags, ``jnp.linalg.eigh`` would
+        # silently use only the lower triangle and return wrong
+        # eigenvectors for non-symmetric inputs.
+        if not lx.is_symmetric(A) or not lx.is_symmetric(B):
+            raise ValueError(
+                "KroneckerSumSqrt requires both factors to be symmetric "
+                "(tag them with lx.symmetric_tag or lx.positive_semidefinite_tag)."
+            )
+        evals_a, evecs_a = _eigh_factor(A)
+        evals_b, evecs_b = _eigh_factor(B)
+        eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
+            jnp.result_type(evals_a, evals_b, jnp.float32)
+        )
+        # Tolerance for "numerically zero" negative eigenvalues. We scale
+        # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
+        # enough for large-magnitude spectra while still admitting eigh
+        # roundoff. Linear scaling becomes too permissive: with
+        # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
+        # genuinely-indefinite operators (negatives on the order of
+        # ``-1e3``) could slip past the guard.
+        scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
+        threshold = (
+            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
+            * jnp.finfo(eigenvalues.dtype).eps
+            * jnp.sqrt(scale)
+        )
+        min_eigenvalue = jnp.min(eigenvalues)
+        if bool(min_eigenvalue < threshold):
+            raise ValueError(
+                "A ⊕ B must be positive semidefinite; "
+                f"minimum eigenvalue {float(min_eigenvalue):.2e} is below "
+                f"threshold {float(threshold):.2e}."
+            )
+        sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
+
+        self.eigenvectors_a = evecs_a
+        self.eigenvectors_b = evecs_b
+        self.sqrt_eigenvalues = sqrt_eigenvalues
+        self._n_a = A.in_size()
+        self._n_b = B.in_size()
+        self._in_size = self._n_a * self._n_b
+        self._out_size = self._in_size
+        self._dtype = str(jnp.result_type(evecs_a, evecs_b, sqrt_eigenvalues))
+
+    def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
+        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
+        C = self.sqrt_eigenvalues.T * C
+        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
+        return rearrange(result, "b a -> (a b)")
+
+    def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
+        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
+        C = C / self.sqrt_eigenvalues.T
+        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
+        return rearrange(result, "b a -> (a b)")
+
+    def as_matrix(self) -> Float[Array, "n n"]:
+        basis = jnp.eye(self._in_size, dtype=jnp.dtype(self._dtype))
+        return jax.vmap(self.mv, in_axes=1, out_axes=1)(basis)
+
+    def transpose(self) -> KroneckerSumSqrt:
+        return self
+
+    def in_structure(self) -> jax.ShapeDtypeStruct:
+        return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
+
+    def out_structure(self) -> jax.ShapeDtypeStruct:
+        return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+
+
+def kronecker_sum_sample(
+    A_op: lx.AbstractLinearOperator,
+    B_op: lx.AbstractLinearOperator,
+    *,
+    key: jax.Array,
+    num_samples: int = 1,
+) -> Float[Array, "num_samples n_a n_b"]:
+    """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions."""
+    if num_samples <= 0:
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
+
+    sqrt_op = KroneckerSumSqrt(A_op, B_op)
+    eps = jax.random.normal(
+        key,
+        (num_samples, sqrt_op.in_size()),
+        dtype=jnp.dtype(sqrt_op._dtype),
+    )
+    samples = jax.vmap(sqrt_op.mv)(eps)
+    return rearrange(samples, "s (a b) -> s a b", a=sqrt_op._n_a, b=sqrt_op._n_b)
+
+
+def _eigh_factor(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    """Symmetric eigendecomposition of a Kronecker-sum factor.
+
+    Always returns an ``eigh``-equivalent ``(eigenvalues, Q)`` with
+    orthonormal ``Q`` — callers (``_solve_kronecker_sum``,
+    ``KroneckerSum.eigendecompose``, ``KroneckerSumSqrt``) rely on
+    ``Q.T == Q^{-1}``.
+
+    Diagonal operators get a free structural shortcut. For anything
+    else we materialize and call ``jnp.linalg.eigh`` directly — routing
+    through ``gaussx.eig`` is unsafe here because for untagged factors
+    that primitive falls back to ``jnp.linalg.eig``, which returns
+    general (non-orthonormal) eigenvectors.
+    """
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        d = lx.diagonal(operator)
+        return d, jnp.eye(d.shape[0], dtype=d.dtype)
+    return jnp.linalg.eigh(operator.as_matrix())

@@ -7,8 +7,9 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
-from gaussx._operators import Toeplitz
+from gaussx._operators import Toeplitz, ToeplitzCholesky, toeplitz_sample
 from gaussx._testing import tree_allclose
 
 
@@ -100,6 +101,76 @@ class TestMv:
         T = Toeplitz(c)
         v = jr.normal(getkey(), (2,))
         assert tree_allclose(T.mv(v), T.as_matrix() @ v, rtol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# Circulant Cholesky / sampling
+# ---------------------------------------------------------------------------
+
+
+class TestCirculantCholesky:
+    def test_factor_reconstructs_dense_toeplitz(self):
+        n = 8
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 2.0)
+        T = Toeplitz(column, tags=lx.positive_semidefinite_tag)
+        L = ToeplitzCholesky(column)
+
+        assert L.out_size() == n
+        assert L.in_size() == 2 * n
+        reconstructed = L.as_matrix() @ L.as_matrix().T
+        assert tree_allclose(reconstructed, T.as_matrix(), rtol=1e-5, atol=1e-5)
+
+    def test_transpose_is_adjoint(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
+        L = ToeplitzCholesky(column)
+        x = jr.normal(getkey(), (L.in_size(),))
+        y = jr.normal(getkey(), (L.out_size(),))
+
+        left = jnp.vdot(L.mv(x), y)
+        right = jnp.vdot(x, L.T.mv(y))
+        assert tree_allclose(left, right, rtol=1e-5, atol=1e-5)
+
+    def test_toeplitz_sample_identity_matches_white_noise(self, getkey):
+        n = 5
+        num_samples = 3
+        column = jnp.zeros(n, dtype=jnp.float32).at[0].set(1.0)
+        key = getkey()
+
+        samples = toeplitz_sample(column, key=key, num_samples=num_samples)
+        expected = jr.normal(
+            key,
+            (num_samples, 2 * n),
+            dtype=column.dtype,
+        )[:, :n]
+
+        assert samples.shape == (num_samples, n)
+        assert tree_allclose(samples, expected, rtol=1e-5, atol=1e-5)
+
+    def test_toeplitz_sample_raises_when_embedding_fails(self, getkey):
+        # Column whose 2× circulant embedding has a materially negative
+        # eigenvalue — bumping ``embedding_factor`` is the documented remedy.
+        column = jnp.array([3.2900615, -1.8108547, -0.6982663], dtype=jnp.float32)
+        with pytest.raises(Exception, match="Wood-Chan"):
+            jax.block_until_ready(toeplitz_sample(column, key=getkey(), num_samples=4))
+
+    def test_toeplitz_sample_jit_compatible(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
+        key = getkey()
+        jitted = eqx.filter_jit(lambda c, k: toeplitz_sample(c, key=k, num_samples=2))
+        samples = jitted(column, key)
+        assert samples.shape == (2, n)
+        assert jnp.all(jnp.isfinite(samples))
+
+    def test_toeplitz_cholesky_mv_jit_compatible(self, getkey):
+        n = 6
+        column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
+        L = ToeplitzCholesky(column)
+        v = jr.normal(getkey(), (L.in_size(),))
+        result = eqx.filter_jit(L.mv)(v)
+        assert result.shape == (n,)
+        assert jnp.all(jnp.isfinite(result))
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,11 @@ from gaussx._operators._implicit_kernel import ImplicitKernelOperator
 from gaussx._operators._interpolated import InterpolatedOperator
 from gaussx._operators._kernel import KernelOperator
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._kronecker_sum import (
+    KroneckerSum,
+    KroneckerSumSqrt,
+    kronecker_sum_sample,
+)
 from gaussx._operators._lazy_algebra import (
     ProductOperator,
     ScaledOperator,
@@ -37,7 +41,7 @@ from gaussx._operators._sum_kronecker import (
     SumKronecker,
     sumkronecker_sample as sumkronecker_sample,
 )
-from gaussx._operators._toeplitz import Toeplitz
+from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky, toeplitz_sample
 from gaussx._tags import (
     is_block_diagonal,
     is_block_tridiagonal,
@@ -101,6 +105,11 @@ def _(operator: KroneckerSum) -> bool:
     return lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)
 
 
+@lx.is_symmetric.register(KroneckerSumSqrt)
+def _(operator: KroneckerSumSqrt) -> bool:
+    return True
+
+
 @lx.is_symmetric.register(BlockTriDiag)
 def _(operator: BlockTriDiag) -> bool:
     return lx.symmetric_tag in operator.tags
@@ -123,6 +132,11 @@ def _(operator: LowRankUpdate) -> bool:
 
 @lx.is_diagonal.register(KroneckerSum)
 def _(operator: KroneckerSum) -> bool:
+    return False
+
+
+@lx.is_diagonal.register(KroneckerSumSqrt)
+def _(operator: KroneckerSumSqrt) -> bool:
     return False
 
 
@@ -151,6 +165,11 @@ def _(operator: KroneckerSum) -> bool:
     return lx.is_positive_semidefinite(operator.A) and lx.is_positive_semidefinite(
         operator.B
     )
+
+
+@lx.is_positive_semidefinite.register(KroneckerSumSqrt)
+def _(operator: KroneckerSumSqrt) -> bool:
+    return True
 
 
 @lx.is_positive_semidefinite.register(BlockTriDiag)
@@ -425,6 +444,11 @@ def _(operator: KroneckerSum) -> bool:
     return False
 
 
+@lx.is_negative_semidefinite.register(KroneckerSumSqrt)
+def _(operator: KroneckerSumSqrt) -> bool:
+    return False
+
+
 @lx.is_negative_semidefinite.register(BlockTriDiag)
 def _(operator: BlockTriDiag) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
@@ -505,6 +529,7 @@ _ALL_TRIDIAG_DEFAULTS = (
     BlockDiag,
     Kronecker,
     LowRankUpdate,
+    KroneckerSumSqrt,
     KroneckerSum,
     BlockTriDiag,
     LowerBlockTriDiag,
@@ -527,6 +552,7 @@ _TRI_DEFAULTS = (
     Kronecker,
     LowRankUpdate,
     KroneckerSum,
+    KroneckerSumSqrt,
     BlockTriDiag,
     ImplicitKernelOperator,
     MaskedOperator,
@@ -572,6 +598,7 @@ __all__ = [
     "KernelOperator",
     "Kronecker",
     "KroneckerSum",
+    "KroneckerSumSqrt",
     "LowRankUpdate",
     "LowerBlockTriDiag",
     "MaskedOperator",
@@ -581,10 +608,13 @@ __all__ = [
     "SumKronecker",
     "SumOperator",
     "Toeplitz",
+    "ToeplitzCholesky",
     "UpperBlockTriDiag",
     "implicit_cross_kernel",
+    "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "sumkronecker_sample",
     "svd_low_rank_plus_diag",
+    "toeplitz_sample",
 ]

@@ -9,6 +9,7 @@ from gaussx._inference._blr import (
 from gaussx._inference._ensemble import (
     ensemble_covariance,
     ensemble_cross_covariance,
+    ensemble_kalman_gain,
 )
 from gaussx._inference._inference import (
     cavity_distribution,
@@ -32,6 +33,7 @@ __all__ = [
     "damped_natural_update",
     "ensemble_covariance",
     "ensemble_cross_covariance",
+    "ensemble_kalman_gain",
     "gauss_newton_precision",
     "gaussian_expected_log_lik",
     "ggn_diagonal",

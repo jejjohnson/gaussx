@@ -16,7 +16,11 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._kronecker_sum import (
+    KroneckerSum,
+    KroneckerSumSqrt,
+    _eigh_factor,
+)
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
@@ -49,6 +53,8 @@ def solve(
         return _solve_low_rank(operator, vector, solver)
     if isinstance(operator, KroneckerSum):
         return _solve_kronecker_sum(operator, vector)
+    if isinstance(operator, KroneckerSumSqrt):
+        return operator.solve(vector)
     if isinstance(operator, BlockTriDiag):
         return _solve_block_tridiag(operator, vector)
     if isinstance(operator, LowerBlockTriDiag):
@@ -279,27 +285,3 @@ def _solve_fallback(
     if solver is None:
         solver = lx.AutoLinearSolver(well_posed=True)
     return lx.linear_solve(operator, vector, solver).value
-
-
-def _eigh_factor(
-    operator: lx.AbstractLinearOperator,
-) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
-    """Symmetric eigendecomposition of a Kronecker-sum factor.
-
-    Always returns an ``eigh``-equivalent ``(eigenvalues, Q)`` with
-    orthonormal ``Q`` — callers (``_solve_kronecker_sum``,
-    ``KroneckerSum.eigendecompose``) rely on ``Q.T == Q^{-1}``.
-
-    Diagonal operators get a free structural shortcut. For anything
-    else we materialize and call ``jnp.linalg.eigh`` directly — this
-    matches the pre-#158 behavior and stays correct for the common
-    case of *numerically* symmetric matrices wrapped as plain
-    ``MatrixLinearOperator`` without ``symmetric_tag``. Routing through
-    ``gaussx.eig`` is unsafe here because for untagged factors that
-    primitive falls back to ``jnp.linalg.eig``, which returns general
-    (non-orthonormal) eigenvectors.
-    """
-    if isinstance(operator, lx.DiagonalLinearOperator):
-        d = lx.diagonal(operator)
-        return d, jnp.eye(d.shape[0], dtype=d.dtype)
-    return jnp.linalg.eigh(operator.as_matrix())
