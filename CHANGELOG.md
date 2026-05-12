@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.15](https://github.com/jejjohnson/gaussx/compare/v0.0.14...v0.0.15) (2026-05-12)
+
+
+### Features
+
+* **operators:** add FFT-based Toeplitz sampling via circulant embedding ([#172](https://github.com/jejjohnson/gaussx/issues/172)) ([8dc8376](https://github.com/jejjohnson/gaussx/commit/8dc837689fd9141b3d19bdccbc79a89ec5f58896))
+* **operators:** add matrix-free Lanczos sampling for SumKronecker ([#174](https://github.com/jejjohnson/gaussx/issues/174)) ([b39deb3](https://github.com/jejjohnson/gaussx/commit/b39deb37f29a8e720dac061d2b1f970ea3c38927))
+* **operators:** add structured KroneckerSum sqrt and sampling ([#173](https://github.com/jejjohnson/gaussx/issues/173)) ([3cdd9a0](https://github.com/jejjohnson/gaussx/commit/3cdd9a0118619b3a7c5727dc2557a78c6bd79159))
+* **recipes:** add Bessel-corrected ensemble covariances and Kalman gain ([#175](https://github.com/jejjohnson/gaussx/issues/175)) ([e0b3218](https://github.com/jejjohnson/gaussx/commit/e0b32180c54d9452ac0648331caf44e6843eefa3))
+
 ## [0.0.14](https://github.com/jejjohnson/gaussx/compare/v0.0.13...v0.0.14) (2026-05-03)
 
 
