@@ -32,7 +32,12 @@ def sqrt(
     Args:
         operator: A PSD linear operator.
         lanczos_order: Order of Lanczos iteration for matrix-free
-            sqrt. If ``None``, uses dense eigendecomposition.
+            sqrt. If ``None``, uses dense eigendecomposition for most
+            operators, *except* :class:`SumKronecker` — where ``None``
+            falls back to a Lanczos sqrt with the module default order
+            (no closed-form sqrt exists for the sum-of-Kronecker
+            structure). Pass an explicit ``lanczos_order`` to override
+            the default rank.
 
     Returns:
         Operator S satisfying S @ S = A.

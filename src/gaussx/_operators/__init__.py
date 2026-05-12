@@ -585,5 +585,6 @@ __all__ = [
     "implicit_cross_kernel",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
+    "sumkronecker_sample",
     "svd_low_rank_plus_diag",
 ]

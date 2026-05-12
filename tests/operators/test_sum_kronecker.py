@@ -430,3 +430,9 @@ def test_cholesky_sumkronecker_warns_dense_fallback(getkey):
     with pytest.warns(DenseFallbackWarning, match="sumkronecker_sample"):
         L = cholesky(SK)
     assert tree_allclose(L.as_matrix() @ L.as_matrix().T, SK.as_matrix(), rtol=1e-4)
+
+
+def test_sumkronecker_sample_rejects_nonpositive_num_samples(getkey):
+    SK = _make_psd_sum_kronecker(getkey)
+    with pytest.raises(ValueError, match="num_samples"):
+        sumkronecker_sample(SK, key=getkey(), num_samples=0)

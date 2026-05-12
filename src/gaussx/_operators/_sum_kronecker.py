@@ -191,6 +191,14 @@ def sumkronecker_sample(
     """
     from gaussx._primitives._sqrt import sqrt
 
+    if op.in_size() != op.out_size():
+        raise ValueError(
+            "sumkronecker_sample requires a square SumKronecker, got "
+            f"in_size={op.in_size()} and out_size={op.out_size()}."
+        )
+    if num_samples < 1:
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
+
     sqrt_op = sqrt(op, lanczos_order=lanczos_order)
     eps = jax.random.normal(
         key, (num_samples, op.in_size()), dtype=op.in_structure().dtype
