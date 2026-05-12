@@ -22,7 +22,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import (
     KroneckerSum,
     KroneckerSumSqrt,
-    kroneckersum_sample,
+    kronecker_sum_sample,
 )
 from gaussx._operators._lazy_algebra import (
     ProductOperator,
@@ -607,7 +607,7 @@ __all__ = [
     "Toeplitz",
     "UpperBlockTriDiag",
     "implicit_cross_kernel",
-    "kroneckersum_sample",
+    "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "svd_low_rank_plus_diag",

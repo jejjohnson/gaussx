@@ -127,7 +127,7 @@ from gaussx._operators import (
     Toeplitz as Toeplitz,
     UpperBlockTriDiag as UpperBlockTriDiag,
     implicit_cross_kernel as implicit_cross_kernel,
-    kroneckersum_sample as kroneckersum_sample,
+    kronecker_sum_sample as kronecker_sum_sample,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,

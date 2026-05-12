@@ -144,6 +144,14 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         A: lx.AbstractLinearOperator,
         B: lx.AbstractLinearOperator,
     ) -> None:
+        if A.in_size() != A.out_size():
+            raise ValueError(
+                f"A must be square, got in_size={A.in_size()}, out_size={A.out_size()}."
+            )
+        if B.in_size() != B.out_size():
+            raise ValueError(
+                f"B must be square, got in_size={B.in_size()}, out_size={B.out_size()}."
+            )
         # The symmetric sqrt is well-defined only when A and B are
         # symmetric PSD. Without these tags, ``jnp.linalg.eigh`` would
         # silently use only the lower triangle and return wrong
@@ -158,13 +166,20 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
             jnp.result_type(evals_a, evals_b, jnp.float32)
         )
-        # Scale by magnitude so invalid large-negative spectra get a fair tolerance.
+        # Tolerance for "numerically zero" negative eigenvalues. We scale
+        # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
+        # enough for large-magnitude spectra while still admitting eigh
+        # roundoff. Linear scaling becomes too permissive: with
+        # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
+        # genuinely-indefinite operators (negatives on the order of
+        # ``-1e3``) could slip past the guard.
         scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
-        tolerance = (
-            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR * jnp.finfo(eigenvalues.dtype).eps
+        threshold = (
+            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
+            * jnp.finfo(eigenvalues.dtype).eps
+            * jnp.sqrt(scale)
         )
         min_eigenvalue = jnp.min(eigenvalues)
-        threshold = tolerance * scale
         if bool(min_eigenvalue < threshold):
             raise ValueError(
                 "A ⊕ B must be positive semidefinite; "
@@ -210,7 +225,7 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
 
 
-def kroneckersum_sample(
+def kronecker_sum_sample(
     A_op: lx.AbstractLinearOperator,
     B_op: lx.AbstractLinearOperator,
     *,
@@ -234,6 +249,19 @@ def kroneckersum_sample(
 def _eigh_factor(
     operator: lx.AbstractLinearOperator,
 ) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    """Symmetric eigendecomposition of a Kronecker-sum factor.
+
+    Always returns an ``eigh``-equivalent ``(eigenvalues, Q)`` with
+    orthonormal ``Q`` — callers (``_solve_kronecker_sum``,
+    ``KroneckerSum.eigendecompose``, ``KroneckerSumSqrt``) rely on
+    ``Q.T == Q^{-1}``.
+
+    Diagonal operators get a free structural shortcut. For anything
+    else we materialize and call ``jnp.linalg.eigh`` directly — routing
+    through ``gaussx.eig`` is unsafe here because for untagged factors
+    that primitive falls back to ``jnp.linalg.eig``, which returns
+    general (non-orthonormal) eigenvectors.
+    """
     if isinstance(operator, lx.DiagonalLinearOperator):
         d = lx.diagonal(operator)
         return d, jnp.eye(d.shape[0], dtype=d.dtype)
