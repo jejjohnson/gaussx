@@ -56,7 +56,7 @@ log_p = mvn.log_prob(v)
 
 Pure functions with `isinstance`-based structural dispatch. Each primitive automatically exploits the structure of its input operator (Kronecker, block-diagonal, low-rank, etc.).
 
-`solve` | `logdet` | `cholesky` | `diag` | `trace` | `sqrt` | `inv` | `eig` | `eigvals` | `svd`
+`solve` | `logdet` | `cholesky` | `diag` | `trace` | `sqrt` | `inv` | `eig` | `eigvals` | `svd` | `root_decomposition` | `root_inv_decomposition`
 
 ### Layer 1 -- Operators
 
