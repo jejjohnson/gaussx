@@ -152,17 +152,13 @@ class TestCirculantCholesky:
         # eigenvalue — bumping ``embedding_factor`` is the documented remedy.
         column = jnp.array([3.2900615, -1.8108547, -0.6982663], dtype=jnp.float32)
         with pytest.raises(Exception, match="Wood-Chan"):
-            jax.block_until_ready(
-                toeplitz_sample(column, key=getkey(), num_samples=4)
-            )
+            jax.block_until_ready(toeplitz_sample(column, key=getkey(), num_samples=4))
 
     def test_toeplitz_sample_jit_compatible(self, getkey):
         n = 6
         column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 3.0)
         key = getkey()
-        jitted = eqx.filter_jit(
-            lambda c, k: toeplitz_sample(c, key=k, num_samples=2)
-        )
+        jitted = eqx.filter_jit(lambda c, k: toeplitz_sample(c, key=k, num_samples=2))
         samples = jitted(column, key)
         assert samples.shape == (2, n)
         assert jnp.all(jnp.isfinite(samples))
