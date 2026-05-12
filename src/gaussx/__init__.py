@@ -48,6 +48,7 @@ from gaussx._gp import (
     leave_one_out_cv as leave_one_out_cv,
     love_cache as love_cache,
     love_variance as love_variance,
+    matheron_update as matheron_update,
     oilmm_back_project as oilmm_back_project,
     oilmm_project as oilmm_project,
     predict_mean as predict_mean,
