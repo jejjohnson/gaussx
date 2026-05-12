@@ -49,6 +49,7 @@ def _as_operator(
     op_or_array: Float[Array, "M N"] | lx.AbstractLinearOperator,
     tags: object | frozenset[object] = frozenset(),
 ) -> lx.AbstractLinearOperator:
+    """Return an operator view; ``tags`` apply only when wrapping arrays."""
     if isinstance(op_or_array, lx.AbstractLinearOperator):
         return op_or_array
     return lx.MatrixLinearOperator(op_or_array, tags)
@@ -136,7 +137,10 @@ def _normalise_tv_inputs(
     ) -> Float[Array, ...]:
         if x is None:
             if op is None:
-                raise TypeError("When x is None in operator mode, op must be provided.")
+                raise TypeError(
+                    "When materialising is disabled for an operator input, "
+                    "op must be provided to _broadcast_to_T."
+                )
             # Operator-mode placeholder keeps the scan pytree fixed without
             # materialising the operator into a dense (T, M, N) array.
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
