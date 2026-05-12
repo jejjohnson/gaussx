@@ -199,7 +199,7 @@ def _kernel_diagonal(kernel_op: lx.AbstractLinearOperator) -> Float[Array, " N"]
         diag = jax.vmap(
             lambda x: (
                 kernel_op.kernel_fn(kernel_op.params, x, x)
-                if kernel_op._has_params
+                if kernel_op.params is not None
                 else kernel_op.kernel_fn(x, x)
             )
         )(kernel_op.X)
@@ -223,6 +223,7 @@ def _residual_kernel_diagonal(
 ) -> Float[Array, ""]:
     K_nm = _cross_kernel_matrix(kernel_op, subsample_indices)
     m = subsample_indices.shape[0]
+    # Nyström eigenfunctions scaled so subsample rows recover V / sqrt(m).
     eigenfunctions = (K_nm @ (V / eigenvalues[None, :])) / (m * jnp.sqrt(m))
     residual = _kernel_diagonal(kernel_op) - m * jnp.sum(eigenfunctions**2, axis=1)
     eps = jnp.finfo(K_nm.dtype).eps
@@ -234,7 +235,7 @@ def _implicit_kernel_matrix(
     X1: Float[Array, "N D"],
     X2: Float[Array, "M D"],
 ) -> Float[Array, "N M"]:
-    if kernel_op._has_params:
+    if kernel_op.params is not None:
         return jax.vmap(
             lambda x_i: jax.vmap(
                 lambda x_j: kernel_op.kernel_fn(kernel_op.params, x_i, x_j)

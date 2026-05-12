@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 import gaussx
 from gaussx._kernels._eigenpro import (
@@ -71,12 +72,8 @@ class TestEigenProPreconditioner:
     def test_invalid_arguments_raise(self):
         op = lx.MatrixLinearOperator(jnp.eye(4), lx.positive_semidefinite_tag)
 
-        try:
+        with pytest.raises(ValueError, match="n_components"):
             eigenpro_preconditioner(op, subsample_size=3, n_components=3)
-        except ValueError as error:
-            assert "n_components" in str(error)
-        else:
-            raise AssertionError("Expected n_components validation to fail.")
 
 
 class TestEigenProStepSize:
