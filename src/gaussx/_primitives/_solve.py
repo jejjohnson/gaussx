@@ -285,5 +285,3 @@ def _solve_fallback(
     if solver is None:
         solver = lx.AutoLinearSolver(well_posed=True)
     return lx.linear_solve(operator, vector, solver).value
-
-
