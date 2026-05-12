@@ -124,11 +124,13 @@ from gaussx._operators import (
     SumOperator as SumOperator,
     SVDLowRankUpdate as SVDLowRankUpdate,
     Toeplitz as Toeplitz,
+    ToeplitzCholesky as ToeplitzCholesky,
     UpperBlockTriDiag as UpperBlockTriDiag,
     implicit_cross_kernel as implicit_cross_kernel,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
+    toeplitz_sample as toeplitz_sample,
 )
 from gaussx._primitives import (
     cholesky as cholesky,
