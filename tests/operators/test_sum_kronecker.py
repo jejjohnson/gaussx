@@ -9,13 +9,32 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._operators import Kronecker, SumKronecker
+from gaussx._operators import Kronecker, SumKronecker, sumkronecker_sample
+from gaussx._primitives import DenseFallbackWarning, SumKroneckerSqrt, cholesky, sqrt
 from gaussx._testing import tree_allclose
 
 
 def _make_psd(key, n):
     A = jr.normal(key, (n, n))
     return A @ A.T + 0.1 * jnp.eye(n)
+
+
+def _make_psd_sum_kronecker(getkey):
+    A1 = _make_psd(getkey(), 2)
+    B1 = _make_psd(getkey(), 3)
+    A2 = _make_psd(getkey(), 2)
+    B2 = _make_psd(getkey(), 3)
+    return SumKronecker(
+        Kronecker(
+            lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
+            lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
+        ),
+        Kronecker(
+            lx.MatrixLinearOperator(A2, lx.positive_semidefinite_tag),
+            lx.MatrixLinearOperator(B2, lx.positive_semidefinite_tag),
+        ),
+        tags=lx.positive_semidefinite_tag,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -33,6 +52,20 @@ class TestConstruction:
         assert SK.in_size() == 6
         assert SK.out_size() == 6
 
+    def test_accepts_more_than_two_terms(self, getkey):
+        terms = [
+            Kronecker(
+                lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+                lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+            )
+            for _ in range(3)
+        ]
+        SK = SumKronecker(*terms)
+        expected = terms[0].as_matrix()
+        for term in terms[1:]:
+            expected = expected + term.as_matrix()
+        assert tree_allclose(SK.as_matrix(), expected)
+
     def test_rejects_three_factor_kronecker(self, getkey):
         A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
@@ -42,7 +75,7 @@ class TestConstruction:
         with pytest.raises(ValueError, match="two-factor"):
             SumKronecker(k3, k2)
 
-    def test_rejects_size_mismatch(self, getkey):
+    def test_rejects_input_size_mismatch(self, getkey):
         k1 = Kronecker(
             lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
             lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
@@ -52,6 +85,18 @@ class TestConstruction:
             lx.MatrixLinearOperator(jr.normal(getkey(), (4, 4))),
         )
         with pytest.raises(ValueError, match="same size"):
+            SumKronecker(k1, k2)
+
+    def test_rejects_output_size_mismatch(self, getkey):
+        k1 = Kronecker(
+            lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2))),
+            lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+        )
+        k2 = Kronecker(
+            lx.MatrixLinearOperator(jr.normal(getkey(), (3, 2))),
+            lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
+        )
+        with pytest.raises(ValueError, match="output size"):
             SumKronecker(k1, k2)
 
 
@@ -335,3 +380,59 @@ def test_eigendecompose_rejects_nonsymmetric_kron1(getkey):
 
     with pytest.raises(ValueError, match="kron1 factors"):
         SK.eigendecompose()
+
+
+def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
+    SK = _make_psd_sum_kronecker(getkey)
+    v = jr.normal(getkey(), (SK.in_size(),))
+
+    def fail_as_matrix(self):
+        raise AssertionError("Lanczos sqrt should use SumKronecker.mv")
+
+    monkeypatch.setattr(SumKronecker, "as_matrix", fail_as_matrix)
+    sqrt_op = sqrt(SK, lanczos_order=SK.in_size())
+    assert isinstance(sqrt_op, SumKroneckerSqrt)
+    result = sqrt_op.mv(v)
+    assert result.shape == v.shape
+    assert jnp.all(jnp.isfinite(result))
+
+
+def test_sumkronecker_sample_matches_dense_reference(getkey):
+    SK = _make_psd_sum_kronecker(getkey)
+    key = getkey()
+    num_samples = 3
+    samples = sumkronecker_sample(
+        SK,
+        key=key,
+        num_samples=num_samples,
+        lanczos_order=SK.in_size(),
+    )
+
+    eps = jr.normal(key, (num_samples, SK.in_size()), dtype=SK.in_structure().dtype)
+    vals, vecs = jnp.linalg.eigh(SK.as_matrix())
+    dense_sqrt = vecs @ jnp.diag(jnp.sqrt(jnp.maximum(vals, 0.0))) @ vecs.T
+    expected = jax.vmap(lambda e: dense_sqrt @ e)(eps)
+
+    assert samples.shape == (num_samples, SK.in_size())
+    assert tree_allclose(samples, expected, rtol=0.1, atol=1e-5)
+
+
+def test_sumkronecker_sample_reproducible(getkey):
+    SK = _make_psd_sum_kronecker(getkey)
+    key = getkey()
+    samples1 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
+    samples2 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
+    assert tree_allclose(samples1, samples2)
+
+
+def test_cholesky_sumkronecker_warns_dense_fallback(getkey):
+    SK = _make_psd_sum_kronecker(getkey)
+    with pytest.warns(DenseFallbackWarning, match="sumkronecker_sample"):
+        L = cholesky(SK)
+    assert tree_allclose(L.as_matrix() @ L.as_matrix().T, SK.as_matrix(), rtol=1e-4)
+
+
+def test_sumkronecker_sample_rejects_nonpositive_num_samples(getkey):
+    SK = _make_psd_sum_kronecker(getkey)
+    with pytest.raises(ValueError, match="num_samples"):
+        sumkronecker_sample(SK, key=getkey(), num_samples=0)

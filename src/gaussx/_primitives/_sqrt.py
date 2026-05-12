@@ -11,6 +11,10 @@ import matfree.funm
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
+from gaussx._operators._sum_kronecker import SumKronecker
+
+
+_DEFAULT_LANCZOS_ORDER = 50
 
 
 def sqrt(
@@ -29,7 +33,12 @@ def sqrt(
     Args:
         operator: A PSD linear operator.
         lanczos_order: Order of Lanczos iteration for matrix-free
-            sqrt. If ``None``, uses dense eigendecomposition.
+            sqrt. If ``None``, uses dense eigendecomposition for most
+            operators, *except* :class:`SumKronecker` — where ``None``
+            falls back to a Lanczos sqrt with the module default order
+            (no closed-form sqrt exists for the sum-of-Kronecker
+            structure). Pass an explicit ``lanczos_order`` to override
+            the default rank.
 
     Returns:
         Operator S satisfying S @ S = A.
@@ -42,6 +51,13 @@ def sqrt(
         return _sqrt_kronecker(operator)
     if isinstance(operator, KroneckerSum):
         return _sqrt_kronecker_sum(operator)
+    if isinstance(operator, SumKronecker):
+        return _sqrt_sum_kronecker(
+            operator,
+            lanczos_order=(
+                _DEFAULT_LANCZOS_ORDER if lanczos_order is None else lanczos_order
+            ),
+        )
     if lanczos_order is not None:
         return SqrtOperator(operator, lanczos_order)
     return _sqrt_dense(operator)
@@ -64,6 +80,14 @@ def _sqrt_kronecker(operator: Kronecker) -> Kronecker:
 
 def _sqrt_kronecker_sum(operator: KroneckerSum) -> KroneckerSumSqrt:
     return KroneckerSumSqrt(operator.A, operator.B)
+
+
+def _sqrt_sum_kronecker(
+    operator: SumKronecker,
+    *,
+    lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
+) -> SumKroneckerSqrt:
+    return SumKroneckerSqrt(operator, lanczos_order=lanczos_order)
 
 
 def _sqrt_dense(
@@ -121,6 +145,19 @@ class SqrtOperator(lx.AbstractLinearOperator):
 
     def out_structure(self):
         return self.original.out_structure()
+
+
+class SumKroneckerSqrt(SqrtOperator):
+    """Lazy Lanczos square-root operator for ``SumKronecker`` covariances."""
+
+    original: SumKronecker
+
+    def __init__(
+        self,
+        original: SumKronecker,
+        lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
+    ) -> None:
+        super().__init__(original, lanczos_order=lanczos_order)
 
 
 # Register tags for SqrtOperator

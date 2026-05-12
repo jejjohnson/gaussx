@@ -132,10 +132,13 @@ from gaussx._operators import (
     kronecker_sum_sample as kronecker_sum_sample,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
+    sumkronecker_sample as sumkronecker_sample,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
     toeplitz_sample as toeplitz_sample,
 )
 from gaussx._primitives import (
+    DenseFallbackWarning as DenseFallbackWarning,
+    SumKroneckerSqrt as SumKroneckerSqrt,
     cholesky as cholesky,
     cholesky_logdet as cholesky_logdet,
     diag as diag,

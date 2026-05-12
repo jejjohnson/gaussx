@@ -1,4 +1,4 @@
-"""Sum of two Kronecker products: A1 kron B1 + A2 kron B2."""
+"""Sum of Kronecker products: A1 kron B1 + A2 kron B2 + ..."""
 
 from __future__ import annotations
 
@@ -14,12 +14,12 @@ from gaussx._operators._kronecker import Kronecker
 
 
 class SumKronecker(lx.AbstractLinearOperator):
-    r"""Sum of two Kronecker products ``A_1 \otimes B_1 + A_2 \otimes B_2``.
+    r"""Sum of Kronecker products ``Σ_k A_k \otimes B_k``.
 
     Appears in multi-output GPs with correlated outputs, e.g.
     ``K_task \otimes K_spatial + \sigma^2 I_task \otimes I_spatial``.
 
-    Matvec is computed as the sum of the two Kronecker matvecs.
+    Matvec is computed as the sum of the Kronecker matvecs.
 
     For solve and logdet, call :meth:`eigendecompose` which uses a
     joint eigendecomposition of the second Kronecker pair (requires
@@ -31,10 +31,10 @@ class SumKronecker(lx.AbstractLinearOperator):
     Args:
         kron1: First Kronecker product ``A_1 \otimes B_1``.
         kron2: Second Kronecker product ``A_2 \otimes B_2``.
+        *krons: Additional two-factor Kronecker products.
     """
 
-    kron1: Kronecker
-    kron2: Kronecker
+    operators: tuple[Kronecker, ...]
     _in_size: int = eqx.field(static=True)
     _out_size: int = eqx.field(static=True)
     _dtype: str = eqx.field(static=True)
@@ -44,40 +44,53 @@ class SumKronecker(lx.AbstractLinearOperator):
         self,
         kron1: Kronecker,
         kron2: Kronecker,
-        *,
+        *krons: Kronecker,
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
-        if len(kron1.operators) != 2 or len(kron2.operators) != 2:
+        operators = (kron1, kron2, *krons)
+        if any(len(kron.operators) != 2 for kron in operators):
             raise ValueError("SumKronecker requires two-factor Kronecker products.")
-        if kron1.in_size() != kron2.in_size():
+        if any(kron.in_size() != kron1.in_size() for kron in operators[1:]):
+            raise ValueError("Kronecker products must have the same size (input size).")
+        if any(kron.out_size() != kron1.out_size() for kron in operators[1:]):
             raise ValueError(
-                f"Kronecker products must have the same size: "
-                f"{kron1.in_size()} != {kron2.in_size()}."
+                "Kronecker products must have the same size (output size)."
             )
-        self.kron1 = kron1
-        self.kron2 = kron2
+        self.operators = operators
         self._in_size = kron1.in_size()
         self._out_size = kron1.out_size()
-        self._dtype = _resolve_dtype(kron1, kron2)
+        self._dtype = _resolve_dtype(*operators)
         self.tags = _to_frozenset(tags)
 
+    @property
+    def kron1(self) -> Kronecker:
+        return self.operators[0]
+
+    @property
+    def kron2(self) -> Kronecker:
+        return self.operators[1]
+
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:
-        return self.kron1.mv(vector) + self.kron2.mv(vector)
+        result = self.operators[0].mv(vector)
+        for kron in self.operators[1:]:
+            result = result + kron.mv(vector)
+        return result
 
     def as_matrix(self) -> Float[Array, "n n"]:
-        return self.kron1.as_matrix() + self.kron2.as_matrix()
+        result = self.operators[0].as_matrix()
+        for kron in self.operators[1:]:
+            result = result + kron.as_matrix()
+        return result
 
     def transpose(self) -> SumKronecker:
         return SumKronecker(
-            Kronecker(
-                self.kron1.operators[0].T,
-                self.kron1.operators[1].T,
-                tags=lx.transpose_tags(self.kron1.tags),
-            ),
-            Kronecker(
-                self.kron2.operators[0].T,
-                self.kron2.operators[1].T,
-                tags=lx.transpose_tags(self.kron2.tags),
+            *(
+                Kronecker(
+                    kron.operators[0].T,
+                    kron.operators[1].T,
+                    tags=lx.transpose_tags(kron.tags),
+                )
+                for kron in self.operators
             ),
             tags=lx.transpose_tags(self.tags),
         )
@@ -111,6 +124,11 @@ class SumKronecker(lx.AbstractLinearOperator):
             Tuple ``(eigenvalues, Q)`` where
             ``self == Q @ diag(eigenvalues) @ Q^T``.
         """
+        if len(self.operators) != 2:
+            count = len(self.operators)
+            raise ValueError(
+                f"eigendecompose requires exactly two Kronecker products, got {count}."
+            )
         A2_op, B2_op = self.kron2.operators
         A1_op, B1_op = self.kron1.operators
         # The final ``eigh(transformed)`` call requires ``transformed`` to
@@ -146,3 +164,43 @@ class SumKronecker(lx.AbstractLinearOperator):
 
         Q = jnp.kron(Q_C, Q_D) @ V
         return evals, Q
+
+
+def sumkronecker_sample(
+    op: SumKronecker,
+    *,
+    key: jax.Array,
+    num_samples: int = 1,
+    lanczos_order: int = 50,
+) -> Float[Array, "num_samples n"]:
+    r"""Sample from ``𝒩(0, op)`` with matrix-free Lanczos square roots.
+
+    The square-root action is evaluated by ``matfree`` Lanczos against
+    ``op.mv``. This avoids materialising the dense ``(n_A n_B) ×
+    (n_A n_B)`` covariance and costs ``lanczos_order`` SumKronecker
+    matvecs per sample.
+
+    Args:
+        op: Positive-semidefinite SumKronecker covariance operator.
+        key: JAX PRNG key.
+        num_samples: Number of independent samples to draw.
+        lanczos_order: Lanczos truncation order.
+
+    Returns:
+        Samples with shape ``(num_samples, op.in_size())``.
+    """
+    from gaussx._primitives._sqrt import sqrt
+
+    if op.in_size() != op.out_size():
+        raise ValueError(
+            "sumkronecker_sample requires a square SumKronecker, got "
+            f"in_size={op.in_size()} and out_size={op.out_size()}."
+        )
+    if num_samples < 1:
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
+
+    sqrt_op = sqrt(op, lanczos_order=lanczos_order)
+    eps = jax.random.normal(
+        key, (num_samples, op.in_size()), dtype=op.in_structure().dtype
+    )
+    return jax.vmap(sqrt_op.mv)(eps)

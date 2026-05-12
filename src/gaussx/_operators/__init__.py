@@ -37,7 +37,10 @@ from gaussx._operators._low_rank_update import (
     svd_low_rank_plus_diag,
 )
 from gaussx._operators._masked import MaskedOperator
-from gaussx._operators._sum_kronecker import SumKronecker
+from gaussx._operators._sum_kronecker import (
+    SumKronecker,
+    sumkronecker_sample as sumkronecker_sample,
+)
 from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky, toeplitz_sample
 from gaussx._tags import (
     is_block_diagonal,
@@ -330,7 +333,7 @@ def _(operator: ProductOperator) -> bool:
 
 @lx.is_symmetric.register(SumKronecker)
 def _(operator: SumKronecker) -> bool:
-    return lx.is_symmetric(operator.kron1) and lx.is_symmetric(operator.kron2)
+    return all(lx.is_symmetric(kron) for kron in operator.operators)
 
 
 @lx.is_diagonal.register(SumKronecker)
@@ -611,6 +614,7 @@ __all__ = [
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
+    "sumkronecker_sample",
     "svd_low_rank_plus_diag",
     "toeplitz_sample",
 ]

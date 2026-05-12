@@ -10,6 +10,11 @@ import lineax as lx
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._sum_kronecker import SumKronecker
+
+
+class DenseFallbackWarning(UserWarning):
+    """Warning emitted when a structured primitive materialises an operator."""
 
 
 def cholesky(
@@ -34,6 +39,8 @@ def cholesky(
         return _cholesky_kronecker(operator)
     if isinstance(operator, BlockTriDiag):
         return _cholesky_block_tridiag(operator)
+    if isinstance(operator, SumKronecker):
+        return _cholesky_sum_kronecker(operator)
     return _cholesky_dense(operator)
 
 
@@ -80,6 +87,19 @@ def _cholesky_block_tridiag(operator: BlockTriDiag) -> LowerBlockTriDiag:
     # Assemble
     L_diag = jnp.concatenate([L_0[None], L_diag_rest], axis=0)
     return LowerBlockTriDiag(L_diag, B_sub)
+
+
+def _cholesky_sum_kronecker(operator: SumKronecker) -> lx.MatrixLinearOperator:
+    import warnings
+
+    warnings.warn(
+        "cholesky(SumKronecker) materialises the dense covariance. "
+        "Use sumkronecker_sample(...) or sqrt(SumKronecker) for matrix-free "
+        "Lanczos sampling.",
+        DenseFallbackWarning,
+        stacklevel=2,
+    )
+    return _cholesky_dense(operator)
 
 
 def _cholesky_dense(
