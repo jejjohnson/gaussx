@@ -25,13 +25,15 @@ def _joint_problem(getkey, num_target: int = 4, num_conditioning: int = 3):
 
 
 def _joint_samples(key, joint_cov, num_samples: int, num_target: int):
-    # Float32 needs a larger Cholesky jitter because it has fewer mantissa bits.
+    # Use standard Cholesky jitter magnitudes: float32 needs 1e-6 because it
+    # has fewer mantissa bits, while float64 is stable here with 1e-10.
     jitter = 1e-6 if joint_cov.dtype == jnp.float32 else 1e-10
     jitter_matrix = jitter * jnp.eye(joint_cov.shape[0], dtype=joint_cov.dtype)
     L = jnp.linalg.cholesky(joint_cov + jitter_matrix)
     standard = jr.normal(key, (num_samples, joint_cov.shape[0]))
-    # Whiten the draws so the empirical mean/covariance is stable in the
-    # moment tests before mapping them through the target covariance.
+    # Center the draws, factor their empirical covariance, then triangular-solve
+    # against that factor so they have identity empirical covariance before the
+    # target covariance map is applied.
     standard = standard - jnp.mean(standard, axis=0)
     standard_cov = standard.T @ standard / (num_samples - 1)
     standard_chol = jnp.linalg.cholesky(standard_cov)
@@ -113,8 +115,8 @@ def test_matheron_samples_match_schur_posterior_moments(getkey):
     sample_mean = jnp.mean(samples, axis=0)
     centered = samples - sample_mean
     sample_cov = centered.T @ centered / (num_samples - 1)
-    # The prior draws are whitened above, so these tolerances cover only the
-    # affine correction and Cholesky jitter rather than Monte Carlo error.
+    # The prior draws are whitened above, so these tolerances are loose relative
+    # to the posterior scale while still catching mistakes in the affine update.
     assert jnp.allclose(sample_mean, posterior_mean, atol=8e-2)
     assert jnp.allclose(sample_cov, posterior_cov, rtol=5e-2, atol=1e-1)
 
@@ -144,7 +146,8 @@ def test_matheron_marginals_match_dense_posterior_samples(getkey):
             for i in range(K_sm.shape[0])
         ]
     )
-    # For two samples of size 2048, 0.08 is above the 1% critical value.
+    # For two samples of size 2048, the 1% critical value is about
+    # 1.63 * sqrt(2 / 2048) ≈ 0.051, so 0.08 avoids flaky tail failures.
     assert jnp.all(marginal_ks < 0.08)
 
 

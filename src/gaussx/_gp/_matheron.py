@@ -52,6 +52,8 @@ def matheron_update(
         prior_sample_conditioning,
         observed_value,
     )
+    # Promote sample arrays and observations together so the residual,
+    # structured solve, and matvec all use the same precision.
     prior_sample_target = prior_sample_target.astype(dtype)
     prior_sample_conditioning = prior_sample_conditioning.astype(dtype)
     observed_value = observed_value.astype(dtype)
