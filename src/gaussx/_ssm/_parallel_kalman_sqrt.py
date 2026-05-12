@@ -22,7 +22,7 @@ from gaussx._strategies._base import AbstractSolverStrategy
 
 def tria(M: Float[Array, "... K N"]) -> Float[Array, "... N N"]:
     """Return the lower-triangular QR factor satisfying ``L @ L.T = M.T @ M``."""
-    _q, r = jnp.linalg.qr(M, mode="reduced")
+    _, r = jnp.linalg.qr(M, mode="reduced")
     diag = jnp.diagonal(r, axis1=-2, axis2=-1)
     sign = jnp.where(diag < 0, -1.0, 1.0).astype(r.dtype)
     r = sign[..., :, None] * r
@@ -145,6 +145,7 @@ def parallel_kalman_filter_sqrt(
     )
     filtered_means = b_out
     filtered_covs_psd = _cov_from_factor(U_out)
+    # Return PSD covariances while preserving gradients through the scan covariances.
     filtered_covs = C_out + jax.lax.stop_gradient(filtered_covs_psd - C_out)
 
     prev_means = jnp.concatenate([init_mean[None], filtered_means[:-1]], axis=0)
@@ -155,6 +156,7 @@ def parallel_kalman_filter_sqrt(
 
     def _predict_step(F, m, P, U, U_Q, Q):
         m_pred = F @ m
+        # Keep the direct covariance path for gradients; use the factor path for values.
         P_pred = _sym(F @ P @ F.T + Q)
         U_pred = tria(
             jnp.concatenate(
