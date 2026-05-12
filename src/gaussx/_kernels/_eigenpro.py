@@ -221,6 +221,7 @@ def _residual_kernel_diagonal(
     V: Float[Array, "m k"],
     eigenvalues: Float[Array, " k"],
 ) -> Float[Array, ""]:
+    """Estimate ``diag(K) - m Σ_i φ_i(x)^2`` from Nyström eigenfunctions."""
     K_nm = _cross_kernel_matrix(kernel_op, subsample_indices)
     m = subsample_indices.shape[0]
     # Nyström eigenfunctions scaled so subsample rows recover V / sqrt(m).

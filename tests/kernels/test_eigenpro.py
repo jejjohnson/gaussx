@@ -30,14 +30,18 @@ class TestEigenProPreconditioner:
         X = jnp.linspace(-1.0, 1.0, 10)[:, None]
         K = _kernel_matrix(X) + 1e-3 * jnp.eye(X.shape[0])
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+        subsample_size = 6
 
         precond = eigenpro_preconditioner(
             op,
-            subsample_size=6,
+            subsample_size=subsample_size,
             n_components=3,
         )
 
-        K_mm = K[jnp.ix_(precond.subsample_indices, precond.subsample_indices)] / 6
+        K_mm = (
+            K[jnp.ix_(precond.subsample_indices, precond.subsample_indices)]
+            / subsample_size
+        )
         eigvals = jnp.linalg.eigvalsh(K_mm)[::-1]
 
         assert precond.V.shape == (6, 3)
