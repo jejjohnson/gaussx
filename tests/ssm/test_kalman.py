@@ -192,11 +192,13 @@ def test_kalman_filter_woodbury_innovation_jit_and_grad(getkey):
             woodbury_innovation=True,
         ).log_likelihood
 
-    jitted = jax.jit(log_likelihood)(jnp.array(1.0), y)
-    grad = jax.grad(lambda noise_scale: log_likelihood(noise_scale, y))(jnp.array(1.0))
+    jitted_log_likelihood = jax.jit(log_likelihood)(jnp.array(1.0), y)
+    noise_scale_gradient = jax.grad(lambda noise_scale: log_likelihood(noise_scale, y))(
+        jnp.array(1.0)
+    )
 
-    assert jnp.isfinite(jitted)
-    assert jnp.isfinite(grad)
+    assert jnp.isfinite(jitted_log_likelihood)
+    assert jnp.isfinite(noise_scale_gradient)
 
 
 # ----------------------------------------------------------------
