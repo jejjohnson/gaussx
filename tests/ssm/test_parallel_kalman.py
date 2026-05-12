@@ -122,7 +122,8 @@ def test_parallel_kf_sqrt_covariances_are_psd(getkey):
     state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
     covs = jnp.concatenate([state.filtered_covs, state.predicted_covs], axis=0)
     min_eig = jnp.min(jnp.linalg.eigvalsh(covs))
-    atol = jnp.array(jnp.finfo(dtype).eps * 100, dtype=dtype)
+    psd_atol_factor = 100
+    atol = jnp.array(jnp.finfo(dtype).eps * psd_atol_factor, dtype=dtype)
 
     assert jnp.isfinite(min_eig)
     assert min_eig >= -atol

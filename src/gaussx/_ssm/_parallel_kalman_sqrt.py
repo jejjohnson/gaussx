@@ -21,7 +21,7 @@ from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def tria(M: Float[Array, "... K N"]) -> Float[Array, "... N N"]:
-    """Return the lower-triangular QR factor satisfying ``L @ L.T = M.T @ M``."""
+    """Return the lower-triangular QR factor ``R`` with ``R @ R.T = M.T @ M``."""
     _, r = jnp.linalg.qr(M, mode="reduced")
     diag = jnp.diagonal(r, axis1=-2, axis2=-1)
     sign = jnp.where(diag < 0, -1.0, 1.0).astype(r.dtype)
@@ -263,7 +263,7 @@ def parallel_rts_smoother_sqrt(
     )
     last_E = jnp.zeros((1, N, N), dtype=f_means.dtype)
     last_g = f_means[-1:]
-    last_U = _factor_from_psd(f_covs[-1:])[0:1]
+    last_U = _factor_from_psd(f_covs[-1:])
 
     E = jnp.concatenate([inner_E, last_E], axis=0)
     g = jnp.concatenate([inner_g, last_g], axis=0)
