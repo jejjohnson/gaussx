@@ -30,6 +30,7 @@ class TestEigenProPreconditioner:
         X = jnp.linspace(-1.0, 1.0, 10)[:, None]
         K = _kernel_matrix(X) + 1e-3 * jnp.eye(X.shape[0])
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+        # Keeps k=3 below m while leaving λ_{k+1} available for D.
         subsample_size = 6
 
         precond = eigenpro_preconditioner(
@@ -73,11 +74,21 @@ class TestEigenProPreconditioner:
         assert precond.max_eigenvalue > 0.0
         assert precond.beta > 0.0
 
-    def test_invalid_arguments_raise(self):
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"subsample_size": 1, "n_components": 1}, "subsample_size"),
+            ({"subsample_size": 3, "n_components": 0}, "n_components"),
+            ({"subsample_size": 3, "n_components": 3}, "n_components"),
+            ({"subsample_size": 3, "n_components": 1, "alpha": 0.0}, "alpha"),
+            ({"subsample_size": 5, "n_components": 1}, "subsample_size"),
+        ],
+    )
+    def test_invalid_arguments_raise(self, kwargs, match):
         op = lx.MatrixLinearOperator(jnp.eye(4), lx.positive_semidefinite_tag)
 
-        with pytest.raises(ValueError, match="n_components"):
-            eigenpro_preconditioner(op, subsample_size=3, n_components=3)
+        with pytest.raises(ValueError, match=match):
+            eigenpro_preconditioner(op, **kwargs)
 
 
 class TestEigenProStepSize:

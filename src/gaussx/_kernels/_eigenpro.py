@@ -114,7 +114,7 @@ def eigenpro_step_size(
     r"""Return the EigenPro preconditioned step size for a batch size."""
 
     if batch_size <= 0:
-        raise ValueError("batch_size must be positive.")
+        raise ValueError(f"batch_size must be positive, got {batch_size}.")
     batch = jnp.asarray(batch_size, dtype=precond.beta.dtype)
     beta = precond.beta
     lambda_1 = precond.max_eigenvalue
@@ -224,7 +224,7 @@ def _residual_kernel_diagonal(
     """Estimate ``diag(K) - m Σ_i φ_i(x)^2`` from Nyström eigenfunctions."""
     K_nm = _cross_kernel_matrix(kernel_op, subsample_indices)
     m = subsample_indices.shape[0]
-    # Nyström eigenfunctions scaled so subsample rows recover V / sqrt(m).
+    # K_mm V_i = m λ_i V_i, so the denominator makes subsample rows V/sqrt(m).
     eigenfunctions = (K_nm @ (V / eigenvalues[None, :])) / (m * jnp.sqrt(m))
     residual = _kernel_diagonal(kernel_op) - m * jnp.sum(eigenfunctions**2, axis=1)
     eps = jnp.finfo(K_nm.dtype).eps
