@@ -59,8 +59,17 @@ def _right_matmul_transpose(
     matrix: Float[Array, "N N"],
     operator: lx.AbstractLinearOperator,
 ) -> Float[Array, "N M"]:
+    """Compute ``matrix @ operator.T`` via ``vmap`` over ``operator.T``."""
     eye = jnp.eye(operator.out_size(), dtype=matrix.dtype)
     return matrix @ jax.vmap(operator.T.mv)(eye).T
+
+
+def _left_matmul(
+    operator: lx.AbstractLinearOperator,
+    matrix: Float[Array, "N K"],
+) -> Float[Array, "M K"]:
+    """Compute ``operator @ matrix`` columnwise via ``vmap(operator.mv)``."""
+    return jax.vmap(operator.mv, in_axes=1, out_axes=1)(matrix)
 
 
 def _is_operator_input(value: object) -> bool:
@@ -91,6 +100,12 @@ def _normalise_tv_inputs(
     Returns
     -------
     A_seq, H_seq, Q_seq, R_seq : ``(T, …)`` arrays ready to scan over.
+        When ``materialise_transition=False`` (resp. ``materialise_obs=False``)
+        and the corresponding input is an operator, the returned ``A_seq``
+        (resp. ``H_seq``) is an empty ``(T, 0, 0)`` placeholder — the caller
+        is expected to apply the operator directly via ``.mv`` rather than
+        index into the array. This avoids materialising structured operators
+        into ``(T, N, N)`` / ``(T, M, N)`` dense stacks.
     mask_seq : ``(T,)`` boolean array (defaults to all-True).
     is_time_invariant : True iff every shape-bearing input is either an
         operator or a 2D array (and was broadcast to ``(T, …)`` here).

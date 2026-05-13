@@ -9,7 +9,7 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._linalg._linalg import sandwich, solve_matrix
-from gaussx._ssm._utils import _as_operator, _materialise, _right_matmul_transpose
+from gaussx._ssm._utils import _as_operator, _left_matmul, _materialise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -83,7 +83,7 @@ def dare(
         # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
         # on the matrix RHS for numerical stability and efficiency.
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
-        HP_pred = _right_matmul_transpose(P_pred, H_op).T
+        HP_pred = _left_matmul(H_op, P_pred)
         K = solve_matrix(S_op, HP_pred, solver=solver).T
         P_new = P_pred - K @ HP_pred
         return P_new, K

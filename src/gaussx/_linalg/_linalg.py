@@ -43,18 +43,27 @@ def cov_transform(
 
     Exploits structure where it can:
 
-    - **Diagonal** ``cov_operator``: computes ``(J * d) @ J^T`` directly,
-      skipping the ``(N, N)`` materialization of ``Sigma``.
+    - **Operator-valued** ``J``: routes through :func:`sandwich`, which
+      preserves matched ``Kronecker`` / ``BlockDiag`` structure and
+      avoids materialising ``Sigma`` when either ``J`` or ``cov_operator``
+      is diagonal.
+    - **Diagonal** ``cov_operator`` (dense ``J``): computes
+      ``(J * d) @ J^T`` directly, skipping the ``(N, N)``
+      materialization of ``Sigma``.
 
     Otherwise materializes ``Sigma`` and forms the dense product. The
-    returned operator is always tagged symmetric when the input is.
+    returned operator is tagged symmetric (and positive-semidefinite
+    when the input is).
 
     Args:
-        J: Jacobian or linear map, shape ``(M, N)``.
+        J: Jacobian or linear map, shape ``(M, N)`` — array or operator.
         cov_operator: Input covariance, shape ``(N, N)``.
 
     Returns:
-        Transformed covariance operator, shape ``(M, M)``.
+        Transformed covariance operator, shape ``(M, M)``. For
+        operator-valued ``J`` the structural class of the return type
+        follows :func:`sandwich`; otherwise it is a
+        :class:`lineax.MatrixLinearOperator`.
     """
     if isinstance(J, lx.AbstractLinearOperator):
         return sandwich(J, cov_operator)

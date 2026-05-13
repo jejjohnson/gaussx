@@ -15,6 +15,7 @@ from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
 from gaussx._ssm._utils import (
     _as_operator,
+    _left_matmul,
     _materialise,
     _matvec,
     _right_matmul_transpose,
@@ -124,7 +125,7 @@ def infinite_horizon_filter(
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
-    HP_pred_inf = _right_matmul_transpose(P_pred_inf, H_op).T
+    HP_pred_inf = _left_matmul(H_op, P_pred_inf)
     P_filt_inf = P_pred_inf - K_inf @ HP_pred_inf  # (N, N)
 
     def step(carry, y_t):
