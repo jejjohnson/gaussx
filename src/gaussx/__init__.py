@@ -140,6 +140,7 @@ from gaussx._operators import (
 )
 from gaussx._primitives import (
     DenseFallbackWarning as DenseFallbackWarning,
+    RootDecomposition as RootDecomposition,
     SumKroneckerSqrt as SumKroneckerSqrt,
     cholesky as cholesky,
     cholesky_logdet as cholesky_logdet,
@@ -148,6 +149,8 @@ from gaussx._primitives import (
     eigvals as eigvals,
     inv as inv,
     logdet as logdet,
+    root_decomposition as root_decomposition,
+    root_inv_decomposition as root_inv_decomposition,
     solve as solve,
     sqrt as sqrt,
     submatrix as submatrix,

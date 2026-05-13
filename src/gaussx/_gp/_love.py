@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._primitives._eig import eig
+from gaussx._primitives._root import root_inv_decomposition
 
 
 class LOVECache(eqx.Module):
@@ -50,31 +50,17 @@ def love_cache(
     Returns:
         A :class:`LOVECache` object.
     """
-    import jax.random as jr
-
-    if key is None:
-        key = jr.PRNGKey(0)
-
-    n = K_op.in_size()
-    lanczos_order = min(lanczos_order, n)
-
-    # Partial eigendecomposition via matfree Lanczos
-    eigvals, eigvecs = eig(K_op, rank=lanczos_order, key=key)
-
-    # Guard against complex values from numerical round-off in
-    # Lanczos / eigendecomposition of ill-conditioned matrices.
-    eigvals = jnp.real(eigvals)
-    eigvecs = jnp.real(eigvecs)
-
-    # Clamp small / negative eigenvalues to a safe floor so that
-    # 1/lambda stays finite and positive.
-    floor = jnp.finfo(eigvals.dtype).tiny
-    eigvals = jnp.maximum(eigvals, floor)
-
-    # Invert eigenvalues for K^{-1} approximation
-    inv_eigvals = 1.0 / eigvals
-
-    return LOVECache(Q=eigvecs, inv_eigvals=inv_eigvals)
+    inverse_root = root_inv_decomposition(
+        K_op,
+        rank=lanczos_order,
+        method="lanczos",
+        key=key,
+    ).root
+    # For Lanczos inverse roots, recover 1 / λᵢ via ||R⁻[:, i]||² = 1 / λᵢ.
+    inv_eigvals = jnp.sum(inverse_root**2, axis=0)
+    floor = jnp.finfo(inv_eigvals.dtype).tiny
+    Q = inverse_root / jnp.sqrt(jnp.maximum(inv_eigvals, floor))[None, :]
+    return LOVECache(Q=Q, inv_eigvals=inv_eigvals)
 
 
 def love_variance(
