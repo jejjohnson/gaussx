@@ -81,6 +81,71 @@ def test_parallel_kf_returns_filter_state(getkey):
     assert state.predicted_covs.shape == (5, 2, 2)
 
 
+def test_parallel_kf_sqrt_matches_covariance_form(getkey):
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (100, 2))
+
+    cov_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
+    sqrt_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+
+    assert tree_allclose(sqrt_state.filtered_means, cov_state.filtered_means, rtol=1e-5)
+    assert tree_allclose(sqrt_state.filtered_covs, cov_state.filtered_covs, rtol=1e-5)
+    assert tree_allclose(
+        sqrt_state.predicted_means, cov_state.predicted_means, rtol=1e-5
+    )
+    assert tree_allclose(sqrt_state.predicted_covs, cov_state.predicted_covs, rtol=1e-5)
+    assert tree_allclose(sqrt_state.log_likelihood, cov_state.log_likelihood, rtol=1e-5)
+
+
+def test_parallel_rts_sqrt_matches_covariance_form(getkey):
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (64, 2))
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+
+    cov_means, cov_covs = parallel_rts_smoother(state, A, Q)
+    sqrt_means, sqrt_covs = parallel_rts_smoother(state, A, Q, form="sqrt")
+
+    assert tree_allclose(sqrt_means, cov_means, rtol=1e-5)
+    assert tree_allclose(sqrt_covs, cov_covs, rtol=1e-5)
+
+
+def test_parallel_kf_sqrt_covariances_are_psd(getkey):
+    dtype = jnp.float32
+    A = jnp.array([[0.999, 0.01], [0.0, 0.98]], dtype=dtype)
+    H = jnp.array([[1.0, 0.0]], dtype=dtype)
+    Q = jnp.diag(jnp.array([1e-8, 1e-10], dtype=dtype))
+    R = jnp.array([[1e-6]], dtype=dtype)
+    x0 = jnp.zeros(2, dtype=dtype)
+    P0 = jnp.eye(2, dtype=dtype)
+    obs = jr.normal(getkey(), (128, 1), dtype=dtype)
+
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+    covs = jnp.concatenate([state.filtered_covs, state.predicted_covs], axis=0)
+    min_eig = jnp.min(jnp.linalg.eigvalsh(covs))
+    psd_atol_factor = 100
+    atol = jnp.array(jnp.finfo(dtype).eps * psd_atol_factor, dtype=dtype)
+
+    assert jnp.isfinite(min_eig)
+    assert min_eig >= -atol
+
+
+def test_parallel_kf_rejects_unknown_form(getkey):
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (5, 2))
+
+    with pytest.raises(ValueError, match="form"):
+        parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="information")
+
+
+def test_parallel_rts_rejects_unknown_form(getkey):
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    obs = jr.normal(getkey(), (5, 2))
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
+
+    with pytest.raises(ValueError, match="form"):
+        parallel_rts_smoother(state, A, Q, form="information")
+
+
 def test_parallel_rts_last_matches_filter(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     T = 8
@@ -296,3 +361,23 @@ def test_parallel_kf_grad(getkey):
 
     g_seq = jax.grad(loss_seq)(log_q)
     assert tree_allclose(g_par, g_seq, rtol=1e-3, atol=1e-5)
+
+
+def test_parallel_kf_sqrt_jit_vmap_grad(getkey):
+    A, H, Q, R, x0, P0 = _make_model(getkey)
+    B, T = 3, 8
+    obs_batch = jr.normal(getkey(), (B, T, 2))
+
+    def fn(obs_, log_q_diag):
+        Q_ = jnp.diag(jnp.exp(log_q_diag))
+        return parallel_kalman_filter(
+            A, H, Q_, R, obs_, x0, P0, form="sqrt"
+        ).log_likelihood
+
+    log_q = jnp.log(jnp.diag(Q))
+    batched = jax.jit(jax.vmap(lambda obs_: fn(obs_, log_q)))(obs_batch)
+    grad = jax.grad(lambda log_q_: -fn(obs_batch[0], log_q_))(log_q)
+
+    assert batched.shape == (B,)
+    assert jnp.all(jnp.isfinite(batched))
+    assert jnp.all(jnp.isfinite(grad))
