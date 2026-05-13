@@ -9,11 +9,17 @@ import lineax as lx
 from einops import repeat
 from jaxtyping import Array, Float
 
-from gaussx._linalg._linalg import solve_rows
+from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._primitives._cholesky import cholesky
 from gaussx._ssm._dare import DAREResult, dare
-from gaussx._ssm._utils import _materialise, _matvec
+from gaussx._ssm._utils import (
+    _as_operator,
+    _left_matmul,
+    _materialise,
+    _matvec,
+    _right_matmul_transpose,
+)
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -94,8 +100,8 @@ def infinite_horizon_filter(
             solver=solver,
         )
 
-    A_dense = _materialise(transition)
-    H_dense = _materialise(obs_model)
+    A_op = _as_operator(transition)
+    H_op = _as_operator(obs_model)
     Q_dense = _materialise(process_noise)
     R_dense = _materialise(obs_noise)
 
@@ -103,11 +109,13 @@ def infinite_horizon_filter(
     K_inf = dare_result.K_inf  # (N, M)
     T = observations.shape[0]
     M = observations.shape[-1]
-    N = A_dense.shape[0]
+    N = A_op.out_size()
 
     # Precompute steady-state quantities
-    P_pred_inf = A_dense @ P_inf @ A_dense.T + Q_dense  # (N, N)
-    S_inf = H_dense @ P_pred_inf @ H_dense.T + R_dense  # (M, M)
+    P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
+    P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)
+    P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
+    S_inf = sandwich(H_op, P_pred_inf_op).as_matrix() + R_dense  # (M, M)
     L_S = cholesky(  # (M, M)
         lx.MatrixLinearOperator(S_inf, lx.positive_semidefinite_tag)
     ).as_matrix()
@@ -117,8 +125,8 @@ def infinite_horizon_filter(
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
-    I_N = jnp.eye(N)
-    P_filt_inf = (I_N - K_inf @ H_dense) @ P_pred_inf  # (N, N)
+    HP_pred_inf = _left_matmul(H_op, P_pred_inf)
+    P_filt_inf = P_pred_inf - K_inf @ HP_pred_inf  # (N, N)
 
     def step(carry, y_t):
         x_filt, ll = carry
@@ -183,14 +191,19 @@ def infinite_horizon_smoother(
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
         ``(T, N)`` and ``(T, N, N)``.
     """
-    A_dense = _materialise(transition)
+    A_op = _as_operator(transition)
     Q_dense = _materialise(process_noise)
     P_inf = dare_result.P_inf  # (N, N)
-    P_pred_inf = A_dense @ P_inf @ A_dense.T + Q_dense  # (N, N)
+    P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
+    P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)
 
     # Steady-state smoother gain: G∞ = P∞ Aᵀ P⁻pred⁻¹
     P_pred_inf_op = lx.MatrixLinearOperator(P_pred_inf, lx.positive_semidefinite_tag)
-    G_inf = solve_rows(P_pred_inf_op, P_inf @ A_dense.T, solver=solver)  # (N, N)
+    G_inf = solve_rows(
+        P_pred_inf_op,
+        _right_matmul_transpose(P_inf, A_op),
+        solver=solver,
+    )  # (N, N)
 
     # Solve discrete Lyapunov equation:
     # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ

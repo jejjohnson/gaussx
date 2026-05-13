@@ -8,8 +8,12 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._linalg._linalg import solve_rows
-from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
+from gaussx._linalg._linalg import sandwich, solve_rows
+from gaussx._ssm._utils import (
+    _materialise,
+    _normalise_tv_inputs,
+    _right_matmul_transpose,
+)
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
@@ -100,15 +104,21 @@ def kalman_filter(
     T = observations.shape[0]
     log_2pi = jnp.log(2.0 * jnp.pi)
 
-    A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
-        transition, obs_model, process_noise, obs_noise, T=T, mask=mask
-    )
-
     # Closure-friendly matvec: when an operator is supplied, prefer its
     # structural ``mv`` over the dense ``A @ x``. Otherwise the
     # broadcast 3D array contains ``A_seq[t]`` for each step.
     A_op = transition if isinstance(transition, lx.AbstractLinearOperator) else None
     H_op = obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None
+    A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
+        transition,
+        obs_model,
+        process_noise,
+        obs_noise,
+        T=T,
+        mask=mask,
+        materialise_transition=A_op is None,
+        materialise_obs=H_op is None,
+    )
 
     def step(carry, inputs):
         x_filt, P_filt, ll = carry
@@ -117,17 +127,31 @@ def kalman_filter(
         # --- Predict ---
         # Structural matvec when an operator was supplied; dense matmul otherwise.
         x_pred = A_op.mv(x_filt) if A_op is not None else A_t @ x_filt
-        P_pred = A_t @ P_filt @ A_t.T + Q_t
+        if A_op is not None:
+            P_filt_op = lx.MatrixLinearOperator(P_filt, lx.positive_semidefinite_tag)
+            P_pred = sandwich(A_op, P_filt_op).as_matrix() + Q_t
+        else:
+            P_pred = A_t @ P_filt @ A_t.T + Q_t
 
         # --- Update (gated by mask via lax.cond so the predict-only
         #             branch evaluates neither the update arithmetic
         #             nor produces gradients for the dropped path). ---
         def _do_update(_):
             v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
-            S = H_t @ P_pred @ H_t.T + R_t
+            if H_op is not None:
+                P_pred_for_sandwich = lx.MatrixLinearOperator(
+                    P_pred, lx.positive_semidefinite_tag
+                )
+                S = sandwich(H_op, P_pred_for_sandwich).as_matrix() + R_t
+            else:
+                S = H_t @ P_pred @ H_t.T + R_t
             S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
-            PHt = P_pred @ H_t.T  # (N, M)
+            PHt = (
+                _right_matmul_transpose(P_pred, H_op)
+                if H_op is not None
+                else P_pred @ H_t.T
+            )  # (N, M)
             K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
 
             x_upd = x_pred + K @ v

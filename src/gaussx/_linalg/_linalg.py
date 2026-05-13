@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import overload
+
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
@@ -16,10 +18,24 @@ from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
 
+@overload
 def cov_transform(
     J: Float[Array, "M N"],
     cov_operator: lx.AbstractLinearOperator,
-) -> lx.MatrixLinearOperator:
+) -> lx.MatrixLinearOperator: ...
+
+
+@overload
+def cov_transform(
+    J: lx.AbstractLinearOperator,
+    cov_operator: lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator: ...
+
+
+def cov_transform(
+    J: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    cov_operator: lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator:
     """Covariance propagation through a linear map: ``J @ Sigma @ J^T``.
 
     Used in error propagation, Kalman filter updates, and
@@ -27,22 +43,32 @@ def cov_transform(
 
     Exploits structure where it can:
 
-    - **Diagonal** ``cov_operator``: computes ``(J * d) @ J^T`` directly,
-      skipping the ``(N, N)`` materialization of ``Sigma``.
+    - **Operator-valued** ``J``: routes through :func:`sandwich`, which
+      preserves matched ``Kronecker`` / ``BlockDiag`` structure and
+      avoids materialising ``Sigma`` when either ``J`` or ``cov_operator``
+      is diagonal.
+    - **Diagonal** ``cov_operator`` (dense ``J``): computes
+      ``(J * d) @ J^T`` directly, skipping the ``(N, N)``
+      materialization of ``Sigma``.
 
     Otherwise materializes ``Sigma`` and forms the dense product. The
-    returned operator is always tagged symmetric when the input is.
+    returned operator is tagged symmetric (and positive-semidefinite
+    when the input is).
 
     Args:
-        J: Jacobian or linear map, shape ``(M, N)``.
+        J: Jacobian or linear map, shape ``(M, N)`` — array or operator.
         cov_operator: Input covariance, shape ``(N, N)``.
 
     Returns:
-        Transformed covariance operator, shape ``(M, M)``.
+        Transformed covariance operator, shape ``(M, M)``. For
+        operator-valued ``J`` the structural class of the return type
+        follows :func:`sandwich`; otherwise it is a
+        :class:`lineax.MatrixLinearOperator`.
     """
-    tags: frozenset[object] = frozenset()
-    if lx.is_symmetric(cov_operator):
-        tags = frozenset({lx.symmetric_tag})
+    if isinstance(J, lx.AbstractLinearOperator):
+        return sandwich(J, cov_operator)
+
+    tags = _sandwich_tags(cov_operator)
 
     if isinstance(cov_operator, lx.DiagonalLinearOperator):
         d = lx.diagonal(cov_operator)
@@ -52,6 +78,105 @@ def cov_transform(
     Sigma = cov_operator.as_matrix()
     result = J @ Sigma @ J.T
     return lx.MatrixLinearOperator(result, tags)
+
+
+def sandwich(
+    A: lx.AbstractLinearOperator,
+    P: lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator:
+    """Return ``A @ P @ A.T`` exploiting compatible operator structure.
+
+    Args:
+        A: Linear map with shape ``(M, N)``.
+        P: Covariance operator with shape ``(N, N)``.
+
+    Returns:
+        Transformed covariance operator with shape ``(M, M)``.
+
+    Example:
+        ```python
+        A = gaussx.Kronecker(A1, A2)
+        P = gaussx.Kronecker(P1, P2)
+        S = gaussx.sandwich(A, P)
+        ```
+    """
+    _check_sandwich_shapes(A, P)
+    tags = _sandwich_tags(P)
+
+    from gaussx._operators._block_diag import BlockDiag
+    from gaussx._operators._kronecker import Kronecker
+
+    if (
+        isinstance(A, Kronecker)
+        and isinstance(P, Kronecker)
+        and len(A.operators) == len(P.operators)
+        and all(
+            a.in_size() == p.in_size() and p.in_size() == p.out_size()
+            for a, p in zip(A.operators, P.operators, strict=True)
+        )
+    ):
+        return Kronecker(
+            *(sandwich(a, p) for a, p in zip(A.operators, P.operators, strict=True)),
+            tags=tags,
+        )
+
+    if (
+        isinstance(A, BlockDiag)
+        and isinstance(P, BlockDiag)
+        and len(A.operators) == len(P.operators)
+        and all(
+            a.in_size() == p.in_size() and p.in_size() == p.out_size()
+            for a, p in zip(A.operators, P.operators, strict=True)
+        )
+    ):
+        return BlockDiag(
+            *(sandwich(a, p) for a, p in zip(A.operators, P.operators, strict=True)),
+            tags=tags,
+        )
+
+    if isinstance(A, lx.DiagonalLinearOperator):
+        d = lx.diagonal(A)
+        if isinstance(P, lx.DiagonalLinearOperator):
+            return lx.TaggedLinearOperator(
+                lx.DiagonalLinearOperator(d * lx.diagonal(P) * d),
+                tags,
+            )
+        P_mat = P.as_matrix()
+        return lx.MatrixLinearOperator(d[:, None] * P_mat * d[None, :], tags)
+
+    if isinstance(P, lx.DiagonalLinearOperator):
+        d = lx.diagonal(P)
+        A_mat = A.as_matrix()
+        return lx.MatrixLinearOperator((A_mat * d[None, :]) @ A_mat.T, tags)
+
+    A_mat = A.as_matrix()
+    P_mat = P.as_matrix()
+    return lx.MatrixLinearOperator(A_mat @ P_mat @ A_mat.T, tags)
+
+
+def _sandwich_tags(P: lx.AbstractLinearOperator) -> frozenset[object]:
+    tags: set[object] = set()
+    if lx.is_positive_semidefinite(P):
+        tags.update({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    elif lx.is_symmetric(P):
+        tags.add(lx.symmetric_tag)
+    return frozenset(tags)
+
+
+def _check_sandwich_shapes(
+    A: lx.AbstractLinearOperator,
+    P: lx.AbstractLinearOperator,
+) -> None:
+    if P.in_size() != P.out_size():
+        raise ValueError(
+            f"P must be square; got shape ({P.out_size()}, {P.in_size()})."
+        )
+    if A.in_size() != P.in_size():
+        raise ValueError(
+            "A and P shapes are incompatible for A @ P @ A.T; got "
+            f"A shape ({A.out_size()}, {A.in_size()}) and "
+            f"P shape ({P.out_size()}, {P.in_size()})."
+        )
 
 
 def trace_product(

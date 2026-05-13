@@ -98,6 +98,7 @@ from gaussx._linalg import (
     diag_inv as diag_inv,
     discrete_lyapunov_solve as discrete_lyapunov_solve,
     safe_cholesky as safe_cholesky,
+    sandwich as sandwich,
     schur_complement as schur_complement,
     solve_columns as solve_columns,
     solve_matrix as solve_matrix,

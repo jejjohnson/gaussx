@@ -8,8 +8,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._linalg._linalg import solve_matrix
-from gaussx._ssm._utils import _materialise
+from gaussx._linalg._linalg import sandwich, solve_matrix
+from gaussx._ssm._utils import _as_operator, _left_matmul, _materialise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -64,28 +64,28 @@ def dare(
         A :class:`DAREResult` containing the steady-state covariance,
         Kalman gain, and convergence flag.
     """
-    A_dense = _materialise(A)
-    H_dense = _materialise(H)
+    A_op = _as_operator(A)
+    H_op = _as_operator(H)
     Q_dense = _materialise(Q)
     R_dense = _materialise(R)
 
     if P_init is None:
         P_init = Q_dense
 
-    D = A_dense.shape[0]
-    I_D = jnp.eye(D)
-
     def _step(
         P: Float[Array, "D D"],
     ) -> tuple[Float[Array, "D D"], Float[Array, "D M"]]:
         """One predict-update step. Returns ``(P_new, K)``."""
-        P_pred = A_dense @ P @ A_dense.T + Q_dense
-        S = H_dense @ P_pred @ H_dense.T + R_dense
+        P_op = lx.MatrixLinearOperator(P, lx.positive_semidefinite_tag)
+        P_pred = sandwich(A_op, P_op).as_matrix() + Q_dense
+        P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
+        S = sandwich(H_op, P_pred_op).as_matrix() + R_dense
         # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
         # on the matrix RHS for numerical stability and efficiency.
         S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
-        K = solve_matrix(S_op, H_dense @ P_pred, solver=solver).T
-        P_new = (I_D - K @ H_dense) @ P_pred
+        HP_pred = _left_matmul(H_op, P_pred)
+        K = solve_matrix(S_op, HP_pred, solver=solver).T
+        P_new = P_pred - K @ HP_pred
         return P_new, K
 
     def _cond(

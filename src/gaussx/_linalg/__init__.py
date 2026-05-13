@@ -8,6 +8,7 @@ from gaussx._linalg._diag_inv import diag_inv
 from gaussx._linalg._linalg import (
     cov_transform,
     diag_conditional_variance,
+    sandwich,
     solve_columns,
     solve_matrix,
     solve_rows,
@@ -32,6 +33,7 @@ __all__ = [
     "diag_inv",
     "discrete_lyapunov_solve",
     "safe_cholesky",
+    "sandwich",
     "schur_complement",
     "solve_columns",
     "solve_matrix",
