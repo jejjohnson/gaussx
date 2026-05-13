@@ -58,7 +58,7 @@ def root_decomposition(
     Returns:
         A :class:`RootDecomposition` with root shape ``(N, k)``.
     """
-    _n, rank = _validate_square_rank(operator, rank)
+    _n, rank = _validate_square_rank(operator, rank, method=method)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return RootDecomposition(_diagonal_root(operator, rank, method, inverse=False))
     if method == "cholesky":
@@ -92,7 +92,7 @@ def root_inv_decomposition(
     Returns:
         A :class:`RootDecomposition` with inverse-root shape ``(N, k)``.
     """
-    n, rank = _validate_square_rank(operator, rank)
+    n, rank = _validate_square_rank(operator, rank, method=method)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return RootDecomposition(_diagonal_root(operator, rank, method, inverse=True))
     if method == "cholesky":
@@ -105,6 +105,10 @@ def root_inv_decomposition(
     if method == "svd":
         return RootDecomposition(_svd_root(operator, rank, key, inverse=True))
     if method == "pivoted_cholesky":
+        # Dense fallback: forms A^{-1} explicitly via the lazy inverse
+        # then runs pivoted Cholesky on it — O(N^3) time, O(N^2) memory.
+        # Prefer ``method="lanczos"`` for large operators where structural
+        # solves/matvecs are available.
         inv_mat = _symmetric_operator_matrix(inv(operator))
         return RootDecomposition(_pivoted_cholesky_root(inv_mat, rank))
     raise ValueError(f"Unknown inverse-root decomposition method: {method!r}")
@@ -113,13 +117,23 @@ def root_inv_decomposition(
 def _validate_square_rank(
     operator: lx.AbstractLinearOperator,
     rank: int,
+    *,
+    method: RootMethod = "lanczos",
 ) -> tuple[int, int]:
-    """Validate that ``operator`` is square and clamp ``rank`` to its size."""
+    """Validate that ``operator`` is square and clamp ``rank`` to its size.
+
+    ``method="cholesky"`` returns the exact full-rank factor, so ``rank``
+    is documented as ignored; in that case we skip the ``rank >= 1``
+    guard and just clamp the returned ``rank`` to the operator size so
+    callers can pass any sentinel value.
+    """
     if operator.in_size() != operator.out_size():
         raise ValueError("root decompositions require a square operator")
+    n = operator.in_size()
+    if method == "cholesky":
+        return n, n
     if rank < 1:
         raise ValueError("rank must be at least 1")
-    n = operator.in_size()
     return n, min(rank, n)
 
 

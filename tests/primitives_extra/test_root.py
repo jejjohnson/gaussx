@@ -60,6 +60,35 @@ def test_pivoted_cholesky_root_diagonal():
     assert jnp.allclose(approx, expected, atol=1e-8)
 
 
+def test_pivoted_cholesky_inverse_root_dense(getkey):
+    """Inverse pivoted Cholesky at full rank reconstructs A^{-1}."""
+    A = jax.random.normal(getkey(), (5, 5))
+    A = A @ A.T + 0.5 * jnp.eye(5)
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+
+    inv_root = root_inv_decomposition(op, rank=5, method="pivoted_cholesky")
+    reconstructed = inv_root.root @ inv_root.root.T
+
+    assert inv_root.root.shape == (5, 5)
+    assert jnp.allclose(reconstructed, jnp.linalg.inv(A), atol=1e-6)
+
+
+def test_root_decomposition_cholesky_ignores_rank_sentinel(getkey):
+    """``method='cholesky'`` is exact full-rank; ``rank`` is ignored."""
+    A = jax.random.normal(getkey(), (4, 4))
+    A = A @ A.T + 0.1 * jnp.eye(4)
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+
+    # rank=0 is a sentinel callers may pass when switching methods
+    # dynamically — it must not raise for the cholesky path.
+    root = root_decomposition(op, rank=0, method="cholesky")
+    inv_root = root_inv_decomposition(op, rank=0, method="cholesky")
+
+    assert root.root.shape == (4, 4)
+    assert inv_root.root.shape == (4, 4)
+    assert jnp.allclose(root.root @ root.root.T, A, atol=1e-8)
+
+
 def test_root_matmul_sampling_covariance(getkey):
     num_samples = 4096
     empirical_cov_tolerance = 0.12
