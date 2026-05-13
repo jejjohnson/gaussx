@@ -21,7 +21,13 @@ from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def tria(M: Float[Array, "... K N"]) -> Float[Array, "... N N"]:
-    """Return the lower-triangular QR factor ``R`` with ``R @ R.T = M.T @ M``."""
+    """Return a lower-triangular factor ``L`` with ``L @ L.T = M.T @ M``.
+
+    Computes the reduced QR ``M = Q R`` (with positive diagonal on ``R``)
+    and returns ``L = R.T`` — i.e. ``jnp.linalg.qr`` produces an
+    upper-triangular ``R``, this helper transposes it to the
+    lower-triangular convention used by the square-root combinators.
+    """
     _, r = jnp.linalg.qr(M, mode="reduced")
     diag = jnp.diagonal(r, axis1=-2, axis2=-1)
     sign = jnp.where(diag < 0, -1.0, 1.0).astype(r.dtype)
@@ -30,7 +36,12 @@ def tria(M: Float[Array, "... K N"]) -> Float[Array, "... N N"]:
 
 
 def _factor_from_psd(X: Float[Array, "... N N"]) -> Float[Array, "... N N"]:
-    """Build a numerically PSD square root for a symmetric covariance."""
+    """Build a lower-triangular PSD square root for a symmetric covariance.
+
+    Symmetrises ``X``, clamps eigenvalues to ``[0, ∞)``, and reduces the
+    resulting square root through :func:`tria`. Returns a
+    lower-triangular ``L`` with ``L @ L.T ≈ X`` (PSD-projected).
+    """
     X = _sym(X)
     w, v = jnp.linalg.eigh(X)
     w = jnp.clip(w, min=0.0)

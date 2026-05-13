@@ -10,9 +10,12 @@ work is strictly larger than :func:`gaussx.kalman_filter`'s ``O(T)``
 ``lax.scan``; the win is on accelerators with large ``T``.
 
 The default element math is the covariance-form combinators from §III.A /
-§III.B of the paper. Pass ``form="sqrt"`` to carry square-root covariance
-factors through the associative scan and reconstruct PSD covariances at
-the API boundary.
+§III.B of the paper. Pass ``form="sqrt"`` to additionally maintain lower-
+triangular factors alongside the covariance updates and reconstruct PSD
+covariances at the API boundary; the associative-scan equations still use
+the covariance form internally, so the factor path is a PSD-safety net
+for ill-conditioned float32 chains rather than a fully factor-propagating
+combinator. See #165 for the latter.
 """
 
 from __future__ import annotations
@@ -374,9 +377,10 @@ def parallel_rts_smoother(
         solver: Accepted for API symmetry; not currently threaded
             through.
         form: Either ``"covariance"`` (default) or ``"sqrt"``. The
-            square-root form carries covariance factors through the
-            smoother associative scan and returns reconstructed PSD
-            covariances.
+            square-root form maintains lower-triangular factors
+            alongside the smoother associative scan and returns
+            PSD-reconstructed covariances (see :func:`parallel_kalman_filter`
+            for the same caveat about the internal combinator).
 
     Raises:
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
