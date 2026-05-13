@@ -8,6 +8,8 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._primitives._solve import solve
+from gaussx._strategies._base import AbstractSolveStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def matheron_update(
@@ -16,6 +18,8 @@ def matheron_update(
     observed_value: Float[Array, " M"],
     cross_covariance: lx.AbstractLinearOperator,
     conditioning_covariance: lx.AbstractLinearOperator,
+    *,
+    solver: AbstractSolveStrategy | None = None,
 ) -> Float[Array, "S N_star"]:
     r"""Posterior samples via Matheron's-rule correction.
 
@@ -40,6 +44,10 @@ def matheron_update(
             ``(N_star, M)``.
         conditioning_covariance: Conditioning covariance operator
             ``Cov(b, b)``, shape ``(M, M)``.
+        solver: Optional solver strategy for the conditioning solve
+            (e.g. :class:`gaussx.CGSolver`, :class:`gaussx.BBMMSolver`).
+            When ``None``, routes through structural dispatch on
+            ``conditioning_covariance``.
 
     Returns:
         Corrected posterior samples, shape ``(S, N_star)``.
@@ -91,8 +99,10 @@ def matheron_update(
         )
 
     residuals = observed_value[None, :] - prior_sample_conditioning
-    solves = jax.vmap(lambda residual: solve(conditioning_covariance, residual))(
-        residuals
-    )
+    if solver is not None:
+        solve_one = lambda r: dispatch_solve(conditioning_covariance, r, solver)
+    else:
+        solve_one = lambda r: solve(conditioning_covariance, r)
+    solves = jax.vmap(solve_one)(residuals)
     corrections = jax.vmap(cross_covariance.mv)(solves)
     return prior_sample_target + corrections

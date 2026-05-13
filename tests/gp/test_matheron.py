@@ -183,3 +183,30 @@ def test_matheron_update_is_public_api(getkey):
     )
 
     assert samples.shape == prior_target.shape
+
+
+def test_matheron_update_accepts_explicit_solver(getkey):
+    """Passing ``solver=DenseSolver()`` routes through dispatch_solve."""
+    from gaussx import DenseSolver
+
+    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(getkey)
+    prior_target = jr.normal(getkey(), (3, K_sm.shape[0]))
+    prior_conditioning = jr.normal(getkey(), (3, K_mm.shape[0]))
+
+    default = matheron_update(
+        prior_target,
+        prior_conditioning,
+        observed_value,
+        lx.MatrixLinearOperator(K_sm),
+        lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag),
+    )
+    explicit = matheron_update(
+        prior_target,
+        prior_conditioning,
+        observed_value,
+        lx.MatrixLinearOperator(K_sm),
+        lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag),
+        solver=DenseSolver(),
+    )
+
+    assert jnp.allclose(default, explicit, atol=1e-8)
