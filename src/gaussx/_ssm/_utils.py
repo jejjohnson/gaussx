@@ -97,9 +97,12 @@ def _innovation_covariance(
     # Import locally to avoid a cyclic _ssm <-> _linalg import.
     from gaussx._linalg._linalg import sandwich
 
-    H_mat = _materialise(H)
     P_mat = _materialise(P)
     if woodbury:
+        # Woodbury needs H as a dense matrix for the low-rank update;
+        # materialise here rather than at function top so the
+        # non-Woodbury operator path below can stay structural.
+        H_mat = _materialise(H)
         base = (
             R
             if isinstance(R, lx.AbstractLinearOperator)
@@ -108,12 +111,12 @@ def _innovation_covariance(
         return LowRankUpdate(base, H_mat @ P_mat, V=H_mat)
 
     # Structural sandwich when H is an operator: preserves matched
-    # Kronecker / BlockDiag / diagonal structure when applicable.
+    # Kronecker / BlockDiag / diagonal structure without materialising H.
     if isinstance(H, lx.AbstractLinearOperator):
         P_op = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
         S = sandwich(H, P_op).as_matrix() + _materialise(R)
     else:
-        S = H_mat @ P_mat @ H_mat.T + _materialise(R)
+        S = H @ P_mat @ H.T + _materialise(R)
     return lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
 
