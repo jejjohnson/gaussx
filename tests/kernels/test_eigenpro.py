@@ -90,6 +90,14 @@ class TestEigenProPreconditioner:
         with pytest.raises(ValueError, match=match):
             eigenpro_preconditioner(op, **kwargs)
 
+    def test_rejects_asymmetric_operator(self):
+        """Asymmetric square operators must be rejected."""
+        A = jnp.array([[1.0, 2.0, 0.0], [0.0, 1.0, 3.0], [0.0, 0.0, 1.0]])
+        op = lx.MatrixLinearOperator(A)  # no symmetric tag → asymmetric
+
+        with pytest.raises(ValueError, match="symmetric"):
+            eigenpro_preconditioner(op, subsample_size=3, n_components=1)
+
 
 class TestEigenProStepSize:
     def test_step_size_positive_for_valid_batches(self):
