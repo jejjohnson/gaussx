@@ -133,8 +133,7 @@ def _diagonal_root(
     """Compute root factors for diagonal operators without dense eig/SVD calls."""
     diag = jnp.real(lx.diagonal(operator))
     if method == "cholesky":
-        values = _safe_inverse_sqrt(diag) if inverse else jnp.sqrt(_safe_psd(diag))
-        return jnp.diag(values)
+        return jnp.diag(_root_scales(diag, inverse=inverse))
     if method not in ("lanczos", "svd", "pivoted_cholesky"):
         target = "inverse-root" if inverse else "root"
         raise ValueError(f"Unknown {target} decomposition method: {method!r}")
@@ -146,7 +145,7 @@ def _diagonal_root(
         order_scores = diag
     order = jnp.argsort(order_scores)[::-1][:rank]
     selected = diag[order]
-    scales = _safe_inverse_sqrt(selected) if inverse else jnp.sqrt(_safe_psd(selected))
+    scales = _root_scales(selected, inverse=inverse)
     root = jnp.zeros((n, rank), dtype=scales.dtype)
     return root.at[order, jnp.arange(rank)].set(scales)
 
@@ -168,8 +167,7 @@ def _eig_root(
     """Build a root from the top real eigenpairs of ``operator``."""
     vals, vecs = eig(operator, rank=rank, key=key)
     vals, vecs = _top_real_eigenpairs(vals, vecs, rank)
-    scales = _safe_inverse_sqrt(vals) if inverse else jnp.sqrt(_safe_psd(vals))
-    return vecs * scales[None, :]
+    return vecs * _root_scales(vals, inverse=inverse)[None, :]
 
 
 def _svd_root(
@@ -184,8 +182,7 @@ def _svd_root(
     order = jnp.argsort(jnp.real(s))[::-1][:rank]
     U = jnp.real(U[:, order])
     s = jnp.real(s[order])
-    scales = _safe_inverse_sqrt(s) if inverse else jnp.sqrt(_safe_psd(s))
-    return U * scales[None, :]
+    return U * _root_scales(s, inverse=inverse)[None, :]
 
 
 def _top_real_eigenpairs(
@@ -204,6 +201,11 @@ def _safe_psd(vals: Array) -> Array:
     """Clamp eigenvalues/singular values to a positive floating-point floor."""
     floor = jnp.finfo(vals.dtype).tiny
     return jnp.maximum(vals, floor)
+
+
+def _root_scales(vals: Array, *, inverse: bool) -> Array:
+    """Compute root or inverse-root column scales from spectral values."""
+    return _safe_inverse_sqrt(vals) if inverse else jnp.sqrt(_safe_psd(vals))
 
 
 def _safe_inverse_sqrt(vals: Array) -> Array:
