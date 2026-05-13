@@ -76,9 +76,14 @@ def dare(
     A_op = _as_operator(A)
     H_op = _as_operator(H)
     Q_dense = _materialise(Q)
+<<<<<<< HEAD
     # Keep ``R`` lazy when the Woodbury innovation path will consume the
     # operator directly — avoids an O(M²) allocation for large structured
     # noise (e.g. ``DiagonalLinearOperator`` with large ``M``).
+=======
+    # Skip materialising R when the Woodbury path will use the operator
+    # directly — avoids an O(M²) allocation for large structured noise.
+>>>>>>> 7157f6a (perf(ssm): keep R lazy when Woodbury innovation will consume the operator)
     R_for_innovation = (
         R
         if woodbury_innovation and isinstance(R, lx.AbstractLinearOperator)
@@ -92,10 +97,15 @@ def dare(
         P: Float[Array, "D D"],
     ) -> tuple[Float[Array, "D D"], Float[Array, "D M"]]:
         """One predict-update step. Returns ``(P_new, K)``."""
+<<<<<<< HEAD
         P_op = lx.MatrixLinearOperator(P, lx.positive_semidefinite_tag)
         P_pred = sandwich(A_op, P_op).as_matrix() + Q_dense
         # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
         # on the matrix RHS for numerical stability and efficiency.
+=======
+        P_pred = A_dense @ P @ A_dense.T + Q_dense
+        # K = P_pred @ H.T @ S⁻¹.
+>>>>>>> 7157f6a (perf(ssm): keep R lazy when Woodbury innovation will consume the operator)
         S_op = _innovation_covariance(
             H_op, P_pred, R_for_innovation, woodbury=woodbury_innovation
         )

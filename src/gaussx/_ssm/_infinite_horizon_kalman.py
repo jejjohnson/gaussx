@@ -111,7 +111,11 @@ def infinite_horizon_filter(
     Q_dense = _materialise(process_noise)
     # Keep ``R`` lazy when the Woodbury innovation path will consume the
     # operator directly — avoids an O(M²) allocation for large structured
+<<<<<<< HEAD
     # noise.
+=======
+    # noise (e.g. ``DiagonalLinearOperator`` with large ``M``).
+>>>>>>> 7157f6a (perf(ssm): keep R lazy when Woodbury innovation will consume the operator)
     R_for_innovation = (
         obs_noise
         if woodbury_innovation and isinstance(obs_noise, lx.AbstractLinearOperator)
@@ -125,8 +129,12 @@ def infinite_horizon_filter(
     N = A_op.out_size()
 
     # Precompute steady-state quantities
+<<<<<<< HEAD
     P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
     P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)
+=======
+    P_pred_inf = A_dense @ P_inf @ A_dense.T + Q_dense  # (N, N)
+>>>>>>> 7157f6a (perf(ssm): keep R lazy when Woodbury innovation will consume the operator)
     S_inf = _innovation_covariance(
         H_op, P_pred_inf, R_for_innovation, woodbury=woodbury_innovation
     )

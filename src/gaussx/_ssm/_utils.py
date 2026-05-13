@@ -132,6 +132,7 @@ def _normalise_tv_inputs(
     mask: Bool[Array, " T"] | None,
     materialise_transition: bool = True,
     materialise_obs: bool = True,
+    materialise_obs_noise: bool = True,
 ) -> tuple[
     Float[Array, "T N N"],
     Float[Array, "T M N"],
@@ -145,12 +146,14 @@ def _normalise_tv_inputs(
     Returns
     -------
     A_seq, H_seq, Q_seq, R_seq : ``(T, …)`` arrays ready to scan over.
-        When ``materialise_transition=False`` (resp. ``materialise_obs=False``)
-        and the corresponding input is an operator, the returned ``A_seq``
-        (resp. ``H_seq``) is an empty ``(T, 0, 0)`` placeholder — the caller
-        is expected to apply the operator directly via ``.mv`` rather than
-        index into the array. This avoids materialising structured operators
-        into ``(T, N, N)`` / ``(T, M, N)`` dense stacks.
+        When ``materialise_transition=False`` (resp. ``materialise_obs=False``
+        / ``materialise_obs_noise=False``) and the corresponding input is
+        an operator, the returned ``A_seq`` / ``H_seq`` / ``R_seq`` is an
+        empty ``(T, 0, 0)`` placeholder — the caller is expected to apply
+        the operator directly (e.g. via ``.mv`` or as the base of a
+        Woodbury innovation) rather than index into the array. This
+        avoids materialising structured operators into ``(T, …)`` dense
+        stacks.
     mask_seq : ``(T,)`` boolean array (defaults to all-True).
     is_time_invariant : True iff every shape-bearing input is either an
         operator or a 2D array (and was broadcast to ``(T, …)`` here).
@@ -188,7 +191,11 @@ def _normalise_tv_inputs(
         else None
     )
     Q_dense = _materialise(process_noise)
-    R_dense = _materialise(obs_noise)
+    R_dense = (
+        _materialise(obs_noise)
+        if materialise_obs_noise or not _is_operator_input(obs_noise)
+        else None
+    )
 
     def _broadcast_to_T(
         x: Float[Array, ...] | None,
@@ -202,9 +209,10 @@ def _normalise_tv_inputs(
                     "op must be provided to _broadcast_to_T."
                 )
             # Operator-mode placeholder keeps the scan pytree fixed without
-            # materializing the operator into a dense (T, M, N) array. The
-            # empty array carries no matrix data; the operator is closed over
-            # separately by the caller.
+            # materializing the operator into a dense (T, …) array. The
+            # empty array carries no matrix data; the operator is closed
+            # over separately by the caller (e.g. as the base of a
+            # Woodbury innovation, or via ``.mv``).
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)
@@ -227,7 +235,11 @@ def _normalise_tv_inputs(
         op=obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None,
     )
     Q_seq = _broadcast_to_T(Q_dense, expected_ndim=3)
-    R_seq = _broadcast_to_T(R_dense, expected_ndim=3)
+    R_seq = _broadcast_to_T(
+        R_dense,
+        expected_ndim=3,
+        op=obs_noise if isinstance(obs_noise, lx.AbstractLinearOperator) else None,
+    )
 
     if mask is None:
         mask_seq = jnp.ones((T,), dtype=bool)
