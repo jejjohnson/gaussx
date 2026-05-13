@@ -13,6 +13,7 @@ from jaxtyping import Array, Float
 
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._eig import eig
+from gaussx._primitives._inv import inv
 from gaussx._primitives._svd import svd
 
 
@@ -58,14 +59,16 @@ def root_decomposition(
         A :class:`RootDecomposition` with root shape ``(N, k)``.
     """
     _n, rank = _validate_square_rank(operator, rank)
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return RootDecomposition(_diagonal_root(operator, rank, method, inverse=False))
     if method == "cholesky":
-        return RootDecomposition(jnp.real(cholesky(operator).as_matrix()))
+        return RootDecomposition(_cholesky_root(operator))
     if method == "lanczos":
         return RootDecomposition(_eig_root(operator, rank, key, inverse=False))
     if method == "svd":
         return RootDecomposition(_svd_root(operator, rank, key, inverse=False))
     if method == "pivoted_cholesky":
-        mat = _symmetric_matrix(operator.as_matrix())
+        mat = _symmetric_operator_matrix(operator)
         return RootDecomposition(_pivoted_cholesky_root(mat, rank))
     raise ValueError(f"Unknown root decomposition method: {method!r}")
 
@@ -90,8 +93,10 @@ def root_inv_decomposition(
         A :class:`RootDecomposition` with inverse-root shape ``(N, k)``.
     """
     n, rank = _validate_square_rank(operator, rank)
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return RootDecomposition(_diagonal_root(operator, rank, method, inverse=True))
     if method == "cholesky":
-        L = jnp.real(cholesky(operator).as_matrix())
+        L = _cholesky_root(operator)
         identity = jnp.eye(n, dtype=L.dtype)
         L_inv = jax.scipy.linalg.solve_triangular(L, identity, lower=True)
         return RootDecomposition(L_inv.T)
@@ -100,11 +105,7 @@ def root_inv_decomposition(
     if method == "svd":
         return RootDecomposition(_svd_root(operator, rank, key, inverse=True))
     if method == "pivoted_cholesky":
-        mat = _symmetric_matrix(operator.as_matrix())
-        L = jnp.linalg.cholesky(mat)
-        identity = jnp.eye(n, dtype=mat.dtype)
-        inv_mat = jax.scipy.linalg.cho_solve((L, True), identity)
-        inv_mat = _symmetric_matrix(inv_mat)
+        inv_mat = _symmetric_operator_matrix(inv(operator))
         return RootDecomposition(_pivoted_cholesky_root(inv_mat, rank))
     raise ValueError(f"Unknown inverse-root decomposition method: {method!r}")
 
@@ -113,12 +114,48 @@ def _validate_square_rank(
     operator: lx.AbstractLinearOperator,
     rank: int,
 ) -> tuple[int, int]:
+    """Validate that ``operator`` is square and clamp ``rank`` to its size."""
     if operator.in_size() != operator.out_size():
         raise ValueError("root decompositions require a square operator")
     if rank < 1:
         raise ValueError("rank must be at least 1")
     n = operator.in_size()
     return n, min(rank, n)
+
+
+def _diagonal_root(
+    operator: lx.DiagonalLinearOperator,
+    rank: int,
+    method: RootMethod,
+    *,
+    inverse: bool,
+) -> Float[Array, "N k"]:
+    """Compute root factors for diagonal operators without dense eig/SVD calls."""
+    diag = jnp.real(lx.diagonal(operator))
+    if method == "cholesky":
+        values = _safe_inverse_sqrt(diag) if inverse else jnp.sqrt(_safe_psd(diag))
+        return jnp.diag(values)
+    if method not in ("lanczos", "svd", "pivoted_cholesky"):
+        target = "inverse-root" if inverse else "root"
+        raise ValueError(f"Unknown {target} decomposition method: {method!r}")
+
+    n = diag.shape[0]
+    if inverse and method == "pivoted_cholesky":
+        order_scores = _safe_inverse_sqrt(diag) ** 2
+    else:
+        order_scores = diag
+    order = jnp.argsort(order_scores)[::-1][:rank]
+    selected = diag[order]
+    scales = _safe_inverse_sqrt(selected) if inverse else jnp.sqrt(_safe_psd(selected))
+    root = jnp.zeros((n, rank), dtype=scales.dtype)
+    return root.at[order, jnp.arange(rank)].set(scales)
+
+
+def _cholesky_root(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "N N"]:
+    """Compute an exact Cholesky root, preserving structure before final output."""
+    return jnp.real(cholesky(operator).as_matrix())
 
 
 def _eig_root(
@@ -128,6 +165,7 @@ def _eig_root(
     *,
     inverse: bool,
 ) -> Float[Array, "N k"]:
+    """Build a root from the top real eigenpairs of ``operator``."""
     vals, vecs = eig(operator, rank=rank, key=key)
     vals, vecs = _top_real_eigenpairs(vals, vecs, rank)
     scales = _safe_inverse_sqrt(vals) if inverse else jnp.sqrt(_safe_psd(vals))
@@ -141,6 +179,7 @@ def _svd_root(
     *,
     inverse: bool,
 ) -> Float[Array, "N k"]:
+    """Build a root from the leading left singular vectors of ``operator``."""
     U, s, _Vt = svd(operator, rank=rank, key=key)
     order = jnp.argsort(jnp.real(s))[::-1][:rank]
     U = jnp.real(U[:, order])
@@ -154,6 +193,7 @@ def _top_real_eigenpairs(
     vecs: Array,
     rank: int,
 ) -> tuple[Float[Array, " k"], Float[Array, "N k"]]:
+    """Select the top-``rank`` real eigenpairs in descending eigenvalue order."""
     vals = jnp.real(vals)
     vecs = jnp.real(vecs)
     order = jnp.argsort(vals)[::-1][:rank]
@@ -161,22 +201,33 @@ def _top_real_eigenpairs(
 
 
 def _safe_psd(vals: Array) -> Array:
+    """Clamp eigenvalues/singular values to a positive floating-point floor."""
     floor = jnp.finfo(vals.dtype).tiny
     return jnp.maximum(vals, floor)
 
 
 def _safe_inverse_sqrt(vals: Array) -> Array:
+    """Compute a finite inverse square-root for nonnegative spectra."""
     return jax.lax.rsqrt(_safe_psd(vals))
 
 
 def _symmetric_matrix(mat: Array) -> Array:
+    """Symmetrize a dense covariance-like matrix after numerical operations."""
     return 0.5 * (mat + mat.T)
+
+
+def _symmetric_operator_matrix(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "N N"]:
+    """Materialize an operator only for dense fallback algorithms."""
+    return _symmetric_matrix(operator.as_matrix())
 
 
 def _pivoted_cholesky_root(
     mat: Float[Array, "N N"],
     rank: int,
 ) -> Float[Array, "N k"]:
+    """Compute a greedy pivoted-Cholesky root from a dense fallback matrix."""
     n = mat.shape[0]
     dtype = mat.dtype
     floor = jnp.finfo(dtype).tiny
