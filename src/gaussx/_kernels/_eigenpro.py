@@ -13,6 +13,7 @@ from gaussx._operators._implicit_kernel import ImplicitKernelOperator
 from gaussx._operators._kernel import KernelOperator
 from gaussx._primitives._eig import eig
 
+
 # Number of rows held in memory at once when streaming the residual
 # kernel diagonal estimate; chosen empirically so that ``CHUNK * m``
 # stays well under typical GPU memory.
@@ -277,7 +278,10 @@ def _residual_kernel_diagonal(
     dtype = scaled_V.dtype
 
     def chunk_max(start: int, max_so_far: Float[Array, ""]) -> Float[Array, ""]:
-        stop = jnp.minimum(start + _RESIDUAL_CHUNK, n)
+        # ``start`` is a Python int from ``range()``; keep chunk_size as
+        # a Python int too so static shapes propagate through the
+        # specialised kernel-row builders.
+        stop = min(start + _RESIDUAL_CHUNK, n)
         chunk_size = stop - start
         # Build only K_{x_chunk, m} — never the full K_nm.
         K_chunk = _cross_kernel_rows(kernel_op, subsample_indices, start, chunk_size)
