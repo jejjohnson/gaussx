@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+from jax.test_util import check_grads
 
 from gaussx import (
+    BlockDiag,
     FilterState,
+    LowRankUpdate,
     kalman_filter,
     kalman_gain,
     rts_smoother,
 )
+from gaussx._ssm._utils import _innovation_covariance
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -104,6 +109,103 @@ def test_kalman_gain_shape(getkey):
 
     K = kalman_gain(P, H, R)
     assert K.shape == (N, M)
+
+
+def _make_woodbury_test_model(getkey, M=512, k=8, T=2):
+    A = 0.95 * jnp.eye(k)
+    H = jr.normal(getkey(), (M, k)) / jnp.sqrt(k)
+    Q = 0.01 * jnp.eye(k)
+    R_diag = 0.3 + 0.1 * jnp.linspace(0.0, 1.0, M)
+    y = jr.normal(getkey(), (T, M))
+    x0 = jnp.zeros(k)
+    P0 = jnp.eye(k)
+    return A, H, Q, R_diag, y, x0, P0
+
+
+def test_innovation_covariance_woodbury_returns_low_rank_update(getkey):
+    _, H, _, R_diag, _, _, P0 = _make_woodbury_test_model(getkey, M=32, k=4, T=1)
+    R = lx.DiagonalLinearOperator(R_diag)
+
+    S = _innovation_covariance(H, P0, R, woodbury=True)
+
+    assert isinstance(S, LowRankUpdate)
+    assert S.base is R
+
+
+def test_kalman_filter_woodbury_innovation_diagonal_matches_dense(getkey):
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
+    R = jnp.diag(R_diag)
+
+    ref = kalman_filter(A, H, Q, R, y, x0, P0)
+    got = kalman_filter(
+        A,
+        H,
+        Q,
+        lx.DiagonalLinearOperator(R_diag),
+        y,
+        x0,
+        P0,
+        woodbury_innovation=True,
+    )
+
+    assert tree_allclose(got.filtered_means, ref.filtered_means, atol=1e-6, rtol=1e-6)
+    assert tree_allclose(got.filtered_covs, ref.filtered_covs, atol=1e-6, rtol=1e-6)
+    assert tree_allclose(got.log_likelihood, ref.log_likelihood, atol=1e-6, rtol=1e-6)
+
+
+def test_kalman_filter_woodbury_innovation_blockdiag_matches_dense(getkey):
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
+    R = jnp.diag(R_diag)
+    blocks = [
+        lx.DiagonalLinearOperator(block)
+        for block in jnp.split(R_diag, indices_or_sections=4)
+    ]
+
+    ref = kalman_filter(A, H, Q, R, y, x0, P0)
+    got = kalman_filter(
+        A,
+        H,
+        Q,
+        BlockDiag(*blocks),
+        y,
+        x0,
+        P0,
+        woodbury_innovation=True,
+    )
+
+    assert tree_allclose(got.filtered_means, ref.filtered_means, atol=1e-6, rtol=1e-6)
+    assert tree_allclose(got.filtered_covs, ref.filtered_covs, atol=1e-6, rtol=1e-6)
+    assert tree_allclose(got.log_likelihood, ref.log_likelihood, atol=1e-6, rtol=1e-6)
+
+
+def test_kalman_filter_woodbury_innovation_jit_and_grad(getkey):
+    A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey, M=16, k=4, T=3)
+
+    def log_likelihood(noise_scale, observations):
+        return kalman_filter(
+            A,
+            H,
+            Q,
+            lx.DiagonalLinearOperator(noise_scale * R_diag),
+            observations,
+            x0,
+            P0,
+            woodbury_innovation=True,
+        ).log_likelihood
+
+    jitted_log_likelihood = jax.jit(log_likelihood)(jnp.array(1.0), y)
+    noise_scale_gradient = jax.grad(lambda noise_scale: log_likelihood(noise_scale, y))(
+        jnp.array(1.0)
+    )
+
+    assert jnp.isfinite(jitted_log_likelihood)
+    assert jnp.isfinite(noise_scale_gradient)
+    check_grads(
+        lambda noise_scale: log_likelihood(noise_scale, y),
+        (jnp.array(1.0),),
+        order=1,
+        modes=["rev"],
+    )
 
 
 # ----------------------------------------------------------------

@@ -14,6 +14,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._operators._low_rank_update import LowRankUpdate
+
 
 def _materialise(
     op_or_array: Float[Array, ...] | lx.AbstractLinearOperator,
@@ -72,6 +74,52 @@ def _left_matmul(
     return jax.vmap(operator.mv, in_axes=1, out_axes=1)(matrix)
 
 
+def _innovation_covariance(
+    H: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    P: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    R: Float[Array, "M M"] | lx.AbstractLinearOperator,
+    *,
+    woodbury: bool = False,
+) -> lx.AbstractLinearOperator:
+    """Build ``S = H P Hᵀ + R`` as dense or as a low-rank update.
+
+    When ``H`` is an operator, the dense path goes through
+    :func:`gaussx.sandwich` so matched ``Kronecker`` / ``BlockDiag`` /
+    diagonal structure is preserved during construction.
+
+    The Woodbury branch wraps ``R`` as the base of a
+    :class:`gaussx.LowRankUpdate`, so downstream solves and log-dets
+    require ``R`` to be invertible. If you anticipate (numerically)
+    singular ``R`` — e.g. a ``DiagonalLinearOperator`` with zeros —
+    leave ``woodbury=False`` so the full ``S = H P Hᵀ + R`` matrix is
+    factored directly.
+    """
+    # Import locally to avoid a cyclic _ssm <-> _linalg import.
+    from gaussx._linalg._linalg import sandwich
+
+    P_mat = _materialise(P)
+    if woodbury:
+        # Woodbury needs H as a dense matrix for the low-rank update;
+        # materialise here rather than at function top so the
+        # non-Woodbury operator path below can stay structural.
+        H_mat = _materialise(H)
+        base = (
+            R
+            if isinstance(R, lx.AbstractLinearOperator)
+            else lx.MatrixLinearOperator(_materialise(R), lx.positive_semidefinite_tag)
+        )
+        return LowRankUpdate(base, H_mat @ P_mat, V=H_mat)
+
+    # Structural sandwich when H is an operator: preserves matched
+    # Kronecker / BlockDiag / diagonal structure without materialising H.
+    if isinstance(H, lx.AbstractLinearOperator):
+        P_op = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
+        S = sandwich(H, P_op).as_matrix() + _materialise(R)
+    else:
+        S = H @ P_mat @ H.T + _materialise(R)
+    return lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+
+
 def _is_operator_input(value: object) -> bool:
     """True iff *value* is a lineax operator (and so signals TI mode)."""
     return isinstance(value, lx.AbstractLinearOperator)
@@ -87,6 +135,7 @@ def _normalise_tv_inputs(
     mask: Bool[Array, " T"] | None,
     materialise_transition: bool = True,
     materialise_obs: bool = True,
+    materialise_obs_noise: bool = True,
 ) -> tuple[
     Float[Array, "T N N"],
     Float[Array, "T M N"],
@@ -100,12 +149,14 @@ def _normalise_tv_inputs(
     Returns
     -------
     A_seq, H_seq, Q_seq, R_seq : ``(T, …)`` arrays ready to scan over.
-        When ``materialise_transition=False`` (resp. ``materialise_obs=False``)
-        and the corresponding input is an operator, the returned ``A_seq``
-        (resp. ``H_seq``) is an empty ``(T, 0, 0)`` placeholder — the caller
-        is expected to apply the operator directly via ``.mv`` rather than
-        index into the array. This avoids materialising structured operators
-        into ``(T, N, N)`` / ``(T, M, N)`` dense stacks.
+        When ``materialise_transition=False`` (resp. ``materialise_obs=False``
+        / ``materialise_obs_noise=False``) and the corresponding input is
+        an operator, the returned ``A_seq`` / ``H_seq`` / ``R_seq`` is an
+        empty ``(T, 0, 0)`` placeholder — the caller is expected to apply
+        the operator directly (e.g. via ``.mv`` or as the base of a
+        Woodbury innovation) rather than index into the array. This
+        avoids materialising structured operators into ``(T, …)`` dense
+        stacks.
     mask_seq : ``(T,)`` boolean array (defaults to all-True).
     is_time_invariant : True iff every shape-bearing input is either an
         operator or a 2D array (and was broadcast to ``(T, …)`` here).
@@ -143,7 +194,11 @@ def _normalise_tv_inputs(
         else None
     )
     Q_dense = _materialise(process_noise)
-    R_dense = _materialise(obs_noise)
+    R_dense = (
+        _materialise(obs_noise)
+        if materialise_obs_noise or not _is_operator_input(obs_noise)
+        else None
+    )
 
     def _broadcast_to_T(
         x: Float[Array, ...] | None,
@@ -157,9 +212,10 @@ def _normalise_tv_inputs(
                     "op must be provided to _broadcast_to_T."
                 )
             # Operator-mode placeholder keeps the scan pytree fixed without
-            # materializing the operator into a dense (T, M, N) array. The
-            # empty array carries no matrix data; the operator is closed over
-            # separately by the caller.
+            # materializing the operator into a dense (T, …) array. The
+            # empty array carries no matrix data; the operator is closed
+            # over separately by the caller (e.g. as the base of a
+            # Woodbury innovation, or via ``.mv``).
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
             # 2D array → broadcast to (T, …)
@@ -182,7 +238,11 @@ def _normalise_tv_inputs(
         op=obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None,
     )
     Q_seq = _broadcast_to_T(Q_dense, expected_ndim=3)
-    R_seq = _broadcast_to_T(R_dense, expected_ndim=3)
+    R_seq = _broadcast_to_T(
+        R_dense,
+        expected_ndim=3,
+        op=obs_noise if isinstance(obs_noise, lx.AbstractLinearOperator) else None,
+    )
 
     if mask is None:
         mask_seq = jnp.ones((T,), dtype=bool)

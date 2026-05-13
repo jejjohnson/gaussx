@@ -161,3 +161,29 @@ def test_infinite_horizon_filter_obs_noise_diagonal_operator(getkey):
     op = infinite_horizon_filter(A, H, Q, lx.DiagonalLinearOperator(R_diag), obs)
     assert jnp.allclose(ref.filtered_means, op.filtered_means, atol=1e-5)
     assert jnp.allclose(ref.log_likelihood, op.log_likelihood, atol=1e-4)
+
+
+def test_infinite_horizon_filter_woodbury_innovation_matches_dense(getkey):
+    """Woodbury innovation path matches dense steady-state innovations."""
+    import lineax as lx
+
+    N, M, T = 4, 32, 8
+    A = 0.8 * jnp.eye(N)
+    H = jax.random.normal(getkey(), (M, N)) * 0.2
+    Q = 0.05 * jnp.eye(N)
+    R_diag = 0.3 + 0.1 * jnp.linspace(0.0, 1.0, M)
+    R = jnp.diag(R_diag)
+    obs = jax.random.normal(getkey(), (T, M))
+
+    ref = infinite_horizon_filter(A, H, Q, R, obs)
+    got = infinite_horizon_filter(
+        A,
+        H,
+        Q,
+        lx.DiagonalLinearOperator(R_diag),
+        obs,
+        woodbury_innovation=True,
+    )
+
+    assert jnp.allclose(ref.filtered_means, got.filtered_means, atol=1e-5)
+    assert jnp.allclose(ref.log_likelihood, got.log_likelihood, atol=1e-4)

@@ -23,7 +23,7 @@ import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._ssm._kalman import FilterState
+from gaussx._ssm._kalman import FilterState, kalman_filter
 from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -169,6 +169,7 @@ def parallel_kalman_filter(
     *,
     mask: Bool[Array, " T"] | None = None,
     solver: AbstractSolverStrategy | None = None,
+    woodbury_innovation: bool = False,
 ) -> FilterState:
     """Parallel Kalman filter via :func:`jax.lax.associative_scan`.
 
@@ -193,11 +194,28 @@ def parallel_kalman_filter(
             covariance-form combinator uses unstructured dense solves.
             See #165 for the square-root variant tracking the structured
             solver path.
+        woodbury_innovation: When ``True``, delegates to
+            :func:`gaussx.kalman_filter` with the same flag so structured
+            ``R`` uses the Woodbury innovation path.
 
     Returns:
         :class:`FilterState` with filtered / predicted means and covs
         and the total log-likelihood.
     """
+    if woodbury_innovation:
+        return kalman_filter(
+            transition,
+            obs_model,
+            process_noise,
+            obs_noise,
+            observations,
+            init_mean,
+            init_cov,
+            mask=mask,
+            solver=solver,
+            woodbury_innovation=True,
+        )
+
     del solver  # not currently threaded through; see docstring + #165
 
     M_obs = observations.shape[-1]

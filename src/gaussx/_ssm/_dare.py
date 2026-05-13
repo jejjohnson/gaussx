@@ -9,7 +9,12 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._linalg._linalg import sandwich, solve_matrix
-from gaussx._ssm._utils import _as_operator, _left_matmul, _materialise
+from gaussx._ssm._utils import (
+    _as_operator,
+    _innovation_covariance,
+    _left_matmul,
+    _materialise,
+)
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -37,6 +42,7 @@ def dare(
     max_iter: int = 100,
     tol: float = 1e-8,
     solver: AbstractSolverStrategy | None = None,
+    woodbury_innovation: bool = False,
 ) -> DAREResult:
     """Discrete Algebraic Riccati Equation solver.
 
@@ -59,6 +65,9 @@ def dare(
         tol: Convergence tolerance on the element-wise max absolute change.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
+        woodbury_innovation: When ``True``, build ``S = H P⁻ Hᵀ + R``
+            as a :class:`gaussx.LowRankUpdate` so structured ``R`` uses
+            Woodbury solves.
 
     Returns:
         A :class:`DAREResult` containing the steady-state covariance,
@@ -67,7 +76,14 @@ def dare(
     A_op = _as_operator(A)
     H_op = _as_operator(H)
     Q_dense = _materialise(Q)
-    R_dense = _materialise(R)
+    # Keep ``R`` lazy when the Woodbury innovation path will consume the
+    # operator directly — avoids an O(M²) allocation for large structured
+    # noise (e.g. ``DiagonalLinearOperator`` with large ``M``).
+    R_for_innovation = (
+        R
+        if woodbury_innovation and isinstance(R, lx.AbstractLinearOperator)
+        else _materialise(R)
+    )
 
     if P_init is None:
         P_init = Q_dense
@@ -78,11 +94,11 @@ def dare(
         """One predict-update step. Returns ``(P_new, K)``."""
         P_op = lx.MatrixLinearOperator(P, lx.positive_semidefinite_tag)
         P_pred = sandwich(A_op, P_op).as_matrix() + Q_dense
-        P_pred_op = lx.MatrixLinearOperator(P_pred, lx.positive_semidefinite_tag)
-        S = sandwich(H_op, P_pred_op).as_matrix() + R_dense
         # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
         # on the matrix RHS for numerical stability and efficiency.
-        S_op = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        S_op = _innovation_covariance(
+            H_op, P_pred, R_for_innovation, woodbury=woodbury_innovation
+        )
         HP_pred = _left_matmul(H_op, P_pred)
         K = solve_matrix(S_op, HP_pred, solver=solver).T
         P_new = P_pred - K @ HP_pred
