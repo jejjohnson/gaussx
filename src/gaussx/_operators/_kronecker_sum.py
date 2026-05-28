@@ -128,7 +128,23 @@ class KroneckerSum(lx.AbstractLinearOperator):
 
 
 class KroneckerSumSqrt(lx.AbstractLinearOperator):
-    r"""Symmetric square root of ``A \oplus B`` via per-factor eigenvectors."""
+    r"""Symmetric square root of ``A \oplus B`` via per-factor eigenvectors.
+
+    Represents the symmetric matrix ``S`` with ``S @ S = A \oplus B``
+    (where ``\oplus`` is the Kronecker sum ``A ⊗ I + I ⊗ B``). The square
+    root is never materialized: :meth:`mv` and :meth:`solve` apply ``S`` and
+    ``S^{-1}`` matrix-free using the per-factor eigendecompositions, so the
+    cost is governed by the factor sizes rather than the full ``n_a · n_b``
+    dimension.
+
+    Args:
+        A: Symmetric PSD factor, shape ``(n_a, n_a)``.
+        B: Symmetric PSD factor, shape ``(n_b, n_b)``.
+
+    Raises:
+        ValueError: If either factor is non-square, untagged as symmetric, or
+            if ``A \oplus B`` is not positive semidefinite.
+    """
 
     eigenvectors_a: Float[Array, "a a"]
     eigenvectors_b: Float[Array, "b b"]
@@ -205,6 +221,14 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         return rearrange(result, "b a -> (a b)")
 
     def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        """Apply the inverse square root ``S^{-1}`` to ``vector``.
+
+        Args:
+            vector: Input vector, shape ``(n_a · n_b,)``.
+
+        Returns:
+            ``S^{-1} @ vector``, shape ``(n_a · n_b,)``.
+        """
         X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
         C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
         C = C / self.sqrt_eigenvalues.T
@@ -232,7 +256,24 @@ def kronecker_sum_sample(
     key: jax.Array,
     num_samples: int = 1,
 ) -> Float[Array, "num_samples n_a n_b"]:
-    """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions."""
+    """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions.
+
+    Draws zero-mean samples with covariance ``A ⊕ B`` by applying the
+    matrix-free :class:`KroneckerSumSqrt` to standard normal noise, avoiding
+    materialization of the full ``(n_a · n_b, n_a · n_b)`` covariance.
+
+    Args:
+        A_op: Symmetric PSD factor, shape ``(n_a, n_a)``.
+        B_op: Symmetric PSD factor, shape ``(n_b, n_b)``.
+        key: PRNG key for the standard normal draws.
+        num_samples: Number of samples to draw.
+
+    Returns:
+        Samples of shape ``(num_samples, n_a, n_b)``.
+
+    Raises:
+        ValueError: If ``num_samples`` is less than 1.
+    """
     if num_samples <= 0:
         raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
 

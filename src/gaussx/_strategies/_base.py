@@ -24,7 +24,15 @@ class AbstractSolveStrategy(eqx.Module):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
-        """Solve A x = b."""
+        """Solve ``A x = b``.
+
+        Args:
+            operator: Linear operator ``A``.
+            vector: Right-hand side ``b``, shape ``(n,)``.
+
+        Returns:
+            Solution ``x``, shape ``(n,)``.
+        """
         ...
 
 

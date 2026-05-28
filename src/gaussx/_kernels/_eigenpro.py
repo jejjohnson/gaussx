@@ -147,6 +147,17 @@ def eigenpro_step_size(
     function is JIT-friendly with either. Non-positive batch sizes raise
     (eagerly when ``batch_size`` is a Python int; traced via
     ``eqx.error_if`` when it is a JAX array).
+
+    Args:
+        precond: The EigenPro preconditioner carrying ``beta`` and the top
+            eigenvalue.
+        batch_size: Mini-batch size, as a Python int or scalar JAX array.
+
+    Returns:
+        Scalar preconditioned step size.
+
+    Raises:
+        ValueError: If ``batch_size`` is a Python int below 1.
     """
     if isinstance(batch_size, int) and batch_size < 1:
         raise ValueError("batch_size must be a positive integer.")
@@ -172,6 +183,17 @@ def eigenpro_correction(
     ``step_size`` may be a Python float or a scalar JAX array. Passing a
     JAX scalar avoids recompilation under ``jax.jit`` when the value
     changes between training steps.
+
+    Args:
+        precond: The EigenPro preconditioner carrying the top eigenvectors
+            ``V`` and spectral weights ``D``.
+        K_batch_sub: Kernel block between the mini-batch and the subsampled
+            points, shape ``(B, m)``.
+        gradient: Per-example gradients for the mini-batch, shape ``(B, C)``.
+        step_size: Scalar step size, as a Python float or scalar JAX array.
+
+    Returns:
+        Eigenspace correction over the subsampled points, shape ``(m, C)``.
     """
     step_size_arr = jnp.asarray(step_size, dtype=gradient.dtype)
     projected_gradient = precond.V.T @ (K_batch_sub.T @ gradient)

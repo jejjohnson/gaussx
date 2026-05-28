@@ -25,6 +25,15 @@ class DenseSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
+        """Solve ``A x = b`` via structural dispatch (``gaussx.solve``).
+
+        Args:
+            operator: Linear operator ``A``.
+            vector: Right-hand side ``b``, shape ``(n,)``.
+
+        Returns:
+            Solution ``x``, shape ``(n,)``.
+        """
         return _solve(operator, vector)
 
     def logdet(
@@ -33,4 +42,14 @@ class DenseSolver(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
+        """Compute ``log|det(A)|`` via structural dispatch (``gaussx.logdet``).
+
+        Args:
+            operator: Linear operator ``A``.
+            key: Unused; present for protocol compatibility with stochastic
+                estimators.
+
+        Returns:
+            Scalar log-determinant.
+        """
         return _logdet(operator)

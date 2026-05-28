@@ -183,6 +183,15 @@ class MINRESSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
+        """Solve ``(A + shift I) x = b`` with MINRES.
+
+        Args:
+            operator: A symmetric (possibly indefinite) linear operator ``A``.
+            vector: Right-hand side ``b``, shape ``(n,)``.
+
+        Returns:
+            Solution ``x``, shape ``(n,)``.
+        """
         return _minres_solve(
             operator.mv,
             vector,
