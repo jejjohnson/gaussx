@@ -10,6 +10,7 @@ from einops import rearrange
 from jaxtyping import Array, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
+from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._distributions._utils import _reshape_batch, _reshape_samples
 from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
@@ -79,7 +80,7 @@ class MultivariateNormalPrecision(dist.Distribution):
         quad = jnp.sum(residual * self.prec_operator.mv(residual), axis=-1)
         ld = self.solver.logdet(self.prec_operator)
         n = self.loc.shape[-1]
-        return -0.5 * (n * jnp.log(2.0 * jnp.pi) - ld + quad)
+        return -0.5 * (n * _LOG_2PI - ld + quad)
 
     @validate_sample
     def log_prob(self, value: Float[Array, "*batch N"]) -> Float[Array, "*batch"]:
@@ -122,4 +123,4 @@ class MultivariateNormalPrecision(dist.Distribution):
     def entropy(self) -> Float[Array, ""]:
         n = self.loc.shape[-1]
         ld = self.solver.logdet(self.prec_operator)
-        return 0.5 * (n * (1.0 + jnp.log(2.0 * jnp.pi)) - ld)
+        return 0.5 * (n * (1.0 + _LOG_2PI) - ld)

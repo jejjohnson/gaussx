@@ -7,6 +7,8 @@ from collections.abc import Callable
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
+
 
 def variational_elbo_gaussian(
     y: Float[Array, " N"],
@@ -39,9 +41,8 @@ def variational_elbo_gaussian(
         Scalar ELBO value.
     """
     N = y.shape[-1]
-    log_2pi = jnp.log(2.0 * jnp.pi)
     residual = y - f_loc
-    ell = -0.5 * N * jnp.log(noise_var) - 0.5 * N * log_2pi
+    ell = -0.5 * N * jnp.log(noise_var) - 0.5 * N * _LOG_2PI
     ell = ell - 0.5 / noise_var * (jnp.sum(residual**2) + jnp.sum(f_var))
     return ell - kl
 

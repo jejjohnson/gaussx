@@ -7,6 +7,7 @@ import lineax as lx
 from jax import lax
 from jaxtyping import Array, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._primitives._cholesky import cholesky
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -50,7 +51,6 @@ def collapsed_elbo(
     del solver  # cholesky does not accept a solver; parameter reserved for future use
     N = y.shape[0]
     M = K_zz.shape[0]
-    log_2pi = jnp.log(2.0 * jnp.pi)
 
     # L_zz L_zzᵀ = K_zz + jitter · I
     K_zz_jitter = K_zz + jitter * jnp.eye(M)
@@ -94,4 +94,4 @@ def collapsed_elbo(
     # where tr(Q_ff) = ‖V‖²_F
     trace_penalty = -0.5 / noise_var * (jnp.sum(K_diag) - jnp.sum(V**2))
 
-    return -0.5 * (log_det + quad + N * log_2pi) + trace_penalty
+    return -0.5 * (log_det + quad + N * _LOG_2PI) + trace_penalty

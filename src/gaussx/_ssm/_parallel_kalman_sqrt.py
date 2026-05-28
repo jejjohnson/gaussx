@@ -8,6 +8,8 @@ import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState
 from gaussx._ssm._parallel_kalman import (
     _bmv,
@@ -111,8 +113,6 @@ def parallel_kalman_filter_sqrt(
             log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
         )
 
-    log_2pi = jnp.log(2.0 * jnp.pi)
-
     A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
         transition, obs_model, process_noise, obs_noise, T=T, mask=mask
     )
@@ -191,8 +191,8 @@ def parallel_kalman_filter_sqrt(
         L = jnp.linalg.cholesky(S)
         Sinv_v = jax.scipy.linalg.cho_solve((L, True), v)
         quad = v @ Sinv_v
-        logdet = 2.0 * jnp.sum(jnp.log(jnp.diag(L)))
-        contrib = -0.5 * (quad + logdet + M_obs * log_2pi)
+        logdet = cholesky_logdet(L)
+        contrib = -0.5 * (quad + logdet + M_obs * _LOG_2PI)
         return jnp.where(m, contrib, jnp.zeros_like(contrib))
 
     ll_contribs = jax.vmap(_ll_contrib)(

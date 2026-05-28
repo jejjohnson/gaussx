@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._ssm._utils import (
     _innovation_covariance,
@@ -110,7 +111,6 @@ def kalman_filter(
     """
     M = observations.shape[-1]
     T = observations.shape[0]
-    log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Closure-friendly matvec: when an operator is supplied, prefer its
     # structural ``mv`` over the dense ``A @ x``. Otherwise the
@@ -182,7 +182,7 @@ def kalman_filter(
 
             Sinv_v = dispatch_solve(S_op, v, solver)
             ld = dispatch_logdet(S_op, solver)
-            ll_inc = -0.5 * (v @ Sinv_v + ld + M * log_2pi)
+            ll_inc = -0.5 * (v @ Sinv_v + ld + M * _LOG_2PI)
             return x_upd, P_upd, ll_inc
 
         def _skip_update(_):
