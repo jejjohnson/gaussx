@@ -9,22 +9,8 @@ import lineax as lx
 from einops import rearrange
 from jaxtyping import Array, Float
 
+from gaussx._distributions._utils import _axis_names
 from gaussx._primitives._eig import eig
-
-
-def _axis_names(count: int) -> tuple[str, ...]:
-    names = []
-    for index in range(count):
-        value = index
-        chars = []
-        while True:
-            value, remainder = divmod(value, 26)
-            chars.append(chr(ord("a") + remainder))
-            if value == 0:
-                break
-            value -= 1
-        names.append("".join(reversed(chars)))
-    return tuple(names)
 
 
 def _normalize_axis(axis: int, ndim: int) -> int:
