@@ -7,10 +7,10 @@ from jaxtyping import Array, Float
 
 
 def _axis_names(count: int) -> tuple[str, ...]:
-    """Generate ``count`` spreadsheet-style axis names for einops patterns.
+    """Generate ``count`` spreadsheet-style axis names for rearrange patterns.
 
     Produces ``("a", "b", ..., "z", "aa", "ab", ...)`` so that an arbitrary
-    number of batch axes can be referenced by name in an einops pattern.
+    number of batch axes can be referenced by name in an einops/einx pattern.
 
     Args:
         count: Number of axis names to generate.
