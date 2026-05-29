@@ -60,7 +60,7 @@ def _diag_kronecker(operator: Kronecker) -> Float[Array, " n"]:
 
 def _diag_block_tridiag(operator: BlockTriDiag) -> Float[Array, " n"]:
     """Extract block-diagonal entries of a block-tridiagonal operator."""
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     # diagonal blocks contain the diagonal entries
     block_diags = jax.vmap(jnp.diag)(operator.diagonal)  # (N, d)

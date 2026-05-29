@@ -6,9 +6,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import rearrange
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 from gaussx._operators._kronecker import Kronecker
 

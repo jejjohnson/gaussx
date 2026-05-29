@@ -5,9 +5,9 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
-from einops import rearrange, reduce
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange, reduce
 from gaussx._primitives._sqrt import sqrt
 
 

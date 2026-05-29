@@ -8,9 +8,9 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
-from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._linalg._schur import conditional_variance as _conditional_variance
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve

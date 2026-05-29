@@ -6,10 +6,10 @@ import functools as ft
 
 import jax.numpy as jnp
 import lineax as lx
-from einops import rearrange
 from jaxtyping import Array, Float
 
 from gaussx._distributions._utils import _axis_names
+from gaussx._einx import rearrange
 from gaussx._primitives._eig import eig
 
 

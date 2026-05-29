@@ -26,7 +26,6 @@ dependencies = [
     "lineax>=0.1.1",
     "matfree>=0.5",
     "jaxtyping>=0.3",
-    "einops>=0.8",
     "einx>=0.4.3",
 ]
 
@@ -46,6 +45,7 @@ dev = [
     "pre-commit>=3.7",
     "beartype>=0.18",
     "numpyro>=0.21",
+    "einops>=0.8",
 ]
 lint = [
     "ruff>=0.15.10",

@@ -45,7 +45,7 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 | `lineax` | Linear operators, solvers |
 | `matfree` | Krylov methods, stochastic trace |
 | `jaxtyping` | Array type annotations |
-| `einops` | Tensor reshaping (D9: einops for all reshape/einsum) |
+| `einx` | Tensor reshaping/contraction (D9: einx for all reshape/einsum, via `gaussx._einx`) |
 
 ## Common Commands
 
@@ -83,7 +83,7 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 - All operators are `equinox.Module` subclasses (immutable, PyTree-compatible)
 - All primitives are pure functions with isinstance-based dispatch
 - Use `jaxtyping` annotations for array shapes
-- Use `einops` for all tensor reshaping — no raw `jnp.reshape`/`jnp.transpose`/`jnp.einsum`
+- Use `einx` (via the `gaussx._einx` wrappers) for all tensor reshaping/contraction — no raw `jnp.reshape`/`jnp.transpose`/`jnp.einsum`
 - Google-style docstrings
 - Type hints on all public functions and methods
 - Pure functions where possible; side effects isolated and explicit

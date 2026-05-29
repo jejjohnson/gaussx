@@ -63,7 +63,7 @@ Structured operators extending `lineax.AbstractLinearOperator`. Each is an `equi
 
 | Operator | Represents | Efficient `mv` |
 |----------|-----------|----------------|
-| `Kronecker(A, B, ...)` | $A \otimes B \otimes \cdots$ | Roth's column lemma via einops |
+| `Kronecker(A, B, ...)` | $A \otimes B \otimes \cdots$ | Roth's column lemma via einx |
 | `BlockDiag(A, B, ...)` | $\mathrm{diag}(A, B, \ldots)$ | Per-block, concatenate |
 | `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | Banded block matvec |
 | `LowRankUpdate(L, U, d, V)` | $L + U \mathrm{diag}(d) V^\top$ | Base mv + rank-k update |
@@ -128,7 +128,7 @@ Query functions (`is_kronecker`, `is_block_diagonal`, `is_low_rank`, plus all li
 | `lineax` | Linear operators, solvers | Yes |
 | `matfree` | Krylov methods, stochastic trace | Yes |
 | `jaxtyping` | Array type annotations | Yes |
-| `einops` | Tensor reshaping (Principle 5) | Yes |
+| `einx` | Tensor reshaping/contraction (Principle 5) | Yes |
 | `numpyro` | Distributions (Layer 2) | Planned |
 
 ## Package Layout

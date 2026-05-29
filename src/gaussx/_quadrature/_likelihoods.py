@@ -5,9 +5,9 @@ from __future__ import annotations
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from einops import rearrange
 from jaxtyping import Array, Float, Int
 
+from gaussx._einx import rearrange
 from gaussx._quadrature._likelihood import AbstractLikelihood
 
 

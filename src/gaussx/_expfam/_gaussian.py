@@ -5,10 +5,10 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 import lineax as lx
-from einops import einsum
 from jaxtyping import Array, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._einx import einsum
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve

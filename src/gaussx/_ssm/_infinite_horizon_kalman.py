@@ -6,10 +6,10 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import repeat
 from jaxtyping import Array, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._einx import repeat
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._ssm._dare import DAREResult, dare

@@ -608,7 +608,6 @@ name = "gaussx"
 version = "0.0.15"
 source = { editable = "." }
 dependencies = [
-    { name = "einops" },
     { name = "einx" },
     { name = "equinox" },
     { name = "jax" },
@@ -626,6 +625,7 @@ numpyro = [
 [package.dev-dependencies]
 dev = [
     { name = "beartype" },
+    { name = "einops" },
     { name = "numpyro" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -651,7 +651,6 @@ typecheck = [
 
 [package.metadata]
 requires-dist = [
-    { name = "einops", specifier = ">=0.8" },
     { name = "einx", specifier = ">=0.4.3" },
     { name = "equinox", specifier = ">=0.13.8" },
     { name = "jax", specifier = ">=0.10" },
@@ -666,6 +665,7 @@ provides-extras = ["numpyro"]
 [package.metadata.requires-dev]
 dev = [
     { name = "beartype", specifier = ">=0.18" },
+    { name = "einops", specifier = ">=0.8" },
     { name = "numpyro", specifier = ">=0.21" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },

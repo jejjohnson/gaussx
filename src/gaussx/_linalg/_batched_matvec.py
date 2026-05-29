@@ -6,8 +6,9 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from einops import rearrange
 from jaxtyping import Array, Float
+
+from gaussx._einx import rearrange
 
 
 def batched_kernel_matvec(

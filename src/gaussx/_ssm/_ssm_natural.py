@@ -14,9 +14,9 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import einsum, rearrange
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._primitives._inv import inv
 from gaussx._strategies._base import AbstractSolverStrategy

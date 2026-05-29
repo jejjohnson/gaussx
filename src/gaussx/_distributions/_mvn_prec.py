@@ -6,12 +6,12 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpyro.distributions as dist
-from einops import rearrange
 from jaxtyping import Array, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._distributions._utils import _reshape_batch, _reshape_samples
+from gaussx._einx import rearrange
 from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
 from gaussx._primitives._inv import inv as _inv
