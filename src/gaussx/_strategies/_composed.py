@@ -43,7 +43,15 @@ class ComposedSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
-        """Solve A x = b using the solve strategy."""
+        """Solve ``A x = b`` by delegating to ``solve_strategy``.
+
+        Args:
+            operator: Linear operator ``A``.
+            vector: Right-hand side ``b``, shape ``(n,)``.
+
+        Returns:
+            Solution ``x``, shape ``(n,)``.
+        """
         return self.solve_strategy.solve(operator, vector)
 
     def logdet(
@@ -52,5 +60,13 @@ class ComposedSolver(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Compute log |det(A)| using the logdet strategy."""
+        """Compute ``log|det(A)|`` by delegating to ``logdet_strategy``.
+
+        Args:
+            operator: Linear operator ``A``.
+            key: Optional PRNG key forwarded to stochastic estimators.
+
+        Returns:
+            Scalar log-determinant.
+        """
         return self.logdet_strategy.logdet(operator, key=key)

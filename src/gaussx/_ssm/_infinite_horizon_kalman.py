@@ -9,6 +9,7 @@ import lineax as lx
 from einops import repeat
 from jaxtyping import Array, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._ssm._dare import DAREResult, dare
@@ -131,7 +132,6 @@ def infinite_horizon_filter(
         H_op, P_pred_inf, R_for_innovation, woodbury=woodbury_innovation
     )
     ld_inf = dispatch_logdet(S_inf, solver)  # scalar
-    log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Steady-state filtered covariance: P_filt = (I − K∞ H) P⁻pred
     HP_pred_inf = _left_matmul(H_op, P_pred_inf)
@@ -146,7 +146,7 @@ def infinite_horizon_filter(
 
         # Log-likelihood increment.
         Sinv_v = dispatch_solve(S_inf, v, solver)  # (M,)
-        ll_inc = -0.5 * (v @ Sinv_v + ld_inf + M * log_2pi)
+        ll_inc = -0.5 * (v @ Sinv_v + ld_inf + M * _LOG_2PI)
 
         return (x_filt_new, ll + ll_inc), (x_filt_new, x_pred)
 

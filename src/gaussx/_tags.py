@@ -64,31 +64,67 @@ negative_semidefinite_tag = lx.negative_semidefinite_tag
 
 @ft.singledispatch
 def is_kronecker(operator: lx.AbstractLinearOperator) -> bool:
-    """Check whether *operator* carries the Kronecker tag."""
+    """Check whether *operator* carries the Kronecker tag.
+
+    Args:
+        operator: Linear operator to inspect.
+
+    Returns:
+        ``True`` if the operator carries the Kronecker tag, else ``False``.
+    """
     return False
 
 
 @ft.singledispatch
 def is_block_diagonal(operator: lx.AbstractLinearOperator) -> bool:
-    """Check whether *operator* carries the block-diagonal tag."""
+    """Check whether *operator* carries the block-diagonal tag.
+
+    Args:
+        operator: Linear operator to inspect.
+
+    Returns:
+        ``True`` if the operator carries the block-diagonal tag, else ``False``.
+    """
     return False
 
 
 @ft.singledispatch
 def is_low_rank(operator: lx.AbstractLinearOperator) -> bool:
-    """Check whether *operator* carries the low-rank tag."""
+    """Check whether *operator* carries the low-rank tag.
+
+    Args:
+        operator: Linear operator to inspect.
+
+    Returns:
+        ``True`` if the operator carries the low-rank tag, else ``False``.
+    """
     return False
 
 
 @ft.singledispatch
 def is_kronecker_sum(operator: lx.AbstractLinearOperator) -> bool:
-    """Check whether *operator* carries the Kronecker sum tag."""
+    """Check whether *operator* carries the Kronecker sum tag.
+
+    Args:
+        operator: Linear operator to inspect.
+
+    Returns:
+        ``True`` if the operator carries the Kronecker sum tag, else ``False``.
+    """
     return False
 
 
 @ft.singledispatch
 def is_block_tridiagonal(operator: lx.AbstractLinearOperator) -> bool:
-    """Check whether *operator* carries the block-tridiagonal tag."""
+    """Check whether *operator* carries the block-tridiagonal tag.
+
+    Args:
+        operator: Linear operator to inspect.
+
+    Returns:
+        ``True`` if the operator carries the block-tridiagonal tag, else
+        ``False``.
+    """
     return False
 
 

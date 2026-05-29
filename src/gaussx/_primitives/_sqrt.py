@@ -148,7 +148,18 @@ class SqrtOperator(lx.AbstractLinearOperator):
 
 
 class SumKroneckerSqrt(SqrtOperator):
-    """Lazy Lanczos square-root operator for ``SumKronecker`` covariances."""
+    """Lazy Lanczos square-root operator for ``SumKronecker`` covariances.
+
+    Specialization of :class:`SqrtOperator` that narrows ``original`` to a
+    :class:`SumKronecker` operator. :meth:`mv` computes ``sqrt(A) v`` via
+    matfree's Lanczos matrix-function product without materializing the full
+    square root.
+
+    Args:
+        original: The ``SumKronecker`` covariance to take the square root of.
+        lanczos_order: Number of Lanczos iterations; clamped to the operator
+            size.
+    """
 
     original: SumKronecker
 

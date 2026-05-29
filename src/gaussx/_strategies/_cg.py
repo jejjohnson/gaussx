@@ -37,6 +37,15 @@ class CGSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
+        """Solve ``A x = b`` with conjugate gradients.
+
+        Args:
+            operator: A PSD linear operator ``A``.
+            vector: Right-hand side ``b``, shape ``(n,)``.
+
+        Returns:
+            Solution ``x``, shape ``(n,)``.
+        """
         solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
         return lx.linear_solve(operator, vector, solver).value
 

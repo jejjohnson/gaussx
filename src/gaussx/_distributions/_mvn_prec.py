@@ -10,55 +10,14 @@ from einops import rearrange
 from jaxtyping import Array, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
+from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._distributions._utils import _reshape_batch, _reshape_samples
 from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
 from gaussx._primitives._inv import inv as _inv
 from gaussx._primitives._solve import solve as _solve
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
-
-
-def _axis_names(count: int) -> tuple[str, ...]:
-    names = []
-    for index in range(count):
-        value = index
-        chars = []
-        while True:
-            value, remainder = divmod(value, 26)
-            chars.append(chr(ord("a") + remainder))
-            if value == 0:
-                break
-            value -= 1
-        names.append("".join(reversed(chars)))
-    return tuple(names)
-
-
-def _reshape_batch(
-    values: Float[Array, " flat"],
-    batch_shape: tuple[int, ...],
-) -> Float[Array, "*batch"]:
-    if not batch_shape:
-        return values[0]
-    batch_axes = _axis_names(len(batch_shape))
-    axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
-    batch_pattern = " ".join(batch_axes)
-    return rearrange(values, f"({batch_pattern}) -> {batch_pattern}", **axis_lengths)
-
-
-def _reshape_samples(
-    values: Float[Array, "flat N"],
-    batch_shape: tuple[int, ...],
-) -> Float[Array, "*batch N"]:
-    if not batch_shape:
-        return values[0]
-    batch_axes = _axis_names(len(batch_shape))
-    axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
-    batch_pattern = " ".join(batch_axes)
-    return rearrange(
-        values,
-        f"({batch_pattern}) N -> {batch_pattern} N",
-        **axis_lengths,
-    )
 
 
 class MultivariateNormalPrecision(dist.Distribution):
@@ -121,7 +80,7 @@ class MultivariateNormalPrecision(dist.Distribution):
         quad = jnp.sum(residual * self.prec_operator.mv(residual), axis=-1)
         ld = self.solver.logdet(self.prec_operator)
         n = self.loc.shape[-1]
-        return -0.5 * (n * jnp.log(2.0 * jnp.pi) - ld + quad)
+        return -0.5 * (n * _LOG_2PI - ld + quad)
 
     @validate_sample
     def log_prob(self, value: Float[Array, "*batch N"]) -> Float[Array, "*batch"]:
@@ -164,4 +123,4 @@ class MultivariateNormalPrecision(dist.Distribution):
     def entropy(self) -> Float[Array, ""]:
         n = self.loc.shape[-1]
         ld = self.solver.logdet(self.prec_operator)
-        return 0.5 * (n * (1.0 + jnp.log(2.0 * jnp.pi)) - ld)
+        return 0.5 * (n * (1.0 + _LOG_2PI) - ld)

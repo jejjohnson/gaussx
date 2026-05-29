@@ -8,6 +8,7 @@ import lineax as lx
 from einops import einsum
 from jaxtyping import Array, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
@@ -129,8 +130,7 @@ def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:
     ld = -0.5 * logdet(neg2_eta2)
 
     # Add base measure contribution: N/2 * log(2pi)
-    log_2pi = jnp.log(2.0 * jnp.pi)
-    return quad + ld + 0.5 * N * log_2pi
+    return quad + ld + 0.5 * N * _LOG_2PI
 
 
 def fisher_info(
