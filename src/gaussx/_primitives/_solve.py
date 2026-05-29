@@ -97,7 +97,7 @@ def _solve_kronecker(
     Uses the same reshape trick as Kronecker.mv but with
     per-factor solves: solve(A_i^T, ...) instead of mat @ ....
     """
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     x = vector
     for i in range(len(operator.operators) - 1, -1, -1):
@@ -189,7 +189,7 @@ def _solve_kronecker_sum(
     BlockDiag, Kronecker, KroneckerSum) skip materialization; otherwise
     falls back to ``jnp.linalg.eigh`` on the materialized factor.
     """
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     # The decomposition requires symmetric factors so the eigenvector
     # matrices are orthonormal (the formula uses ``Q^T`` as the inverse
@@ -231,7 +231,7 @@ def _solve_lower_block_tridiag(
     """Forward substitution for lower block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 
@@ -256,7 +256,7 @@ def _solve_upper_block_tridiag(
     """Backward substitution for upper block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 

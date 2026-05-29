@@ -6,9 +6,9 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsla
 import lineax as lx
-from einops import rearrange, repeat
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange, repeat
 from gaussx._primitives._cholesky import cholesky
 from gaussx._strategies._base import AbstractSolverStrategy
 

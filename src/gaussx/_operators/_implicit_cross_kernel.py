@@ -9,9 +9,9 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import rearrange
 from jaxtyping import Array, Float, PyTree
 
+from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._operators._utils import vmap_over_batch_dims
 

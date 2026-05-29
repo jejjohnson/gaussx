@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
-from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._primitives._cholesky import cholesky
 
 

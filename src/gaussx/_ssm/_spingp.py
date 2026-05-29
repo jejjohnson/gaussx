@@ -5,9 +5,9 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import einsum, rearrange, repeat
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum, rearrange, repeat
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet

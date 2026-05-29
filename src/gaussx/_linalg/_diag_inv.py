@@ -5,9 +5,9 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve

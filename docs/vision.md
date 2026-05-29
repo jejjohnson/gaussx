@@ -63,7 +63,7 @@ Meanwhile, the existing tools each solve *part* of the problem:
 | 2 | **Structure drives dispatch** | Operators carry structural tags (PSD, symmetric, Kronecker, ...). Primitives inspect types + tags via isinstance to select the efficient code path. No magic. |
 | 3 | **Math-first layers** | Layer 0 functions match the equations in papers: `solve(A, b)`, `logdet(A)`, `cholesky(A)`. A researcher should read the code and see the math. |
 | 4 | **One distribution, many strategies** | `MultivariateNormal` accepts any covariance operator and any solver strategy. The distribution handles the math, the solver handles the numerics. |
-| 5 | **einops for readability** | All tensor reshaping uses `rearrange` and `einsum`. Kronecker `mv` reads like Roth's column lemma. |
+| 5 | **einx for readability** | All tensor reshaping uses `rearrange` and `einsum`. Kronecker `mv` reads like Roth's column lemma. |
 
 ## What gaussx is NOT
 
@@ -85,7 +85,7 @@ Meanwhile, the existing tools each solve *part* of the problem:
                     └──────┬───────┘
                            │ extends
                     ┌──────▼───────┐
-                    │    gaussx    │  ← equinox, jaxtyping, einops
+                    │    gaussx    │  ← equinox, jaxtyping, einx
                     └──────┬───────┘
                            │ consumed by
            ┌───────────────┼───────────────┐

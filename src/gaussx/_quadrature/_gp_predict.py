@@ -60,7 +60,7 @@ def kernel_expectations(
         k_vec = jax.vmap(lambda xi: kernel_fn(x, xi))(X_train)
         return jnp.outer(k_vec, k_vec)
 
-    from einops import rearrange
+    from gaussx._einx import rearrange
 
     N_train = X_train.shape[0]
     psi2_flat_fn = lambda x: rearrange(psi2_fn(x), "i j -> (i j)")

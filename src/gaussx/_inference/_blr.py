@@ -7,10 +7,10 @@ from collections.abc import Callable
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from einops import reduce
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 

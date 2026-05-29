@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-import einx
 from jaxtyping import Array, Float
+
+from gaussx._einx import rearrange
 
 
 def _axis_names(count: int) -> tuple[str, ...]:
     """Generate ``count`` spreadsheet-style axis names for rearrange patterns.
 
     Produces ``("a", "b", ..., "z", "aa", "ab", ...)`` so that an arbitrary
-    number of batch axes can be referenced by name in an einops/einx pattern.
+    number of batch axes can be referenced by name in an einx pattern.
 
     Args:
         count: Number of axis names to generate.
@@ -51,7 +52,7 @@ def _reshape_batch(
     batch_axes = _axis_names(len(batch_shape))
     axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
     batch_pattern = " ".join(batch_axes)
-    return einx.id(f"({batch_pattern}) -> {batch_pattern}", values, **axis_lengths)  # ty: ignore[invalid-argument-type]
+    return rearrange(values, f"({batch_pattern}) -> {batch_pattern}", **axis_lengths)
 
 
 def _reshape_samples(
@@ -74,4 +75,4 @@ def _reshape_samples(
     axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
     batch_pattern = " ".join(batch_axes)
     pattern = f"({batch_pattern}) N -> {batch_pattern} N"
-    return einx.id(pattern, values, **axis_lengths)  # ty: ignore[invalid-argument-type]
+    return rearrange(values, pattern, **axis_lengths)

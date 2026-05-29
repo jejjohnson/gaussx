@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-from einops import rearrange
 from jaxtyping import Array, Float, Int
+
+from gaussx._einx import rearrange
 
 
 def create_grid(

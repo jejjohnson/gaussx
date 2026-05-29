@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import jax.numpy as jnp
-from einops import reduce
 from jaxtyping import Array, Float
+
+from gaussx._einx import reduce
 
 
 def stable_squared_distances(

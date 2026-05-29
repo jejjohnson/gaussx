@@ -7,9 +7,9 @@ from typing import Protocol, cast, runtime_checkable
 
 import jax
 import jax.numpy as jnp
-from einops import rearrange
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 

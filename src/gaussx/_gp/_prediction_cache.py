@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import equinox as eqx
 import lineax as lx
-from einops import reduce
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
