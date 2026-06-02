@@ -196,6 +196,10 @@ from gaussx._quadrature import (
     uncertain_svgp_predict as uncertain_svgp_predict,
     uncertain_vgp_predict as uncertain_vgp_predict,
 )
+from gaussx._solve_frontend import (
+    as_linear_operator as as_linear_operator,
+    linear_solve as linear_solve,
+)
 from gaussx._ssm import (
     ConstantSDE as ConstantSDE,
     CosineSDE as CosineSDE,
