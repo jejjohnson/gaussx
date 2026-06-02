@@ -22,11 +22,13 @@ conditions, or transforms.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._preconditioners import AbstractPreconditioner, OperatorPreconditioner
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._minres import MINRESSolver
@@ -136,9 +138,10 @@ def linear_solve(
         vector: Right-hand side ``b``, shape ``(n,)``.
         solver: Solve strategy to use. When ``None`` a default is selected from
             the operator's structural tags.
-        preconditioner: Optional preconditioner. May be a lineax operator
-            applying ``M^{-1}``, a callable ``v -> M^{-1} v``, or an object with
-            an ``.as_operator()`` method (the Phase 1 preconditioner protocol).
+        preconditioner: Optional preconditioner. May be an
+            :class:`AbstractPreconditioner`, a lineax operator applying
+            ``M^{-1}``, or a callable ``v -> M^{-1} v``. Preconditioning is
+            currently applied through :class:`CGSolver`.
 
     Returns:
         The solution ``x``, shape ``(n,)``.
@@ -154,7 +157,7 @@ def linear_solve(
         solver = _default_solver(op)
 
     if preconditioner is not None:
-        return _solve_preconditioned(op, vector, solver, preconditioner)
+        solver = _attach_preconditioner(solver, _as_preconditioner(preconditioner))
 
     return solver.solve(op, vector)
 
@@ -225,54 +228,39 @@ def _default_solver(operator: lx.AbstractLinearOperator) -> AbstractSolveStrateg
     )
 
 
-def _coerce_preconditioner(
+def _as_preconditioner(
     preconditioner: PreconditionerLike,
-    operator: lx.AbstractLinearOperator,
-) -> lx.AbstractLinearOperator:
-    """Normalise a preconditioner into a lineax operator applying ``M^{-1}``."""
-    as_operator = getattr(preconditioner, "as_operator", None)
-    if callable(as_operator) and not isinstance(
-        preconditioner, lx.AbstractLinearOperator
+) -> AbstractPreconditioner:
+    """Normalise *preconditioner* into an :class:`AbstractPreconditioner`.
+
+    A raw lineax operator or callable applying ``M^{-1}`` is wrapped in an
+    :class:`OperatorPreconditioner`; an existing preconditioner is returned
+    unchanged.
+    """
+    if isinstance(preconditioner, AbstractPreconditioner):
+        return preconditioner
+    if isinstance(preconditioner, lx.AbstractLinearOperator) or callable(
+        preconditioner
     ):
-        preconditioner = as_operator()
-    if isinstance(preconditioner, lx.AbstractLinearOperator):
-        # lineax CG requires the preconditioner to be tagged PSD.
-        if is_positive_semidefinite(preconditioner):
-            return preconditioner
-        return lx.TaggedLinearOperator(preconditioner, lx.positive_semidefinite_tag)
-    if callable(preconditioner):
-        return lx.FunctionLinearOperator(
-            preconditioner,
-            operator.out_structure(),
-            lx.positive_semidefinite_tag,
-        )
+        return OperatorPreconditioner(preconditioner)
     raise TypeError(
-        "preconditioner must be a lineax operator, a callable applying "
-        "M^{-1}, or an object with an `.as_operator()` method."
+        "preconditioner must be an AbstractPreconditioner, a lineax operator, "
+        "or a callable applying M^{-1}."
     )
 
 
-def _solve_preconditioned(
-    operator: lx.AbstractLinearOperator,
-    vector: Float[Array, " n"],
+def _attach_preconditioner(
     solver: AbstractSolveStrategy,
-    preconditioner: PreconditionerLike,
-) -> Float[Array, " n"]:
-    """Solve with a preconditioner via lineax CG.
+    preconditioner: AbstractPreconditioner,
+) -> AbstractSolveStrategy:
+    """Attach *preconditioner* to a CG-style solver.
 
-    Preconditioning currently routes through lineax's CG with the
-    ``preconditioner`` option, reusing the tolerances of a :class:`CGSolver`
-    when one is supplied. Richer per-strategy preconditioner support arrives
-    with the Phase 1 preconditioner protocol.
+    Preconditioning is currently supported through :class:`CGSolver`. A bare
+    :class:`CGSolver` gains the preconditioner; any other strategy raises.
     """
-    precond_op = _coerce_preconditioner(preconditioner, operator)
     if isinstance(solver, CGSolver):
-        cg = lx.CG(rtol=solver.rtol, atol=solver.atol, max_steps=solver.max_steps)
-    else:
-        cg = lx.CG(rtol=1e-5, atol=1e-5, max_steps=1000)
-    return lx.linear_solve(
-        operator,
-        vector,
-        cg,
-        options={"preconditioner": precond_op},
-    ).value
+        return dataclasses.replace(solver, preconditioner=preconditioner)
+    raise ValueError(
+        "Preconditioning is currently supported only with CGSolver; "
+        f"got {type(solver).__name__}. Pass `solver=CGSolver(...)`."
+    )

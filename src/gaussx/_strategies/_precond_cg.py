@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import lineax as lx
-import matfree.low_rank
 from jaxtyping import Array, Float
 
+from gaussx._preconditioners import PartialCholeskyPreconditioner
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._slq_logdet import SLQLogdet
 
 
@@ -58,36 +58,15 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         Returns:
             The solution x.
         """
-        solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
-        if self.preconditioner_rank <= 0:
-            return lx.linear_solve(operator, vector, solver).value
-
-        n = operator.in_size()
-        rank = min(self.preconditioner_rank, n)
-
-        def mat_el(i, j):
-            ej = jnp.zeros(n).at[j].set(1.0)
-            return operator.mv(ej)[i]
-
-        chol_fn = matfree.low_rank.cholesky_partial_pivot(mat_el, nrows=n, rank=rank)
-        L, info = chol_fn()
-        precond_fn = matfree.low_rank.preconditioner(lambda: (L, info))
-
-        def precond_matvec(v):
-            Mv_inv, _ = precond_fn(v, self.shift)
-            return Mv_inv
-
-        preconditioner = lx.FunctionLinearOperator(
-            precond_matvec,
-            operator.out_structure(),
-            lx.positive_semidefinite_tag,
+        preconditioner = PartialCholeskyPreconditioner(
+            rank=self.preconditioner_rank, shift=self.shift
         )
-        return lx.linear_solve(
-            operator,
-            vector,
-            solver,
-            options={"preconditioner": preconditioner},
-        ).value
+        return CGSolver(
+            rtol=self.rtol,
+            atol=self.atol,
+            max_steps=self.max_steps,
+            preconditioner=preconditioner,
+        ).solve(operator, vector)
 
     def logdet(
         self,

@@ -108,6 +108,8 @@ from gaussx._linalg import (
     solve_columns as solve_columns,
     solve_matrix as solve_matrix,
     solve_rows as solve_rows,
+    solve_tridiagonal as solve_tridiagonal,
+    solve_tridiagonal_batched as solve_tridiagonal_batched,
     stable_rbf_kernel as stable_rbf_kernel,
     stable_squared_distances as stable_squared_distances,
     trace_product as trace_product,
@@ -116,6 +118,7 @@ from gaussx._linalg import (
 from gaussx._operators import (
     BlockDiag as BlockDiag,
     BlockTriDiag as BlockTriDiag,
+    CapacitanceSolver as CapacitanceSolver,
     ImplicitCrossKernelOperator as ImplicitCrossKernelOperator,
     ImplicitKernelOperator as ImplicitKernelOperator,
     InterpolatedOperator as InterpolatedOperator,
@@ -141,6 +144,13 @@ from gaussx._operators import (
     sumkronecker_sample as sumkronecker_sample,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
     toeplitz_sample as toeplitz_sample,
+)
+from gaussx._preconditioners import (
+    AbstractPreconditioner as AbstractPreconditioner,
+    JacobiPreconditioner as JacobiPreconditioner,
+    NystromPreconditioner as NystromPreconditioner,
+    OperatorPreconditioner as OperatorPreconditioner,
+    PartialCholeskyPreconditioner as PartialCholeskyPreconditioner,
 )
 from gaussx._primitives import (
     DenseFallbackWarning as DenseFallbackWarning,

@@ -10,6 +10,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._capacitance import CapacitanceSolver
 from gaussx._operators._implicit_cross_kernel import (
     ImplicitCrossKernelOperator,
     _TransposedCrossKernelOperator,
@@ -592,6 +593,7 @@ def _(operator: UpperBlockTriDiag) -> bool:
 __all__ = [
     "BlockDiag",
     "BlockTriDiag",
+    "CapacitanceSolver",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "InterpolatedOperator",
