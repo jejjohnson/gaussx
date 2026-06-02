@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum
 from gaussx._preconditioners._base import AbstractPreconditioner
 
 
@@ -72,14 +73,18 @@ class NystromPreconditioner(AbstractPreconditioner):
         q, _ = jnp.linalg.qr(omega)
 
         y = eqx.filter_vmap(operator.mv, in_axes=1, out_axes=1)(q)
-        b = q.T @ y
+        b = einsum(q, y, "n k, n j -> k j")
+        # Symmetrize before the eigendecomposition: b is symmetric in exact
+        # arithmetic, but floating-point asymmetry in the off-diagonals can
+        # perturb eigh. (Matches the convention in _distributions/_conditional.)
+        b = 0.5 * (b + b.T)
         eigvals, u = jnp.linalg.eigh(b)
 
         abs_eigvals = jnp.abs(eigvals)
         eps = jnp.finfo(abs_eigvals.dtype).eps * n
         s_inv = jnp.where(abs_eigvals > eps, 1.0 / abs_eigvals, 0.0)
 
-        w = q @ u
+        w = einsum(q, u, "n k, k j -> n j")
         # Fallback for uncaptured directions: random probing captures the
         # largest eigenvalues, so uncaptured directions have smaller eigenvalues
         # and larger inverses. The largest captured inverse is the best
@@ -99,7 +104,8 @@ class NystromPreconditioner(AbstractPreconditioner):
         structure = jax.ShapeDtypeStruct((w.shape[0],), w.dtype)
 
         def matvec(x: Float[Array, " n"]) -> Float[Array, " n"]:
-            return shift * x + w @ (scale * (w.T @ x))
+            coeffs = einsum(w, x, "n k, n -> k")
+            return shift * x + einsum(w, scale * coeffs, "n k, k -> n")
 
         return lx.FunctionLinearOperator(
             matvec, structure, lx.positive_semidefinite_tag
