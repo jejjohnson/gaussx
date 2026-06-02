@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.17](https://github.com/jejjohnson/gaussx/compare/v0.0.16...v0.0.17) (2026-06-02)
+
+
+### Features
+
+* **solvers:** unified solver substrate — front door, preconditioners, capacitance, tridiagonal ([#188](https://github.com/jejjohnson/gaussx/issues/188)) ([e6633fb](https://github.com/jejjohnson/gaussx/commit/e6633fb5dbf18ec135217338436b51d9e525a754))
+
 ## [0.0.16](https://github.com/jejjohnson/gaussx/compare/v0.0.15...v0.0.16) (2026-05-29)
 
 
