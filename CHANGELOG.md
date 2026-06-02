@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.16](https://github.com/jejjohnson/gaussx/compare/v0.0.15...v0.0.16) (2026-05-29)
+
+
+### Features
+
+* **gp:** add Matheron-rule posterior sample updates ([#180](https://github.com/jejjohnson/gaussx/issues/180)) ([2369222](https://github.com/jejjohnson/gaussx/commit/23692225df394e0f22683cb0008035d24a4e4717))
+* **kernels:** add EigenPro spectral preconditioning for kernel SGD ([#182](https://github.com/jejjohnson/gaussx/issues/182)) ([a66bab1](https://github.com/jejjohnson/gaussx/commit/a66bab1904d5cbb7dd5ef89cafcef9a9a3455896))
+* **linalg:** add structured sandwich covariance transform ([#177](https://github.com/jejjohnson/gaussx/issues/177)) ([25392b4](https://github.com/jejjohnson/gaussx/commit/25392b4f76ffc79fe0367f962c875fa37a0d4592))
+* **primitives:** add root and inverse-root decomposition primitives ([#181](https://github.com/jejjohnson/gaussx/issues/181)) ([c6809ce](https://github.com/jejjohnson/gaussx/commit/c6809ce2469ff4f2e72259520f93687e30ad14b9))
+* **ssm:** add opt-in Woodbury innovation covariance ([#178](https://github.com/jejjohnson/gaussx/issues/178)) ([0b745df](https://github.com/jejjohnson/gaussx/commit/0b745dff31600795de7a97d595507ba9c57f0ba2))
+* **ssm:** add square-root form for parallel Kalman filtering ([#179](https://github.com/jejjohnson/gaussx/issues/179)) ([3e7e1d4](https://github.com/jejjohnson/gaussx/commit/3e7e1d4153cd1fba540135348be2f7b4c436d595))
+
 ## [0.0.15](https://github.com/jejjohnson/gaussx/compare/v0.0.14...v0.0.15) (2026-05-12)
 
 
