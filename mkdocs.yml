@@ -45,6 +45,8 @@ nav:
   - Home: index.md
   - Vision: vision.md
   - Architecture: architecture.md
+  - Design:
+      - Unified Solvers: design/unified-solvers.md
   - Examples:
       - Basics: notebooks/basics.ipynb
       - Operator Zoo: notebooks/operator_zoo.ipynb

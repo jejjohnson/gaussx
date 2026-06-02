@@ -6,6 +6,7 @@ import jax
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
 
@@ -24,6 +25,8 @@ class CGSolver(AbstractSolverStrategy):
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
+        preconditioner: Optional preconditioner. When set, its approximate
+            inverse is passed to lineax CG to accelerate convergence.
     """
 
     rtol: float = 1e-5
@@ -31,6 +34,7 @@ class CGSolver(AbstractSolverStrategy):
     max_steps: int = 1000
     num_probes: int = 20
     lanczos_order: int = 30
+    preconditioner: AbstractPreconditioner | None = None
 
     def solve(
         self,
@@ -47,7 +51,12 @@ class CGSolver(AbstractSolverStrategy):
             Solution ``x``, shape ``(n,)``.
         """
         solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
-        return lx.linear_solve(operator, vector, solver).value
+        options: dict[str, lx.AbstractLinearOperator] = {}
+        if self.preconditioner is not None:
+            precond_op = self.preconditioner.as_operator(operator)
+            if precond_op is not None:
+                options["preconditioner"] = precond_op
+        return lx.linear_solve(operator, vector, solver, options=options).value
 
     def logdet(
         self,

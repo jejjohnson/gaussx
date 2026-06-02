@@ -21,6 +21,10 @@ from gaussx._linalg._mixed_precision import (
 )
 from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._linalg._schur import conditional_variance, schur_complement
+from gaussx._linalg._tridiagonal import (
+    solve_tridiagonal,
+    solve_tridiagonal_batched,
+)
 from gaussx._linalg._woodbury import woodbury_solve
 
 
@@ -38,6 +42,8 @@ __all__ = [
     "solve_columns",
     "solve_matrix",
     "solve_rows",
+    "solve_tridiagonal",
+    "solve_tridiagonal_batched",
     "stable_rbf_kernel",
     "stable_squared_distances",
     "trace_product",
