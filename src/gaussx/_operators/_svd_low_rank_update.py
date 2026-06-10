@@ -16,12 +16,12 @@ from gaussx._operators._low_rank_update import (
 class SVDLowRankUpdate(LowRankUpdate):
     """SVD-parameterized low-rank update ``L + U diag(S) Vᵀ``.
 
-    Like :class:`LowRankUpdate` but assumes orthonormality of *U* and
+    Like `LowRankUpdate` but assumes orthonormality of *U* and
     *V* for cheaper solves and log-determinants. Typical sources are
     truncated SVD (Nyström approximation) or ensemble methods.
 
     Inherits ``mv``, ``as_matrix``, ``rank``, ``in_structure``, and
-    ``out_structure`` from :class:`LowRankUpdate`. The singular values
+    ``out_structure`` from `LowRankUpdate`. The singular values
     are stored in the inherited ``d`` field.
 
     Args:

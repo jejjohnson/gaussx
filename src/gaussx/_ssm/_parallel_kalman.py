@@ -4,9 +4,9 @@ Implements the Särkkä-García-Fernández (IEEE TAC 2021) parallel
 formulation of the linear-Gaussian Kalman filter and Rauch-Tung-Striebel
 smoother. The forward (filtering) and backward (smoothing) recurrences
 are recast as inclusive associative scans of per-step elements, which
-:func:`jax.lax.associative_scan` evaluates with ``O(log T)`` depth on
+`jax.lax.associative_scan` evaluates with ``O(log T)`` depth on
 parallel hardware (GPU / TPU). On sequential hardware (CPU) the total
-work is strictly larger than :func:`gaussx.kalman_filter`'s ``O(T)``
+work is strictly larger than `gaussx.kalman_filter`'s ``O(T)``
 ``lax.scan``; the win is on accelerators with large ``T``.
 
 The default element math is the covariance-form combinators from §III.A /
@@ -181,13 +181,13 @@ def parallel_kalman_filter(
     woodbury_innovation: bool = False,
     form: str = "covariance",
 ) -> FilterState:
-    """Parallel Kalman filter via :func:`jax.lax.associative_scan`.
+    """Parallel Kalman filter via `jax.lax.associative_scan`.
 
-    Numerically equivalent to :func:`gaussx.kalman_filter` but with
+    Numerically equivalent to `gaussx.kalman_filter` but with
     ``O(log T)`` parallel depth on accelerators. Same generalised
     contract (TI / TV / operator-typed inputs, optional mask, scalar
     log-likelihood). Empty observation windows (``T == 0``) return a
-    zero-length :class:`FilterState` with ``log_likelihood == 0``.
+    zero-length `FilterState` with ``log_likelihood == 0``.
 
     Args:
         transition: State transition matrix or operator.
@@ -199,18 +199,18 @@ def parallel_kalman_filter(
         init_cov: Initial state covariance, shape ``(N, N)``.
         mask: Optional ``(T,)`` boolean mask; ``False`` runs predict-only
             and contributes 0 to the log-likelihood. Defaults to all-True.
-        solver: Accepted for API symmetry with :func:`kalman_filter` but
+        solver: Accepted for API symmetry with `kalman_filter` but
             not currently threaded through the per-element solves; the
             covariance-form combinator uses unstructured dense solves.
             The square-root form also uses dense solves for the affine
             terms.
         woodbury_innovation: When ``True``, delegates to
-            :func:`gaussx.kalman_filter` with the same flag so structured
+            `gaussx.kalman_filter` with the same flag so structured
             ``R`` uses the Woodbury innovation path.
         form: Either ``"covariance"`` (default) or ``"sqrt"``. The
             square-root form maintains lower-triangular covariance
             factors alongside the covariance updates and reconstructs
-            PSD covariance matrices in the returned :class:`FilterState`.
+            PSD covariance matrices in the returned `FilterState`.
             Note: the associative-scan equations themselves still use
             the covariance form internally; the factor path is a
             PSD-safety net for ill-conditioned float32 chains rather
@@ -220,7 +220,7 @@ def parallel_kalman_filter(
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
 
     Returns:
-        :class:`FilterState` with filtered / predicted means and covs
+        `FilterState` with filtered / predicted means and covs
         and the total log-likelihood.
     """
     if form == "sqrt":
@@ -367,14 +367,14 @@ def parallel_rts_smoother(
     solver: AbstractSolverStrategy | None = None,
     form: str = "covariance",
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
-    """Parallel RTS smoother via reverse :func:`jax.lax.associative_scan`.
+    """Parallel RTS smoother via reverse `jax.lax.associative_scan`.
 
-    Pairs with :func:`parallel_kalman_filter`. Numerically equivalent to
-    :func:`gaussx.rts_smoother` with ``O(log T)`` parallel depth.
+    Pairs with `parallel_kalman_filter`. Numerically equivalent to
+    `gaussx.rts_smoother` with ``O(log T)`` parallel depth.
 
     Args:
-        filter_state: Output of :func:`parallel_kalman_filter` or
-            :func:`gaussx.kalman_filter`.
+        filter_state: Output of `parallel_kalman_filter` or
+            `gaussx.kalman_filter`.
         transition: State transition matrix or operator.
         process_noise: Unused — kept for API symmetry with the sequential
             smoother.
@@ -383,7 +383,7 @@ def parallel_rts_smoother(
         form: Either ``"covariance"`` (default) or ``"sqrt"``. The
             square-root form maintains lower-triangular factors
             alongside the smoother associative scan and returns
-            PSD-reconstructed covariances (see :func:`parallel_kalman_filter`
+            PSD-reconstructed covariances (see `parallel_kalman_filter`
             for the same caveat about the internal combinator).
 
     Raises:

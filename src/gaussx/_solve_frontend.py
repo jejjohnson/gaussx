@@ -2,20 +2,20 @@
 
 This module provides two things:
 
-* :func:`as_linear_operator` -- a thin adapter that wraps a raw ``matvec``
-  callable (and an optional shape) into a :class:`lineax.AbstractLinearOperator`
+* `as_linear_operator` -- a thin adapter that wraps a raw ``matvec``
+  callable (and an optional shape) into a `lineax.AbstractLinearOperator`
   with the appropriate structural tags. This is the entry point used by
   matrix-free callers (e.g. finite-volume / spectral PDE solvers) that hand
   gaussx a bare ``v -> A @ v`` function rather than a built operator object.
 
-* :func:`linear_solve` -- a unified solve entry point that normalises its
+* `linear_solve` -- a unified solve entry point that normalises its
   operator argument (operator *or* ``(matvec, shape)``), handles the
   negative-definite sign convention used by elliptic operators, selects a
-  sensible default :class:`AbstractSolveStrategy`, and optionally applies a
+  sensible default `AbstractSolveStrategy`, and optionally applies a
   preconditioner.
 
 The design goal is that callers in other packages pre-transform their problem
-into an ``(operator, rhs)`` pair, call :func:`linear_solve`, and post-transform
+into an ``(operator, rhs)`` pair, call `linear_solve`, and post-transform
 the result -- without gaussx ever needing to know about grids, boundary
 conditions, or transforms.
 """
@@ -79,11 +79,11 @@ def as_linear_operator(
         positive_semidefinite: Tag the operator PSD (implies symmetric).
         negative_definite: Tag the operator negative semidefinite (implies
             symmetric). Use this for elliptic operators such as a discrete
-            Laplacian; :func:`linear_solve` will route the solve through the
+            Laplacian; `linear_solve` will route the solve through the
             equivalent positive-definite system.
 
     Returns:
-        A :class:`lineax.FunctionLinearOperator` carrying the requested tags.
+        A `lineax.FunctionLinearOperator` carrying the requested tags.
 
     Raises:
         ValueError: If neither ``shape`` nor ``in_structure`` is provided.
@@ -129,9 +129,9 @@ def linear_solve(
 
     Default solver selection (when ``solver is None``):
 
-    * positive semidefinite operator -> :class:`CGSolver`
-    * symmetric (possibly indefinite) operator -> :class:`MINRESSolver`
-    * otherwise -> a :class:`ValueError` asking for an explicit solver
+    * positive semidefinite operator -> `CGSolver`
+    * symmetric (possibly indefinite) operator -> `MINRESSolver`
+    * otherwise -> a `ValueError` asking for an explicit solver
 
     Args:
         operator: The linear operator ``A``, or a ``(matvec, shape)`` pair.
@@ -139,9 +139,9 @@ def linear_solve(
         solver: Solve strategy to use. When ``None`` a default is selected from
             the operator's structural tags.
         preconditioner: Optional preconditioner. May be an
-            :class:`AbstractPreconditioner`, a lineax operator applying
+            `AbstractPreconditioner`, a lineax operator applying
             ``M^{-1}``, or a callable ``v -> M^{-1} v``. Preconditioning is
-            currently applied through :class:`CGSolver`.
+            currently applied through `CGSolver`.
 
     Returns:
         The solution ``x``, shape ``(n,)``.
@@ -187,7 +187,7 @@ def _coerce_operator(
     """Normalise *operator* into a lineax operator.
 
     A bare ``(matvec, shape)`` pair is wrapped with no structural assumptions;
-    callers wanting tags should build the operator via :func:`as_linear_operator`
+    callers wanting tags should build the operator via `as_linear_operator`
     and pass it directly.
     """
     if isinstance(operator, lx.AbstractLinearOperator):
@@ -231,10 +231,10 @@ def _default_solver(operator: lx.AbstractLinearOperator) -> AbstractSolveStrateg
 def _as_preconditioner(
     preconditioner: PreconditionerLike,
 ) -> AbstractPreconditioner:
-    """Normalise *preconditioner* into an :class:`AbstractPreconditioner`.
+    """Normalise *preconditioner* into an `AbstractPreconditioner`.
 
     A raw lineax operator or callable applying ``M^{-1}`` is wrapped in an
-    :class:`OperatorPreconditioner`; an existing preconditioner is returned
+    `OperatorPreconditioner`; an existing preconditioner is returned
     unchanged.
     """
     if isinstance(preconditioner, AbstractPreconditioner):
@@ -255,8 +255,8 @@ def _attach_preconditioner(
 ) -> AbstractSolveStrategy:
     """Attach *preconditioner* to a CG-style solver.
 
-    Preconditioning is currently supported through :class:`CGSolver`. A bare
-    :class:`CGSolver` gains the preconditioner; any other strategy raises.
+    Preconditioning is currently supported through `CGSolver`. A bare
+    `CGSolver` gains the preconditioner; any other strategy raises.
     """
     if isinstance(solver, CGSolver):
         return dataclasses.replace(solver, preconditioner=preconditioner)

@@ -13,12 +13,12 @@ from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 class CosineSDE(SDEKernel):
     r"""State-space representation of the cosine kernel.
 
-    Models :math:`k(\tau) = \sigma^2 \cos(\omega_0 \tau)` via a 2-D
+    Models $k(\tau) = \sigma^2 \cos(\omega_0 \tau)$ via a 2-D
     rotation SDE. State dimension is 2.
 
     Attributes:
-        variance: Signal variance :math:`\sigma^2`.
-        frequency: Angular frequency :math:`\omega_0`.
+        variance: Signal variance $\sigma^2$.
+        frequency: Angular frequency $\omega_0$.
     """
 
     variance: Float[Array, ""]
@@ -58,9 +58,9 @@ class PeriodicSDE(SDEKernel):
     to ``n_harmonics`` terms. State dimension is ``2 * n_harmonics``.
 
     Attributes:
-        variance: Signal variance :math:`\sigma^2`.
-        lengthscale: Lengthscale :math:`\ell`.
-        period: Period :math:`T`.
+        variance: Signal variance $\sigma^2$.
+        lengthscale: Lengthscale $\ell$.
+        period: Period $T$.
         n_harmonics: Number of Fourier harmonics (truncation order).
     """
 

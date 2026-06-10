@@ -25,7 +25,7 @@ def safe_cholesky(
 ) -> Float[Array, "N N"]:
     """Cholesky decomposition with adaptive jitter for near-singular matrices.
 
-    The first attempt routes through :func:`gaussx._primitives.cholesky`, so
+    The first attempt routes through `gaussx._primitives.cholesky`, so
     structured operators (``DiagonalLinearOperator``, ``BlockDiag``,
     ``Kronecker``, ``BlockTriDiag``) keep their structure on the happy path.
     If the result contains NaNs (the matrix is not numerically

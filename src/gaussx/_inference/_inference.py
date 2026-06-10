@@ -22,11 +22,11 @@ def log_marginal_likelihood(
 ) -> Float[Array, ""]:
     """GP log marginal likelihood.
 
-    Computes::
+    Computes:
 
         log p(y) = -0.5 * (y-mu)^T K^{-1} (y-mu) - 0.5 * log|K| - N/2 * log(2pi)
 
-    Delegates to :func:`gaussx.gaussian_log_prob`.
+    Delegates to `gaussx.gaussian_log_prob`.
 
     Args:
         loc: Prior mean, shape ``(N,)``.
@@ -51,7 +51,7 @@ def gaussian_expected_log_lik(
 ) -> Float[Array, ""]:
     r"""Expected log-likelihood ``E_q[log N(y | f, R)]``.
 
-    Computes::
+    Computes:
 
         E_q[log N(y|f,R)] = log N(y | q_mu, R) - 0.5 * tr(R^{-1} q_cov)
 
@@ -92,7 +92,7 @@ def trace_correction(
 ) -> Float[Array, ""]:
     """Trace term in Titsias collapsed ELBO.
 
-    Computes::
+    Computes:
 
         tr(K_xx) - tr(K_xz^T K_zz^{-1} K_xz)
 
@@ -131,7 +131,7 @@ def cavity_distribution(
 ) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
     """Compute EP cavity distribution by removing a site.
 
-    Computes::
+    Computes:
 
         cav_prec = post_prec - power * site_nat2
         cav_cov  = inv(cav_prec)
@@ -165,7 +165,7 @@ def newton_update(
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
     """Convert a Newton step to natural pseudo-likelihood parameters.
 
-    Computes::
+    Computes:
 
         nat1 = jacobian - hessian @ mean
         nat2 = -hessian
@@ -192,7 +192,7 @@ def process_noise_covariance(
 ) -> Float[Array, "N N"]:
     """Compute process noise from stationary covariance.
 
-    Computes::
+    Computes:
 
         Q = Pinf - A @ Pinf @ A^T
 

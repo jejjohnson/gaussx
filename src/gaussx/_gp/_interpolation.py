@@ -25,13 +25,13 @@ def conditional_interpolate(
 ) -> tuple[Float[Array, " d"], Float[Array, "d d"]]:
     r"""Interpolated marginal at time ``t`` given posteriors at ``t^-`` and ``t^+``.
 
-    For an SDE-discretized state-space model::
+    For an SDE-discretized state-space model:
 
         x_t     | x_{t^-} \sim N(A_{fwd} x_{t^-}, Q_{fwd})
         x_{t^+} | x_t     \sim N(A_{bwd} x_t,     Q_{bwd})
 
     computes ``p(x_t | x_{t^-}, x_{t^+})`` using information fusion
-    of the forward and backward predictions::
+    of the forward and backward predictions:
 
         \Lambda_{fwd} = (A_{fwd} P_{prev} A_{fwd}^T + Q_{fwd})^{-1}
         \Lambda_{bwd} = A_{bwd}^T (P_{next} + Q_{bwd})^{-1} A_{bwd}

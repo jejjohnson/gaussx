@@ -41,7 +41,7 @@ def leave_one_out_cv(
     Computes leave-one-out predictive means, variances, and
     log-likelihood without refitting the model N times.
 
-    Math::
+    Math:
 
         alpha = K_y^{-1} y
         mu_LOO_i   = y_i - alpha_i / [K_y^{-1}]_{ii}
@@ -57,7 +57,7 @@ def leave_one_out_cv(
         solver: Optional solve strategy for computing K_y^{-1} y
             and for the ``diag_inv`` computation. When ``None``,
             falls back to structural dispatch.
-        diag_inv_method: Method passed to :func:`diag_inv`. Defaults to
+        diag_inv_method: Method passed to `diag_inv`. Defaults to
             ``"solve"`` so the LOO variances remain deterministic.
         diag_inv_num_probes: Number of Hutchinson probes when
             ``diag_inv_method="hutchinson"``.
@@ -65,7 +65,7 @@ def leave_one_out_cv(
             ``diag_inv_method="hutchinson"``.
 
     Returns:
-        A :class:`LOOResult` containing the LOO log-likelihood,
+        A `LOOResult` containing the LOO log-likelihood,
         predictive means, and predictive variances.
     """
     alpha = dispatch_solve(operator, y, solver)

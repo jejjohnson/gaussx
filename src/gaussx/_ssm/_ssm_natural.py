@@ -5,8 +5,8 @@ and natural/expectation parameterizations of the joint Gaussian, exploiting the
 block-tridiagonal sparsity of the precision matrix.
 
 For **general-purpose** (dense or operator-based) Gaussian parameterization
-conversions see :mod:`gaussx._expfam._natural`. For **per-site** (scalar/
-diagonal EP) conversions see :mod:`gaussx._ssm._site_natural`.
+conversions see `gaussx._expfam._natural`. For **per-site** (scalar/
+diagonal EP) conversions see `gaussx._ssm._site_natural`.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ def ssm_to_naturals(
 ) -> tuple[Float[Array, " Nd"], BlockTriDiag]:
     r"""Convert SSM parameters to natural parameters.
 
-    For a linear-Gaussian state-space model::
+    For a linear-Gaussian state-space model:
 
         x_0 \sim N(\mu_0, P_0)
         x_{k+1} = A_k x_k + \epsilon_k,\quad \epsilon_k \sim N(0, Q_{k+1})
@@ -41,7 +41,7 @@ def ssm_to_naturals(
     the joint prior ``p(x_0, \ldots, x_{N-1})`` has a block-tridiagonal
     precision matrix. This function returns its natural parameters
     ``(\theta_1, \theta_2)`` where ``\theta_2 = -\tfrac{1}{2}\Lambda``
-    (matching the convention in :func:`gaussx.mean_cov_to_natural`).
+    (matching the convention in `gaussx.mean_cov_to_natural`).
 
     Args:
         A: Transition matrices, shape ``(N-1, d, d)``.
@@ -56,7 +56,7 @@ def ssm_to_naturals(
     Returns:
         Tuple ``(theta_linear, theta_precision)`` where
         ``theta_linear`` has shape ``(N*d,)`` and
-        ``theta_precision`` is a :class:`~gaussx.BlockTriDiag`
+        ``theta_precision`` is a `BlockTriDiag`
         in the ``eta_2 = -0.5 * Lambda`` convention.
     """
     N = Q.shape[0]
@@ -132,7 +132,7 @@ def naturals_to_ssm(
     Args:
         theta_linear: Natural location parameter, shape ``(N*d,)``.
         theta_precision: Natural precision parameter as
-            :class:`~gaussx.BlockTriDiag` (eta2 convention).
+            `BlockTriDiag` (eta2 convention).
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch. This parameter
             is accepted for API consistency but is not currently used by the
@@ -209,7 +209,7 @@ def ssm_to_expectations(
     parameters ``(eta1, eta2)`` of the joint Gaussian where:
 
     - ``eta1 = E[x]`` (concatenated means)
-    - ``eta2`` is a :class:`~gaussx.BlockTriDiag` storing the
+    - ``eta2`` is a `BlockTriDiag` storing the
       block-tridiagonal subset of ``E[xx^T]`` (second moments matching
       the Gauss-Markov sparsity pattern, not the full dense matrix)
 
@@ -226,7 +226,7 @@ def ssm_to_expectations(
 
     Returns:
         Tuple ``(eta1, eta2)`` where ``eta1`` has shape ``(N*d,)``
-        and ``eta2`` is a :class:`~gaussx.BlockTriDiag`.
+        and ``eta2`` is a `BlockTriDiag`.
     """
     _N, _d = means.shape
 
@@ -260,7 +260,7 @@ def expectations_to_ssm(
 
     Args:
         eta1: Concatenated means, shape ``(N*d,)``.
-        eta2: Second-moment :class:`~gaussx.BlockTriDiag`.
+        eta2: Second-moment `BlockTriDiag`.
 
     Returns:
         Tuple ``(means, covs, cross_covs)`` where:

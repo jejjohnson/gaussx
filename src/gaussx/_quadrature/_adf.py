@@ -26,7 +26,7 @@ class AssumedDensityFilter(AbstractIntegrator):
     ``argmin_q KL(p(y) || q(y))`` within the Gaussian family.
 
     Adds adaptive regularization and optional diagnostics for detecting
-    non-Gaussianity::
+    non-Gaussianity:
 
         eps = eps_base * trace(Sigma_y) / n_dim
 

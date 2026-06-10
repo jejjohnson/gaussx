@@ -58,7 +58,7 @@ def root_decomposition(
         key: PRNG key for random-start methods.
 
     Returns:
-        A :class:`RootDecomposition` with root shape ``(N, k)``.
+        A `RootDecomposition` with root shape ``(N, k)``.
     """
     _n, rank = _validate_square_rank(operator, rank, method=method)
     if isinstance(operator, lx.DiagonalLinearOperator):
@@ -92,7 +92,7 @@ def root_inv_decomposition(
         key: PRNG key for random-start methods.
 
     Returns:
-        A :class:`RootDecomposition` with inverse-root shape ``(N, k)``.
+        A `RootDecomposition` with inverse-root shape ``(N, k)``.
     """
     n, rank = _validate_square_rank(operator, rank, method=method)
     if isinstance(operator, lx.DiagonalLinearOperator):

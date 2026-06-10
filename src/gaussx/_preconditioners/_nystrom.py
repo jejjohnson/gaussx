@@ -34,7 +34,7 @@ class NystromPreconditioner(AbstractPreconditioner):
        captured eigenvalue (so CG does not falsely converge in the
        preconditioned norm).
 
-    Construct via :meth:`from_operator`.
+    Construct via `from_operator`.
 
     Attributes:
         basis: Orthonormal basis ``W``, shape ``(n, k)``.
@@ -62,7 +62,7 @@ class NystromPreconditioner(AbstractPreconditioner):
                 ``jax.random.PRNGKey(0)``.
 
         Returns:
-            A ready-to-use :class:`NystromPreconditioner`.
+            A ready-to-use `NystromPreconditioner`.
         """
         if key is None:
             key = jax.random.PRNGKey(0)

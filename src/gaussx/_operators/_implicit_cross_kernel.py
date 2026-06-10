@@ -138,7 +138,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
     ``N x M`` kernel matrix, using a batched scan that keeps peak memory
     at ``O(batch\_size \times M)`` per step.
 
-    Forward matvec (``mv``)::
+    Forward matvec (``mv``):
 
         y_i = \sum_j k(x_i, z_j) \cdot v_j
 
@@ -302,7 +302,7 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
 
 
 class _TransposedCrossKernelOperator(lx.AbstractLinearOperator):
-    """Adjoint of :class:`ImplicitCrossKernelOperator`.
+    """Adjoint of `ImplicitCrossKernelOperator`.
 
     Computes ``K^T u`` by scanning over batches of ``X_data`` and
     accumulating ``K_batch^T @ u_batch`` into an ``(M,)`` vector.
@@ -438,7 +438,7 @@ def implicit_cross_kernel(
 ) -> ImplicitCrossKernelOperator:
     """Create a matrix-free rectangular cross-kernel operator.
 
-    Convenience wrapper around :class:`ImplicitCrossKernelOperator`.
+    Convenience wrapper around `ImplicitCrossKernelOperator`.
 
     Args:
         kernel_fn: Kernel function ``k(x, z) -> scalar`` or

@@ -16,8 +16,8 @@ class MaternSDE(SDEKernel):
     The state dimension is ``order + 1``.
 
     Attributes:
-        variance: Signal variance :math:`\sigma^2`.
-        lengthscale: Lengthscale :math:`\ell`.
+        variance: Signal variance $\sigma^2$.
+        lengthscale: Lengthscale $\ell$.
         order: Matern order (0, 1, or 2).
     """
 

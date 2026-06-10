@@ -20,7 +20,7 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
 
     Attributes:
         rank: Rank of the partial Cholesky. ``<= 0`` disables preconditioning
-            (:meth:`as_operator` returns ``None``).
+            (`as_operator` returns ``None``).
         shift: Diagonal shift ``s`` for the preconditioner, typically the noise
             variance ``sigma^2``.
     """

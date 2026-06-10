@@ -15,7 +15,7 @@ def svgp_variance_adjustment(
     r"""Compute the SVGP variance adjustment operator.
 
     Builds the operator ``Q = K_{zz}^{-1} S_u K_{zz}^{-1} - K_{zz}^{-1}``
-    which appears in every sparse GP predictive variance computation::
+    which appears in every sparse GP predictive variance computation:
 
         Var[f_*] = k_{**} - k_{*z} (K_{zz}^{-1} - Q) k_{z*}
 

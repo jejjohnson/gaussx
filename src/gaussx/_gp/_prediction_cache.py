@@ -40,10 +40,10 @@ def build_prediction_cache(
         operator: Training covariance operator ``K_y``, shape ``(N, N)``.
         y: Training targets, shape ``(N,)``.
         solver: Optional solve strategy. When ``None``, falls back
-            to structural-dispatch :func:`gaussx.solve`.
+            to structural-dispatch `gaussx.solve`.
 
     Returns:
-        A :class:`PredictionCache` holding the solved weights.
+        A `PredictionCache` holding the solved weights.
     """
     alpha = dispatch_solve(operator, y, solver)
     return PredictionCache(alpha=alpha)
@@ -56,7 +56,7 @@ def predict_mean(
     """Predictive mean: ``mu* = K_*f @ alpha``.
 
     Args:
-        cache: Prediction cache from :func:`build_prediction_cache`.
+        cache: Prediction cache from `build_prediction_cache`.
         K_cross: Cross-covariance matrix, shape ``(Nt, N)``.
 
     Returns:
@@ -82,7 +82,7 @@ def predict_variance(
         K_test_diag: Prior variance at test points, shape ``(Nt,)``.
         operator: Training covariance operator ``K_y``, shape ``(N, N)``.
         solver: Optional solve strategy. When ``None``, falls back
-            to structural-dispatch :func:`gaussx.solve`.
+            to structural-dispatch `gaussx.solve`.
 
     Returns:
         Predictive variance, shape ``(Nt,)``.

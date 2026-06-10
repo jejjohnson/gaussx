@@ -23,7 +23,7 @@ def kernel_expectations(
 ) -> tuple[Float[Array, ""], Float[Array, " N_train"], Float[Array, "N_train N_train"]]:
     r"""Compute kernel expectations Psi_0, Psi_1, Psi_2 for uncertain inputs.
 
-    These are the core quantities for GP inference with uncertain inputs::
+    These are the core quantities for GP inference with uncertain inputs:
 
         Psi_0 = E[k(x, x)]                      scalar
         Psi_1_i = E[k(x, x_i)]                  (N_train,)
@@ -80,7 +80,7 @@ def uncertain_gp_predict(
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     r"""Predictive mean and variance for GP with uncertain inputs.
 
-    Uses kernel expectations::
+    Uses kernel expectations:
 
         mu_pred = Psi_1 @ alpha
         var_pred = Psi_0 - tr(K_inv @ Psi_2) + alpha^T @ Psi_2 @ alpha - mu_pred^2
@@ -122,16 +122,16 @@ def uncertain_svgp_predict(
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     r"""Predictive mean and variance for SVGP with uncertain inputs.
 
-    Uses kernel expectations with inducing points::
+    Uses kernel expectations with inducing points:
 
         mu_pred = Psi_1 @ alpha
         var_pred = Psi_0 + tr(Q @ Psi_2) + alpha^T @ Psi_2 @ alpha - mu_pred^2
 
     where ``Q = K_{zz}^{-1} S K_{zz}^{-1} - K_{zz}^{-1}`` is the variance
-    adjustment operator (see :func:`gaussx.svgp_variance_adjustment`).
+    adjustment operator (see `gaussx.svgp_variance_adjustment`).
     The exact uncertain GP trace correction is recovered by setting
     ``Q = -K_{zz}^{-1}``; if ``Z`` equals the training inputs, this matches
-    :func:`gaussx.uncertain_gp_predict`.
+    `gaussx.uncertain_gp_predict`.
 
     Args:
         kernel_fn: Kernel function ``k(x, x') -> scalar``.
@@ -171,7 +171,7 @@ def uncertain_vgp_predict(
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     r"""Predictive mean and variance for dense VGP with uncertain inputs.
 
-    Uses kernel expectations with training points::
+    Uses kernel expectations with training points:
 
         mu_pred = Psi_1 @ alpha
         var_pred = Psi_0 + tr(Q @ Psi_2) + alpha^T @ Psi_2 @ alpha - mu_pred^2
@@ -219,15 +219,15 @@ def uncertain_bgplvm_predict(
     r"""Multi-output uncertain GP prediction for BGPLVM.
 
     Maps a latent variable ``z ~ N(mu, Sigma)`` to high-dimensional
-    reconstruction ``y`` using per-output GP weights::
+    reconstruction ``y`` using per-output GP weights:
 
         mu_pred_d = Psi_1 @ alpha_d
         var_pred_d = Psi_0 - tr(K_inv @ Psi_2)
                    + alpha_d^T @ Psi_2 @ alpha_d - mu_pred_d^2
 
     This intentionally uses the exact GP trace term for every output dimension.
-    Unlike :func:`gaussx.uncertain_vgp_predict` and
-    :func:`gaussx.uncertain_svgp_predict`, there is no separate variational
+    Unlike `gaussx.uncertain_vgp_predict` and
+    `gaussx.uncertain_svgp_predict`, there is no separate variational
     covariance correction operator.
 
     Args:
@@ -271,7 +271,7 @@ def uncertain_gp_predict_mc(
     r"""Monte Carlo GP prediction with uncertain inputs.
 
     Alternative to analytic kernel expectations when Psi integrals are
-    intractable. Uses law of total variance::
+    intractable. Uses law of total variance:
 
         mu = mean(particle_means)
         var = var(particle_means) + mean(particle_vars)

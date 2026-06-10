@@ -20,14 +20,14 @@ class ComposedSolver(AbstractSolverStrategy):
     log-determinant estimator, or an iterative CG solve with a
     closed-form Kronecker log-determinant.
 
-    Accepts either fine-grained protocols (:class:`AbstractSolveStrategy`,
-    :class:`AbstractLogdetStrategy`) or full solver strategies.
+    Accepts either fine-grained protocols (`AbstractSolveStrategy`,
+    `AbstractLogdetStrategy`) or full solver strategies.
 
     Attributes:
         solve_strategy: Strategy whose ``.solve()`` method will be used.
         logdet_strategy: Strategy whose ``.logdet()`` method will be used.
 
-    Example::
+    Examples:
 
         solver = ComposedSolver(
             solve_strategy=DenseSolver(),

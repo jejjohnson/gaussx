@@ -18,7 +18,7 @@ class JacobiPreconditioner(AbstractPreconditioner):
 
     Attributes:
         diagonal: The diagonal of ``A``. When ``None``, it is extracted from the
-            operator passed to :meth:`as_operator` via :func:`gaussx.diag`.
+            operator passed to `as_operator` via `gaussx.diag`.
     """
 
     diagonal: Float[Array, " n"] | None = None

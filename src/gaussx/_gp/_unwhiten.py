@@ -30,7 +30,7 @@ def unwhiten_covariance(
 ) -> lx.MatrixLinearOperator:
     """Unwhiten variational covariance: S = L S̃ Lᵀ.
 
-    Delegates to :func:`~gaussx.cov_transform`.
+    Delegates to `cov_transform`.
 
     Args:
         L: Cholesky factor, shape ``(M, M)``.

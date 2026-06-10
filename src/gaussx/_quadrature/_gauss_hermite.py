@@ -18,7 +18,7 @@ class GaussHermiteIntegrator(AbstractIntegrator):
     r"""Gauss-Hermite quadrature integrator.
 
     Approximates Gaussian expectations using tensor-product Gauss-Hermite
-    quadrature::
+    quadrature:
 
         E[g(f)] \approx \sum_i w_i \cdot g(\mu + L z_i)
 

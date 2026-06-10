@@ -15,7 +15,7 @@ def solve_tridiagonal(
 ) -> Float[Array, " n"]:
     """Solve a tridiagonal system ``A x = d``.
 
-    Thin wrapper over :class:`lineax.TridiagonalLinearOperator`, which delegates
+    Thin wrapper over `lineax.TridiagonalLinearOperator`, which delegates
     to ``jax.lax.linalg.tridiagonal_solve`` (LAPACK / cuSPARSE).
 
     Args:
@@ -39,7 +39,7 @@ def solve_tridiagonal_batched(
 ) -> Float[Array, "*batch n"]:
     """Solve independent tridiagonal systems over leading batch dimensions.
 
-    Applies :func:`solve_tridiagonal` vmapped over all leading dimensions.
+    Applies `solve_tridiagonal` vmapped over all leading dimensions.
 
     Args:
         lower: Sub-diagonals, shape ``(*batch, n - 1)``.

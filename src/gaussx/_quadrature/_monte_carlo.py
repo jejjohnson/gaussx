@@ -21,7 +21,7 @@ class MonteCarloIntegrator(AbstractIntegrator):
 
     Propagates uncertainty by drawing samples from the input Gaussian,
     evaluating the function at each sample, and computing empirical
-    output moments::
+    output moments:
 
         x_i ~ N(mu, Sigma)       (n_samples points)
         y_i = f(x_i)

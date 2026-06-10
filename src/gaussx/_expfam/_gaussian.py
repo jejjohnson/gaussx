@@ -18,9 +18,9 @@ from gaussx._primitives._solve import solve
 class GaussianExpFam(eqx.Module):
     r"""Gaussian in natural (exponential family) parameters.
 
-    .. math::
-
-        q(x \mid \eta) = h(x) \exp(\eta^T T(x) - A(\eta))
+    $$
+    q(x \mid \eta) = h(x) \exp(\eta^T T(x) - A(\eta))
+    $$
 
     where:
 
@@ -107,10 +107,10 @@ def to_natural(
 def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:
     r"""Log-partition function ``A(eta)``.
 
-    .. math::
-
-        A(\eta) = -\frac{1}{4} \eta_1^T \eta_2^{-1} \eta_1
-                  - \frac{1}{2} \log|-2\eta_2|
+    $$
+    A(\eta) = -\frac{1}{4} \eta_1^T \eta_2^{-1} \eta_1
+              - \frac{1}{2} \log|-2\eta_2|
+    $$
 
     Args:
         expfam: Gaussian in natural form.
@@ -180,20 +180,20 @@ def kl_divergence(
     Exponential-family expression of the KL divergence in terms of the
     log-partition ``A`` and the natural parameters of ``q`` and ``p``.
     Mathematically equivalent to
-    :func:`~gaussx._distributions._kl.dist_kl_divergence`.
+    `dist_kl_divergence`.
 
     The current implementation evaluates the Bregman form by routing
-    through :func:`to_expectation` for the natural-gradient term
+    through `to_expectation` for the natural-gradient term
     ``(eta_p - eta_q)^T nabla A(eta_q)``. The second-moment contraction
     splits into a quadratic form (operator matvecs) plus
-    :func:`gaussx.trace_product`, so structured ``eta2`` / ``Sigma_q``
+    `gaussx.trace_product`, so structured ``eta2`` / ``Sigma_q``
     operators are never materialized. The benefit relative to
-    :func:`dist_kl_divergence` is keeping the gradient flowing in
+    `dist_kl_divergence` is keeping the gradient flowing in
     natural-parameter space (suitable inside a natural-gradient loop).
 
-    .. math::
-
-        KL(q || p) = A(eta_p) - A(eta_q) - (eta_p - eta_q)^T nabla A(eta_q)
+    $$
+    KL(q || p) = A(eta_p) - A(eta_q) - (eta_p - eta_q)^T nabla A(eta_q)
+    $$
 
     Args:
         q: First Gaussian (the "true" distribution).
@@ -203,7 +203,7 @@ def kl_divergence(
         Scalar KL divergence.
 
     See Also:
-        :func:`~gaussx._distributions._kl.dist_kl_divergence`: General KL
+        `dist_kl_divergence`: General KL
         in mean/covariance form with lineax operators.
     """
     A_p = log_partition(p)

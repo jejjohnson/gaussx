@@ -41,7 +41,7 @@ def _factor_from_psd(X: Float[Array, "... N N"]) -> Float[Array, "... N N"]:
     """Build a lower-triangular PSD square root for a symmetric covariance.
 
     Symmetrises ``X``, clamps eigenvalues to ``[0, ∞)``, and reduces the
-    resulting square root through :func:`tria`. Returns a
+    resulting square root through `tria`. Returns a
     lower-triangular ``L`` with ``L @ L.T ≈ X`` (PSD-projected).
     """
     X = _sym(X)

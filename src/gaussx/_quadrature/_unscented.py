@@ -18,7 +18,7 @@ class UnscentedIntegrator(AbstractIntegrator):
     r"""Unscented transform: deterministic sigma points.
 
     Generates ``2N+1`` sigma points around the mean, propagates them
-    through the nonlinear function, and reconstructs output moments::
+    through the nonlinear function, and reconstructs output moments:
 
         chi_i = mu + sqrt((N + lambda) * Sigma) @ xi_i
         y_i = f(chi_i)

@@ -55,7 +55,7 @@ def kalman_filter(
     r"""Kalman filter forward pass via ``jax.lax.scan``.
 
     Implements the predict-update cycle for a (possibly time-varying)
-    linear-Gaussian state-space model::
+    linear-Gaussian state-space model:
 
         x_t = A_t @ x_{t-1} + q_t,   q_t ~ N(0, Q_t)
         y_t = H_t @ x_t + r_t,        r_t ~ N(0, R_t)
@@ -63,7 +63,7 @@ def kalman_filter(
     **Time-invariant inputs** (single ``(N, N)`` / ``(M, N)`` etc.) are
     automatically broadcast along the time axis. **Time-varying inputs**
     are passed as ``(T, …)`` stacks (e.g. from
-    :meth:`~gaussx.SDEKernel.discretise_sequence`).
+    `discretise_sequence`).
 
     **Operator inputs** (lineax ``BlockDiag`` / ``Kronecker`` /
     ``DiagonalLinearOperator`` / ``MaskedOperator`` / etc.) are accepted
@@ -76,7 +76,7 @@ def kalman_filter(
 
     Args:
         transition: State transition matrix ``A``. Shape ``(N, N)``,
-            ``(T, N, N)``, or :class:`lineax.AbstractLinearOperator`.
+            ``(T, N, N)``, or `lineax.AbstractLinearOperator`.
         obs_model: Observation matrix ``H``. Shape ``(M, N)``,
             ``(T, M, N)``, or operator.
         process_noise: Process noise covariance ``Q``. Shape ``(N, N)``,
@@ -95,7 +95,7 @@ def kalman_filter(
             structural dispatch.
         woodbury_innovation: When ``True``, build the innovation
             covariance ``S = H P Hᵀ + R`` as a
-            :class:`gaussx.LowRankUpdate` so structured ``R`` can use
+            `gaussx.LowRankUpdate` so structured ``R`` can use
             Woodbury solves/log-determinants. Defaults to ``False`` to
             preserve the dense innovation path.
 
@@ -221,17 +221,17 @@ def rts_smoother(
     """Rauch-Tung-Striebel backward smoother.
 
     Accepts the same time-invariant / time-varying / operator forms for
-    ``transition`` and ``process_noise`` as :func:`kalman_filter`. When
+    ``transition`` and ``process_noise`` as `kalman_filter`. When
     a step was masked off in the filter (``mask[t] == 0``), the
     smoother formula degenerates harmlessly because filtered ==
     predicted at that step.
 
     Args:
-        filter_state: Output of :func:`kalman_filter`.
+        filter_state: Output of `kalman_filter`.
         transition: State transition matrix or operator.
         process_noise: Process noise covariance or operator. (Not
             currently used by the standard RTS recurrence — kept for
-            API symmetry with :func:`kalman_filter`.)
+            API symmetry with `kalman_filter`.)
         solver: Optional solver strategy.
 
     Returns:
@@ -316,7 +316,7 @@ def kalman_gain(
         solver: Optional solver strategy. When ``None``, uses
             structural dispatch.
         woodbury_innovation: When ``True``, route the innovation
-            covariance through :class:`gaussx.LowRankUpdate`.
+            covariance through `gaussx.LowRankUpdate`.
 
     Returns:
         Kalman gain matrix of shape ``(N, M)``.

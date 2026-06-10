@@ -24,21 +24,21 @@ def dist_kl_divergence(
     The specialised variants below all compute the same quantity but with
     different parameterisations suited to their use cases:
 
-    - :func:`~gaussx._distributions._gaussian.kl_standard_normal` —
+    - `kl_standard_normal` —
       special case ``KL(N(m, S) || N(0, I))``; avoids matrix inversion.
-    - :func:`~gaussx._gp._gauss_kl.gauss_kl` — Cholesky-parameterised form
+    - `gauss_kl` — Cholesky-parameterised form
       for GP/SVGP models; supports multi-output and diagonal ``q_sqrt``.
-    - :func:`~gaussx._expfam._gaussian.kl_divergence` — Bregman-divergence
+    - `kl_divergence` — Bregman-divergence
       form operating on natural parameters for the exponential family.
 
-    .. math::
-
-        KL(p \| q) = \frac{1}{2}\bigl(
-            \operatorname{tr}(\Sigma_q^{-1} \Sigma_p)
-            + (\mu_q - \mu_p)^T \Sigma_q^{-1} (\mu_q - \mu_p)
-            - N
-            + \log|\Sigma_q| - \log|\Sigma_p|
-        \bigr)
+    $$
+    KL(p \| q) = \frac{1}{2}\bigl(
+        \operatorname{tr}(\Sigma_q^{-1} \Sigma_p)
+        + (\mu_q - \mu_p)^T \Sigma_q^{-1} (\mu_q - \mu_p)
+        - N
+        + \log|\Sigma_q| - \log|\Sigma_p|
+    \bigr)
+    $$
 
     Exploits structured operators for the trace and logdet terms.
 

@@ -50,7 +50,7 @@ class SLQLogdet(AbstractLogdetStrategy):
         num_probes: Number of probe vectors for Hutchinson estimator.
         lanczos_order: Order of the Lanczos decomposition.
         seed: Seed for probe vector generation (used when no
-            ``key`` is passed to :meth:`logdet`).
+            ``key`` is passed to `logdet`).
         sampler: Probe distribution (``"signs"``, ``"normal"``,
             ``"sphere"``).
     """
@@ -118,7 +118,7 @@ class SLQLogdet(AbstractLogdetStrategy):
 class IndefiniteSLQLogdet(AbstractLogdetStrategy):
     """Stochastic ``log|det(A)|`` for symmetric (possibly indefinite) operators.
 
-    Like :class:`SLQLogdet` but uses ``log(|lambda|)`` as the matrix
+    Like `SLQLogdet` but uses ``log(|lambda|)`` as the matrix
     function, so it works on indefinite and negative-definite matrices.
     Supports a diagonal shift ``(A + shift * I)``.
 
@@ -201,7 +201,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
 class DenseLogdet(AbstractLogdetStrategy):
     """Dense log-determinant via gaussx structural dispatch.
 
-    Delegates to :func:`gaussx.logdet` which automatically selects
+    Delegates to `gaussx.logdet` which automatically selects
     the best algorithm based on operator structure (Diagonal,
     BlockDiag, Kronecker, LowRankUpdate, or dense fallback).
     """

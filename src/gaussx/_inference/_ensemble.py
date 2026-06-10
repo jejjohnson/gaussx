@@ -34,7 +34,7 @@ def ensemble_covariance(
         bessel: If True, apply the ``1 / (J - 1)`` Bessel correction
             used throughout the ensemble Kalman filter literature. This
             lower-level helper defaults to False for backwards compatibility;
-            :func:`ensemble_kalman_gain` defaults to True for the EnKF
+            `ensemble_kalman_gain` defaults to True for the EnKF
             convention.
 
     Returns:
@@ -70,7 +70,7 @@ def ensemble_cross_covariance(
         particles_G: Second ensemble, shape ``(J, M)``.
         bessel: If True, apply the ``1 / (J - 1)`` Bessel correction
             used by ensemble Kalman filter recipes. This lower-level helper
-            defaults to False for backwards compatibility; :func:`ensemble_kalman_gain`
+            defaults to False for backwards compatibility; `ensemble_kalman_gain`
             defaults to True for the EnKF convention.
 
     Returns:
@@ -148,20 +148,22 @@ def gaspari_cohn(r: Float[Array, "*shape"], c: float) -> Float[Array, "*shape"]:
     The standard positive-definite, approximately-Gaussian localization
     function. With ``z = 2 |r| / c`` it is the piecewise-rational
 
-    .. math::
-
-        \rho = \begin{cases}
-          -\tfrac14 z^5 + \tfrac12 z^4 + \tfrac58 z^3 - \tfrac53 z^2 + 1
-            & 0 \le z \le 1 \\
-          \tfrac1{12} z^5 - \tfrac12 z^4 + \tfrac58 z^3 + \tfrac53 z^2
-            - 5 z + 4 - \tfrac{2}{3 z}
-            & 1 < z \le 2 \\
-          0 & z > 2.
-        \end{cases}
+    $$
+    \begin{aligned}
+    \rho = \begin{cases}
+      -\tfrac14 z^5 + \tfrac12 z^4 + \tfrac58 z^3 - \tfrac53 z^2 + 1
+        & 0 \le z \le 1 \\
+      \tfrac1{12} z^5 - \tfrac12 z^4 + \tfrac58 z^3 + \tfrac53 z^2
+        - 5 z + 4 - \tfrac{2}{3 z}
+        & 1 < z \le 2 \\
+      0 & z > 2.
+    \end{cases}
+    \end{aligned}
+    $$
 
     so ``rho(0) = 1`` and ``rho = 0`` for ``|r| >= c`` (``c`` is the
     compact-support radius, **not** a Gaussian length scale). The taper is
-    only :math:`C^1` at the knots ``z = 1, 2``.
+    only $C^1$ at the knots ``z = 1, 2``.
 
     Differentiability: the ``2 / (3 z)`` term in the middle branch is guarded
     with a safe denominator so reverse-mode gradients are finite at ``r = 0``
@@ -198,8 +200,8 @@ def euclidean_distance(
 ) -> Float[Array, "Na Nb"]:
     """Pairwise Euclidean distances ``||a_i - b_j||``.
 
-    A default ``metric`` for :func:`localization_matrix`. Builds on
-    :func:`stable_squared_distances` and takes a gradient-safe square root so
+    A default ``metric`` for `localization_matrix`. Builds on
+    `stable_squared_distances` and takes a gradient-safe square root so
     zero distances (e.g. the diagonal of a self-distance matrix) do not produce
     ``NaN`` gradients.
 
@@ -227,7 +229,7 @@ def haversine_distance(
 ) -> Float[Array, "Na Nb"]:
     """Pairwise great-circle (haversine) distances on a sphere.
 
-    A ``metric`` for :func:`localization_matrix` on geophysical grids.
+    A ``metric`` for `localization_matrix` on geophysical grids.
     Coordinates are ``(latitude, longitude)`` in **radians**.
 
     Args:
@@ -263,15 +265,15 @@ def localization_matrix(
     """Pairwise Gaspari-Cohn taper ``rho(dist(a_i, b_j); c)``.
 
     Use this to build the ``rho_xy`` (state-obs) and ``rho_yy`` (obs-obs)
-    localization matrices consumed by :func:`localized_kalman_gain`.
+    localization matrices consumed by `localized_kalman_gain`.
 
     Args:
         coords_a: First set of points, shape ``(Na, D)``.
         coords_b: Second set of points, shape ``(Nb, D)``.
         c: Gaspari-Cohn compact-support radius.
         metric: Pairwise distance function returning an ``(Na, Nb)`` matrix.
-            Defaults to :func:`euclidean_distance`; pass
-            :func:`haversine_distance` for spherical coordinates.
+            Defaults to `euclidean_distance`; pass
+            `haversine_distance` for spherical coordinates.
 
     Returns:
         Localization matrix of shape ``(Na, Nb)`` with entries in ``[0, 1]``.
@@ -293,9 +295,9 @@ def localized_kalman_gain(
 
     Computes
 
-    .. math::
-
-        K = (\rho_{xy} \circ P_{xy})\,(\rho_{yy} \circ P_{yy} + R)^{-1},
+    $$
+    K = (\rho_{xy} \circ P_{xy})\,(\rho_{yy} \circ P_{yy} + R)^{-1},
+    $$
 
     where ``P_xy`` is the state-observation cross-covariance and ``P_yy`` the
     observation-space ensemble covariance. Tapering kills spurious long-range
@@ -303,7 +305,7 @@ def localized_kalman_gain(
     product theorem keeps ``rho_yy . P_yy`` PSD, so the innovation covariance
     stays invertible.
 
-    This is the localized counterpart of :func:`ensemble_kalman_gain`. Unlike
+    This is the localized counterpart of `ensemble_kalman_gain`. Unlike
     that routine, the Hadamard product destroys the low-rank structure, so the
     innovation covariance is materialized densely and the solve is
     ``O(N M + M^3)``. Recover the unlocalized gain as the ``c -> inf`` limit
@@ -437,18 +439,18 @@ def etkf_transform(
     With raw observation perturbations ``Y = H X'^f`` (columns are members) and
     ``d = y - H x_bar^f``,
 
-    .. math::
-
-        \tilde{A}^{-1} = \tfrac{J-1}{\lambda} I + Y^T R^{-1} Y, \qquad
-        \bar{w} = \tilde{A}\, Y^T R^{-1} d, \qquad
-        W = \big((J-1)\,\tilde{A}\big)^{1/2},
+    $$
+    \tilde{A}^{-1} = \tfrac{J-1}{\lambda} I + Y^T R^{-1} Y, \qquad
+    \bar{w} = \tilde{A}\, Y^T R^{-1} d, \qquad
+    W = \big((J-1)\,\tilde{A}\big)^{1/2},
+    $$
 
     where ``lambda`` is the (multiplicative) ``inflation`` and ``W`` is the
     **symmetric** square root. The analysis ensemble is reconstructed as
 
-    .. math::
-
-        \bar{x}^a = \bar{x}^f + X'^f \bar{w}, \qquad X'^a = X'^f\, W.
+    $$
+    \bar{x}^a = \bar{x}^f + X'^f \bar{w}, \qquad X'^a = X'^f\, W.
+    $$
 
     The symmetric (eigendecomposition) square root -- not a Cholesky factor --
     is required: because the observation perturbations are zero-mean, ``1`` is

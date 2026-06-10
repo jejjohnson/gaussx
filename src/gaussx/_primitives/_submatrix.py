@@ -24,10 +24,10 @@ def submatrix(
 
     Currently dispatches on:
 
-    - :class:`lineax.DiagonalLinearOperator`
-    - :class:`lineax.TaggedLinearOperator` (delegates to the wrapped operator)
-    - :class:`gaussx.BlockDiag`
-    - :class:`gaussx.Kronecker`
+    - `lineax.DiagonalLinearOperator`
+    - `lineax.TaggedLinearOperator` (delegates to the wrapped operator)
+    - `gaussx.BlockDiag`
+    - `gaussx.Kronecker`
 
     Falls back to ``operator.as_matrix()[ix_(row_idx, col_idx)]`` for
     other operators.

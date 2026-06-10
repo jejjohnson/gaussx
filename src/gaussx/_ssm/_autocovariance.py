@@ -16,7 +16,7 @@ def sde_autocovariance(
 ) -> Float[Array, " *batch"]:
     r"""Compute the stationary autocovariance of an SDE kernel.
 
-    Evaluates::
+    Evaluates:
 
         K(\tau) = H \, \exp(F |\tau|) \, P_\infty \, H^T
 

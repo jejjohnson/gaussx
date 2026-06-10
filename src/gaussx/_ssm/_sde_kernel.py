@@ -16,7 +16,7 @@ from gaussx._linalg._symmetrize import symmetrize
 class SDEParams(NamedTuple):
     """Continuous-time SDE parameters for a stationary kernel.
 
-    Defines the linear time-invariant SDE::
+    Defines the linear time-invariant SDE:
 
         dx = F x dt + L dW,   W ~ N(0, Q_c dt)
 
@@ -40,8 +40,8 @@ class SDEParams(NamedTuple):
 class SDEKernel(eqx.Module):
     """Abstract base class for state-space kernel representations.
 
-    Subclasses implement :meth:`sde_params` to provide the continuous-time
-    SDE matrices ``(F, L, H, Q_c, P_inf)``. The default :meth:`discretise`
+    Subclasses implement `sde_params` to provide the continuous-time
+    SDE matrices ``(F, L, H, Q_c, P_inf)``. The default `discretise`
     uses the matrix exponential for discretization; subclasses may override
     with closed-form solutions.
     """
@@ -63,7 +63,7 @@ class SDEKernel(eqx.Module):
     ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
         """Discretise the SDE at time step ``dt``.
 
-        Default implementation computes::
+        Default implementation computes:
 
             A = expm(F * dt)
             Q = P_inf - A @ P_inf @ A^T

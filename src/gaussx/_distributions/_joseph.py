@@ -14,7 +14,7 @@ def joseph_update(
 ) -> Float[Array, "N N"]:
     r"""Numerically stable Joseph-form covariance update.
 
-    Computes the updated covariance after a Kalman measurement update::
+    Computes the updated covariance after a Kalman measurement update:
 
         P_update = (I - K H) P_pred (I - K H)^T + K R K^T
 

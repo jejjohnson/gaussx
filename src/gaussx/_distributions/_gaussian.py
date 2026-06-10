@@ -61,7 +61,7 @@ def gaussian_log_prob(
 ) -> Float[Array, ""]:
     """Multivariate normal log-probability.
 
-    Computes::
+    Computes:
 
         log N(value | loc, Sigma)
         = -0.5 * (N log(2 pi) + log|Sigma| + (value - loc)^T Sigma^{-1} (value - loc))
@@ -89,7 +89,7 @@ def gaussian_entropy(
 ) -> Float[Array, ""]:
     """Entropy of a multivariate normal ``N(mu, Sigma)``.
 
-    Computes::
+    Computes:
 
         H = 0.5 * (N * (1 + log(2 pi)) + log|Sigma|)
 
@@ -116,12 +116,12 @@ def kl_standard_normal(
 ) -> Float[Array, ""]:
     """KL divergence ``KL(N(m, S) || N(0, I))``.
 
-    Special case of :func:`~gaussx._distributions._kl.dist_kl_divergence`
+    Special case of `dist_kl_divergence`
     with ``q_loc = 0`` and ``q_cov = I``.  The identity prior means no
     matrix inversion is required, making this more efficient than calling
     the general form directly.
 
-    Computes::
+    Computes:
 
         KL = 0.5 * (tr(S) + m^T m - N - log|S|)
 
@@ -137,7 +137,7 @@ def kl_standard_normal(
         Scalar KL divergence.
 
     See Also:
-        :func:`~gaussx._distributions._kl.dist_kl_divergence`: General KL
+        `dist_kl_divergence`: General KL
         between two multivariate normals with arbitrary lineax covariance
         operators.
     """

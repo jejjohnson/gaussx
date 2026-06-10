@@ -38,7 +38,7 @@ class MultivariateNormalPrecision(dist.Distribution):
             to ``AutoSolver()``.
         validate_args: Whether to validate input arguments.
 
-    Example::
+    Examples:
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx

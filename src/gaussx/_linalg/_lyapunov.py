@@ -20,11 +20,11 @@ def discrete_lyapunov_solve(
 
     Uses the eigendecomposition ``G = V Λ V^{-1}`` so that
 
-    .. math::
-
-        \tilde{P} - \Lambda \tilde{P} \Lambda^T
-            = V^{-1} Q V^{-T}, \quad
-        \tilde{P}_{ij} = \frac{(V^{-1} Q V^{-T})_{ij}}{1 - \lambda_i \lambda_j},
+    $$
+    \tilde{P} - \Lambda \tilde{P} \Lambda^T
+        = V^{-1} Q V^{-T}, \quad
+    \tilde{P}_{ij} = \frac{(V^{-1} Q V^{-T})_{ij}}{1 - \lambda_i \lambda_j},
+    $$
 
     and then ``P = V \tilde{P} V^T``. This avoids materializing the
     ``(N², N²)`` Kronecker matrix the vectorized formulation requires.
@@ -38,7 +38,7 @@ def discrete_lyapunov_solve(
     The standard sufficient condition — ``G`` is stable
     (spectral radius < 1) — guarantees this.
 
-    .. warning::
+    !!! warning
 
         This implementation assumes ``G`` is **diagonalizable**. For
         defective ``G`` (e.g., a Jordan block with eigenvalue magnitude

@@ -44,7 +44,7 @@ def grid_data(grid: list[Float[Array, " n"]]) -> Float[Array, "G D"]:
 def _cubic_weights_1d(t: Float[Array, " B"]) -> Float[Array, "B four"]:
     """Cubic convolution interpolation weights (Keys, 1981).
 
-    For fractional position t ∈ [0, 1], the four weights are::
+    For fractional position t ∈ [0, 1], the four weights are:
 
         w₋₁ = −½t³ + t² − ½t
         w₀  = 3/2 t³ − 5/2 t² + 1

@@ -84,11 +84,11 @@ def _innovation_covariance(
     """Build ``S = H P Hᵀ + R`` as dense or as a low-rank update.
 
     When ``H`` is an operator, the dense path goes through
-    :func:`gaussx.sandwich` so matched ``Kronecker`` / ``BlockDiag`` /
+    `gaussx.sandwich` so matched ``Kronecker`` / ``BlockDiag`` /
     diagonal structure is preserved during construction.
 
     The Woodbury branch wraps ``R`` as the base of a
-    :class:`gaussx.LowRankUpdate`, so downstream solves and log-dets
+    `gaussx.LowRankUpdate`, so downstream solves and log-dets
     require ``R`` to be invertible. If you anticipate (numerically)
     singular ``R`` — e.g. a ``DiagonalLinearOperator`` with zeros —
     leave ``woodbury=False`` so the full ``S = H P Hᵀ + R`` matrix is

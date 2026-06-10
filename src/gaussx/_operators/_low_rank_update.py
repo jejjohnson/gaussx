@@ -265,7 +265,7 @@ def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
 
 
 class SVDLowRankUpdate(LowRankUpdate):
-    """Deprecated subclass of :class:`LowRankUpdate` with ``orthonormal=True``.
+    """Deprecated subclass of `LowRankUpdate` with ``orthonormal=True``.
 
     Preserves the pre-consolidation public API for one release:
 
@@ -273,14 +273,14 @@ class SVDLowRankUpdate(LowRankUpdate):
       ones (via the parent ``LowRankUpdate``) if omitted, and ``V``
       defaults to ``U`` so calls like ``SVDLowRankUpdate(base, U, S)``
       and ``SVDLowRankUpdate(base, U)`` continue to work.
-    - Inherits from :class:`LowRankUpdate` so ``isinstance`` /
+    - Inherits from `LowRankUpdate` so ``isinstance`` /
       ``issubclass`` checks and ``singledispatch`` registrations keyed
       on this class keep working.
     - Forces ``orthonormal=True`` and emits a
-      :class:`DeprecationWarning` on construction.
+      `DeprecationWarning` on construction.
 
     New code should construct ``LowRankUpdate(base, U, S, V,
-    orthonormal=True)`` (or use :func:`svd_low_rank_plus_diag`)
+    orthonormal=True)`` (or use `svd_low_rank_plus_diag`)
     directly. Will be removed in a future release.
     """
 
