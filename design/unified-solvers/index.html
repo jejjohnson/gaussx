@@ -1,0 +1,3311 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.">
+      
+      
+        <meta name="author" content="J. Emmanuel Johnson">
+      
+      
+      
+        <link rel="prev" href="../../architecture/">
+      
+      
+        <link rel="next" href="../../notebooks/basics/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Unified Solvers - gaussx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#unified-solvers-in-gaussx-design-execution-plan" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="gaussx" class="md-header__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            gaussx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Unified Solvers
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../vision/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Vision
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../notebooks/basics/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="gaussx" class="md-nav__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    gaussx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Solvers
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Motivation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Motivation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#goals-ranked-from-the-scoping-discussion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals (ranked, from the scoping discussion)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#non-goals-explicit-scope-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-goals / explicit scope boundaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-user-stories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. User stories
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-math-background" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Math background
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Math background">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-the-spde-gmrf-bridge-why-this-is-one-problem-not-two" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 The SPDE / GMRF bridge (why this is one problem, not two)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-conjugate-gradient-preconditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Conjugate Gradient + preconditioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-capacitance-matrix-method-shermanmorrison-woodbury" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Capacitance matrix method (Sherman–Morrison / Woodbury)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Current state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Current state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-gaussx-srcgaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 gaussx (src/gaussx/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-finitevolx-finitevolx_srcsolvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 finitevolX (finitevolx/_src/solvers/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-spectraldiffx-spectraldiffx_src" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 spectraldiffx (spectraldiffx/_src/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-target-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Target state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Target state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-gaussx-newextended-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 gaussx — new/extended surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-finitevolx-thin-wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 finitevolX — thin wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-spectraldiffx-thin-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 spectraldiffx — thin wrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-dependency-direction-must-stay-acyclic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Dependency direction (must stay acyclic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-demo-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Demo API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Demo API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-raw-matvec-front-door-sign-handling-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Raw-matvec front door + sign handling (gaussx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-standalone-preconditioners-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Standalone preconditioners (gaussx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-capacitance-operator-gaussx-core-pde-repos-supply-the-parts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Capacitance operator (gaussx core, PDE repos supply the parts)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-api-usage-examples-end-to-end-post-refactor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. API usage examples (end-to-end, post-refactor)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. API usage examples (end-to-end, post-refactor)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-finitevolx-unchanged-call-site-gaussx-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 finitevolX — unchanged call site, gaussx internals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-spectraldiffx-capacitance-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 spectraldiffx — capacitance wrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-gaussx-gp-on-a-grid-reuses-the-same-preconditioner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 gaussx — GP on a grid reuses the same preconditioner
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-steps-to-execute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Steps to execute
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Steps to execute">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-gaussx-raw-matvec-front-door-sign-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — gaussx: raw-matvec front door + sign handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-gaussx-preconditioner-protocol-generic-preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — gaussx: preconditioner protocol + generic preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-gaussx-capacitance-operator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — gaussx: capacitance operator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-gaussx-tridiagonal-re-home-optional-low-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — gaussx: tridiagonal re-home (optional, low value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-spectraldiffx-adopt-gaussx-capacitance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — spectraldiffx: adopt gaussx capacitance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-finitevolx-adopt-gaussx-solverspreconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — finitevolX: adopt gaussx solvers/preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-cleanup-deprecation-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — cleanup, deprecation, docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-risks-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Risks &amp; mitigations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/operator_zoo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/woodbury_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Woodbury Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/kronecker_eigen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kronecker Eigendecomposition
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/kernel_regression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/gp_2d_grid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP on a 2D Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/sparse_variational_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Variational GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/structured_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/solver_comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/differentiating_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiating Through Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/sugar_ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sugar Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/exponential_family/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/kalman_filter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/solver_strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/bayesian_updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Updates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/uncertainty_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/numpyro_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: GP Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/numpyro_precision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: Precision BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/conditional_distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conditional Distributions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/parallel_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/expectation_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expectation Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/ensemble_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ensemble Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/natural_gradient_vi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Natural Gradient VI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/kernel_approximations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel Approximations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/love_crossval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LOVE Cross-Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/whitened_svgp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whitened SVGP & BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/uncertain_gp_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP with Uncertain Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../notebooks/implicit_kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Matrix-Free GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/primitives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/operators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operators & Tags
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solvers & Preconditioners
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/linalg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear-Algebra Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distributions & Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Processes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/kernels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernels & Approximations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/quadrature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quadrature & Moment Matching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/ssm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    State-Space Models & Kalman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Inference & Ensembles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Motivation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Motivation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#goals-ranked-from-the-scoping-discussion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Goals (ranked, from the scoping discussion)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#non-goals-explicit-scope-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Non-goals / explicit scope boundaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-user-stories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. User stories
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-math-background" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Math background
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Math background">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-the-spde-gmrf-bridge-why-this-is-one-problem-not-two" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 The SPDE / GMRF bridge (why this is one problem, not two)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-conjugate-gradient-preconditioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 Conjugate Gradient + preconditioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33-capacitance-matrix-method-shermanmorrison-woodbury" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 Capacitance matrix method (Sherman–Morrison / Woodbury)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Current state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Current state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-gaussx-srcgaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 gaussx (src/gaussx/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-finitevolx-finitevolx_srcsolvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 finitevolX (finitevolx/_src/solvers/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-spectraldiffx-spectraldiffx_src" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 spectraldiffx (spectraldiffx/_src/)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-target-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Target state
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Target state">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-gaussx-newextended-surface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 gaussx — new/extended surface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-finitevolx-thin-wrappers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 finitevolX — thin wrappers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-spectraldiffx-thin-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 spectraldiffx — thin wrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#54-dependency-direction-must-stay-acyclic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.4 Dependency direction (must stay acyclic)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-demo-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Demo API
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Demo API">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-raw-matvec-front-door-sign-handling-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Raw-matvec front door + sign handling (gaussx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-standalone-preconditioners-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Standalone preconditioners (gaussx)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-capacitance-operator-gaussx-core-pde-repos-supply-the-parts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Capacitance operator (gaussx core, PDE repos supply the parts)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-api-usage-examples-end-to-end-post-refactor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. API usage examples (end-to-end, post-refactor)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. API usage examples (end-to-end, post-refactor)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-finitevolx-unchanged-call-site-gaussx-internals" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 finitevolX — unchanged call site, gaussx internals
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-spectraldiffx-capacitance-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 spectraldiffx — capacitance wrapper
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-gaussx-gp-on-a-grid-reuses-the-same-preconditioner" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 gaussx — GP on a grid reuses the same preconditioner
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-steps-to-execute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Steps to execute
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Steps to execute">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-0-gaussx-raw-matvec-front-door-sign-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 0 — gaussx: raw-matvec front door + sign handling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-gaussx-preconditioner-protocol-generic-preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1 — gaussx: preconditioner protocol + generic preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-gaussx-capacitance-operator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2 — gaussx: capacitance operator
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-gaussx-tridiagonal-re-home-optional-low-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3 — gaussx: tridiagonal re-home (optional, low value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-spectraldiffx-adopt-gaussx-capacitance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4 — spectraldiffx: adopt gaussx capacitance
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-finitevolx-adopt-gaussx-solverspreconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5 — finitevolX: adopt gaussx solvers/preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-cleanup-deprecation-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6 — cleanup, deprecation, docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-risks-mitigations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Risks &amp; mitigations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-definition-of-done" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Definition of done
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="unified-solvers-in-gaussx-design-execution-plan">Unified Solvers in gaussx — Design &amp; Execution Plan<a class="headerlink" href="#unified-solvers-in-gaussx-design-execution-plan" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> gaussx side (Phases 0–3) implemented; PDE-package wrappers in progress
+<strong>Repos in scope:</strong> <code>gaussx</code> (hub), <code>spectraldiffx</code>, <code>finitevolX</code></p>
+<hr />
+<h2 id="1-motivation">1. Motivation<a class="headerlink" href="#1-motivation" title="Permanent link">&para;</a></h2>
+<p>Three JAX libraries have grown overlapping numerical-solver machinery:</p>
+<ul>
+<li><strong>gaussx</strong> — structured <em>probabilistic</em> linear algebra. Solves <code>A x = b</code> and
+  <code>logdet(A)</code> for PSD covariance/precision operators (CG, MINRES, LSMR,
+  preconditioned CG, BBMM, SLQ). Built on <code>lineax</code> + <code>matfree</code> + <code>equinox</code>.</li>
+<li><strong>finitevolX</strong> — finite-volume operators on Arakawa C-grids. Re-implements its
+  own CG loop (<code>solve_cg</code>), three preconditioners (spectral, Nyström,
+  multigrid), tridiagonal solves, and a masked-Laplacian operator.</li>
+<li><strong>spectraldiffx</strong> — pseudospectral PDE discretization. Owns spectral
+  Helmholtz/Poisson solvers and a <strong>capacitance-matrix</strong> solver for masked
+  irregular domains (a low-rank correction around a fast base solve).</li>
+</ul>
+<p>The duplication is concentrated in the <strong>raw linear-solver + preconditioner
+layer</strong>. The same CG loop, the same Nyström preconditioner idea, and the same
+Sherman–Morrison/Woodbury correction (capacitance) exist in two or three places,
+each separately tested and separately maintained.</p>
+<p>There is also a deeper <strong>mathematical</strong> reason to unify (see §3): elliptic PDE
+operators and Gaussian covariance/precision operators are, under the SPDE view,
+<em>the same objects</em>. gaussx already models a chunk of this (<code>Toeplitz</code>,
+<code>KroneckerSum</code>, <code>_ssm/_matern</code>, <code>_sde_kernel</code>, <code>spingp</code>).</p>
+<h3 id="goals-ranked-from-the-scoping-discussion">Goals (ranked, from the scoping discussion)<a class="headerlink" href="#goals-ranked-from-the-scoping-discussion" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Kill duplicated CG / preconditioner code</strong> — one tested implementation.</li>
+<li><strong>Easier maintenance / testing</strong> — solver numerics tested once, in gaussx.</li>
+<li><strong>Mathematical unification (SPDE / GP ↔ PDE)</strong> — elliptic operators and
+   covariance operators share the same solver substrate.</li>
+</ol>
+<h3 id="non-goals-explicit-scope-boundaries">Non-goals / explicit scope boundaries<a class="headerlink" href="#non-goals-explicit-scope-boundaries" title="Permanent link">&para;</a></h3>
+<p>gaussx must remain <em>structured ops + raw solvers</em>. It will <strong>not</strong> acquire:</p>
+<ul>
+<li>grids, coordinates, or grid spacing as first-class concepts;</li>
+<li>boundary-condition modelling (Dirichlet/Neumann/periodic dispatch);</li>
+<li>spectral transforms (FFT / DST / DCT / SHT);</li>
+<li>mask → boundary-index extraction (which cells are land/ocean/boundary);</li>
+<li>multigrid V-cycles or spectral Helmholtz field solvers.</li>
+</ul>
+<p>Those stay in <code>finitevolX</code> / <code>spectraldiffx</code>. They cross the boundary only as
+<strong>passed-in callables/operators</strong> (e.g. "here is an approximate inverse, use it
+as a preconditioner").</p>
+<hr />
+<h2 id="2-user-stories">2. User stories<a class="headerlink" href="#2-user-stories" title="Permanent link">&para;</a></h2>
+<ul>
+<li>
+<p><strong>As a finitevolX user</strong>, I call <code>fvx.solve_cg(matvec, rhs, preconditioner=...)</code>
+  exactly as before, but the CG loop and the Nyström preconditioner are now
+  gaussx code — one implementation, fixed and tuned in one place.</p>
+</li>
+<li>
+<p><strong>As a spectraldiffx user</strong>, I call <code>build_capacitance_solver(mask, dx, dy)</code>
+  as before; internally it extracts the boundary ring (spectral concern) and
+  hands gaussx the <em>base solve callable</em> + <em>boundary indices</em>, getting back a
+  reusable capacitance operator.</p>
+</li>
+<li>
+<p><strong>As a gaussx user doing GP regression on a grid</strong>, I can build a
+  <code>NystromPreconditioner</code> or a <code>JacobiPreconditioner</code> and pass it straight into
+  <code>CGSolver</code> / <code>PreconditionedCGSolver</code>, instead of preconditioning living only
+  inside <code>PreconditionedCGSolver</code>.</p>
+</li>
+<li>
+<p><strong>As a maintainer</strong>, when a CG edge case (e.g. zero rhs, NaN guard, max-steps
+  behaviour) needs fixing, I fix it once in gaussx and all three libraries
+  inherit it.</p>
+</li>
+<li>
+<p><strong>As a researcher bridging GP and PDE</strong>, I can take an elliptic operator from a
+  PDE package and a covariance operator from gaussx and solve both through the
+  same <code>gaussx.linear_solve(A, b, solver=..., preconditioner=...)</code> front door.</p>
+</li>
+</ul>
+<hr />
+<h2 id="3-math-background">3. Math background<a class="headerlink" href="#3-math-background" title="Permanent link">&para;</a></h2>
+<h3 id="31-the-spde-gmrf-bridge-why-this-is-one-problem-not-two">3.1 The SPDE / GMRF bridge (why this is one problem, not two)<a class="headerlink" href="#31-the-spde-gmrf-bridge-why-this-is-one-problem-not-two" title="Permanent link">&para;</a></h3>
+<p>The Whittle–Matérn SPDE (Lindgren, Rue &amp; Lindgren, 2011) states that a Gaussian
+field <code>u</code> with Matérn covariance is the stationary solution of</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>(κ² − Δ)^{α/2} u(x) = 𝒲(x),     α = ν + d/2
+</code></pre></div>
+<p>where <code>𝒲</code> is white noise and <code>Δ</code> the Laplacian. Discretised, the <strong>precision</strong>
+matrix <code>Q</code> of the Matérn field is a (power of a) <strong>Helmholtz operator</strong>
+<code>κ²I − Δ</code>. Consequences relevant here:</p>
+<ul>
+<li>A <strong>separable Laplacian</strong> on a tensor grid is <code>Δ = Δ_x ⊕ Δ_y</code> — exactly
+  gaussx's <code>KroneckerSum</code>, which it already solves by eigendecomposition.</li>
+<li>A <strong>stationary kernel on a regular grid</strong> is Toeplitz / BTTB = an FFT
+  convolution — exactly gaussx's <code>Toeplitz</code> (circulant embedding) and exactly
+  spectraldiffx's FFT-diagonalised Helmholtz inverse.</li>
+<li>A <strong>Helmholtz / Laplacian operator</strong> diagonalised in a spectral basis is a
+  <code>diag-in-eigenbasis</code> operator: <code>solve</code> and <code>logdet</code> are elementwise on the
+  eigenvalues — the same shape as gaussx's structured primitives.</li>
+</ul>
+<p>So "the covariance operator" and "the elliptic operator" are the same algebraic
+object viewed from two communities. Unifying the <em>solvers</em> is the engineering
+expression of that fact.</p>
+<h3 id="32-conjugate-gradient-preconditioning">3.2 Conjugate Gradient + preconditioning<a class="headerlink" href="#32-conjugate-gradient-preconditioning" title="Permanent link">&para;</a></h3>
+<p>For SPD <code>A</code>, CG solves <code>A x = b</code> in Krylov space. Convergence depends on
+<code>κ(A) = λ_max/λ_min</code>. A preconditioner <code>M ≈ A</code> (cheap to invert) replaces the
+spectrum of <code>A</code> with that of <code>M⁻¹A</code>. The four preconditioners in play:</p>
+<table>
+<thead>
+<tr>
+<th>Preconditioner</th>
+<th><code>M⁻¹</code> is…</th>
+<th>Generic?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Jacobi</td>
+<td><code>diag(A)⁻¹</code></td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Nyström / partial-Cholesky</td>
+<td>low-rank approx inverse from a few matvecs</td>
+<td>yes</td>
+</tr>
+<tr>
+<td>Spectral</td>
+<td>an FFT/DST/DCT Helmholtz solve used as approx inverse</td>
+<td><strong>no</strong> (needs transforms)</td>
+</tr>
+<tr>
+<td>Multigrid</td>
+<td>one V-cycle used as approx inverse</td>
+<td><strong>no</strong> (needs grid/mask)</td>
+</tr>
+</tbody>
+</table>
+<p>The generic two move into gaussx as concrete classes. The PDE-specific two are
+<em>adapted</em> into gaussx's preconditioner protocol via a generic
+<code>OperatorPreconditioner(approx_inverse)</code> wrapper — the concrete approximate
+inverse is built in the PDE repo and passed in. This is what dodges the
+dependency cycle (gaussx must never import spectraldiffx/finitevolX).</p>
+<h3 id="33-capacitance-matrix-method-shermanmorrison-woodbury">3.3 Capacitance matrix method (Sherman–Morrison / Woodbury)<a class="headerlink" href="#33-capacitance-matrix-method-shermanmorrison-woodbury" title="Permanent link">&para;</a></h3>
+<p>To solve <code>A u = f</code> on an irregular domain Ω embedded in a regular domain R for
+which a <em>fast</em> solver <code>B⁻¹</code> exists (FFT/DST/DCT):</p>
+<ol>
+<li>Treat the <code>N_b</code> boundary unknowns as constraints. Define Green's functions
+   <code>g_b = B⁻¹ e_b</code> for each boundary index <code>b</code> (one fast solve each, <strong>offline</strong>).</li>
+<li>Form the <strong>capacitance matrix</strong> <code>C</code> = restriction of the Green's functions to
+   the boundary rows; precompute <code>C⁻¹</code> (small, <code>N_b × N_b</code>).</li>
+<li><strong>Online:</strong> <code>u = B⁻¹f − G (C⁻¹ (R_b B⁻¹ f − target))</code>, i.e. one fast base
+   solve plus an <code>N_b</code>-sized correction.</li>
+</ol>
+<p>This is precisely a <strong>Woodbury / low-rank update</strong> around the base solve — and
+gaussx <em>already</em> has <code>LowRankUpdate</code>, <code>SVDLowRankUpdate</code>, Woodbury and Schur
+machinery. The generic algebra (given <code>B⁻¹</code> and the boundary index set) belongs
+in gaussx; <em>which</em> cells are boundary and <em>which</em> <code>B⁻¹</code> to use stay in the PDE
+repos.</p>
+<hr />
+<h2 id="4-current-state">4. Current state<a class="headerlink" href="#4-current-state" title="Permanent link">&para;</a></h2>
+<h3 id="41-gaussx-srcgaussx">4.1 gaussx (<code>src/gaussx/</code>)<a class="headerlink" href="#41-gaussx-srcgaussx" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>_strategies/_base.py</code> — <code>AbstractSolveStrategy.solve(operator, vector)</code>,
+  <code>AbstractLogdetStrategy.logdet(operator, *, key)</code>, <code>AbstractSolverStrategy</code>.
+  All <code>equinox.Module</code>, operate on <code>lineax.AbstractLinearOperator</code>.</li>
+<li><code>_strategies/{_cg,_minres,_lsmr,_dense,_bbmm,_precond_cg,_slq_logdet,_auto,
+  _composed}.py</code> — concrete strategies. <strong>PSD-assuming.</strong></li>
+<li><code>_strategies/_dispatch.py</code> — <code>dispatch_solve</code> / <code>dispatch_logdet</code> (fall back to
+  primitives when <code>solver is None</code>).</li>
+<li><code>_precond_cg.py</code> — preconditioning is <strong>buried inside</strong> <code>PreconditionedCGSolver</code>
+  (partial pivoted Cholesky via <code>matfree.low_rank</code>). Not reusable standalone.</li>
+<li><code>_operators/</code> — <code>Kronecker</code>, <code>KroneckerSum</code>, <code>BlockDiag</code>, <code>BlockTriDiag</code>,
+  <code>LowRankUpdate</code>, <code>SVDLowRankUpdate</code>, <code>Toeplitz</code>, kernel operators, lazy algebra.</li>
+<li><code>_linalg/_woodbury.py</code>, <code>_schur.py</code> — low-rank correction algebra (capacitance
+  building blocks already exist here).</li>
+<li><strong>No</strong> raw-<code>matvec</code> front door, <strong>no</strong> standalone preconditioner objects,
+  <strong>no</strong> capacitance operator, <strong>no</strong> indefinite/negative-definite front-door
+  handling.</li>
+</ul>
+<h3 id="42-finitevolx-finitevolx_srcsolvers">4.2 finitevolX (<code>finitevolx/_src/solvers/</code>)<a class="headerlink" href="#42-finitevolx-finitevolx_srcsolvers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>iterative.py</code> — <code>solve_cg(matvec, rhs, x0, preconditioner, rtol, atol,
+  max_steps) -&gt; (x, CGInfo)</code>, <code>CGInfo(iterations, residual_norm, converged)</code>,
+  <code>masked_laplacian(psi, mask, dx, dy, lambda_)</code>. Operates on <strong>raw-array matvec</strong>
+  for <strong>negative-definite</strong> masked Laplacians.</li>
+<li><code>preconditioners.py</code> — <code>make_preconditioner(kind, ...)</code>,
+  <code>make_spectral_preconditioner(dx, dy, lambda_, bc)</code>,
+  <code>make_nystrom_preconditioner(matvec, shape, rank, key)</code>,
+  <code>make_multigrid_preconditioner(mg_solver)</code>.</li>
+<li><code>tridiagonal.py</code> — <code>solve_tridiagonal</code>, <code>solve_tridiagonal_batched</code> (thin
+  wrappers over <code>lineax.Tridiagonal</code>).</li>
+<li><code>multigrid.py</code> — geometric V-cycle, Arakawa-C face staggering, mask
+  restriction/prolongation. <strong>Stays in finitevolX.</strong></li>
+<li><code>spectral.py</code>, <code>spectral_transforms.py</code> — pure re-exports of spectraldiffx.</li>
+<li><code>elliptic.py</code> — convenience wrappers (<code>streamfunction_from_vorticity</code>,
+  <code>pressure_from_divergence</code>, <code>pv_inversion</code>) + <code>build_capacitance_solver</code>.</li>
+<li><code>inhomogeneous.py</code> — lifting trick (mask/BC concern). <strong>Stays.</strong></li>
+<li>Depends on <code>spectraldiffx</code>, <code>lineax</code>, <code>equinox</code>, <code>scipy</code>, <code>diffrax</code>.</li>
+</ul>
+<h3 id="43-spectraldiffx-spectraldiffx_src">4.3 spectraldiffx (<code>spectraldiffx/_src/</code>)<a class="headerlink" href="#43-spectraldiffx-spectraldiffx_src" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>fourier/solvers.py</code> — <code>solve_helmholtz_*</code> / <code>solve_poisson_*</code> pure functions +
+  <code>SpectralHelmholtzSolver{1,2,3}D</code> modules. <strong>Stays.</strong></li>
+<li><code>fourier/eigenvalues.py</code> — pure 1-D Laplacian eigenvalue functions. Stays
+  (spectral-native), portable in principle.</li>
+<li><code>fourier/capacitance.py</code> — <code>CapacitanceSolver(eqx.Module)</code> with <code>_C_inv</code>,
+  <code>_green_flat</code>, <code>_mask</code>, <code>_j_b</code>, <code>_i_b</code>, <code>dx</code>, <code>dy</code>, <code>lambda_</code>, <code>base_bc</code>;
+  <code>build_capacitance_solver(mask, dx, dy, lambda_, base_bc)</code>. <strong>Tightly coupled to
+  the base spectral solve + mask boundary extraction.</strong> This is the split target.</li>
+<li><code>chebyshev/solvers.py</code>, <code>spherical/solvers.py</code> — collocation / SHT mode
+  inversion. <strong>Stay</strong> (transform/grid coupled).</li>
+<li>Depends on <code>jax</code>, <code>equinox</code>, <code>jaxtyping</code>, <code>finitediffx</code>, <code>kernex</code>.</li>
+</ul>
+<hr />
+<h2 id="5-target-state">5. Target state<a class="headerlink" href="#5-target-state" title="Permanent link">&para;</a></h2>
+<h3 id="51-gaussx-newextended-surface">5.1 gaussx — new/extended surface<a class="headerlink" href="#51-gaussx-newextended-surface" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>src/gaussx/
+<a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>  _operators/
+<a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>    _capacitance.py          # NEW: CapacitanceSolver (Woodbury-family op)
+<a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>  _preconditioners/          # NEW package
+<a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>    __init__.py
+<a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>    _base.py                 # AbstractPreconditioner protocol
+<a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>    _jacobi.py               # JacobiPreconditioner
+<a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>    _nystrom.py              # NystromPreconditioner
+<a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>    _partial_cholesky.py     # PartialCholeskyPreconditioner (factored from _precond_cg)
+<a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>    _operator.py             # OperatorPreconditioner  (the spectral/MG adapter slot)
+<a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  _strategies/
+<a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>    _cg.py                   # EXTENDED: optional `preconditioner` field
+<a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>    _minres.py               # EXTENDED: optional `preconditioner` field
+<a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>    _precond_cg.py           # REFACTORED to delegate to PartialCholeskyPreconditioner
+<a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  _solve_frontend.py         # NEW: as_linear_operator(), linear_solve()
+<a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>  _solvers_functional.py     # NEW: solve_tridiagonal(_batched) re-home (optional)
+</code></pre></div>
+<p>Public API additions (re-exported from <code>__init__.py</code>):</p>
+<ul>
+<li><code>gaussx.as_linear_operator(matvec, *, in_structure | shape, symmetric=False,
+  positive_semidefinite=False, negative_definite=False)</code></li>
+<li><code>gaussx.linear_solve(A, b, *, solver=None, preconditioner=None)</code> — accepts an
+  operator <strong>or</strong> a raw <code>(matvec, shape)</code>; handles sign tags.</li>
+<li><code>gaussx.AbstractPreconditioner</code>, <code>JacobiPreconditioner</code>, <code>NystromPreconditioner</code>,
+  <code>PartialCholeskyPreconditioner</code>, <code>OperatorPreconditioner</code></li>
+<li><code>gaussx.CapacitanceSolver</code></li>
+<li><code>gaussx.solve_tridiagonal</code>, <code>gaussx.solve_tridiagonal_batched</code></li>
+</ul>
+<h3 id="52-finitevolx-thin-wrappers">5.2 finitevolX — thin wrappers<a class="headerlink" href="#52-finitevolx-thin-wrappers" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>iterative.solve_cg</code> → delegates to <code>gaussx.linear_solve</code> (keeps <code>CGInfo</code>
+  return shape and the negative-definite convention).</li>
+<li><code>preconditioners.make_nystrom_preconditioner</code> → <code>gaussx.NystromPreconditioner</code>.</li>
+<li><code>make_spectral_preconditioner</code> → builds the spectral approx-inverse callable
+  (spectraldiffx), wraps it in <code>gaussx.OperatorPreconditioner</code>.</li>
+<li><code>make_multigrid_preconditioner(mg)</code> → <code>gaussx.OperatorPreconditioner(mg)</code>.</li>
+<li><code>tridiagonal.*</code> → re-export <code>gaussx.solve_tridiagonal*</code>.</li>
+<li><code>multigrid.py</code>, <code>masked_laplacian</code>, <code>inhomogeneous.py</code>, <code>elliptic.py</code>
+  convenience wrappers — unchanged behaviour; only their solver internals are
+  delegated.</li>
+</ul>
+<h3 id="53-spectraldiffx-thin-wrapper">5.3 spectraldiffx — thin wrapper<a class="headerlink" href="#53-spectraldiffx-thin-wrapper" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>fourier/capacitance.build_capacitance_solver</code> → extracts boundary indices from
+  the mask (spectral concern), defines <code>base_solve = λ rhs: solve_helmholtz_&lt;bc&gt;
+  (rhs, dx, dy, lambda_)</code>, and constructs <code>gaussx.CapacitanceSolver(base_solve,
+  boundary_indices, n)</code>. The returned object reshapes field ↔ flat.</li>
+<li><code>solve_helmholtz_*</code>, eigenvalues, Chebyshev, spherical — unchanged.</li>
+</ul>
+<h3 id="54-dependency-direction-must-stay-acyclic">5.4 Dependency direction (must stay acyclic)<a class="headerlink" href="#54-dependency-direction-must-stay-acyclic" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>finitevolX ──depends-on──▶ spectraldiffx ──depends-on──▶ gaussx
+<a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>        └───────────────depends-on──────────────────────▶ gaussx
+</code></pre></div>
+<p>gaussx depends on <strong>neither</strong> of the other two. Spectral/MG specifics enter
+gaussx solvers only as runtime callables/operators.</p>
+<hr />
+<h2 id="6-demo-api">6. Demo API<a class="headerlink" href="#6-demo-api" title="Permanent link">&para;</a></h2>
+<h3 id="61-raw-matvec-front-door-sign-handling-gaussx">6.1 Raw-matvec front door + sign handling (gaussx)<a class="headerlink" href="#61-raw-matvec-front-door-sign-handling-gaussx" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gaussx</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">jax.numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">jnp</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="c1"># A negative-definite 5-point Laplacian as a raw matvec (finitevolX style)</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="k">def</span><span class="w"> </span><span class="nf">laplacian</span><span class="p">(</span><span class="n">x</span><span class="p">):</span>           <span class="c1"># x: (N,) flattened field</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>    <span class="o">...</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>    <span class="k">return</span> <span class="n">Lx</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="n">A</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">as_linear_operator</span><span class="p">(</span><span class="n">laplacian</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="n">symmetric</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>                              <span class="n">negative_definite</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>
+<a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="n">x</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">linear_solve</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">solver</span><span class="o">=</span><span class="n">gaussx</span><span class="o">.</span><span class="n">CGSolver</span><span class="p">())</span>   <span class="c1"># routes neg-def correctly</span>
+</code></pre></div>
+<h3 id="62-standalone-preconditioners-gaussx">6.2 Standalone preconditioners (gaussx)<a class="headerlink" href="#62-standalone-preconditioners-gaussx" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="c1"># Generic, gaussx-native</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="n">P_jac</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">JacobiPreconditioner</span><span class="p">(</span><span class="n">diagonal</span><span class="o">=</span><span class="n">A</span><span class="o">.</span><span class="n">diagonal</span><span class="p">())</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">P_nys</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">NystromPreconditioner</span><span class="p">(</span><span class="n">matvec</span><span class="o">=</span><span class="n">A</span><span class="o">.</span><span class="n">mv</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">N</span><span class="p">,</span> <span class="n">N</span><span class="p">),</span> <span class="n">rank</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">)</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a>
+<a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">x</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">linear_solve</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">solver</span><span class="o">=</span><span class="n">gaussx</span><span class="o">.</span><span class="n">CGSolver</span><span class="p">(),</span> <span class="n">preconditioner</span><span class="o">=</span><span class="n">P_nys</span><span class="p">)</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a>
+<a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="c1"># Adapter slot: any approximate-inverse operator/callable becomes a preconditioner</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="n">P_spec</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">OperatorPreconditioner</span><span class="p">(</span><span class="n">my_spectral_inverse</span><span class="p">)</span>   <span class="c1"># callable from spectraldiffx</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9" href="#__codelineno-4-9"></a><span class="n">P_mg</span>   <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">OperatorPreconditioner</span><span class="p">(</span><span class="n">my_multigrid_solver</span><span class="p">)</span>   <span class="c1"># Mg object from finitevolX</span>
+</code></pre></div>
+<h3 id="63-capacitance-operator-gaussx-core-pde-repos-supply-the-parts">6.3 Capacitance operator (gaussx core, PDE repos supply the parts)<a class="headerlink" href="#63-capacitance-operator-gaussx-core-pde-repos-supply-the-parts" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># base_solve: a fast regular-domain inverse (e.g. FFT Helmholtz) — passed in.</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="c1"># boundary_indices: flat indices of the constrained boundary ring — passed in.</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="n">cap</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">CapacitanceSolver</span><span class="p">(</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>    <span class="n">base_solve</span><span class="o">=</span><span class="n">base_solve</span><span class="p">,</span>            <span class="c1"># Callable[[Array[N]], Array[N]]</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>    <span class="n">boundary_indices</span><span class="o">=</span><span class="n">boundary_idx</span><span class="p">,</span>    <span class="c1"># Int[Array, &quot;Nb&quot;]</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>    <span class="n">n</span><span class="o">=</span><span class="n">N</span><span class="p">,</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="p">)</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="n">u</span> <span class="o">=</span> <span class="n">cap</span><span class="p">(</span><span class="n">rhs_flat</span><span class="p">)</span>                     <span class="c1"># one base solve + Nb-sized correction</span>
+</code></pre></div>
+<hr />
+<h2 id="7-api-usage-examples-end-to-end-post-refactor">7. API usage examples (end-to-end, post-refactor)<a class="headerlink" href="#7-api-usage-examples-end-to-end-post-refactor" title="Permanent link">&para;</a></h2>
+<h3 id="71-finitevolx-unchanged-call-site-gaussx-internals">7.1 finitevolX — unchanged call site, gaussx internals<a class="headerlink" href="#71-finitevolx-unchanged-call-site-gaussx-internals" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">finitevolx</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">fvx</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="c1"># Public API identical to today</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="n">x</span><span class="p">,</span> <span class="n">info</span> <span class="o">=</span> <span class="n">fvx</span><span class="o">.</span><span class="n">solve_cg</span><span class="p">(</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a>    <span class="n">matvec</span><span class="o">=</span><span class="k">lambda</span> <span class="n">v</span><span class="p">:</span> <span class="n">fvx</span><span class="o">.</span><span class="n">masked_laplacian</span><span class="p">(</span><span class="n">v</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">Ny</span><span class="p">,</span> <span class="n">Nx</span><span class="p">),</span> <span class="n">mask</span><span class="p">,</span> <span class="n">dx</span><span class="p">,</span> <span class="n">dy</span><span class="p">)</span><span class="o">.</span><span class="n">ravel</span><span class="p">(),</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a>    <span class="n">rhs</span><span class="o">=</span><span class="n">b</span><span class="p">,</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>    <span class="n">preconditioner</span><span class="o">=</span><span class="n">fvx</span><span class="o">.</span><span class="n">make_preconditioner</span><span class="p">(</span><span class="s2">&quot;nystrom&quot;</span><span class="p">,</span> <span class="n">matvec</span><span class="o">=</span><span class="n">mv</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">Ny</span><span class="p">,</span> <span class="n">Nx</span><span class="p">)),</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a>    <span class="n">rtol</span><span class="o">=</span><span class="mf">1e-6</span><span class="p">,</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">)</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="c1"># info: CGInfo(iterations=..., residual_norm=..., converged=...)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="c1"># Internally: fvx.solve_cg -&gt; gaussx.linear_solve; nystrom -&gt; gaussx.NystromPreconditioner</span>
+</code></pre></div>
+<h3 id="72-spectraldiffx-capacitance-wrapper">7.2 spectraldiffx — capacitance wrapper<a class="headerlink" href="#72-spectraldiffx-capacitance-wrapper" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">spectraldiffx</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">sdx</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">cap</span> <span class="o">=</span> <span class="n">sdx</span><span class="o">.</span><span class="n">build_capacitance_solver</span><span class="p">(</span><span class="n">mask</span><span class="p">,</span> <span class="n">dx</span><span class="o">=</span><span class="n">dx</span><span class="p">,</span> <span class="n">dy</span><span class="o">=</span><span class="n">dy</span><span class="p">,</span> <span class="n">lambda_</span><span class="o">=</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">base_bc</span><span class="o">=</span><span class="s2">&quot;fft&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="n">psi</span> <span class="o">=</span> <span class="n">cap</span><span class="p">(</span><span class="n">rhs</span><span class="p">)</span>        <span class="c1"># field in, field out (wrapper reshapes; gaussx does the algebra)</span>
+</code></pre></div>
+<h3 id="73-gaussx-gp-on-a-grid-reuses-the-same-preconditioner">7.3 gaussx — GP on a grid reuses the same preconditioner<a class="headerlink" href="#73-gaussx-gp-on-a-grid-reuses-the-same-preconditioner" title="Permanent link">&para;</a></h3>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gaussx</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>
+<a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">K</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">Toeplitz</span><span class="p">(</span><span class="n">first_col</span><span class="p">)</span>                     <span class="c1"># stationary kernel on 1-D grid</span>
+<a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="n">P</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">NystromPreconditioner</span><span class="p">(</span><span class="n">matvec</span><span class="o">=</span><span class="n">K</span><span class="o">.</span><span class="n">mv</span><span class="p">,</span> <span class="n">shape</span><span class="o">=</span><span class="n">K</span><span class="o">.</span><span class="n">shape</span><span class="p">,</span> <span class="n">rank</span><span class="o">=</span><span class="mi">64</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="n">key</span><span class="p">)</span>
+<a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="n">alpha</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">linear_solve</span><span class="p">(</span><span class="n">K</span> <span class="o">+</span> <span class="n">noise</span><span class="p">,</span> <span class="n">y</span><span class="p">,</span>
+<a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>                            <span class="n">solver</span><span class="o">=</span><span class="n">gaussx</span><span class="o">.</span><span class="n">CGSolver</span><span class="p">(),</span> <span class="n">preconditioner</span><span class="o">=</span><span class="n">P</span><span class="p">)</span>
+</code></pre></div>
+<hr />
+<h2 id="8-steps-to-execute">8. Steps to execute<a class="headerlink" href="#8-steps-to-execute" title="Permanent link">&para;</a></h2>
+<p>Each phase is independently shippable, lands on
+<code>claude/gaussx-solver-refactor-scope-3hTFq</code> in the relevant repo, and keeps all
+existing public APIs green. <strong>gaussx phases (0–3) must merge/publish before the
+wrapper phases (4–5).</strong></p>
+<h3 id="phase-0-gaussx-raw-matvec-front-door-sign-handling">Phase 0 — gaussx: raw-matvec front door + sign handling<a class="headerlink" href="#phase-0-gaussx-raw-matvec-front-door-sign-handling" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>src/gaussx/_solve_frontend.py</code>:</li>
+<li><code>as_linear_operator(matvec, *, in_structure | shape, symmetric,
+    positive_semidefinite, negative_definite)</code> → wraps in
+    <code>lx.FunctionLinearOperator</code> with the right lineax tags.</li>
+<li><code>linear_solve(A, b, *, solver=None, preconditioner=None)</code> — normalise <code>A</code>
+    (operator or <code>(matvec, shape)</code>), route negative-definite via MINRES or
+    negation, default <code>solver=AutoSolver()</code>.</li>
+<li>Re-export both from <code>__init__.py</code>.</li>
+<li>Tests: <code>tests/test_solve_frontend.py</code> — PSD via CG, indefinite via MINRES,
+  negative-definite Laplacian solve, <code>(matvec, shape)</code> input parity with operator
+  input.</li>
+<li>Acceptance: <code>gaussx.linear_solve</code> solves a known neg-def Laplacian to <code>rtol</code>.</li>
+</ul>
+<h3 id="phase-1-gaussx-preconditioner-protocol-generic-preconditioners">Phase 1 — gaussx: preconditioner protocol + generic preconditioners<a class="headerlink" href="#phase-1-gaussx-preconditioner-protocol-generic-preconditioners" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>src/gaussx/_preconditioners/</code>:</li>
+<li><code>_base.py</code> — <code>AbstractPreconditioner(eqx.Module)</code> with
+    <code>as_operator() -&gt; lx.AbstractLinearOperator</code> (and/or <code>__call__(v)</code>).</li>
+<li><code>_jacobi.py</code>, <code>_nystrom.py</code>, <code>_partial_cholesky.py</code> (factor the partial
+    pivoted Cholesky out of <code>_precond_cg.py</code>), <code>_operator.py</code>
+    (<code>OperatorPreconditioner(approx_inverse: Operator | Callable)</code>).</li>
+<li>Refactor <code>_strategies/_cg.py</code> and <code>_minres.py</code> to accept an optional
+  <code>preconditioner: AbstractPreconditioner | None</code> field; wire into
+  <code>lx.linear_solve(..., options={"preconditioner": P.as_operator()})</code>.</li>
+<li>Refactor <code>_precond_cg.py</code> to delegate to <code>PartialCholeskyPreconditioner</code>
+  (behaviour-preserving; keep the class + its defaults).</li>
+<li>Re-export new classes.</li>
+<li>Tests: each preconditioner reduces CG iteration count on an ill-conditioned
+  SPD system; <code>PreconditionedCGSolver</code> numerics unchanged (regression test).</li>
+<li>Acceptance: <code>_precond_cg</code> regression test passes byte-for-byte on outputs
+  within tolerance; Nyström preconditioner cuts iterations measurably.</li>
+</ul>
+<h3 id="phase-2-gaussx-capacitance-operator">Phase 2 — gaussx: capacitance operator<a class="headerlink" href="#phase-2-gaussx-capacitance-operator" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>src/gaussx/_operators/_capacitance.py</code>:</li>
+<li><code>CapacitanceSolver(eqx.Module)</code> holding precomputed <code>C_inv</code>, Green's columns,
+    <code>boundary_indices</code>, <code>n</code>. Constructor takes <code>base_solve: Callable</code>,
+    <code>boundary_indices: Int[Array, "Nb"]</code>, <code>n: int</code>. Built on existing
+    <code>_linalg/_woodbury.py</code> where possible.</li>
+<li><code>__call__(rhs_flat) -&gt; sol_flat</code>.</li>
+<li>Re-export <code>gaussx.CapacitanceSolver</code>.</li>
+<li>Tests: reproduce a known masked-domain Poisson solution; verify it equals a
+  dense reference solve on a small irregular mask; verify it equals
+  spectraldiffx's current <code>CapacitanceSolver</code> output on a fixed fixture
+  (port one spectraldiffx test as a golden file).</li>
+<li>Acceptance: matches dense reference to <code>1e-8</code> on a 16×16 masked grid.</li>
+</ul>
+<h3 id="phase-3-gaussx-tridiagonal-re-home-optional-low-value">Phase 3 — gaussx: tridiagonal re-home (optional, low value)<a class="headerlink" href="#phase-3-gaussx-tridiagonal-re-home-optional-low-value" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>solve_tridiagonal</code>, <code>solve_tridiagonal_batched</code> (thin <code>lineax.Tridiagonal</code>
+  wrappers) and export. Skip if deemed not worth the surface.</li>
+</ul>
+<h3 id="phase-4-spectraldiffx-adopt-gaussx-capacitance">Phase 4 — spectraldiffx: adopt gaussx capacitance<a class="headerlink" href="#phase-4-spectraldiffx-adopt-gaussx-capacitance" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add <code>gaussx</code> to <code>pyproject.toml</code> deps.</li>
+<li>Rewrite <code>fourier/capacitance.build_capacitance_solver</code> to:
+  (a) extract boundary indices from the mask (unchanged logic),
+  (b) build <code>base_solve</code> from the chosen <code>solve_helmholtz_&lt;bc&gt;</code>,
+  (c) return a thin field↔flat wrapper around <code>gaussx.CapacitanceSolver</code>.</li>
+<li>Keep <code>CapacitanceSolver</code> name as a deprecated alias if external code imports it
+  directly (one release of overlap).</li>
+<li>Tests: existing capacitance tests must pass unchanged.</li>
+<li>Acceptance: spectraldiffx capacitance test suite green against gaussx core.</li>
+</ul>
+<h3 id="phase-5-finitevolx-adopt-gaussx-solverspreconditioners">Phase 5 — finitevolX: adopt gaussx solvers/preconditioners<a class="headerlink" href="#phase-5-finitevolx-adopt-gaussx-solverspreconditioners" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add/raise <code>gaussx</code> dependency in <code>pyproject.toml</code> (via spectraldiffx or direct).</li>
+<li><code>iterative.solve_cg</code> → wrap <code>gaussx.linear_solve</code> (preserve <code>CGInfo</code>, neg-def
+  convention, <code>x0</code>, tolerances, <code>max_steps</code>).</li>
+<li><code>preconditioners.make_nystrom_preconditioner</code> → <code>gaussx.NystromPreconditioner</code>.</li>
+<li><code>make_spectral_preconditioner</code> / <code>make_multigrid_preconditioner</code> → wrap their
+  approximate inverses in <code>gaussx.OperatorPreconditioner</code>.</li>
+<li><code>tridiagonal.*</code> → re-export gaussx functions (or keep local if Phase 3 skipped).</li>
+<li><code>masked_laplacian</code>, <code>multigrid.py</code>, <code>inhomogeneous.py</code>, <code>elliptic.py</code> — leave
+  behaviour; only swap solver internals.</li>
+<li>Tests: finitevolX solver tests pass unchanged; add a parity test (old local CG
+  vs gaussx-backed CG on a fixed masked Laplacian).</li>
+<li>Acceptance: full finitevolX test suite green; numerical parity within tol.</li>
+</ul>
+<h3 id="phase-6-cleanup-deprecation-docs">Phase 6 — cleanup, deprecation, docs<a class="headerlink" href="#phase-6-cleanup-deprecation-docs" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Remove dead local implementations after one release of deprecation shims.</li>
+<li>Docs:</li>
+<li>gaussx: new "Preconditioners" + "Capacitance" + "Raw-matvec front door"
+    sections; SPDE bridge note linking covariance ↔ elliptic operators.</li>
+<li>finitevolX / spectraldiffx: note that solver internals now come from gaussx.</li>
+<li>Cross-repo CHANGELOG entries.</li>
+</ul>
+<hr />
+<h2 id="9-risks-mitigations">9. Risks &amp; mitigations<a class="headerlink" href="#9-risks-mitigations" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Dependency cycle</strong> (gaussx importing PDE repos)</td>
+<td>Spectral/MG specifics enter only as runtime callables via <code>OperatorPreconditioner</code>; CI guard: gaussx imports must not reference spectraldiffx/finitevolX.</td>
+</tr>
+<tr>
+<td><strong>Sign-convention bugs</strong> (PSD vs neg-def Laplacian)</td>
+<td>Explicit <code>negative_definite</code> tag on the front door; parity tests against existing finitevolX outputs.</td>
+</tr>
+<tr>
+<td><strong>operator vs raw-matvec impedance</strong></td>
+<td><code>as_linear_operator</code> adapter + <code>linear_solve</code> accepting both; covered by Phase 0 tests.</td>
+</tr>
+<tr>
+<td><strong>Behavioural drift in <code>PreconditionedCGSolver</code></strong></td>
+<td>Refactor is delegation-only; golden regression test before/after.</td>
+</tr>
+<tr>
+<td><strong>Capacitance numerics regression</strong></td>
+<td>Golden-file test ported from spectraldiffx; dense reference check.</td>
+</tr>
+<tr>
+<td><strong>Release ordering</strong></td>
+<td>gaussx (0–3) published first; PDE repos pin the new gaussx version.</td>
+</tr>
+<tr>
+<td><strong>Scope creep back into gaussx</strong></td>
+<td>§1 non-goals are normative; reviewers reject grid/BC/transform/mask code in gaussx.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="10-definition-of-done">10. Definition of done<a class="headerlink" href="#10-definition-of-done" title="Permanent link">&para;</a></h2>
+<ul>
+<li>gaussx exposes: raw-matvec front door, preconditioner protocol + Jacobi /
+  Nyström / partial-Cholesky / operator-adapter, capacitance operator — all
+  tested, no import of the PDE repos.</li>
+<li>finitevolX <code>solve_cg</code>, Nyström/spectral/multigrid preconditioners, and
+  tridiagonal route through gaussx with unchanged public APIs and numerical
+  parity.</li>
+<li>spectraldiffx <code>build_capacitance_solver</code> routes through
+  <code>gaussx.CapacitanceSolver</code> with unchanged public API.</li>
+<li>All three test suites green on <code>claude/gaussx-solver-refactor-scope-3hTFq</code>.</li>
+<li>Dependency graph acyclic: <code>finitevolX → spectraldiffx → gaussx</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
