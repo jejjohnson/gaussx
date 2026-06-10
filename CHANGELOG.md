@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.18](https://github.com/jejjohnson/gaussx/compare/v0.0.17...v0.0.18) (2026-06-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* **core:** SumOperator, ScaledOperator, and ProductOperator are factory functions returning lineax-native operators, no longer classes; isinstance checks against them will break. is_diagonal of a product of diagonal operators now correctly reports True.
+
+### Features
+
+* **core:** consolidate on lineax 0.1.1 and matfree 0.6 with expanded structured dispatch ([#194](https://github.com/jejjohnson/gaussx/issues/194)) ([c56d40e](https://github.com/jejjohnson/gaussx/commit/c56d40e6fc0d5f92933b8041d54b6faf3865586c))
+* **inference:** ensemble DA primitives — localization, inflation, ETKF ([#190](https://github.com/jejjohnson/gaussx/issues/190)) ([b1aa7bc](https://github.com/jejjohnson/gaussx/commit/b1aa7bc65af49f824f2ce882ddb4ce1d6aed9e2d))
+
 ## [0.0.17](https://github.com/jejjohnson/gaussx/compare/v0.0.16...v0.0.17) (2026-06-02)
 
 
