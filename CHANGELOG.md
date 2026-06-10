@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.1.0](https://github.com/jejjohnson/gaussx/compare/v0.0.17...v0.1.0) (2026-06-10)
+## [0.0.18](https://github.com/jejjohnson/gaussx/compare/v0.0.17...v0.0.18) (2026-06-10)
 
 
 ### ⚠ BREAKING CHANGES
