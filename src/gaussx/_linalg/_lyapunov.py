@@ -9,6 +9,8 @@ from __future__ import annotations
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
+
 
 def discrete_lyapunov_solve(
     G: Float[Array, "N N"],
@@ -73,4 +75,4 @@ def discrete_lyapunov_solve(
     # Symmetrize to eliminate residual floating-point asymmetry —
     # consistent with conditional / infinite_horizon_smoother covariance
     # post-processing.
-    return 0.5 * (P_real + P_real.T)
+    return symmetrize(P_real)

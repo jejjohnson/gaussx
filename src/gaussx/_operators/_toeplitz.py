@@ -161,6 +161,7 @@ for _check in (
     lx.is_tridiagonal,
     lx.is_lower_triangular,
     lx.is_upper_triangular,
+    lx.has_unit_diagonal,
 ):
 
     @_check.register(ToeplitzCholesky)

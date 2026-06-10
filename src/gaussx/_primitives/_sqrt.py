@@ -43,8 +43,12 @@ def sqrt(
     Returns:
         Operator S satisfying S @ S = A.
     """
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return operator
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _sqrt_diagonal(operator)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return sqrt(operator.operator, lanczos_order=lanczos_order)
     if isinstance(operator, BlockDiag):
         return _sqrt_block_diag(operator)
     if isinstance(operator, Kronecker):
@@ -188,6 +192,7 @@ for _check in (
     lx.is_upper_triangular,
     lx.is_tridiagonal,
     lx.is_negative_semidefinite,
+    lx.has_unit_diagonal,
 ):
 
     @_check.register(SqrtOperator)

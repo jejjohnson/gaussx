@@ -9,6 +9,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._implicit_kernel import ImplicitKernelOperator
 from gaussx._operators._kernel import KernelOperator
 from gaussx._primitives._eig import eig
@@ -94,7 +95,7 @@ def eigenpro_preconditioner(
     subsample_indices = _subsample_indices(n, subsample_size, key)
     K_mm = _subsample_matrix(kernel_op, subsample_indices)
     m = K_mm.shape[0]
-    K_mm_scaled = 0.5 * (K_mm + K_mm.T) / m
+    K_mm_scaled = symmetrize(K_mm) / m
 
     # Partial eigendecomposition: top (n_components + 1) eigenpairs via
     # matfree Lanczos. The "+1" gives us the tail eigenvalue needed for

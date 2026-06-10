@@ -30,7 +30,6 @@ class BBMMSolver(AbstractSolverStrategy):
         cg_tolerance: Relative tolerance for CG.
         lanczos_iter: Lanczos iterations for SLQ.
         num_probes: Number of probe vectors for Hutchinson.
-        jitter: Diagonal jitter for numerical stability.
         seed: Seed for probe vector generation.
     """
 
@@ -38,7 +37,6 @@ class BBMMSolver(AbstractSolverStrategy):
     cg_tolerance: float = 1e-4
     lanczos_iter: int = 100
     num_probes: int = 10
-    jitter: float = 1e-6
     seed: int = 0
 
     def solve(

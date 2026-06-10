@@ -10,6 +10,8 @@ import jax
 import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
+
 
 class SDEParams(NamedTuple):
     """Continuous-time SDE parameters for a stationary kernel.
@@ -78,7 +80,7 @@ class SDEKernel(eqx.Module):
         params = self.sde_params()
         A = jsl.expm(params.F * dt)
         Q = params.P_inf - A @ params.P_inf @ A.T
-        Q = 0.5 * (Q + Q.T)
+        Q = symmetrize(Q)
         return A, Q
 
     def discretise_sequence(

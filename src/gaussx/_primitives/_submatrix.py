@@ -7,6 +7,7 @@ import lineax as lx
 from jaxtyping import Array, Float, Int
 
 from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._kronecker import Kronecker
 
 
 def submatrix(
@@ -24,7 +25,9 @@ def submatrix(
     Currently dispatches on:
 
     - :class:`lineax.DiagonalLinearOperator`
+    - :class:`lineax.TaggedLinearOperator` (delegates to the wrapped operator)
     - :class:`gaussx.BlockDiag`
+    - :class:`gaussx.Kronecker`
 
     Falls back to ``operator.as_matrix()[ix_(row_idx, col_idx)]`` for
     other operators.
@@ -44,6 +47,10 @@ def submatrix(
         return _submatrix_diagonal(operator, row_idx, col_idx)
     if isinstance(operator, BlockDiag):
         return _submatrix_block_diag(operator, row_idx, col_idx)
+    if isinstance(operator, Kronecker):
+        return _submatrix_kronecker(operator, row_idx, col_idx)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return submatrix(operator.operator, row_idx, col_idx)
     return operator.as_matrix()[jnp.ix_(row_idx, col_idx)]
 
 
@@ -69,6 +76,30 @@ def _submatrix_diagonal(
     # M[i, j] = d[row_idx[i]] if row_idx[i] == col_idx[j] else 0
     match = row_idx[:, None] == col_idx[None, :]
     return jnp.where(match, d[row_idx][:, None], jnp.zeros((), dtype=d.dtype))
+
+
+def _submatrix_kronecker(
+    operator: Kronecker,
+    row_idx: Int[Array, " R"],
+    col_idx: Int[Array, " C"],
+) -> Float[Array, "R C"]:
+    """Kronecker sub-matrix as an elementwise product of factor sub-matrices.
+
+    A global entry decomposes over the factors:
+    ``A[i, j] = prod_f A_f[i_f, j_f]`` where ``(i_f, j_f)`` are the
+    mixed-radix digits of ``(i, j)``. Each factor contributes its own
+    ``(R, C)`` sub-matrix (via recursive dispatch), so only ``R x C``
+    intermediates are formed — never the full Kronecker matrix.
+    """
+    result = jnp.ones((row_idx.shape[0], col_idx.shape[0]))
+    row_rem, col_rem = row_idx, col_idx
+    for op in reversed(operator.operators):
+        m = op.out_size()
+        n = op.in_size()
+        result = result * submatrix(op, row_rem % m, col_rem % n)
+        row_rem = row_rem // m
+        col_rem = col_rem // n
+    return result
 
 
 def _submatrix_block_diag(

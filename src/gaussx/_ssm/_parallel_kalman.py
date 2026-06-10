@@ -27,15 +27,11 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._linalg._symmetrize import symmetrize as _sym
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState, kalman_filter
 from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
 from gaussx._strategies._base import AbstractSolverStrategy
-
-
-def _sym(X: Float[Array, "... N N"]) -> Float[Array, "... N N"]:
-    """Symmetrise the trailing two axes (works on batched stacks too)."""
-    return 0.5 * (X + jnp.swapaxes(X, -1, -2))
 
 
 # ----------------------------------------------------------------
@@ -99,9 +95,17 @@ def _generic_filter_element_active(F, H, Q, R, y):
 # ----------------------------------------------------------------
 
 
-def _bmv(M, v):
-    """Batched matrix-vector product over the trailing axes."""
-    return jnp.einsum("...ij,...j->...i", M, v)
+def _bmv(
+    M: Float[Array, "... N N"],
+    v: Float[Array, "... N"],
+) -> Float[Array, "... N"]:
+    """Batched matrix-vector product over the trailing axes.
+
+    Implemented as a broadcasting matmul rather than an einx contraction:
+    ``associative_scan`` passes zero-length leading chunks, whose axis
+    sizes einx cannot resolve.
+    """
+    return (M @ v[..., None])[..., 0]
 
 
 def _filter_combine(elem1, elem2):

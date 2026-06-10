@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
 
@@ -47,7 +48,7 @@ def assemble_propagation_result(
         w_c[:, None, None] * (dy[:, :, None] * dy[:, None, :]),
         axis=0,
     )
-    Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)  # enforce symmetry
+    Sigma_y = symmetrize(Sigma_y)
 
     # Cross-covariance: C_xy = Σᵢ wᵢᶜ (xᵢ − μ)(yᵢ − μ_y)ᵀ
     cross_cov = jnp.sum(

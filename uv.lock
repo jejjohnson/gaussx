@@ -480,15 +480,6 @@ wheels = [
 ]
 
 [[package]]
-name = "einops"
-version = "0.8.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2c/77/850bef8d72ffb9219f0b1aac23fbc1bf7d038ee6ea666f331fa273031aa2/einops-0.8.2.tar.gz", hash = "sha256:609da665570e5e265e27283aab09e7f279ade90c4f01bcfca111f3d3e13f2827", size = 56261, upload-time = "2026-01-26T04:13:17.638Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/09/f8d8f8f31e4483c10a906437b4ce31bdf3d6d417b73fe33f1a8b59e34228/einops-0.8.2-py3-none-any.whl", hash = "sha256:54058201ac7087911181bfec4af6091bb59380360f069276601256a76af08193", size = 65638, upload-time = "2026-01-26T04:13:18.546Z" },
-]
-
-[[package]]
 name = "einx"
 version = "0.4.3"
 source = { registry = "https://pypi.org/simple" }
@@ -625,7 +616,6 @@ numpyro = [
 [package.dev-dependencies]
 dev = [
     { name = "beartype" },
-    { name = "einops" },
     { name = "numpyro" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -657,7 +647,7 @@ requires-dist = [
     { name = "jaxlib", specifier = ">=0.10" },
     { name = "jaxtyping", specifier = ">=0.3" },
     { name = "lineax", specifier = ">=0.1.1" },
-    { name = "matfree", specifier = ">=0.5" },
+    { name = "matfree", specifier = ">=0.6" },
     { name = "numpyro", marker = "extra == 'numpyro'", specifier = ">=0.21" },
 ]
 provides-extras = ["numpyro"]
@@ -665,7 +655,6 @@ provides-extras = ["numpyro"]
 [package.metadata.requires-dev]
 dev = [
     { name = "beartype", specifier = ">=0.18" },
-    { name = "einops", specifier = ">=0.8" },
     { name = "numpyro", specifier = ">=0.21" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },
@@ -1143,11 +1132,11 @@ wheels = [
 
 [[package]]
 name = "matfree"
-version = "0.5.5"
+version = "0.6.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/07/20/7daab1915d09f3618c089db9cf9d645c3da245eeb6236a7281b4759713fe/matfree-0.5.5.tar.gz", hash = "sha256:c478e0ddee7323ec0144fff558459d384a7b9283fd55fd56fc6876bd9701c55b", size = 55624, upload-time = "2025-12-02T09:01:34.401Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/38/e4/3bdc4b7f2bfd92e94c9bf10508fbf718fb33cea5e7ed6fc8cd08bf22f7dd/matfree-0.6.0.tar.gz", hash = "sha256:223551cd767e1ec9c272bc0cf624676b74f2ef5198ededa5d13152cd2e26876c", size = 68021, upload-time = "2026-06-09T11:08:00.773Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/57/1d8c13471272eee62970c9e84e4dbf5dba1278d415b8c2923e4247289574/matfree-0.5.5-py3-none-any.whl", hash = "sha256:9ed7c079ec85c902df6d2c36664faa1b50069284a88ff16f8d55f1f4ba2393d0", size = 34657, upload-time = "2025-12-02T09:01:33.119Z" },
+    { url = "https://files.pythonhosted.org/packages/7f/cd/001cebc8ff1862dfc5713ba6db9b7d3780a5f5d14cee605e45503f09979a/matfree-0.6.0-py3-none-any.whl", hash = "sha256:14743d6fb3118e6eff8d205f57ab16316d834b22d16226b914809007b80e9cf5", size = 41666, upload-time = "2026-06-09T11:07:59.531Z" },
 ]
 
 [[package]]

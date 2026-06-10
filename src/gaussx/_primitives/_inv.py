@@ -10,6 +10,7 @@ import lineax as lx
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._low_rank_update import LowRankUpdate, _arrays_match
 
 
 def inv(
@@ -23,6 +24,12 @@ def inv(
     when ``mv`` is called. For structured operators, the inverse
     preserves structure.
 
+    Related to ``lineax.invert`` (lineax >= 0.1.1), which wraps
+    ``lx.linear_solve`` in a ``FunctionLinearOperator``. The gaussx
+    fallback ``InverseOperator`` differs in that its matvec routes
+    through the *structured* gaussx ``solve`` dispatch, and its
+    ``as_matrix`` uses a Cholesky path for PSD operators.
+
     Args:
         operator: An invertible linear operator.
         solver: Optional lineax solver for the fallback InverseOperator.
@@ -30,12 +37,34 @@ def inv(
     Returns:
         An operator representing A^{-1}.
     """
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return operator
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _inv_diagonal(operator)
     if isinstance(operator, BlockDiag):
         return _inv_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _inv_kronecker(operator)
+    if (
+        isinstance(operator, LowRankUpdate)
+        and lx.is_symmetric(operator)
+        and _arrays_match(operator.U, operator.V)
+    ):
+        return _inv_low_rank_symmetric(operator, solver)
+    if isinstance(operator, lx.MulLinearOperator):
+        return (1.0 / operator.scalar) * inv(operator.operator, solver=solver)
+    if isinstance(operator, lx.DivLinearOperator):
+        return operator.scalar * inv(operator.operator, solver=solver)
+    if isinstance(operator, lx.NegLinearOperator):
+        return -inv(operator.operator, solver=solver)
+    if isinstance(operator, lx.ComposedLinearOperator) and (
+        operator.operator1.in_size() == operator.operator1.out_size()
+        and operator.operator2.in_size() == operator.operator2.out_size()
+    ):
+        # (A B)^{-1} = B^{-1} A^{-1}
+        return inv(operator.operator2, solver=solver) @ inv(
+            operator.operator1, solver=solver
+        )
     return InverseOperator(operator, solver)
 
 
@@ -52,6 +81,29 @@ def _inv_block_diag(operator: BlockDiag) -> BlockDiag:
 
 def _inv_kronecker(operator: Kronecker) -> Kronecker:
     return Kronecker(*(inv(op) for op in operator.operators))
+
+
+def _inv_low_rank_symmetric(
+    operator: LowRankUpdate,
+    solver: lx.AbstractLinearSolver | None,
+) -> LowRankUpdate:
+    """Woodbury inverse of a symmetric low-rank update, kept low-rank.
+
+    (L + U D U^T)^{-1} = L^{-1} - L^{-1} U C^{-1} U^T L^{-1} with the
+    symmetric capacitance C = D^{-1} + U^T L^{-1} U. Eigendecomposing
+    C = W diag(w) W^T turns the correction into a diagonal-middle
+    low-rank update, so the result is again a ``LowRankUpdate``:
+
+        (L + U D U^T)^{-1} = L^{-1} + Z diag(-1/w) Z^T,  Z = L^{-1} U W.
+
+    Only the k x k capacitance is ever eigendecomposed.
+    """
+    from gaussx._primitives._solve import _low_rank_capacitance
+
+    Linv_U, C = _low_rank_capacitance(operator, solver)
+    w, W = jnp.linalg.eigh(C)
+    Z = Linv_U @ W
+    return LowRankUpdate(inv(operator.base, solver=solver), Z, -1.0 / w, Z)
 
 
 class InverseOperator(lx.AbstractLinearOperator):
@@ -128,5 +180,10 @@ def _(operator):
 
 
 @lx.is_tridiagonal.register(InverseOperator)
+def _(operator):
+    return False
+
+
+@lx.has_unit_diagonal.register(InverseOperator)
 def _(operator):
     return False

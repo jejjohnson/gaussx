@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
+from gaussx._linalg._linalg import trace_product
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
 
@@ -183,11 +184,12 @@ def kl_divergence(
 
     The current implementation evaluates the Bregman form by routing
     through :func:`to_expectation` for the natural-gradient term
-    ``(eta_p - eta_q)^T nabla A(eta_q)`` and materializing ``Sigma_q``
-    and ``eta2`` to assemble the second moment. The benefit relative to
+    ``(eta_p - eta_q)^T nabla A(eta_q)``. The second-moment contraction
+    splits into a quadratic form (operator matvecs) plus
+    :func:`gaussx.trace_product`, so structured ``eta2`` / ``Sigma_q``
+    operators are never materialized. The benefit relative to
     :func:`dist_kl_divergence` is keeping the gradient flowing in
-    natural-parameter space (suitable inside a natural-gradient loop),
-    not avoiding the dense conversion.
+    natural-parameter space (suitable inside a natural-gradient loop).
 
     .. math::
 
@@ -215,10 +217,11 @@ def kl_divergence(
     delta_eta1 = p.eta1 - q.eta1
     linear_eta1 = delta_eta1 @ mu_q
 
-    # For eta2 part: tr((eta2_p - eta2_q)^T (mu_q mu_q^T + Sigma_q))
-    # = tr((eta2_p - eta2_q) @ (mu mu^T + Sigma))
-    delta_eta2_mat = p.eta2.as_matrix() - q.eta2.as_matrix()
-    moment2 = jnp.outer(mu_q, mu_q) + Sigma_q.as_matrix()
-    linear_eta2 = jnp.sum(delta_eta2_mat * moment2)
+    # For eta2 part: tr((eta2_p - eta2_q) @ (mu mu^T + Sigma))
+    # = mu^T (eta2_p - eta2_q) mu + tr(eta2_p Sigma) - tr(eta2_q Sigma).
+    # Quadratic form via matvecs + structured trace_product — no
+    # materialization of eta2 or Sigma_q.
+    quad = mu_q @ (p.eta2.mv(mu_q) - q.eta2.mv(mu_q))
+    linear_eta2 = quad + trace_product(p.eta2, Sigma_q) - trace_product(q.eta2, Sigma_q)
 
     return A_p - A_q - linear_eta1 - linear_eta2

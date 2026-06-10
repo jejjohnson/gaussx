@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 
 
@@ -135,7 +136,7 @@ class ProductSDE(SDEKernel):
         # whole point of this override.
         P_inf = jnp.kron(p1.P_inf, p2.P_inf)
         Q = P_inf - A @ P_inf @ A.T
-        Q = 0.5 * (Q + Q.T)
+        Q = symmetrize(Q)
         return A, Q
 
 

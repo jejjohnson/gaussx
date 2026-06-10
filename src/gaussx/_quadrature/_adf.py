@@ -11,6 +11,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._eig import eigvals as _gaussx_eigvals
 from gaussx._quadrature._integrator import AbstractIntegrator
@@ -101,7 +102,7 @@ class AssumedDensityFilter(AbstractIntegrator):
         else:
             eps_reg = self.regularization
         Sigma_y = Sigma_y + eps_reg * jnp.eye(M)
-        Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)
+        Sigma_y = symmetrize(Sigma_y)
 
         # Cross-covariance
         dx = x_samples - mu[None, :]

@@ -10,6 +10,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
@@ -75,7 +76,7 @@ class TaylorIntegrator(AbstractIntegrator):
                 Sigma_y = Sigma_y + second_order_cov
 
         # Symmetrize for numerical stability
-        Sigma_y = 0.5 * (Sigma_y + Sigma_y.T)
+        Sigma_y = symmetrize(Sigma_y)
 
         # Cross-covariance: Sigma_x @ J^T
         cross_cov = Sigma @ J.T

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import functools as ft
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import jax.scipy.linalg
 import lineax as lx
 import matfree.decomp
 import matfree.eig
 from jaxtyping import Array, Float
+
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._kronecker import Kronecker
 
 
 def svd(
@@ -37,6 +43,12 @@ def svd(
         return _svd_diagonal(operator)
     if rank is not None:
         return _svd_partial(operator, rank, key)
+    if isinstance(operator, Kronecker):
+        return _svd_kronecker(operator)
+    if isinstance(operator, BlockDiag):
+        return _svd_block_diag(operator)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return svd(operator.operator)
     return _svd_dense(operator)
 
 
@@ -71,6 +83,43 @@ def _svd_partial(
     # matfree returns U: (k, m), s: (k,), Vt: (k, n)
     U, s, Vt = svd_fn(operator.mv, v0)
     return U.T, s, Vt
+
+
+def _sort_svd_descending(
+    U: Float[Array, "m k"],
+    s: Float[Array, " k"],
+    Vt: Float[Array, "k n"],
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
+    """Reorder an assembled SVD so singular values are descending."""
+    order = jnp.argsort(-s)
+    return U[:, order], s[order], Vt[order, :]
+
+
+def _svd_kronecker(
+    operator: Kronecker,
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
+    """SVD of a Kronecker product is the Kronecker product of factor SVDs.
+
+    Only the (small) factors are decomposed; the full operator is never
+    materialized as an input to a decomposition — the returned dense
+    ``U``/``Vt`` are inherent to the SVD output format.
+    """
+    factor_svds = [svd(op) for op in operator.operators]
+    U = ft.reduce(jnp.kron, (u for u, _, _ in factor_svds))
+    s = ft.reduce(jnp.kron, (sv for _, sv, _ in factor_svds))
+    Vt = ft.reduce(jnp.kron, (vt for _, _, vt in factor_svds))
+    return _sort_svd_descending(U, s, Vt)
+
+
+def _svd_block_diag(
+    operator: BlockDiag,
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
+    """SVD of a block-diagonal operator from per-block SVDs."""
+    block_svds = [svd(op) for op in operator.operators]
+    U = jax.scipy.linalg.block_diag(*(u for u, _, _ in block_svds))
+    s = jnp.concatenate([sv for _, sv, _ in block_svds])
+    Vt = jax.scipy.linalg.block_diag(*(vt for _, _, vt in block_svds))
+    return _sort_svd_descending(U, s, Vt)
 
 
 def _svd_dense(

@@ -19,12 +19,17 @@ class LSMRSolver(AbstractSolverStrategy):
     minimizes ``||Ax - b||^2 + damp^2 ||x||^2``.
 
     Suitable for rectangular, ill-conditioned, or regularized systems.
-    Has a custom VJP for memory-efficient backpropagation.
+
+    The undamped path delegates to :class:`lineax.LSMR` (with lineax's
+    implicit-differentiation rules). lineax's LSMR has no Tikhonov
+    ``damp`` parameter, so damped solves use matfree's LSMR, which has
+    a custom VJP for memory-efficient backpropagation.
 
     Args:
         atol: Absolute tolerance.
         btol: Relative tolerance on the residual.
-        ctol: Condition number tolerance.
+        ctol: Condition number tolerance (the lineax path uses
+            ``conlim = 1 / ctol``).
         maxiter: Maximum iterations.
         damp: Tikhonov damping parameter.
         num_probes: Number of probe vectors for stochastic logdet.
@@ -55,6 +60,17 @@ class LSMRSolver(AbstractSolverStrategy):
         Returns:
             The (least-squares) solution x.
         """
+        if self.damp == 0.0:
+            solver = lx.LSMR(
+                rtol=self.btol,
+                atol=self.atol,
+                max_steps=self.maxiter,
+                conlim=1.0 / self.ctol if self.ctol > 0 else 1e8,
+            )
+            return lx.linear_solve(operator, vector, solver).value
+
+        # Tikhonov damping: not supported by lineax's LSMR, so the
+        # damped path stays on matfree.
         lsmr_fn = matfree.lstsq.lsmr(
             atol=self.atol,
             btol=self.btol,

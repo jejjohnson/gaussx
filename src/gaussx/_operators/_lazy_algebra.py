@@ -1,190 +1,118 @@
-"""Lazy algebra operators: Sum, Scaled, Product."""
+"""Lazy algebra factories: Sum, Scaled, Product.
+
+These build directly on lineax's native composition operators
+(``AddLinearOperator``, ``MulLinearOperator``, ``ComposedLinearOperator``)
+instead of re-implementing them. lineax already propagates the structural
+tag queries (``is_symmetric``, ``is_diagonal``, ``is_positive_semidefinite``,
+…) through its compositions, and the gaussx primitives dispatch on the
+native classes — so the factories only add input validation, variadic
+sums, and optional explicit tags (via ``lineax.TaggedLinearOperator``).
+"""
 
 from __future__ import annotations
 
-import equinox as eqx
-import jax
+import functools as ft
+import operator as _op
+
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
+from gaussx._operators._block_diag import _to_frozenset
 
 
-class SumOperator(lx.AbstractLinearOperator):
+def _maybe_tag(
+    operator: lx.AbstractLinearOperator,
+    tags: object | frozenset[object],
+) -> lx.AbstractLinearOperator:
+    tags = _to_frozenset(tags)
+    if tags:
+        return lx.TaggedLinearOperator(operator, tags)
+    return operator
+
+
+def SumOperator(
+    *operators: lx.AbstractLinearOperator,
+    tags: object | frozenset[object] = frozenset(),
+) -> lx.AbstractLinearOperator:
     """Lazy sum ``(A + B + …) v = A v + B v + …``.
 
     Defers materialization so that structured sub-operators keep their
     efficient matvec. All operators must have the same input and output
-    sizes.
+    sizes. Returns a (possibly tagged) chain of lineax
+    ``AddLinearOperator`` compositions.
 
     Args:
         *operators: Two or more ``lineax.AbstractLinearOperator`` instances
             with matching shapes.
+        tags: Optional explicit lineax tags for the combined operator.
+
+    Returns:
+        The lazy sum as a lineax operator.
     """
-
-    operators: tuple[lx.AbstractLinearOperator, ...]
-    _in_size: int = eqx.field(static=True)
-    _out_size: int = eqx.field(static=True)
-    _dtype: str = eqx.field(static=True)
-    tags: frozenset[object] = eqx.field(static=True)
-
-    def __init__(
-        self,
-        *operators: lx.AbstractLinearOperator,
-        tags: object | frozenset[object] = frozenset(),
-    ) -> None:
-        if len(operators) < 2:
-            raise ValueError("SumOperator requires at least two operators.")
-        in0 = operators[0].in_size()
-        out0 = operators[0].out_size()
-        for i, op in enumerate(operators[1:], 1):
-            if op.in_size() != in0 or op.out_size() != out0:
-                raise ValueError(
-                    f"Shape mismatch: operator 0 has shape ({out0}, {in0}) "
-                    f"but operator {i} has shape ({op.out_size()}, {op.in_size()})."
-                )
-        self.operators = operators
-        self._in_size = in0
-        self._out_size = out0
-        self._dtype = _resolve_dtype(*operators)
-        self.tags = _to_frozenset(tags)
-
-    def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:
-        result = self.operators[0].mv(vector)
-        for op in self.operators[1:]:
-            result = result + op.mv(vector)
-        return result
-
-    def as_matrix(self) -> Float[Array, "m n"]:
-        result = self.operators[0].as_matrix()
-        for op in self.operators[1:]:
-            result = result + op.as_matrix()
-        return result
-
-    def transpose(self) -> SumOperator:
-        return SumOperator(
-            *(op.T for op in self.operators),
-            tags=lx.transpose_tags(self.tags),
-        )
-
-    def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
-
-    def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+    if len(operators) < 2:
+        raise ValueError("SumOperator requires at least two operators.")
+    in0 = operators[0].in_size()
+    out0 = operators[0].out_size()
+    for i, op in enumerate(operators[1:], 1):
+        if op.in_size() != in0 or op.out_size() != out0:
+            raise ValueError(
+                f"Shape mismatch: operator 0 has shape ({out0}, {in0}) "
+                f"but operator {i} has shape ({op.out_size()}, {op.in_size()})."
+            )
+    return _maybe_tag(ft.reduce(_op.add, operators), tags)
 
 
-class ScaledOperator(lx.AbstractLinearOperator):
+def ScaledOperator(
+    operator: lx.AbstractLinearOperator,
+    scalar: float | Float[Array, ""],
+    *,
+    tags: object | frozenset[object] = frozenset(),
+) -> lx.AbstractLinearOperator:
     """Lazy scalar multiply ``(c A) v = c (A v)``.
+
+    Returns a (possibly tagged) lineax ``MulLinearOperator``.
 
     Args:
         operator: A ``lineax.AbstractLinearOperator``.
         scalar: A scalar multiplier.
+        tags: Optional explicit lineax tags for the scaled operator.
+
+    Returns:
+        The lazy scaled operator.
     """
-
-    operator: lx.AbstractLinearOperator
-    scalar: Float[Array, ""]
-    _in_size: int = eqx.field(static=True)
-    _out_size: int = eqx.field(static=True)
-    _dtype: str = eqx.field(static=True)
-    tags: frozenset[object] = eqx.field(static=True)
-
-    def __init__(
-        self,
-        operator: lx.AbstractLinearOperator,
-        scalar: float | Float[Array, ""],
-        *,
-        tags: object | frozenset[object] = frozenset(),
-    ) -> None:
-        self.operator = operator
-        scalar_array = jnp.asarray(scalar)
-        if scalar_array.ndim != 0:
-            msg = (
-                "ScaledOperator scalar must be a rank-0 scalar, got "
-                f"shape {scalar_array.shape}."
-            )
-            raise ValueError(msg)
-        self.scalar = scalar_array
-        self._in_size = operator.in_size()
-        self._out_size = operator.out_size()
-        self._dtype = jnp.result_type(
-            jnp.dtype(_resolve_dtype(operator)),
-            self.scalar,
-        ).name
-        self.tags = _to_frozenset(tags)
-
-    def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:
-        return self.scalar * self.operator.mv(vector)
-
-    def as_matrix(self) -> Float[Array, "m n"]:
-        return self.scalar * self.operator.as_matrix()
-
-    def transpose(self) -> ScaledOperator:
-        return ScaledOperator(
-            self.operator.T,
-            self.scalar,
-            tags=lx.transpose_tags(self.tags),
+    scalar_array = jnp.asarray(scalar)
+    if scalar_array.ndim != 0:
+        msg = (
+            "ScaledOperator scalar must be a rank-0 scalar, got "
+            f"shape {scalar_array.shape}."
         )
-
-    def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
-
-    def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+        raise ValueError(msg)
+    return _maybe_tag(scalar_array * operator, tags)
 
 
-class ProductOperator(lx.AbstractLinearOperator):
+def ProductOperator(
+    left: lx.AbstractLinearOperator,
+    right: lx.AbstractLinearOperator,
+    *,
+    tags: object | frozenset[object] = frozenset(),
+) -> lx.AbstractLinearOperator:
     """Lazy matmul ``(A B) v = A (B v)``.
 
     The inner dimension must match: ``left.in_size() == right.out_size()``.
+    Returns a (possibly tagged) lineax ``ComposedLinearOperator``.
 
     Args:
         left: The left operator A.
         right: The right operator B.
+        tags: Optional explicit lineax tags for the composed operator.
+
+    Returns:
+        The lazy product as a lineax operator.
     """
-
-    left: lx.AbstractLinearOperator
-    right: lx.AbstractLinearOperator
-    _in_size: int = eqx.field(static=True)
-    _out_size: int = eqx.field(static=True)
-    _dtype: str = eqx.field(static=True)
-    tags: frozenset[object] = eqx.field(static=True)
-
-    def __init__(
-        self,
-        left: lx.AbstractLinearOperator,
-        right: lx.AbstractLinearOperator,
-        *,
-        tags: object | frozenset[object] = frozenset(),
-    ) -> None:
-        if left.in_size() != right.out_size():
-            raise ValueError(
-                f"Inner dimension mismatch: left.in_size()={left.in_size()} "
-                f"!= right.out_size()={right.out_size()}."
-            )
-        self.left = left
-        self.right = right
-        self._in_size = right.in_size()
-        self._out_size = left.out_size()
-        self._dtype = _resolve_dtype(left, right)
-        self.tags = _to_frozenset(tags)
-
-    def mv(self, vector: Float[Array, " n"]) -> Float[Array, " m"]:
-        return self.left.mv(self.right.mv(vector))
-
-    def as_matrix(self) -> Float[Array, "m n"]:
-        return self.left.as_matrix() @ self.right.as_matrix()
-
-    def transpose(self) -> ProductOperator:
-        return ProductOperator(
-            self.right.T,
-            self.left.T,
-            tags=lx.transpose_tags(self.tags),
+    if left.in_size() != right.out_size():
+        raise ValueError(
+            f"Inner dimension mismatch: left.in_size()={left.in_size()} "
+            f"!= right.out_size()={right.out_size()}."
         )
-
-    def in_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
-
-    def out_structure(self) -> jax.ShapeDtypeStruct:
-        return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+    return _maybe_tag(left @ right, tags)
