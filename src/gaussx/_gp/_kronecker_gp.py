@@ -58,7 +58,7 @@ def kronecker_mll(
     r"""Exact marginal log-likelihood for a Kronecker-structured GP.
 
     For a GP with covariance ``K = K_1 \otimes K_2 \otimes \ldots + sigma^2 I``,
-    computes the log marginal likelihood via per-factor eigendecomposition::
+    computes the log marginal likelihood via per-factor eigendecomposition:
 
         log p(y) = -0.5 * (y^T (K + sigma^2 I)^{-1} y
                            + log|K + sigma^2 I|
@@ -116,7 +116,7 @@ def kronecker_posterior_predictive(
     r"""Posterior mean and variance for a Kronecker GP at test points.
 
     Uses the eigendecomposition trick: projects cross-covariances onto
-    the eigenbasis and weights by inverse eigenvalues::
+    the eigenbasis and weights by inverse eigenvalues:
 
         mu_* = K_{*f} (K_{ff} + sigma^2 I)^{-1} y
         var_* = k_{**} - K_{*f} (K_{ff} + sigma^2 I)^{-1} K_{f*}

@@ -38,7 +38,7 @@ def gradient_expectation(
 ) -> Float[Array, " N"]:
     r"""Compute ``E[nabla f(x)]`` via Stein's lemma.
 
-    Uses the identity::
+    Uses the identity:
 
         E[nabla f(x)] = Sigma^{-1} Cov[x, f(x)]
 
@@ -135,7 +135,7 @@ def elbo(
 ) -> Float[Array, ""]:
     r"""Evidence lower bound (ELBO).
 
-    Computes::
+    Computes:
 
         ELBO = E_q[log p(y | f)] - KL(q || p)
 

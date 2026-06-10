@@ -106,12 +106,12 @@ class KroneckerSum(lx.AbstractLinearOperator):
         ``self == Q @ diag(eigenvalues) @ Q.T``. Diagonal factors get a
         structural shortcut; other operators are materialized and
         decomposed via ``jnp.linalg.eigh``. We deliberately avoid
-        routing untagged factors through :func:`gaussx.eig` because
+        routing untagged factors through `gaussx.eig` because
         that primitive falls back to ``jnp.linalg.eig`` for untagged
         operators and would return general (non-orthonormal)
         eigenvectors — breaking the ``Q.T == Q^{-1}`` contract for the
         common case of numerically symmetric matrices wrapped as plain
-        :class:`lineax.MatrixLinearOperator`.
+        `lineax.MatrixLinearOperator`.
 
         Returns:
             Tuple ``(eigenvalues, Q)`` where ``Q = Q_A ⊗ Q_B`` and the
@@ -132,7 +132,7 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
 
     Represents the symmetric matrix ``S`` with ``S @ S = A \oplus B``
     (where ``\oplus`` is the Kronecker sum ``A ⊗ I + I ⊗ B``). The square
-    root is never materialized: :meth:`mv` and :meth:`solve` apply ``S`` and
+    root is never materialized: `mv` and `solve` apply ``S`` and
     ``S^{-1}`` matrix-free using the per-factor eigendecompositions, so the
     cost is governed by the factor sizes rather than the full ``n_a · n_b``
     dimension.
@@ -259,7 +259,7 @@ def kronecker_sum_sample(
     """Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions.
 
     Draws zero-mean samples with covariance ``A ⊕ B`` by applying the
-    matrix-free :class:`KroneckerSumSqrt` to standard normal noise, avoiding
+    matrix-free `KroneckerSumSqrt` to standard normal noise, avoiding
     materialization of the full ``(n_a · n_b, n_a · n_b)`` covariance.
 
     Args:

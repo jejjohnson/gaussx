@@ -48,7 +48,7 @@ def love_cache(
             ``jax.random.PRNGKey(0)``.
 
     Returns:
-        A :class:`LOVECache` object.
+        A `LOVECache` object.
     """
     inverse_root = root_inv_decomposition(
         K_op,
@@ -70,17 +70,17 @@ def love_variance(
     r"""Fast predictive variance using a LOVE cache.
 
     Computes ``k_*^T K^{-1} k_*`` in ``O(Nk)`` via the cached Lanczos
-    factorization::
+    factorization:
 
         k_*^T K^{-1} k_* \approx k_*^T Q \Lambda^{-1} Q^T k_*
                               = \sum_i (q_i^T k_*)^2 / \lambda_i
 
-    The predictive variance for a GP is then::
+    The predictive variance for a GP is then:
 
         var_* = k(x_*, x_*) - love\_variance(cache, k_*)
 
     Args:
-        cache: A :class:`LOVECache` from :func:`love_cache`.
+        cache: A `LOVECache` from `love_cache`.
         K_star_row: Cross-covariance vector ``k(X_{train}, x_*)``,
             shape ``(N,)``.
 

@@ -19,12 +19,12 @@ def variational_elbo_gaussian(
 ) -> Float[Array, ""]:
     """Titsias collapsed ELBO for Gaussian likelihoods.
 
-    Computes::
+    Computes:
 
         ELBO = E_q[log p(y|f)] - KL(q||p)
 
     where the expected log-likelihood under a Gaussian variational
-    distribution with diagonal variance has the closed form::
+    distribution with diagonal variance has the closed form:
 
         E_q[log N(y|f, sigma^2 I)]
             = -0.5 * N * log(2 pi sigma^2)
@@ -54,7 +54,7 @@ def variational_elbo_mc(
 ) -> Float[Array, ""]:
     """Monte Carlo ELBO for non-conjugate likelihoods.
 
-    Computes::
+    Computes:
 
         ELBO = (1/S) sum_s log p(y|f_s) - KL(q||p)
 

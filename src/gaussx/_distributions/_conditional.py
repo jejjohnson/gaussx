@@ -23,14 +23,16 @@ def conditional(
 ) -> tuple[Float[Array, " R"], lx.AbstractLinearOperator]:
     r"""Compute ``p(x_A | x_B = b)`` from a joint Gaussian ``p(x_A, x_B)``.
 
-    Given a joint distribution :math:`\mathcal{N}(\mu, \Sigma)` and
+    Given a joint distribution $\mathcal{N}(\mu, \Sigma)$ and
     observed indices *B* with values *b*, returns the conditional
     distribution over the remaining indices *A*:
 
-    .. math::
-
-        \mu_{A|B} &= \mu_A + \Sigma_{AB} \Sigma_{BB}^{-1} (b - \mu_B) \\
-        \Sigma_{A|B} &= \Sigma_{AA} - \Sigma_{AB} \Sigma_{BB}^{-1} \Sigma_{BA}
+    $$
+    \begin{aligned}
+    \mu_{A|B} &= \mu_A + \Sigma_{AB} \Sigma_{BB}^{-1} (b - \mu_B) \\
+    \Sigma_{A|B} &= \Sigma_{AA} - \Sigma_{AB} \Sigma_{BB}^{-1} \Sigma_{BA}
+    \end{aligned}
+    $$
 
     Args:
         loc: Mean vector of the joint distribution, shape ``(N,)``.

@@ -18,7 +18,7 @@ class GaussHermiteIntegrator(AbstractIntegrator):
     r"""Gauss-Hermite quadrature integrator.
 
     Approximates Gaussian expectations using tensor-product Gauss-Hermite
-    quadrature::
+    quadrature:
 
         E[g(f)] \approx \sum_i w_i \cdot g(\mu + L z_i)
 
@@ -28,7 +28,7 @@ class GaussHermiteIntegrator(AbstractIntegrator):
     Exact for polynomials up to degree ``2 * order - 1``.
     Complexity: ``O(order^dim)``, practical for ``dim <= ~5``.
 
-    Args:
+    Attributes:
         order: Number of quadrature points per dimension. Default ``20``.
     """
 

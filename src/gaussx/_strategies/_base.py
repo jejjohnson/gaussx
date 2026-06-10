@@ -15,7 +15,7 @@ class AbstractSolveStrategy(eqx.Module):
 
     A solve strategy encapsulates the choice of algorithm for
     solving ``A x = b``.  Separating solve from logdet lets
-    users mix-and-match via :class:`ComposedSolver`.
+    users mix-and-match via `ComposedSolver`.
     """
 
     @abc.abstractmethod
@@ -41,7 +41,7 @@ class AbstractLogdetStrategy(eqx.Module):
 
     A logdet strategy encapsulates the choice of algorithm for
     computing ``log |det(A)|``.  Separating logdet from solve
-    lets users mix-and-match via :class:`ComposedSolver`.
+    lets users mix-and-match via `ComposedSolver`.
 
     All implementations accept an optional ``key`` parameter for
     stochastic methods.  Deterministic strategies ignore it.
@@ -71,8 +71,8 @@ class AbstractSolverStrategy(AbstractSolveStrategy, AbstractLogdetStrategy):
     decouples distribution objects from solver implementation
     details.
 
-    Subclasses must implement both :meth:`solve` and :meth:`logdet`.
-    For independent control, see :class:`AbstractSolveStrategy` and
-    :class:`AbstractLogdetStrategy`, composable via
-    :class:`ComposedSolver`.
+    Subclasses must implement both `solve` and `logdet`.
+    For independent control, see `AbstractSolveStrategy` and
+    `AbstractLogdetStrategy`, composable via
+    `ComposedSolver`.
     """

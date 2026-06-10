@@ -2,16 +2,16 @@
 
 A preconditioner supplies an approximate inverse ``M^{-1} ~= A^{-1}`` used to
 accelerate iterative solves. In gaussx a preconditioner is an
-:class:`equinox.Module` that knows how to produce a *positive-semidefinite*
+`equinox.Module` that knows how to produce a *positive-semidefinite*
 lineax operator applying ``M^{-1}``.
 
-The single abstract method, :meth:`as_operator`, takes the *system* operator
+The single abstract method, `as_operator`, takes the *system* operator
 ``A`` as an argument. Static preconditioners (e.g. Jacobi, or an externally
 supplied approximate inverse) ignore it; data-dependent ones (e.g.
 partial-Cholesky) use it to build their factor lazily at solve time. This is
 the slot through which PDE-specific approximate inverses (spectral solves,
 multigrid V-cycles) enter gaussx -- they are wrapped by
-:class:`OperatorPreconditioner` and passed in, so gaussx never needs to import
+`OperatorPreconditioner` and passed in, so gaussx never needs to import
 the packages that build them.
 """
 
@@ -27,7 +27,7 @@ from jaxtyping import Array, Float
 class AbstractPreconditioner(eqx.Module):
     """Protocol for preconditioners producing an approximate inverse.
 
-    Subclasses implement :meth:`as_operator`, returning a PSD lineax operator
+    Subclasses implement `as_operator`, returning a PSD lineax operator
     that applies ``M^{-1}`` (or ``None`` to disable preconditioning).
     """
 

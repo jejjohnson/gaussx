@@ -19,7 +19,7 @@ from jaxtyping import Array
 def rearrange(tensor: Array, pattern: str, **axes: int) -> Array:
     """Reorder/reshape ``tensor`` according to an einx pattern.
 
-    einops-compatible wrapper around :func:`einx.id`.
+    einops-compatible wrapper around `einx.id`.
 
     Args:
         tensor: Input array.
@@ -35,7 +35,7 @@ def rearrange(tensor: Array, pattern: str, **axes: int) -> Array:
 def repeat(tensor: Array, pattern: str, **axes: int) -> Array:
     """Broadcast/repeat ``tensor`` along new axes via an einx pattern.
 
-    einops-compatible wrapper around :func:`einx.id`.
+    einops-compatible wrapper around `einx.id`.
 
     Args:
         tensor: Input array.
@@ -71,7 +71,7 @@ def einsum(*operands: Any) -> Array:
     """Contract tensors via an einx pattern (``einops.einsum``-compatible).
 
     The trailing positional argument is the pattern; all preceding arguments
-    are the input tensors. Wraps :func:`einx.dot`.
+    are the input tensors. Wraps `einx.dot`.
 
     Args:
         *operands: Input tensors followed by the einx pattern string, e.g.

@@ -84,5 +84,5 @@ kernel_op = gaussx.ImplicitKernelOperator(
 
 ## Links
 
-- [API Reference](api/reference.md)
+- [API Reference](api/index.md)
 - [GitHub](https://github.com/jejjohnson/gaussx)

@@ -34,7 +34,7 @@ def sqrt(
         operator: A PSD linear operator.
         lanczos_order: Order of Lanczos iteration for matrix-free
             sqrt. If ``None``, uses dense eigendecomposition for most
-            operators, *except* :class:`SumKronecker` — where ``None``
+            operators, *except* `SumKronecker` — where ``None``
             falls back to a Lanczos sqrt with the module default order
             (no closed-form sqrt exists for the sum-of-Kronecker
             structure). Pass an explicit ``lanczos_order`` to override
@@ -154,8 +154,8 @@ class SqrtOperator(lx.AbstractLinearOperator):
 class SumKroneckerSqrt(SqrtOperator):
     """Lazy Lanczos square-root operator for ``SumKronecker`` covariances.
 
-    Specialization of :class:`SqrtOperator` that narrows ``original`` to a
-    :class:`SumKronecker` operator. :meth:`mv` computes ``sqrt(A) v`` via
+    Specialization of `SqrtOperator` that narrows ``original`` to a
+    `SumKronecker` operator. `mv` computes ``sqrt(A) v`` via
     matfree's Lanczos matrix-function product without materializing the full
     square root.
 

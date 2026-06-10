@@ -20,12 +20,12 @@ class LSMRSolver(AbstractSolverStrategy):
 
     Suitable for rectangular, ill-conditioned, or regularized systems.
 
-    The undamped path delegates to :class:`lineax.LSMR` (with lineax's
+    The undamped path delegates to `lineax.LSMR` (with lineax's
     implicit-differentiation rules). lineax's LSMR has no Tikhonov
     ``damp`` parameter, so damped solves use matfree's LSMR, which has
     a custom VJP for memory-efficient backpropagation.
 
-    Args:
+    Attributes:
         atol: Absolute tolerance.
         btol: Relative tolerance on the residual.
         ctol: Condition number tolerance (the lineax path uses

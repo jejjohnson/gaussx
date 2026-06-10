@@ -64,13 +64,13 @@ class AbstractLikelihood(eqx.Module):
 class GaussianLikelihood(AbstractLikelihood):
     r"""Gaussian likelihood ``log N(y | f, noise_var * I)``.
 
-    Supports closed-form expected log-likelihood::
+    Supports closed-form expected log-likelihood:
 
         E_q[log N(y | f, \sigma^2 I)]
             = log N(y | q_\mu, \sigma^2 I)
               - 0.5 / \sigma^2 \cdot tr(q_{cov})
 
-    Args:
+    Attributes:
         y: Observed targets, shape ``(N,)``.
         noise_var: Observation noise variance (scalar).
     """
@@ -102,12 +102,12 @@ class GaussianLikelihood(AbstractLikelihood):
     ) -> Float[Array, ""]:
         r"""Closed-form ``E_q[log N(y | f, \sigma^2 I)]``.
 
-        Uses::
+        Uses:
 
             E_q[log N(y|f,R)] = log N(y | q_mu, R) - 0.5 tr(R^{-1} q_cov)
 
         where ``R = noise_var * I``. Delegates the log-density term to
-        :func:`gaussx.gaussian_log_prob` (which exploits the diagonal
+        `gaussx.gaussian_log_prob` (which exploits the diagonal
         noise structure) and computes the trace correction directly via
         the structural ``trace(q_cov) / noise_var`` shortcut, so
         Kronecker/BlockDiag-structured ``q_cov`` keeps its O(n)

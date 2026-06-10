@@ -53,9 +53,9 @@ def compute_psi_statistics(
 ) -> tuple[Float[Array, ""], Float[Array, " M"], Float[Array, "M M"]]:
     """Compute Ψ statistics, dispatching to analytical or numerical.
 
-    If ``kernel`` implements :class:`AnalyticalPsiStatistics`, uses
+    If ``kernel`` implements `AnalyticalPsiStatistics`, uses
     the closed-form methods. Otherwise, falls back to numerical
-    integration via the provided integrator::
+    integration via the provided integrator:
 
         Ψ₀   = E[k(x, x)]                   scalar
         Ψ₁ᵢ  = E[k(x, xᵢ)]                 (M,)
@@ -63,7 +63,7 @@ def compute_psi_statistics(
 
     Args:
         kernel: Kernel object, optionally implementing
-            :class:`AnalyticalPsiStatistics`.
+            `AnalyticalPsiStatistics`.
         state: Input Gaussian distribution x ~ 𝒩(μ, Σ).
         X_train: Training/inducing points, shape ``(M, D)``.
         integrator: Numerical integrator for fallback. Required if

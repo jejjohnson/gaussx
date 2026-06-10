@@ -65,7 +65,7 @@ def diag_inv(
 def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> Float[Array, " N"]:
     """Exact diagonal of A⁻¹ via Cholesky factorisation.
 
-    Uses :func:`safe_cholesky` for robustness on ill-conditioned
+    Uses `safe_cholesky` for robustness on ill-conditioned
     matrices, then computes L⁻¹ via triangular solve against the
     identity and returns ``sum_j (L⁻¹)_{j,i}²`` for each column i.
     """

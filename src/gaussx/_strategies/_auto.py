@@ -20,7 +20,7 @@ class AutoSolver(AbstractSolverStrategy):
     - Large PSD: CGSolver
     - Large general: DenseSolver (fallback)
 
-    Args:
+    Attributes:
         size_threshold: Matrix dimension above which iterative
             solvers are preferred. Default: 1000.
     """

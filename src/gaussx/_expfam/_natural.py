@@ -5,20 +5,20 @@ conversions in the exponential-family sense. Three parameterizations are
 supported:
 
 - **Operator-based mean/covariance**: ``(mu, Sigma)`` where ``Sigma`` is a
-  :class:`lineax.AbstractLinearOperator`. Conversions exploit operator
+  `lineax.AbstractLinearOperator`. Conversions exploit operator
   structure via structural dispatch (e.g. diagonal, Kronecker). See
-  :func:`natural_to_mean_cov` and :func:`mean_cov_to_natural`.
+  `natural_to_mean_cov` and `mean_cov_to_natural`.
 
 - **Dense mean/variance (Cholesky)**: ``(mu, S_sqrt)`` where
   ``Sigma = S_sqrt @ S_sqrt^T``. All six conversion directions between
   mean/variance, natural, and expectation parameterizations operate on plain
-  JAX arrays. See :func:`meanvar_to_natural`, :func:`natural_to_meanvar`,
-  :func:`meanvar_to_expectation`, :func:`expectation_to_meanvar`,
-  :func:`natural_to_expectation`, and :func:`expectation_to_natural`.
+  JAX arrays. See `meanvar_to_natural`, `natural_to_meanvar`,
+  `meanvar_to_expectation`, `expectation_to_meanvar`,
+  `natural_to_expectation`, and `expectation_to_natural`.
 
 For **block-tridiagonal** (SSM / Gauss-Markov) parameterizations see
-:mod:`gaussx._ssm._ssm_natural`. For **per-site** (scalar/diagonal EP)
-parameterizations see :mod:`gaussx._ssm._site_natural`.
+`gaussx._ssm._ssm_natural`. For **per-site** (scalar/diagonal EP)
+parameterizations see `gaussx._ssm._site_natural`.
 """
 
 from __future__ import annotations
@@ -57,10 +57,10 @@ def natural_to_mean_cov(
 
     Operator structure (diagonal, Kronecker, …) is exploited via
     structural dispatch. For dense-array inputs see
-    :func:`natural_to_meanvar`.
+    `natural_to_meanvar`.
 
     For block-tridiagonal (SSM) inputs see
-    :func:`gaussx._ssm._ssm_natural.naturals_to_ssm`.
+    `gaussx._ssm._ssm_natural.naturals_to_ssm`.
 
     Args:
         eta1: Natural location parameter, shape ``(N,)``.
@@ -93,10 +93,10 @@ def mean_cov_to_natural(
 
     Operator structure (diagonal, Kronecker, …) is exploited via
     structural dispatch. For dense-array inputs see
-    :func:`meanvar_to_natural`.
+    `meanvar_to_natural`.
 
     For block-tridiagonal (SSM) inputs see
-    :func:`gaussx._ssm._ssm_natural.ssm_to_naturals`.
+    `gaussx._ssm._ssm_natural.ssm_to_naturals`.
 
     Args:
         mu: Mean vector, shape ``(N,)``.

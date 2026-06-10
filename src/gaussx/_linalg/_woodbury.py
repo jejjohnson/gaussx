@@ -19,7 +19,7 @@ def woodbury_solve(
     Convenience function for cases where the user has the components
     but doesn't want to construct a ``LowRankUpdate`` operator.
 
-    Uses the identity::
+    Uses the identity:
 
         (L + U D U^T)^{-1} b = L^{-1}b - L^{-1}U C^{-1} U^T L^{-1}b
 

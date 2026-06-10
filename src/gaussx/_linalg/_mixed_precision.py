@@ -68,7 +68,7 @@ def stable_rbf_kernel(
     r"""RBF (squared exponential) kernel with mixed-precision stability.
 
     Computes ``variance * exp(-0.5 * ||x - z||^2 / lengthscale^2)``
-    using :func:`stable_squared_distances` for the distance computation.
+    using `stable_squared_distances` for the distance computation.
 
     Args:
         X: First set of points, shape ``(N, D)``.

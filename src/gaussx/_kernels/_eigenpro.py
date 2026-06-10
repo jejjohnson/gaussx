@@ -27,7 +27,7 @@ class EigenProPreconditioner(eqx.Module):
     Stores the top eigenspace of ``K_mm / m`` on a subsample and the
     corresponding EigenPro correction weights.
 
-    Args:
+    Attributes:
         V: Top eigenvectors of ``K_mm / m``, shape ``(m, k)``.
         D: Correction weights, shape ``(k,)``.
         subsample_indices: Indices used for the subsample, shape ``(m,)``.

@@ -46,7 +46,7 @@ def dare(
 ) -> DAREResult:
     """Discrete Algebraic Riccati Equation solver.
 
-    Iterates the Kalman predict-update equations until convergence::
+    Iterates the Kalman predict-update equations until convergence:
 
         Predict:  P⁻ = A P Aᵀ + Q
         Update:   S = H P⁻ Hᵀ + R
@@ -66,11 +66,11 @@ def dare(
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
         woodbury_innovation: When ``True``, build ``S = H P⁻ Hᵀ + R``
-            as a :class:`gaussx.LowRankUpdate` so structured ``R`` uses
+            as a `gaussx.LowRankUpdate` so structured ``R`` uses
             Woodbury solves.
 
     Returns:
-        A :class:`DAREResult` containing the steady-state covariance,
+        A `DAREResult` containing the steady-state covariance,
         Kalman gain, and convergence flag.
     """
     A_op = _as_operator(A)

@@ -11,11 +11,11 @@ from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 class ConstantSDE(SDEKernel):
     r"""State-space representation of a constant kernel.
 
-    Models :math:`k(\tau) = \sigma^2` — a degenerate kernel with zero
+    Models $k(\tau) = \sigma^2$ — a degenerate kernel with zero
     dynamics and zero diffusion. State dimension is 1.
 
-    Args:
-        variance: Signal variance :math:`\sigma^2`.
+    Attributes:
+        variance: Signal variance $\sigma^2$.
     """
 
     variance: Float[Array, ""]

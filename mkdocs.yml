@@ -34,8 +34,18 @@ plugins:
           paths: [src]
           options:
             docstring_style: google
+            docstring_section_style: table
             show_source: true
             show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            members_order: source
+            heading_level: 3
+            show_signature_annotations: true
+            signature_crossrefs: true
+            merge_init_into_class: false
+            filters: ["!^_"]
   - mkdocs-jupyter:
       execute: false
       ignore_h1_titles: true
@@ -76,7 +86,19 @@ nav:
       - Whitened SVGP & BLR: notebooks/whitened_svgp.ipynb
       - GP with Uncertain Inputs: notebooks/uncertain_gp_inputs.ipynb
       - Matrix-Free GP: notebooks/implicit_kernel.ipynb
-  - API Reference: api/reference.md
+  - API Reference:
+      - Overview: api/index.md
+      - Primitives: api/primitives.md
+      - Operators & Tags: api/operators.md
+      - Solvers & Preconditioners: api/solvers.md
+      - Linear-Algebra Utilities: api/linalg.md
+      - Distributions & Exponential Family: api/distributions.md
+      - Gaussian Processes: api/gp.md
+      - Kernels & Approximations: api/kernels.md
+      - Quadrature & Moment Matching: api/quadrature.md
+      - State-Space Models & Kalman: api/ssm.md
+      - Bayesian Inference & Ensembles: api/inference.md
+  - Changelog: CHANGELOG.md
 
 markdown_extensions:
   - admonition

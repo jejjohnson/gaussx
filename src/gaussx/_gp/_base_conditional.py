@@ -33,11 +33,11 @@ def base_conditional(
     - Inducing function values ``f`` (or whitened values if ``white=True``)
     - Optional variational posterior ``q(u) = N(f, q_sqrt q_sqrt^T)``
 
-    The conditional mean is::
+    The conditional mean is:
 
         mu = K_nm K_mm^{-1} f   (or  K_nm L_mm^{-T} f  if white)
 
-    The conditional covariance is::
+    The conditional covariance is:
 
         Sigma = K_nn - K_nm K_mm^{-1} K_mn + K_nm K_mm^{-1} S K_mm^{-1} K_mn
 

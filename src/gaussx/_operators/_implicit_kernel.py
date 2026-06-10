@@ -91,7 +91,7 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
 
     Computes the kernel matvec without materializing the ``N x N`` kernel
     matrix, using ``O(N)`` memory instead of ``O(N^2)``.  Each element of
-    the output is computed as::
+    the output is computed as:
 
         y_i = \sum_j k(x_i, x_j) v_j + sigma^2 v_i
 

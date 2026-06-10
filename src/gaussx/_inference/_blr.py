@@ -24,7 +24,7 @@ def blr_diag_update(
 ) -> tuple[Float[Array, " d"], Float[Array, " d"]]:
     r"""Diagonal natural parameter BLR update step.
 
-    Computes the damped update for diagonal variational parameters::
+    Computes the damped update for diagonal variational parameters:
 
         \mu = nat1 / (-2 \cdot nat2)
         eta2_{target} = -\tfrac{1}{2}(-hessian\_diag) = 0.5 \cdot hessian\_diag
@@ -71,7 +71,7 @@ def blr_full_update(
 ) -> tuple[Float[Array, " d"], Float[Array, "d d"]]:
     r"""Full-rank natural parameter BLR update step.
 
-    Computes the damped update for full-rank variational parameters::
+    Computes the damped update for full-rank variational parameters:
 
         nat2_{new} = (1 - lr) \cdot nat2 + lr \cdot (-\tfrac{1}{2}(-H))
         \mu = solve(-2 \cdot nat2, nat1)

@@ -15,7 +15,7 @@ from gaussx._operators._block_diag import _to_frozenset
 class BlockTriDiag(lx.AbstractLinearOperator):
     r"""Symmetric block-tridiagonal operator.
 
-    Represents the structure::
+    Represents the structure:
 
         [D_1  A_1^T              ]
         [A_1  D_2   A_2^T        ]
@@ -165,7 +165,7 @@ class BlockTriDiag(lx.AbstractLinearOperator):
 class LowerBlockTriDiag(lx.AbstractLinearOperator):
     """Lower triangular block-bidiagonal Cholesky factor.
 
-    Represents::
+    Represents:
 
         [L_1              ]
         [B_1  L_2          ]
@@ -246,7 +246,7 @@ class LowerBlockTriDiag(lx.AbstractLinearOperator):
 class UpperBlockTriDiag(lx.AbstractLinearOperator):
     """Upper triangular block-bidiagonal (transpose of LowerBlockTriDiag).
 
-    Represents::
+    Represents:
 
         [U_1  C_1            ]
         [     U_2  C_2        ]

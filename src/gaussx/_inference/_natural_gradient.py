@@ -22,7 +22,7 @@ def damped_natural_update(
 
     The universal primitive for iterative approximate inference
     (EP, VI, Newton, PL). Every method reduces to computing target
-    natural parameters and applying this damped update::
+    natural parameters and applying this damped update:
 
         nat1_{new} = (1 - lr) \cdot nat1_{old} + lr \cdot nat1_{target}
         nat2_{new} = (1 - lr) \cdot nat2_{old} + lr \cdot nat2_{target}
@@ -68,7 +68,7 @@ def riemannian_psd_correction(
     r"""Riemannian gradient correction for PSD precision updates.
 
     Ensures the corrected Hessian remains negative semi-definite,
-    stabilizing Newton/EP/VI when the raw Hessian is indefinite::
+    stabilizing Newton/EP/VI when the raw Hessian is indefinite:
 
         G = site\_precision + hessian
         H_{psd} = hessian - 0.5 \cdot lr \cdot G \cdot S \cdot G
@@ -98,7 +98,7 @@ def gauss_newton_precision(
     Hessian approximation is ``-J_r^T J_r`` which gives precision
     ``\Lambda = J^T J`` (always PSD).
 
-    When ``D_{obs} < D_{latent}``, returns a :class:`~gaussx.LowRankUpdate`
+    When ``D_{obs} < D_{latent}``, returns a `LowRankUpdate`
     to enable efficient Woodbury-based solves downstream.
 
     Args:

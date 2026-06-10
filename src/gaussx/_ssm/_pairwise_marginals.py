@@ -14,7 +14,7 @@ def pairwise_marginals(
 ) -> tuple[Float[Array, "Tm1 two_d"], Float[Array, "Tm1 two_d two_d"]]:
     r"""Joint p(x_k, x_{k+1}) for each consecutive pair.
 
-    For each pair ``(k, k+1)``, the joint distribution is::
+    For each pair ``(k, k+1)``, the joint distribution is:
 
         p(x_k, x_{k+1}) = N([mu_k; mu_{k+1}],
                              [[P_k,      C_k^T],

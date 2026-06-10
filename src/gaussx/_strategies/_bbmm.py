@@ -25,7 +25,7 @@ class BBMMSolver(AbstractSolverStrategy):
     ``solve_and_logdet`` deterministic functions of the operator —
     no PRNG key is needed at call time.
 
-    Args:
+    Attributes:
         cg_max_iter: Maximum CG iterations.
         cg_tolerance: Relative tolerance for CG.
         lanczos_iter: Lanczos iterations for SLQ.

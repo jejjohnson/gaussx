@@ -24,7 +24,7 @@ def _build_likelihood_precision(
     """Build block-tridiagonal likelihood precision from emission model.
 
     For scalar or vector observations at each time step, the likelihood
-    precision contribution is block-diagonal (zero sub-diagonals)::
+    precision contribution is block-diagonal (zero sub-diagonals):
 
         Lambda_lik[k] = H_k^T R_k^{-1} H_k
 
@@ -106,19 +106,19 @@ def spingp_log_likelihood(
     r"""Log marginal likelihood via sparse inverse GP formulation.
 
     Computes the log marginal likelihood using the precision-form
-    Kalman filter (SpInGP)::
+    Kalman filter (SpInGP):
 
-        1. Likelihood precision sites: :math:`\Lambda_{lik} = H^T R^{-1} H`
-        2. Posterior precision: :math:`\Lambda_{post} = \Lambda_{prior} + \Lambda_{lik}`
+        1. Likelihood precision sites: $\Lambda_{lik} = H^T R^{-1} H$
+        2. Posterior precision: $\Lambda_{post} = \Lambda_{prior} + \Lambda_{lik}$
         3. log p(y) via banded Cholesky logdet and quadratic form
 
-    The full expression is::
+    The full expression is:
 
         log p(y) = -0.5 * (N_{obs} * log(2\pi) + log|R|_{total}
                    + y^T R^{-1} y - \eta^T \Lambda_{post}^{-1} \eta
                    + log|\Lambda_{post}| - log|\Lambda_{prior}|)
 
-    where :math:`\eta = H^T R^{-1} y`.
+    where $\eta = H^T R^{-1} y$.
 
     All operations exploit banded structure for O(Nd³) cost.
 
@@ -185,7 +185,7 @@ def spingp_posterior(
     r"""Posterior mean and precision via SpInGP.
 
     Computes the posterior by adding likelihood precision sites to the
-    prior precision and solving for the posterior mean::
+    prior precision and solving for the posterior mean:
 
         \Lambda_{post} = \Lambda_{prior} + H^T R^{-1} H
         \mu_{post} = \Lambda_{post}^{-1} H^T R^{-1} y

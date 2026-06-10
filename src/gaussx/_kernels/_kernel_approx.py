@@ -17,7 +17,7 @@ def nystrom_operator(
     r"""Nystrom low-rank kernel approximation.
 
     Approximates ``K_{XX} \approx K_{XZ} K_{ZZ}^{-1} K_{ZX}`` as a
-    :class:`~gaussx.LowRankUpdate` with zero base::
+    `LowRankUpdate` with zero base:
 
         K_{XX} \approx U D U^T
 
@@ -30,7 +30,7 @@ def nystrom_operator(
         K_ZZ_op: Inducing-point covariance operator, shape ``(M, M)``.
 
     Returns:
-        :class:`~gaussx.LowRankUpdate` operator of shape ``(N, N)``.
+        `LowRankUpdate` operator of shape ``(N, N)``.
     """
 
     L = cholesky(K_ZZ_op)
@@ -62,11 +62,11 @@ def rff_operator(
 ) -> LowRankUpdate:
     r"""Random Fourier Features kernel approximation.
 
-    Approximates ``K_{XX} \approx \Phi \Phi^T`` where::
+    Approximates ``K_{XX} \approx \Phi \Phi^T`` where:
 
         \Phi_{i,j} = \sqrt{2/D_{rff}} \cos(X_i \cdot \omega_j + b_j)
 
-    Returns a :class:`~gaussx.LowRankUpdate` that never materializes
+    Returns a `LowRankUpdate` that never materializes
     the ``N x N`` matrix.
 
     Args:
@@ -77,7 +77,7 @@ def rff_operator(
             Sample uniformly from ``[0, 2*pi]``.
 
     Returns:
-        :class:`~gaussx.LowRankUpdate` operator of shape ``(N, N)``.
+        `LowRankUpdate` operator of shape ``(N, N)``.
     """
     D_rff = omega.shape[0]
     N = X.shape[0]
@@ -97,14 +97,14 @@ def rff_operator(
 def centering_operator(n: int) -> LowRankUpdate:
     r"""Centering matrix ``H = I - (1/n) \mathbf{1}\mathbf{1}^T``.
 
-    Returns as a :class:`~gaussx.LowRankUpdate` so the structure is
+    Returns as a `LowRankUpdate` so the structure is
     preserved for downstream operations like ``H K H``.
 
     Args:
         n: Dimension of the centering matrix.
 
     Returns:
-        :class:`~gaussx.LowRankUpdate` operator of shape ``(n, n)``.
+        `LowRankUpdate` operator of shape ``(n, n)``.
     """
     base = lx.DiagonalLinearOperator(jnp.ones(n))
     ones = jnp.ones((n, 1))
@@ -143,7 +143,7 @@ def hsic(
 ) -> Float[Array, ""]:
     r"""Biased HSIC estimator.
 
-    Computes the Hilbert-Schmidt Independence Criterion::
+    Computes the Hilbert-Schmidt Independence Criterion:
 
         HSIC = (1/n^2) \mathrm{tr}(K_f H K_q H)
 
@@ -171,7 +171,7 @@ def mmd_squared(
 ) -> Float[Array, ""]:
     r"""Biased squared Maximum Mean Discrepancy.
 
-    Computes::
+    Computes:
 
         MMD^2 = mean(K_{xx}) + mean(K_{yy}) - 2 \cdot mean(K_{xy})
 

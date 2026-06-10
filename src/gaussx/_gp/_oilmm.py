@@ -14,7 +14,7 @@ def oilmm_project(
     """Project multi-output data to independent latent GPs via OILMM.
 
     Given an orthogonal mixing matrix W ∈ ℝᴾˣᴸ with WᵀW = I_L, projects
-    P-output observations to L independent latent channels::
+    P-output observations to L independent latent channels:
 
         Y_latent    = Y W              (N, L)
         σ²_latent   = (W ⊙ W)ᵀ σ²     (L,)
@@ -42,7 +42,7 @@ def oilmm_back_project(
 ) -> tuple[Float[Array, "N P"], Float[Array, "N P"]]:
     """Back-project latent GP predictions to the observation space.
 
-    Reconstructs observation-space predictions via::
+    Reconstructs observation-space predictions via:
 
         y_means = f_means Wᵀ              (N, P)
         y_vars  = f_vars (W ⊙ W)ᵀ        (N, P)

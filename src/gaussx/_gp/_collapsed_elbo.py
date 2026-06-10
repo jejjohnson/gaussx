@@ -25,7 +25,7 @@ def collapsed_elbo(
     """Collapsed ELBO (Titsias bound) for sparse GP regression.
 
     Computes the variational lower bound on the log marginal likelihood
-    using the matrix determinant lemma for O(NM² + M³) cost::
+    using the matrix determinant lemma for O(NM² + M³) cost:
 
         ELBO = log 𝒩(y | 0, Q_ff + σ²I) − ½σ⁻² tr(K_ff − Q_ff)
 

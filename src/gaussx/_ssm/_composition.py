@@ -14,7 +14,7 @@ from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 class SumSDE(SDEKernel):
     """Sum of SDE kernels via block-diagonal composition.
 
-    Args:
+    Attributes:
         kernels: Tuple of component SDE kernels.
     """
 
@@ -54,7 +54,7 @@ class SumSDE(SDEKernel):
 class ProductSDE(SDEKernel):
     """Product of two SDE kernels via Kronecker composition.
 
-    Args:
+    Attributes:
         kernel1: First component kernel.
         kernel2: Second component kernel.
     """
@@ -78,7 +78,7 @@ class ProductSDE(SDEKernel):
             kernels (Matérn-3/2, periodic) this is ≤ 32, so the
             materialization is bounded and cheap. A future refactor
             could expose a parallel ``sde_operators()`` method that
-            returns :class:`gaussx.Kronecker` operators for downstream
+            returns `gaussx.Kronecker` operators for downstream
             filters that can exploit the structure (issue #153).
         """
         p1 = self.kernel1.sde_params()
@@ -104,9 +104,9 @@ class ProductSDE(SDEKernel):
         For a product kernel ``F = F_1 \oplus F_2 = F_1 \otimes I + I \otimes F_2``,
         the factors ``F_1 \otimes I`` and ``I \otimes F_2`` commute, so
 
-        .. math::
-
-            \exp(F \, dt) = \exp(F_1 \, dt) \otimes \exp(F_2 \, dt).
+        $$
+        \exp(F \, dt) = \exp(F_1 \, dt) \otimes \exp(F_2 \, dt).
+        $$
 
         This computes two ``expm`` calls of size ``d_1`` and ``d_2``
         each, plus one Kronecker product, instead of one ``expm`` of
@@ -123,7 +123,7 @@ class ProductSDE(SDEKernel):
             dt: Time step (scalar, positive).
 
         Returns:
-            Tuple ``(A, Q)`` matching :meth:`SDEKernel.discretise`.
+            Tuple ``(A, Q)`` matching `SDEKernel.discretise`.
         """
         p1 = self.kernel1.sde_params()
         p2 = self.kernel2.sde_params()
@@ -143,7 +143,7 @@ class ProductSDE(SDEKernel):
 class QuasiPeriodicSDE(ProductSDE):
     """Quasi-periodic kernel: product of Matern and Periodic SDE.
 
-    Args:
+    Attributes:
         kernel1: Modulating kernel (typically Matern).
         kernel2: Periodic kernel.
     """

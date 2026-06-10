@@ -20,7 +20,7 @@ def dispatch_solve(
         operator: The linear operator A.
         vector: Right-hand side b.
         solver: Optional solve strategy. When ``None``, falls back
-            to :func:`gaussx.solve` (structural dispatch).
+            to `gaussx.solve` (structural dispatch).
 
     Returns:
         Solution x.
@@ -43,7 +43,7 @@ def dispatch_logdet(
     Args:
         operator: The linear operator A.
         solver: Optional logdet strategy. When ``None``, falls back
-            to :func:`gaussx.logdet` (structural dispatch).
+            to `gaussx.logdet` (structural dispatch).
         key: Optional PRNG key for stochastic estimators.
 
     Returns:

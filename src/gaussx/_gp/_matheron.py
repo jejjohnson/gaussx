@@ -26,9 +26,9 @@ def matheron_update(
     Given joint prior draws ``(a, b)`` and an observed conditioning value
     ``β``, Matheron's rule samples from ``a | b = β`` by applying
 
-    .. math::
-
-        a + \operatorname{Cov}(a, b)\operatorname{Cov}(b, b)^{-1}(β - b).
+    $$
+    a + \operatorname{Cov}(a, b)\operatorname{Cov}(b, b)^{-1}(β - b).
+    $$
 
     This helper keeps both covariance arguments as lineax operators, so the
     conditioning solve uses the existing GaussX structural dispatch and the
@@ -45,7 +45,7 @@ def matheron_update(
         conditioning_covariance: Conditioning covariance operator
             ``Cov(b, b)``, shape ``(M, M)``.
         solver: Optional solver strategy for the conditioning solve
-            (e.g. :class:`gaussx.CGSolver`, :class:`gaussx.BBMMSolver`).
+            (e.g. `gaussx.CGSolver`, `gaussx.BBMMSolver`).
             When ``None``, routes through structural dispatch on
             ``conditioning_covariance``.
 

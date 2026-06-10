@@ -58,7 +58,7 @@ def conditional_variance(
     """Predictive variance: Schur complement diagonal plus optional variational
     correction.
 
-    Computes the diagonal of the conditional covariance::
+    Computes the diagonal of the conditional covariance:
 
         diag(K_XX - A_X K_XZ^T) + diag(A_X S_u A_X^T)
 
@@ -85,9 +85,9 @@ def conditional_variance(
         ``base_diag`` was the *Schur* diagonal already, ``A_X`` was the
         projection, and ``S_u`` was the variational covariance) is
         still accepted: it is detected when the second positional
-        argument is a :class:`lineax.AbstractLinearOperator` (the old
+        argument is a `lineax.AbstractLinearOperator` (the old
         ``S_u`` slot type). Such calls emit a
-        :class:`DeprecationWarning` and compute
+        `DeprecationWarning` and compute
         ``base_diag + diag(A_X S_u A_X^T)`` without the
         Schur subtraction.
     """

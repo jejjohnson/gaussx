@@ -14,7 +14,7 @@ class GaussianSites(eqx.Module):
 
     Stores per-timestep natural parameters for ``N`` Gaussian sites,
     following the ``\eta_2 = -\tfrac{1}{2}\Lambda`` convention
-    (consistent with :func:`gaussx.mean_cov_to_natural`).
+    (consistent with `gaussx.mean_cov_to_natural`).
 
     Attributes:
         nat1: Natural location parameters, shape ``(N, d)``.
@@ -34,7 +34,7 @@ def cvi_update_sites(
 ) -> GaussianSites:
     r"""Natural gradient update for CVI sites.
 
-    Performs a damped update in natural parameter space::
+    Performs a damped update in natural parameter space:
 
         \theta \leftarrow (1 - \rho) \theta + \rho \nabla
 
@@ -45,7 +45,7 @@ def cvi_update_sites(
         rho: Step size / damping factor in ``[0, 1]``.
 
     Returns:
-        Updated :class:`GaussianSites`.
+        Updated `GaussianSites`.
     """
     new_nat1 = (1.0 - rho) * sites.nat1 + rho * grad_nat1
     new_nat2 = (1.0 - rho) * sites.nat2 + rho * grad_nat2
@@ -55,10 +55,10 @@ def cvi_update_sites(
 def sites_to_precision(sites: GaussianSites) -> BlockTriDiag:
     r"""Convert Gaussian sites to a block-tridiagonal precision.
 
-    Returns a block-diagonal :class:`~gaussx.BlockTriDiag` (zero
+    Returns a block-diagonal `BlockTriDiag` (zero
     sub-diagonals) representing the precision contribution of the
     sites. This can be added to a prior precision via ``.add()``
-    or ``+`` to form the posterior precision::
+    or ``+`` to form the posterior precision:
 
         \Lambda_{post} = \Lambda_{prior} + \Lambda_{sites}
 
@@ -69,7 +69,7 @@ def sites_to_precision(sites: GaussianSites) -> BlockTriDiag:
         sites: Gaussian sites with ``nat2`` in eta2 convention.
 
     Returns:
-        Block-diagonal :class:`~gaussx.BlockTriDiag` precision.
+        Block-diagonal `BlockTriDiag` precision.
     """
     N, d = sites.nat1.shape
     diag_blocks = -2.0 * sites.nat2  # (N, d, d)

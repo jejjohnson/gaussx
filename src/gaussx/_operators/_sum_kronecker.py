@@ -21,7 +21,7 @@ class SumKronecker(lx.AbstractLinearOperator):
 
     Matvec is computed as the sum of the Kronecker matvecs.
 
-    For solve and logdet, call :meth:`eigendecompose` which uses a
+    For solve and logdet, call `eigendecompose` which uses a
     joint eigendecomposition of the second Kronecker pair (requires
     ``A_2, B_2`` to be symmetric).  The eigendecomposition forms a
     dense ``(n_c n_d) x (n_c n_d)`` matrix internally, so it is
@@ -110,7 +110,7 @@ class SumKronecker(lx.AbstractLinearOperator):
         ``B_2 = Q_D \Lambda_D Q_D^T``, then transforms the first pair
         into the eigenbasis and diagonalizes the result.
 
-        .. note::
+        !!! note
 
             This forms a dense ``(n_c n_d) x (n_c n_d)`` matrix
             internally and is O((n_c n_d)^3).  Intended for moderate

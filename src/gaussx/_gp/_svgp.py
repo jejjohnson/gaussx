@@ -20,7 +20,7 @@ def whitened_svgp_predict(
     r"""Whitened SVGP prediction: mean and variance at test points.
 
     Computes the predictive mean and variance for a sparse variational
-    GP using the whitened parameterization::
+    GP using the whitened parameterization:
 
         L_{zz} = cholesky(K_{zz})
         A = L_{zz}^{-1} K_{zx}           (triangular solve)

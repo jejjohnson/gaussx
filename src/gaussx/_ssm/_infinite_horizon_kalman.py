@@ -62,14 +62,14 @@ def infinite_horizon_filter(
 
     Uses the DARE solution for a constant Kalman gain K∞, avoiding
     per-step Riccati updates.  For dense matrices, the per-step cost is
-    O(N² + MN + M²) instead of O(N³) for the standard Kalman filter::
+    O(N² + MN + M²) instead of O(N³) for the standard Kalman filter:
 
         Predict:  x⁻ₜ = A xₜ₋₁
         Update:   vₜ  = yₜ − H x⁻ₜ
                   xₜ  = x⁻ₜ + K∞ vₜ
 
     All four operator/array arguments accept either a raw JAX array or
-    a :class:`lineax.AbstractLinearOperator`. Operator inputs preserve
+    a `lineax.AbstractLinearOperator`. Operator inputs preserve
     their structural matvec inside the per-step scan; the sandwiches
     materialise once outside the scan.
 
@@ -89,7 +89,7 @@ def infinite_horizon_filter(
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
         woodbury_innovation: When ``True``, build the steady-state
-            innovation covariance as :class:`gaussx.LowRankUpdate` so
+            innovation covariance as `gaussx.LowRankUpdate` so
             structured ``R`` can use Woodbury solves/log-determinants.
 
     Returns:
@@ -185,7 +185,7 @@ def infinite_horizon_smoother(
 
     Precomputes the steady-state smoother gain G∞ = P∞ Aᵀ P⁻pred⁻¹,
     then runs a backward scan with fixed G∞.  The steady-state smoothed
-    covariance is the solution of the discrete Lyapunov equation::
+    covariance is the solution of the discrete Lyapunov equation:
 
         P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
 
@@ -218,7 +218,7 @@ def infinite_horizon_smoother(
     # Solve discrete Lyapunov equation:
     # P_smooth = P∞ + G∞ (P_smooth − P⁻pred) G∞ᵀ
     # ⟺ P_smooth − G∞ P_smooth G∞ᵀ = P∞ − G∞ P⁻pred G∞ᵀ
-    # Routed through :func:`discrete_lyapunov_solve` which uses a
+    # Routed through `discrete_lyapunov_solve` which uses a
     # per-factor eigendecomposition of ``G∞`` instead of materializing
     # the ``(N², N²)`` Kronecker matrix ``I − G∞ ⊗ G∞``.
     rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T  # (N, N)

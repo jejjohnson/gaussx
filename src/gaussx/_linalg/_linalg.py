@@ -43,7 +43,7 @@ def cov_transform(
 
     Exploits structure where it can:
 
-    - **Operator-valued** ``J``: routes through :func:`sandwich`, which
+    - **Operator-valued** ``J``: routes through `sandwich`, which
       preserves matched ``Kronecker`` / ``BlockDiag`` structure and
       avoids materialising ``Sigma`` when either ``J`` or ``cov_operator``
       is diagonal.
@@ -62,8 +62,8 @@ def cov_transform(
     Returns:
         Transformed covariance operator, shape ``(M, M)``. For
         operator-valued ``J`` the structural class of the return type
-        follows :func:`sandwich`; otherwise it is a
-        :class:`lineax.MatrixLinearOperator`.
+        follows `sandwich`; otherwise it is a
+        `lineax.MatrixLinearOperator`.
     """
     if isinstance(J, lx.AbstractLinearOperator):
         return sandwich(J, cov_operator)
@@ -93,7 +93,7 @@ def sandwich(
     Returns:
         Transformed covariance operator with shape ``(M, M)``.
 
-    Example:
+    Examples:
         ```python
         A = gaussx.Kronecker(A1, A2)
         P = gaussx.Kronecker(P1, P2)
@@ -190,9 +190,9 @@ def trace_product(
     - **Both diagonal**: ``sum(diag(A) * diag(B))``.
     - **Diagonal × general** (or vice versa): contract the diagonal with
       the diagonal of the other operator (no full materialization).
-    - **Matched** :class:`gaussx.BlockDiag` (same block sizes): sum of
+    - **Matched** `gaussx.BlockDiag` (same block sizes): sum of
       per-block ``trace_product``.
-    - **Matched** :class:`gaussx.Kronecker` (same factor structure):
+    - **Matched** `gaussx.Kronecker` (same factor structure):
       ``prod_i tr(A_i @ B_i)``.
     - Otherwise falls back to ``sum(A * B^T)`` on the materialized
       matrices — the same O(N²) cost the previous implementation paid.
@@ -269,9 +269,9 @@ def diag_conditional_variance(
 ) -> Float[Array, " N"]:
     """Diagonal of Schur complement: ``diag(K_XX - A K_ZX)``.
 
-    Thin wrapper around :func:`gaussx.conditional_variance` (defined in
-    :func:`gaussx._linalg._schur.conditional_variance`) without a
-    variational covariance.  Use :func:`gaussx.conditional_variance`
+    Thin wrapper around `gaussx.conditional_variance` (defined in
+    `gaussx._linalg._schur.conditional_variance`) without a
+    variational covariance.  Use `gaussx.conditional_variance`
     directly when a variational correction ``S_u`` is also needed.
 
     Args:
@@ -327,18 +327,18 @@ def solve_matrix(
     """Solve ``A X = B`` with a single factorization on the matrix RHS.
 
     When ``solver`` is ``None`` and ``A`` is positive semidefinite, this
-    factors ``A = L L^T`` once via :func:`gaussx.cholesky` and then uses
+    factors ``A = L L^T`` once via `gaussx.cholesky` and then uses
     a single ``cho_solve`` on the full matrix RHS — avoiding the
-    per-column re-factorization incurred by :func:`solve_columns`.
+    per-column re-factorization incurred by `solve_columns`.
 
     For non-PSD operators (or when a custom ``solver`` is supplied),
-    falls back to :func:`solve_columns`.
+    falls back to `solve_columns`.
 
     Args:
         operator: Linear operator A, shape ``(N, N)``.
         matrix: Right-hand side B, shape ``(N, K)``.
         solver: Optional solver strategy. When provided, dispatch is
-            delegated column-by-column via :func:`solve_columns`.
+            delegated column-by-column via `solve_columns`.
 
     Returns:
         Solution X = A⁻¹ B, shape ``(N, K)``.
