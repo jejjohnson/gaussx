@@ -14,7 +14,7 @@ from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 class SumSDE(SDEKernel):
     """Sum of SDE kernels via block-diagonal composition.
 
-    Args:
+    Attributes:
         kernels: Tuple of component SDE kernels.
     """
 
@@ -54,7 +54,7 @@ class SumSDE(SDEKernel):
 class ProductSDE(SDEKernel):
     """Product of two SDE kernels via Kronecker composition.
 
-    Args:
+    Attributes:
         kernel1: First component kernel.
         kernel2: Second component kernel.
     """
@@ -143,7 +143,7 @@ class ProductSDE(SDEKernel):
 class QuasiPeriodicSDE(ProductSDE):
     """Quasi-periodic kernel: product of Matern and Periodic SDE.
 
-    Args:
+    Attributes:
         kernel1: Modulating kernel (typically Matern).
         kernel2: Periodic kernel.
     """

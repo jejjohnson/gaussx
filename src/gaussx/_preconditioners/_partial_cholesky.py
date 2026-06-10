@@ -18,7 +18,7 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
     For operators of the form ``K + sigma^2 I`` this dramatically reduces CG
     iteration counts.
 
-    Args:
+    Attributes:
         rank: Rank of the partial Cholesky. ``<= 0`` disables preconditioning
             (:meth:`as_operator` returns ``None``).
         shift: Diagonal shift ``s`` for the preconditioner, typically the noise

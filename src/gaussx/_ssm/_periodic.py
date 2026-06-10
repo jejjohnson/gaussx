@@ -16,7 +16,7 @@ class CosineSDE(SDEKernel):
     Models :math:`k(\tau) = \sigma^2 \cos(\omega_0 \tau)` via a 2-D
     rotation SDE. State dimension is 2.
 
-    Args:
+    Attributes:
         variance: Signal variance :math:`\sigma^2`.
         frequency: Angular frequency :math:`\omega_0`.
     """
@@ -57,7 +57,7 @@ class PeriodicSDE(SDEKernel):
     Approximates the periodic kernel via Fourier series truncation
     to ``n_harmonics`` terms. State dimension is ``2 * n_harmonics``.
 
-    Args:
+    Attributes:
         variance: Signal variance :math:`\sigma^2`.
         lengthscale: Lengthscale :math:`\ell`.
         period: Period :math:`T`.

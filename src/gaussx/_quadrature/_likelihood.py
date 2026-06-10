@@ -70,7 +70,7 @@ class GaussianLikelihood(AbstractLikelihood):
             = log N(y | q_\mu, \sigma^2 I)
               - 0.5 / \sigma^2 \cdot tr(q_{cov})
 
-    Args:
+    Attributes:
         y: Observed targets, shape ``(N,)``.
         noise_var: Observation noise variance (scalar).
     """

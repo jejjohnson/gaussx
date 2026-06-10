@@ -46,7 +46,7 @@ class SLQLogdet(AbstractLogdetStrategy):
     Lanczos decomposition with sign-flip ("Rademacher") probe vectors
     by default.
 
-    Args:
+    Attributes:
         num_probes: Number of probe vectors for Hutchinson estimator.
         lanczos_order: Order of the Lanczos decomposition.
         seed: Seed for probe vector generation (used when no
@@ -122,7 +122,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
     function, so it works on indefinite and negative-definite matrices.
     Supports a diagonal shift ``(A + shift * I)``.
 
-    Args:
+    Attributes:
         num_probes: Number of probe vectors for Hutchinson estimator.
         lanczos_order: Order of the Lanczos decomposition.
         shift: Diagonal shift applied before computing the logdet.

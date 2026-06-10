@@ -14,7 +14,7 @@ from gaussx._quadrature._likelihood import AbstractLikelihood
 class BernoulliLikelihood(AbstractLikelihood):
     r"""Bernoulli likelihood with logit link.
 
-    Args:
+    Attributes:
         y: Binary observations, shape ``(N,)``.
     """
 
@@ -30,7 +30,7 @@ class BernoulliLikelihood(AbstractLikelihood):
 class PoissonLikelihood(AbstractLikelihood):
     r"""Poisson likelihood with log link.
 
-    Args:
+    Attributes:
         y: Count observations, shape ``(N,)``.
     """
 
@@ -44,7 +44,7 @@ class PoissonLikelihood(AbstractLikelihood):
 class StudentTLikelihood(AbstractLikelihood):
     r"""Student-t likelihood for robust regression.
 
-    Args:
+    Attributes:
         y: Observations, shape ``(N,)``.
         df: Degrees of freedom (> 0).
         scale: Scale parameter (> 0).
@@ -98,7 +98,7 @@ class SoftmaxLikelihood(AbstractLikelihood):
 class HeteroscedasticGaussianLikelihood(AbstractLikelihood):
     r"""Heteroscedastic Gaussian likelihood with input-dependent noise.
 
-    Args:
+    Attributes:
         y: Observations, shape ``(N,)``.
     """
 

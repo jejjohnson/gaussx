@@ -14,7 +14,7 @@ class ConstantSDE(SDEKernel):
     Models :math:`k(\tau) = \sigma^2` — a degenerate kernel with zero
     dynamics and zero diffusion. State dimension is 1.
 
-    Args:
+    Attributes:
         variance: Signal variance :math:`\sigma^2`.
     """
 

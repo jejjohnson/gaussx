@@ -18,7 +18,7 @@ from gaussx._preconditioners._base import AbstractPreconditioner
 class OperatorPreconditioner(AbstractPreconditioner):
     """Use an externally supplied approximate inverse as a preconditioner.
 
-    Args:
+    Attributes:
         approx_inverse: The approximate inverse ``M^{-1}``, either as a lineax
             operator or as a callable ``v -> M^{-1} v``.
         in_structure: Input structure for the callable form. When ``None`` it is

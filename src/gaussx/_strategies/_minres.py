@@ -162,7 +162,7 @@ class MINRESSolver(AbstractSolverStrategy):
     Use cases: EP natural parameters, saddle-point systems,
     Laplace approximation Hessians.
 
-    Args:
+    Attributes:
         rtol: Relative tolerance for MINRES.
         atol: Absolute tolerance for MINRES.
         max_steps: Maximum MINRES iterations.

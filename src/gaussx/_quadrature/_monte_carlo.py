@@ -29,7 +29,7 @@ class MonteCarloIntegrator(AbstractIntegrator):
         Sigma_y = cov(y_i) + regularization * I
         cross_cov = cov(x_i, y_i)
 
-    Args:
+    Attributes:
         n_samples: Number of Monte Carlo samples. Default ``1000``.
         regularization: Diagonal jitter for numerical stability.
         key: PRNG key. If ``None``, uses ``jax.random.key(0)``.

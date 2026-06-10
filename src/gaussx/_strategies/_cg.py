@@ -19,7 +19,7 @@ class CGSolver(AbstractSolverStrategy):
     for large PSD operators where dense factorization is too
     expensive.
 
-    Args:
+    Attributes:
         rtol: Relative tolerance for CG.
         atol: Absolute tolerance for CG.
         max_steps: Maximum CG iterations.

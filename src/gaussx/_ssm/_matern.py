@@ -15,7 +15,7 @@ class MaternSDE(SDEKernel):
     Supports orders 0 (Matern-1/2), 1 (Matern-3/2), and 2 (Matern-5/2).
     The state dimension is ``order + 1``.
 
-    Args:
+    Attributes:
         variance: Signal variance :math:`\sigma^2`.
         lengthscale: Lengthscale :math:`\ell`.
         order: Matern order (0, 1, or 2).

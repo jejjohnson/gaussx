@@ -25,7 +25,7 @@ class LSMRSolver(AbstractSolverStrategy):
     ``damp`` parameter, so damped solves use matfree's LSMR, which has
     a custom VJP for memory-efficient backpropagation.
 
-    Args:
+    Attributes:
         atol: Absolute tolerance.
         btol: Relative tolerance on the residual.
         ctol: Condition number tolerance (the lineax path uses

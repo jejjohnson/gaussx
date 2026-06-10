@@ -23,7 +23,7 @@ class ComposedSolver(AbstractSolverStrategy):
     Accepts either fine-grained protocols (:class:`AbstractSolveStrategy`,
     :class:`AbstractLogdetStrategy`) or full solver strategies.
 
-    Args:
+    Attributes:
         solve_strategy: Strategy whose ``.solve()`` method will be used.
         logdet_strategy: Strategy whose ``.logdet()`` method will be used.
 

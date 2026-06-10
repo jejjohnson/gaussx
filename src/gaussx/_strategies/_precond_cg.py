@@ -22,7 +22,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     For operators of the form ``K + sigma^2 I``, preconditioning
     dramatically reduces the number of CG iterations.
 
-    Args:
+    Attributes:
         preconditioner_rank: Rank of the partial Cholesky. Set to 0
             to disable preconditioning (falls back to plain CG).
         shift: Diagonal shift ``s`` for the preconditioner.

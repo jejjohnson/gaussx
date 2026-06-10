@@ -30,7 +30,7 @@ class AssumedDensityFilter(AbstractIntegrator):
 
         eps = eps_base * trace(Sigma_y) / n_dim
 
-    Args:
+    Attributes:
         n_samples: Number of Monte Carlo samples. Default ``5000``.
         regularization: Base regularization. Default ``1e-6``.
         adaptive_regularization: Scale regularization by output

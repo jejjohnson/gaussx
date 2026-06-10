@@ -29,7 +29,7 @@ class TaylorIntegrator(AbstractIntegrator):
         mu_y_i += 0.5 * tr(H_i @ Sigma_x)
         Sigma_y += correction from Hessians
 
-    Args:
+    Attributes:
         order: Taylor expansion order (1 or 2). Default 1.
         correct_variance: If True and order=2, apply 2nd-order covariance
             correction using 4th Gaussian moments. Default True to preserve

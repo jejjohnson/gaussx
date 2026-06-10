@@ -28,7 +28,7 @@ class UnscentedIntegrator(AbstractIntegrator):
 
     where ``lambda = alpha^2 * (N + kappa) - N``.
 
-    Args:
+    Attributes:
         alpha: Spread parameter. Default ``1e-3``.
         beta: Prior knowledge parameter (2.0 optimal for Gaussian).
         kappa: Secondary scaling. Default ``0.0``.
