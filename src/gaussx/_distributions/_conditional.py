@@ -7,6 +7,7 @@ import lineax as lx
 from jaxtyping import Array, Float, Int
 
 from gaussx._linalg._linalg import solve_matrix
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._submatrix import submatrix
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -88,7 +89,7 @@ def conditional(
     cond_cov_mat = Sigma_AA - Sigma_AB @ X
 
     # Symmetrize for numerical stability
-    cond_cov_mat = 0.5 * (cond_cov_mat + cond_cov_mat.T)
+    cond_cov_mat = symmetrize(cond_cov_mat)
     cond_cov = lx.MatrixLinearOperator(cond_cov_mat, lx.positive_semidefinite_tag)
 
     return cond_mean, cond_cov

@@ -121,6 +121,7 @@ from gaussx._linalg import (
     solve_tridiagonal_batched as solve_tridiagonal_batched,
     stable_rbf_kernel as stable_rbf_kernel,
     stable_squared_distances as stable_squared_distances,
+    symmetrize as symmetrize,
     trace_product as trace_product,
     woodbury_solve as woodbury_solve,
 )
@@ -170,6 +171,7 @@ from gaussx._primitives import (
     diag as diag,
     eig as eig,
     eigvals as eigvals,
+    frobenius_norm as frobenius_norm,
     inv as inv,
     logdet as logdet,
     root_decomposition as root_decomposition,
@@ -179,6 +181,7 @@ from gaussx._primitives import (
     submatrix as submatrix,
     svd as svd,
     trace as trace,
+    trace_and_diag as trace_and_diag,
 )
 from gaussx._quadrature import (
     AbstractIntegrator as AbstractIntegrator,

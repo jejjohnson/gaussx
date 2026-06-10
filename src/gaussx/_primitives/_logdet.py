@@ -10,11 +10,14 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
-from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
+from gaussx._operators._block_tridiag import (
+    BlockTriDiag,
+    LowerBlockTriDiag,
+    UpperBlockTriDiag,
+)
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
 
 def cholesky_logdet(L: Float[Array, "N N"]) -> Float[Array, ""]:
@@ -38,22 +41,38 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     Returns:
         Scalar log |det(A)|.
     """
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return jnp.array(0.0)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _logdet_diagonal(operator)
     if isinstance(operator, BlockDiag):
         return _logdet_block_diag(operator)
     if isinstance(operator, Kronecker):
         return _logdet_kronecker(operator)
-    if isinstance(operator, SVDLowRankUpdate):
-        return _logdet_svd_low_rank(operator)
     if isinstance(operator, LowRankUpdate):
         return _logdet_low_rank(operator)
     if isinstance(operator, KroneckerSum):
         return _logdet_kronecker_sum(operator)
     if isinstance(operator, BlockTriDiag):
         return _logdet_block_tridiag(operator)
-    if isinstance(operator, LowerBlockTriDiag):
-        return _logdet_lower_block_tridiag(operator)
+    if isinstance(operator, LowerBlockTriDiag | UpperBlockTriDiag):
+        return _logdet_block_bidiagonal(operator)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return logdet(operator.operator)
+    if isinstance(operator, lx.MulLinearOperator):
+        n = operator.out_size()
+        return n * jnp.log(jnp.abs(operator.scalar)) + logdet(operator.operator)
+    if isinstance(operator, lx.DivLinearOperator):
+        n = operator.out_size()
+        return logdet(operator.operator) - n * jnp.log(jnp.abs(operator.scalar))
+    if isinstance(operator, lx.NegLinearOperator):
+        # log|det(-A)| = log|det(A)| since |(-1)^n| = 1.
+        return logdet(operator.operator)
+    if isinstance(operator, lx.ComposedLinearOperator) and (
+        operator.operator1.in_size() == operator.operator1.out_size()
+        and operator.operator2.in_size() == operator.operator2.out_size()
+    ):
+        return logdet(operator.operator1) + logdet(operator.operator2)
     return _logdet_dense(operator)
 
 
@@ -87,78 +106,25 @@ def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
     where C = D^{-1} + V^T L^{-1} U is the k x k capacitance matrix.
     So: logdet = logdet(L) + logdet(C) + sum(log|d_i|).
     """
-    from gaussx._primitives._solve import solve
+    from gaussx._primitives._solve import _low_rank_capacitance
 
-    U, d, V = operator.U, operator.d, operator.V
-
-    # logdet(L)
     ld_base = logdet(operator.base)
-
-    # L^{-1} U  (n x k)
-    Linv_U = jnp.stack(
-        [solve(operator.base, U[:, j]) for j in range(U.shape[1])], axis=1
-    )
-
-    # Capacitance matrix C = D^{-1} + V^T L^{-1} U
-    C = jnp.diag(1.0 / d) + V.T @ Linv_U
-
-    # logdet(C)
+    _, C = _low_rank_capacitance(operator, solver=None)
     _, ld_C = jnp.linalg.slogdet(C)
-
-    # sum(log|d_i|)
-    ld_d = jnp.sum(jnp.log(jnp.abs(d)))
-
+    ld_d = jnp.sum(jnp.log(jnp.abs(operator.d)))
     return ld_base + ld_C + ld_d
-
-
-def _logdet_svd_low_rank(operator: SVDLowRankUpdate) -> Float[Array, ""]:
-    """Matrix determinant lemma for SVDLowRankUpdate: det(L + U S V^T).
-
-    logdet = logdet(L) + logdet(C) + sum(log|S_i|)
-    where C = S^{-1} + V^T L^{-1} U is the k x k capacitance matrix.
-    """
-    from gaussx._primitives._solve import solve
-
-    U, S, V = operator.U, operator.d, operator.V
-
-    # logdet(L)
-    ld_base = logdet(operator.base)
-
-    # L^{-1} U  (n x k)
-    Linv_U = jnp.stack(
-        [solve(operator.base, U[:, j]) for j in range(U.shape[1])], axis=1
-    )
-
-    # Capacitance matrix C = S^{-1} + V^T L^{-1} U
-    C = jnp.diag(1.0 / S) + V.T @ Linv_U
-
-    # logdet(C)
-    _, ld_C = jnp.linalg.slogdet(C)
-
-    # sum(log|S_i|)
-    ld_S = jnp.sum(jnp.log(jnp.abs(S)))
-
-    return ld_base + ld_C + ld_S
 
 
 def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)).
 
-    Assumes symmetric factors so the eigenvalues are real. Diagonal
-    factors get a structural shortcut; other operators are
-    materialized and decomposed via ``jnp.linalg.eigvalsh`` — using
-    the structural :func:`gaussx.eigvals` would silently fall back to
-    ``jnp.linalg.eigvals`` for untagged operators and could return
-    complex values that break the log.
+    Factor eigenvalues come from the shared ``_eigh_factor`` helper
+    (structural shortcut for diagonal factors, ``eigh`` otherwise) —
+    the same routine the KroneckerSum solve and eigendecomposition
+    paths use, so the symmetry assumption is identical everywhere.
     """
-
-    def _factor_evals(op):
-        if isinstance(op, lx.DiagonalLinearOperator):
-            return lx.diagonal(op)
-        return jnp.linalg.eigvalsh(op.as_matrix())
-
-    evals_a = _factor_evals(operator.A)
-    evals_b = _factor_evals(operator.B)
+    evals_a, _ = _eigh_factor(operator.A)
+    evals_b, _ = _eigh_factor(operator.B)
     eig_mat = evals_a[None, :] + evals_b[:, None]
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
 
@@ -171,10 +137,15 @@ def _logdet_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
     return 2.0 * logdet(L)
 
 
-def _logdet_lower_block_tridiag(
-    operator: LowerBlockTriDiag,
+def _logdet_block_bidiagonal(
+    operator: LowerBlockTriDiag | UpperBlockTriDiag,
 ) -> Float[Array, ""]:
-    """logdet of lower block-bidiagonal = sum of logdet of diagonal blocks."""
+    """logdet of a block-bidiagonal operator with triangular diagonal blocks.
+
+    Valid for both lower and upper variants: the determinant is the
+    product of the diagonal blocks' determinants, and the blocks are
+    triangular (Cholesky factors), so each reduces to its diagonal.
+    """
     return jnp.sum(
         jax.vmap(lambda L: jnp.sum(jnp.log(jnp.abs(jnp.diag(L)))))(operator.diagonal)
     )

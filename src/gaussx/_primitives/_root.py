@@ -9,8 +9,10 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
+import matfree.low_rank
 from jaxtyping import Array, Float
 
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._eig import eig
 from gaussx._primitives._inv import inv
@@ -229,7 +231,7 @@ def _safe_inverse_sqrt(vals: Array) -> Array:
 
 def _symmetric_matrix(mat: Array) -> Array:
     """Symmetrize a dense covariance-like matrix after numerical operations."""
-    return 0.5 * (mat + mat.T)
+    return symmetrize(mat)
 
 
 def _symmetric_operator_matrix(
@@ -243,29 +245,18 @@ def _pivoted_cholesky_root(
     mat: Float[Array, "N N"],
     rank: int,
 ) -> Float[Array, "N k"]:
-    """Compute a greedy pivoted-Cholesky root from a dense fallback matrix."""
-    n = mat.shape[0]
-    dtype = mat.dtype
-    floor = jnp.finfo(dtype).tiny
-    root = jnp.zeros((n, rank), dtype=dtype)
-    residual = mat
-    residual_diag = jnp.maximum(jnp.diag(residual), 0.0)
+    """Greedy pivoted-Cholesky root via ``matfree.low_rank``.
 
-    def body(i, carry):
-        root, residual, residual_diag = carry
-        pivot = jnp.argmax(residual_diag)
-        pivot_val = residual_diag[pivot]
-        pivot_col = residual[:, pivot]
-        col = jax.lax.cond(
-            pivot_val > floor,
-            lambda _: pivot_col / jnp.sqrt(pivot_val),
-            lambda _: jnp.zeros_like(pivot_col),
-            operand=None,
-        )
-        root = root.at[:, i].set(col)
-        residual = _symmetric_matrix(residual - jnp.outer(col, col))
-        residual_diag = jnp.maximum(jnp.diag(residual), 0.0)
-        return root, residual, residual_diag
-
-    root, _, _ = jax.lax.fori_loop(0, rank, body, (root, residual, residual_diag))
-    return root
+    Delegates to the same routine the partial-Cholesky preconditioner
+    uses. When the requested rank exceeds the matrix rank, matfree
+    emits NaN in the surplus columns; ``nan_to_num`` zeroes them,
+    matching the rank-deficiency-safe semantics of the previous
+    hand-rolled implementation.
+    """
+    chol_fn = matfree.low_rank.cholesky_partial_pivot(
+        lambda i, j: mat[i, j],
+        nrows=mat.shape[0],
+        rank=rank,
+    )
+    factor, _info = chol_fn()
+    return jnp.nan_to_num(factor)

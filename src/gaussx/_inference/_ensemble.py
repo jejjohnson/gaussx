@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -330,7 +331,7 @@ def localized_kalman_gain(
 
     localized_cross = rho_xy * cross_cov
     innovation = rho_yy * obs_cov + obs_noise.as_matrix()
-    innovation = 0.5 * (innovation + innovation.T)
+    innovation = symmetrize(innovation)
     innovation_op = lx.MatrixLinearOperator(innovation, lx.positive_semidefinite_tag)
     return solve_rows(innovation_op, localized_cross, solver=solver)
 
@@ -477,7 +478,7 @@ def etkf_transform(
     rinv_d = jnp.linalg.solve(r_matrix, y - obs_mean)  # (M,)
 
     precision = (n_ens - 1) / inflation * jnp.eye(n_ens) + obs_pert @ rinv_pert
-    precision = 0.5 * (precision + precision.T)
+    precision = symmetrize(precision)
     analysis_cov = jnp.linalg.inv(precision)  # tilde A, (J, J)
 
     w_mean = analysis_cov @ (obs_pert @ rinv_d)  # (J,)

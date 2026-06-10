@@ -9,8 +9,31 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref (e.g. force-pushes to a PR).
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  # Every PR: single Python version, fast unit tests only, no coverage.
+  # Slow numerics and end-to-end integration tests run on demand via the
+  # "Extended Tests" workflow (workflow_dispatch).
+  test-fast:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run fast tests
+        run: uv run pytest -n auto -m "not slow and not integration"
+
+  # Pushes to main: fast tests across the version matrix, with coverage.
+  test-main:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -22,8 +45,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --group dev
-      - name: Run tests with coverage
-        run: uv run pytest -v -n auto --cov=src/gaussx --cov-report=term-missing --cov-report=xml:coverage.xml
+      - name: Run fast tests with coverage
+        run: uv run pytest -n auto -m "not slow and not integration" --cov=src/gaussx --cov-report=term-missing --cov-report=xml:coverage.xml
       - name: Upload coverage report
         if: matrix.python-version == '3.12'
         uses: actions/upload-artifact@v7

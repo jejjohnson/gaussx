@@ -131,6 +131,7 @@ def test_ensemble_kalman_gain_mle_divisor(getkey):
     assert tree_allclose(K, expected, atol=1e-7)
 
 
+@pytest.mark.slow
 def test_ensemble_recipes_jit_grad_and_vmap(getkey):
     J, N, M = 10, 4, 2
     particles = jr.normal(getkey(), (J, N))

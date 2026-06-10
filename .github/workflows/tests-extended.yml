@@ -1,0 +1,41 @@
+name: Extended Tests
+
+# On-demand only. Trigger from the Actions tab or:
+#   gh workflow run tests-extended.yml                 # heavy lane (slow + integration)
+#   gh workflow run tests-extended.yml -f suite=full   # entire suite
+# Optionally target a branch:
+#   gh workflow run tests-extended.yml --ref my-branch -f suite=full
+
+on:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: "Which tests to run"
+        type: choice
+        default: heavy
+        options:
+          - heavy   # only slow + integration tests
+          - full    # entire suite
+
+permissions:
+  contents: read
+
+jobs:
+  test-extended:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run heavy lane (slow + integration)
+        if: inputs.suite == 'heavy'
+        run: uv run pytest -v -n auto -m "slow or integration"
+      - name: Run full suite
+        if: inputs.suite == 'full'
+        run: uv run pytest -v -n auto

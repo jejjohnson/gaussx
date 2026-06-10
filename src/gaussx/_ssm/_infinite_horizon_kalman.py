@@ -12,6 +12,7 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import repeat
 from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._dare import DAREResult, dare
 from gaussx._ssm._utils import (
     _as_operator,
@@ -222,7 +223,7 @@ def infinite_horizon_smoother(
     # the ``(N², N²)`` Kronecker matrix ``I − G∞ ⊗ G∞``.
     rhs = P_inf - G_inf @ P_pred_inf @ G_inf.T  # (N, N)
     P_smooth_inf = discrete_lyapunov_solve(G_inf, rhs)
-    P_smooth_inf = 0.5 * (P_smooth_inf + P_smooth_inf.T)  # enforce symmetry
+    P_smooth_inf = symmetrize(P_smooth_inf)
 
     T = filter_state.filtered_means.shape[0]
 

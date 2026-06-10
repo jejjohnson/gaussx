@@ -31,6 +31,8 @@ def cholesky(
     Returns:
         Lower-triangular operator L.
     """
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return operator
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _cholesky_diagonal(operator)
     if isinstance(operator, BlockDiag):
@@ -41,6 +43,8 @@ def cholesky(
         return _cholesky_block_tridiag(operator)
     if isinstance(operator, SumKronecker):
         return _cholesky_sum_kronecker(operator)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return cholesky(operator.operator)
     return _cholesky_dense(operator)
 
 

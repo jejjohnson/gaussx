@@ -202,6 +202,7 @@ class TestAdditionalHandlers:
 
 
 @pytest.mark.slow
+@pytest.mark.integration
 class TestAdditionalInference:
     @pytest.fixture
     def latent_cov_model(self):

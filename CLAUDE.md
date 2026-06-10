@@ -52,7 +52,8 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 ```bash
 make install              # Install all deps (uv sync --all-groups) + pre-commit hooks
 make test                 # Run tests in parallel: uv run pytest -v -n auto
-make test-fast            # Skip slow (MCMC/SVI) tests: uv run pytest -v -n auto -m "not slow"
+make test-fast            # Fast unit tests (skips slow + integration; matches PR CI)
+make test-slow            # Only the slow + integration tests
 make test-cov             # Run tests with coverage report (parallel)
 make format               # Auto-fix: ruff format . && ruff check --fix .
 make lint                 # Lint code: ruff check .
@@ -77,6 +78,21 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 ```
 
 **Critical**: Always lint/format with `.` (repo root), not `src/gaussx/`. CI runs `ruff check .` which includes `tests/` and `scripts/`.
+
+## Test Speed Tiers
+
+CI (PRs and pushes to `main`) runs only unmarked (fast) tests:
+`-m "not slow and not integration"`. Slow and integration tests never run
+automatically — trigger them on demand with the "Extended Tests" workflow:
+`gh workflow run tests-extended.yml` (heavy lane) or
+`gh workflow run tests-extended.yml -f suite=full` (entire suite), or run
+`make test-slow` / `make test` locally. When adding tests:
+
+- Unmarked (default): unit tests, < ~1 s each.
+- `@pytest.mark.slow`: individually expensive tests (> ~1.5 s — heavy
+  numerics, `jit`+`grad`+`vmap` sweeps, long scans).
+- `@pytest.mark.integration`: end-to-end workflows (e.g. MCMC/SVI fits
+  through numpyro). Usually combined with `slow`.
 
 ## Coding Conventions
 

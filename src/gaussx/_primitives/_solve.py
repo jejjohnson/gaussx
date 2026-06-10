@@ -22,7 +22,6 @@ from gaussx._operators._kronecker_sum import (
     _eigh_factor,
 )
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._operators._svd_low_rank_update import SVDLowRankUpdate
 
 
 def solve(
@@ -41,14 +40,14 @@ def solve(
     Returns:
         The solution x.
     """
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return vector
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _solve_diagonal(operator, vector)
     if isinstance(operator, BlockDiag):
         return _solve_block_diag(operator, vector, solver)
     if isinstance(operator, Kronecker):
         return _solve_kronecker(operator, vector, solver)
-    if isinstance(operator, SVDLowRankUpdate):
-        return _solve_svd_low_rank(operator, vector, solver)
     if isinstance(operator, LowRankUpdate):
         return _solve_low_rank(operator, vector, solver)
     if isinstance(operator, KroneckerSum):
@@ -61,6 +60,18 @@ def solve(
         return _solve_lower_block_tridiag(operator, vector)
     if isinstance(operator, UpperBlockTriDiag):
         return _solve_upper_block_tridiag(operator, vector)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _solve_tagged(operator, vector, solver)
+    if isinstance(operator, lx.MulLinearOperator):
+        return solve(operator.operator, vector, solver=solver) / operator.scalar
+    if isinstance(operator, lx.DivLinearOperator):
+        return solve(operator.operator, vector, solver=solver) * operator.scalar
+    if isinstance(operator, lx.NegLinearOperator):
+        return -solve(operator.operator, vector, solver=solver)
+    if isinstance(operator, lx.ComposedLinearOperator):
+        # (A B) x = b  =>  x = B^{-1} (A^{-1} b)
+        y = solve(operator.operator1, vector, solver=solver)
+        return solve(operator.operator2, y, solver=solver)
     return _solve_fallback(operator, vector, solver)
 
 
@@ -110,6 +121,25 @@ def _solve_kronecker(
     return x
 
 
+def _low_rank_capacitance(
+    operator: LowRankUpdate,
+    solver: lx.AbstractLinearSolver | None,
+) -> tuple[Float[Array, "n k"], Float[Array, "k k"]]:
+    """Shared Woodbury pieces: ``L^{-1} U`` and ``C = D^{-1} + V^T L^{-1} U``.
+
+    Used by the low-rank ``solve``, ``logdet``, and ``inv`` primitives so
+    the capacitance construction lives in exactly one place.
+    """
+    U, d, V = operator.U, operator.d, operator.V
+    Linv_U = jax.vmap(
+        lambda u: solve(operator.base, u, solver=solver),
+        in_axes=1,
+        out_axes=1,
+    )(U)
+    C = jnp.diag(1.0 / d) + V.T @ Linv_U
+    return Linv_U, C
+
+
 def _solve_low_rank(
     operator: LowRankUpdate,
     vector: Float[Array, " n"],
@@ -120,59 +150,12 @@ def _solve_low_rank(
     (L + U D V^T)^{-1} = L^{-1} - L^{-1} U C^{-1} V^T L^{-1}
     where C = D^{-1} + V^T L^{-1} U  (k x k capacitance matrix).
     """
-    U, d, V = operator.U, operator.d, operator.V
+    V = operator.V
 
-    # Step 1: L^{-1} b
     Linv_b = solve(operator.base, vector, solver=solver)
-
-    # Step 2: L^{-1} U  (n x k)
-    Linv_U = jnp.stack(
-        [solve(operator.base, U[:, j], solver=solver) for j in range(U.shape[1])],
-        axis=1,
-    )
-
-    # Step 3: Capacitance matrix C = D^{-1} + V^T L^{-1} U  (k x k)
-    C = jnp.diag(1.0 / d) + V.T @ Linv_U
-
-    # Step 4: C^{-1} V^T L^{-1} b  (k,)
+    Linv_U, C = _low_rank_capacitance(operator, solver)
     Cinv_VtLinvb = jnp.linalg.solve(C, V.T @ Linv_b)
-
-    # Step 5: L^{-1} U C^{-1} V^T L^{-1} b  (n,)
-    correction = Linv_U @ Cinv_VtLinvb
-
-    return Linv_b - correction
-
-
-def _solve_svd_low_rank(
-    operator: SVDLowRankUpdate,
-    vector: Float[Array, " n"],
-    solver: lx.AbstractLinearSolver | None,
-) -> Float[Array, " n"]:
-    """Woodbury identity for SVDLowRankUpdate: (L + U S V^T)^{-1} b.
-
-    Same as _solve_low_rank but uses S (singular values) instead of d.
-    """
-    U, S, V = operator.U, operator.d, operator.V
-
-    # Step 1: L^{-1} b
-    Linv_b = solve(operator.base, vector, solver=solver)
-
-    # Step 2: L^{-1} U  (n x k)
-    Linv_U = jnp.stack(
-        [solve(operator.base, U[:, j], solver=solver) for j in range(U.shape[1])],
-        axis=1,
-    )
-
-    # Step 3: Capacitance matrix C = S^{-1} + V^T L^{-1} U  (k x k)
-    C = jnp.diag(1.0 / S) + V.T @ Linv_U
-
-    # Step 4: C^{-1} V^T L^{-1} b  (k,)
-    Cinv_VtLinvb = jnp.linalg.solve(C, V.T @ Linv_b)
-
-    # Step 5: L^{-1} U C^{-1} V^T L^{-1} b  (n,)
-    correction = Linv_U @ Cinv_VtLinvb
-
-    return Linv_b - correction
+    return Linv_b - Linv_U @ Cinv_VtLinvb
 
 
 def _solve_kronecker_sum(
@@ -275,6 +258,38 @@ def _solve_upper_block_tridiag(
 
     _, x_rev = jax.lax.scan(body_fn, jnp.zeros(d, dtype=b.dtype), jnp.arange(N))
     return rearrange(jnp.flip(x_rev, axis=0), "N d -> (N d)")
+
+
+def _solve_tagged(
+    operator: lx.TaggedLinearOperator,
+    vector: Float[Array, " n"],
+    solver: lx.AbstractLinearSolver | None,
+) -> Float[Array, " n"]:
+    """Unwrap ``TaggedLinearOperator`` when the inner operator is structured.
+
+    Untagged inner operators stay wrapped so the lineax fallback solver
+    can still exploit the tags (e.g. PSD -> Cholesky).
+    """
+    structured = (
+        lx.IdentityLinearOperator,
+        lx.DiagonalLinearOperator,
+        lx.TaggedLinearOperator,
+        lx.MulLinearOperator,
+        lx.DivLinearOperator,
+        lx.NegLinearOperator,
+        lx.ComposedLinearOperator,
+        BlockDiag,
+        Kronecker,
+        LowRankUpdate,
+        KroneckerSum,
+        KroneckerSumSqrt,
+        BlockTriDiag,
+        LowerBlockTriDiag,
+        UpperBlockTriDiag,
+    )
+    if isinstance(operator.operator, structured):
+        return solve(operator.operator, vector, solver=solver)
+    return _solve_fallback(operator, vector, solver)
 
 
 def _solve_fallback(

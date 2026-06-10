@@ -275,58 +275,9 @@ def _(operator: Toeplitz) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# SumOperator tag registrations
-
-
-@lx.is_symmetric.register(SumOperator)
-def _(operator: SumOperator) -> bool:
-    return all(lx.is_symmetric(op) for op in operator.operators)
-
-
-@lx.is_diagonal.register(SumOperator)
-def _(operator: SumOperator) -> bool:
-    return all(lx.is_diagonal(op) for op in operator.operators)
-
-
-@lx.is_positive_semidefinite.register(SumOperator)
-def _(operator: SumOperator) -> bool:
-    return all(lx.is_positive_semidefinite(op) for op in operator.operators)
-
-
-# ScaledOperator tag registrations
-
-
-@lx.is_symmetric.register(ScaledOperator)
-def _(operator: ScaledOperator) -> bool:
-    return lx.is_symmetric(operator.operator)
-
-
-@lx.is_diagonal.register(ScaledOperator)
-def _(operator: ScaledOperator) -> bool:
-    return lx.is_diagonal(operator.operator)
-
-
-@lx.is_positive_semidefinite.register(ScaledOperator)
-def _(operator: ScaledOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
-# ProductOperator tag registrations
-
-
-@lx.is_symmetric.register(ProductOperator)
-def _(operator: ProductOperator) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
-@lx.is_diagonal.register(ProductOperator)
-def _(operator: ProductOperator) -> bool:
-    return False
-
-
-@lx.is_positive_semidefinite.register(ProductOperator)
-def _(operator: ProductOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
+# SumOperator / ScaledOperator / ProductOperator need no registrations:
+# they are factories returning lineax-native Add/Mul/Composed operators,
+# whose tag propagation lineax provides out of the box.
 
 
 # SumKronecker tag registrations
@@ -480,21 +431,6 @@ def _(operator: Toeplitz) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
-@lx.is_negative_semidefinite.register(SumOperator)
-def _(operator: SumOperator) -> bool:
-    return all(lx.is_negative_semidefinite(op) for op in operator.operators)
-
-
-@lx.is_negative_semidefinite.register(ScaledOperator)
-def _(operator: ScaledOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
-@lx.is_negative_semidefinite.register(ProductOperator)
-def _(operator: ProductOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
 @lx.is_negative_semidefinite.register(SumKronecker)
 def _(operator: SumKronecker) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
@@ -538,9 +474,6 @@ _ALL_TRIDIAG_DEFAULTS = (
     ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
-    SumOperator,
-    ScaledOperator,
-    ProductOperator,
     SumKronecker,
     InterpolatedOperator,
     KernelOperator,
@@ -558,9 +491,6 @@ _TRI_DEFAULTS = (
     ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
-    SumOperator,
-    ScaledOperator,
-    ProductOperator,
     SumKronecker,
     InterpolatedOperator,
     KernelOperator,
@@ -570,6 +500,10 @@ _TRI_DEFAULTS = (
 
 for _cls in _ALL_TRIDIAG_DEFAULTS:
     lx.is_tridiagonal.register(_cls)(lambda _operator: False)
+    # lineax 0.1.1 requires has_unit_diagonal for every operator; the
+    # Triangular solver queries it for triangular-tagged operators
+    # (e.g. LowerBlockTriDiag under AutoLinearSolver).
+    lx.has_unit_diagonal.register(_cls)(lambda _operator: False)
 
 for _cls in _TRI_DEFAULTS:
     lx.is_lower_triangular.register(_cls)(lambda _operator: False)

@@ -61,7 +61,7 @@ check-env-%:
 # ---------------------------------------------------------------------------
 # Phony declarations
 # ---------------------------------------------------------------------------
-.PHONY: help install lint format typecheck test test-cov \
+.PHONY: help install lint format typecheck test test-cov test-slow \
         precommit build clean version docs docs-serve docs-deploy
 
 .DEFAULT_GOAL := help
@@ -132,10 +132,15 @@ test: ## 🧪 Run tests with pytest (no coverage)
 	uv run pytest -v -n auto
 	@printf "$(GREEN)>>> ✅ Tests passed!$(RESET)\n"
 
-test-fast: ## ⚡ Run tests skipping slow (MCMC/SVI) tests
+test-fast: ## ⚡ Run fast unit tests (skips slow + integration; matches PR CI)
 	@printf "$(YELLOW)>>> Running fast tests...$(RESET)\n"
-	uv run pytest -v -n auto -m "not slow"
+	uv run pytest -v -n auto -m "not slow and not integration"
 	@printf "$(GREEN)>>> ✅ Fast tests passed!$(RESET)\n"
+
+test-slow: ## 🐢 Run only the slow + integration tests
+	@printf "$(YELLOW)>>> Running slow/integration tests...$(RESET)\n"
+	uv run pytest -v -n auto -m "slow or integration"
+	@printf "$(GREEN)>>> ✅ Slow/integration tests passed!$(RESET)\n"
 
 test-cov: ## 📊 Run tests with coverage report
 	@printf "$(YELLOW)>>> Running tests with coverage...$(RESET)\n"

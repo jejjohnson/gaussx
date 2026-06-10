@@ -335,9 +335,18 @@ class TestProductTags:
         P = ProductOperator(A, B)
         assert lx.is_symmetric(P) is False
 
-    def test_not_diagonal(self, getkey):
+    def test_diagonal_when_both_diagonal(self, getkey):
+        # lineax's ComposedLinearOperator correctly reports a product of
+        # diagonal operators as diagonal (the removed gaussx class
+        # hard-coded False here).
         A = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
         B = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
+        P = ProductOperator(A, B)
+        assert lx.is_diagonal(P) is True
+
+    def test_not_diagonal_when_dense(self, getkey):
+        A = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
+        B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         P = ProductOperator(A, B)
         assert lx.is_diagonal(P) is False
 

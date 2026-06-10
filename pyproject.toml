@@ -24,7 +24,7 @@ dependencies = [
     "jaxlib>=0.10",
     "equinox>=0.13.8",
     "lineax>=0.1.1",
-    "matfree>=0.5",
+    "matfree>=0.6",
     "jaxtyping>=0.3",
     "einx>=0.4.3",
 ]
@@ -45,7 +45,6 @@ dev = [
     "pre-commit>=3.7",
     "beartype>=0.18",
     "numpyro>=0.21",
-    "einops>=0.8",
 ]
 lint = [
     "ruff>=0.15.10",
@@ -89,7 +88,10 @@ python-version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["slow: marks tests as slow (MCMC, SVI — deselect with '-m \"not slow\"')"]
+markers = [
+    "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
+    "integration: end-to-end workflows (MCMC/SVI fits through numpyro)",
+]
 
 [tool.coverage.run]
 source = ["src/gaussx"]

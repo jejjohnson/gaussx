@@ -9,6 +9,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._preconditioners._base import AbstractPreconditioner
 
 
@@ -77,7 +78,7 @@ class NystromPreconditioner(AbstractPreconditioner):
         # Symmetrize before the eigendecomposition: b is symmetric in exact
         # arithmetic, but floating-point asymmetry in the off-diagonals can
         # perturb eigh. (Matches the convention in _distributions/_conditional.)
-        b = 0.5 * (b + b.T)
+        b = symmetrize(b)
         eigvals, u = jnp.linalg.eigh(b)
 
         abs_eigvals = jnp.abs(eigvals)
