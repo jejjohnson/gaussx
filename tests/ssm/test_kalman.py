@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 from jax.test_util import check_grads
 
 from gaussx import (
@@ -178,6 +179,7 @@ def test_kalman_filter_woodbury_innovation_blockdiag_matches_dense(getkey):
     assert tree_allclose(got.log_likelihood, ref.log_likelihood, atol=1e-6, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_kalman_filter_woodbury_innovation_jit_and_grad(getkey):
     A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey, M=16, k=4, T=3)
 

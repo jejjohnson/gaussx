@@ -4,9 +4,9 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import pytest
-from einops import rearrange
 
 import gaussx
+from gaussx._einx import rearrange
 
 
 def _make_psd(key, n):

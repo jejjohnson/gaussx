@@ -39,6 +39,7 @@ def _make_model(getkey, N=2, M=2):
 
 
 @pytest.mark.parametrize("T", [1, 2, 8, 64])
+@pytest.mark.slow
 def test_parallel_kf_matches_sequential(getkey, T):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (T, 2))
@@ -81,6 +82,7 @@ def test_parallel_kf_returns_filter_state(getkey):
     assert state.predicted_covs.shape == (5, 2, 2)
 
 
+@pytest.mark.slow
 def test_parallel_kf_sqrt_matches_covariance_form(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (100, 2))
@@ -97,6 +99,7 @@ def test_parallel_kf_sqrt_matches_covariance_form(getkey):
     assert tree_allclose(sqrt_state.log_likelihood, cov_state.log_likelihood, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_parallel_rts_sqrt_matches_covariance_form(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (64, 2))
@@ -109,6 +112,7 @@ def test_parallel_rts_sqrt_matches_covariance_form(getkey):
     assert tree_allclose(sqrt_covs, cov_covs, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_parallel_kf_sqrt_covariances_are_psd(getkey):
     dtype = jnp.float32
     A = jnp.array([[0.999, 0.01], [0.0, 0.98]], dtype=dtype)
@@ -242,6 +246,7 @@ def test_parallel_kf_woodbury_innovation_matches_sequential(getkey):
     assert tree_allclose(got.log_likelihood, ref.log_likelihood, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_parallel_kf_transition_block_diag_operator(getkey):
     from gaussx import BlockDiag
 
@@ -331,6 +336,7 @@ def test_parallel_kf_jit(getkey):
     assert tree_allclose(eager, jitted, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_parallel_kf_vmap(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     B, T = 4, 6
@@ -344,6 +350,7 @@ def test_parallel_kf_vmap(getkey):
     assert tree_allclose(batched, sequential, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_parallel_kf_grad(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (8, 2))
@@ -363,6 +370,7 @@ def test_parallel_kf_grad(getkey):
     assert tree_allclose(g_par, g_seq, rtol=1e-3, atol=1e-5)
 
 
+@pytest.mark.slow
 def test_parallel_kf_sqrt_jit_vmap_grad(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     B, T = 3, 8
