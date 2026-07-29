@@ -202,8 +202,8 @@ flowchart LR
 | `SumKronecker` | $\sum_k A_k \otimes B_k$ | Structured Cholesky/sqrt for separable-plus-noise covariances |
 | `BlockDiag(A, B, ...)` | $\mathrm{diag}(A, B, \ldots)$ | Every primitive splits per block |
 | `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | $O(N d^3)$ --- the precision structure of Markovian GPs |
-| `LowRankUpdate(L, U, d, V)` | $L + U\,\mathrm{diag}(d)\,V^\top$ | Woodbury solves, determinant-lemma logdets |
-| `SVDLowRankUpdate` | SVD-factored low-rank update | Numerically safer when the update is ill-conditioned |
+| `LowRankUpdate(L, U, d, V)` | $L + U\,\mathrm{diag}(d)\,V^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
+| `SVDLowRankUpdate` | *Deprecated* --- use `LowRankUpdate(..., orthonormal=True)` | Kept as a subclass so `isinstance` checks keep working; warns on construction |
 | `Toeplitz` | Symmetric Toeplitz | $O(n \log n)$ matvecs and sampling via FFT circulant embedding |
 | `KernelOperator(k, X)` | Dense Gram matrix | Kernel as a first-class operator |
 | `ImplicitKernelOperator(k, X)` | Matrix-free Gram operator | Rows generated per matvec --- never stores $N \times N$ |

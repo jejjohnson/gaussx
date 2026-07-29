@@ -23,7 +23,17 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
 
 $L + U\,\mathrm{diag}(d)\,V^\top$ with Woodbury-efficient solves and
 matrix-determinant-lemma logdets. The factories build the common special cases
-directly from arrays.
+directly from arrays. Pass `orthonormal=True` when $U$ and $V$ have orthonormal
+columns (truncated SVD, Nyström, ensemble factors) to unlock the stronger
+symmetry / PSD tag inference.
+
+!!! warning "`SVDLowRankUpdate` is deprecated"
+    It remains a `LowRankUpdate` subclass — so `isinstance` checks and
+    `singledispatch` registrations keyed on it still work — but it forces
+    `orthonormal=True` and emits a `DeprecationWarning` on construction. New
+    code should use `LowRankUpdate(base, U, S, V, orthonormal=True)` or
+    [`svd_low_rank_plus_diag`](#gaussx.svd_low_rank_plus_diag). It will be
+    removed in a future release.
 
 ::: gaussx
     options:
