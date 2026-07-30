@@ -84,7 +84,6 @@ from gaussx._inference import (
     localized_kalman_gain as localized_kalman_gain,
     log_marginal_likelihood as log_marginal_likelihood,
     newton_update as newton_update,
-    process_noise_covariance as process_noise_covariance,
     riemannian_psd_correction as riemannian_psd_correction,
     trace_correction as trace_correction,
 )
@@ -249,6 +248,7 @@ from gaussx._ssm import (
     pairwise_marginals as pairwise_marginals,
     parallel_kalman_filter as parallel_kalman_filter,
     parallel_rts_smoother as parallel_rts_smoother,
+    process_noise_covariance as process_noise_covariance,
     rts_smoother as rts_smoother,
     sde_autocovariance as sde_autocovariance,
     site_mean_var_from_natural as site_mean_var_from_natural,

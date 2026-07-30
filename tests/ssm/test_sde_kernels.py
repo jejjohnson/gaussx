@@ -13,6 +13,8 @@ from gaussx import (
     QuasiPeriodicSDE,
     SDEParams,
     SumSDE,
+    process_noise_covariance,
+    symmetrize,
 )
 
 
@@ -172,3 +174,35 @@ class TestDiscretiseSequence:
         A_seq, Q_seq = kern.discretise_sequence(dts)
         assert A_seq.shape == (3, 2, 2)
         assert Q_seq.shape == (3, 2, 2)
+
+
+class TestDiscretiseSharesProcessNoiseHelper:
+    """`SDEKernel.discretise` must not re-inline the process-noise formula.
+
+    Two copies of ``Q = P_inf - A P_inf A^T`` had already drifted once: the
+    kernel path symmetrised the result and the standalone helper did not.
+    These tests pin the base implementation to the shared helper so a future
+    change to the numerics lands in both places (gh-151).
+    """
+
+    @pytest.mark.parametrize("order", [0, 1, 2])
+    def test_matches_shared_helper(self, order):
+        kern = MaternSDE(
+            variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=order
+        )
+        A, Q = kern.discretise(jnp.array(0.1))
+        expected = symmetrize(process_noise_covariance(A, kern.sde_params().P_inf))
+        assert jnp.allclose(Q, expected, atol=1e-12)
+
+    def test_helper_is_reachable_from_both_import_paths(self):
+        """The pre-move `_inference` path keeps working."""
+        from gaussx._inference import process_noise_covariance as legacy
+        from gaussx._ssm import process_noise_covariance as current
+
+        assert legacy is current is process_noise_covariance
+
+    def test_discretised_covariance_is_symmetric(self):
+        """`discretise` symmetrises; the bare helper deliberately does not."""
+        kern = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=2)
+        _, Q = kern.discretise(jnp.array(0.3))
+        assert jnp.allclose(Q, Q.T, atol=1e-12)
