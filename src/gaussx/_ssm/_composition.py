@@ -5,9 +5,12 @@ from __future__ import annotations
 import equinox as eqx
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
+import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._linalg._symmetrize import symmetrize
+from gaussx._operators._kronecker import Kronecker
+from gaussx._ssm._discretise import process_noise_covariance
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 
 
@@ -113,10 +116,19 @@ class ProductSDE(SDEKernel):
         size ``d_1 \cdot d_2``. Numerically equivalent to the dense
         ``expm`` on ``F`` but cheaper for moderate factor sizes.
 
-        ``Q = P_\infty - A P_\infty A^T`` is computed densely from the
-        resulting ``A``; with ``P_\infty = P_{\infty,1} \otimes
-        P_{\infty,2}`` this could itself be expressed as a Kronecker
-        difference, but is left dense to keep the consumer-facing
+        ``Q = P_\infty - A P_\infty A^T`` exploits the same factorisation.
+        By the mixed-product property,
+
+        $$
+        (A_1 \otimes A_2)(P_1 \otimes P_2)(A_1 \otimes A_2)^\top
+            = (A_1 P_1 A_1^\top) \otimes (A_2 P_2 A_2^\top),
+        $$
+
+        so the congruence is evaluated per factor via
+        `gaussx.process_noise_covariance` on `gaussx.Kronecker`
+        operands — ``O(d_1^3 + d_2^3)`` instead of the
+        ``O((d_1 d_2)^3)`` triple product on the full matrix. Only the
+        final ``Q`` is materialised, to keep the consumer-facing
         ``(A, Q)`` interface unchanged.
 
         Args:
@@ -133,10 +145,18 @@ class ProductSDE(SDEKernel):
 
         # Use the per-factor stationary covariances directly; building
         # the full ``F`` via ``self.sde_params()`` would defeat the
-        # whole point of this override.
-        P_inf = jnp.kron(p1.P_inf, p2.P_inf)
-        Q = P_inf - A @ P_inf @ A.T
-        Q = symmetrize(Q)
+        # whole point of this override. Keeping both operands as
+        # ``Kronecker`` lets the shared helper contract each factor
+        # separately instead of forming the (d1 d2)-square triple product.
+        A_op = Kronecker(
+            lx.MatrixLinearOperator(A1),
+            lx.MatrixLinearOperator(A2),
+        )
+        P_op = Kronecker(
+            lx.MatrixLinearOperator(p1.P_inf, lx.symmetric_tag),
+            lx.MatrixLinearOperator(p2.P_inf, lx.symmetric_tag),
+        )
+        Q = symmetrize(process_noise_covariance(A_op, P_op).as_matrix())
         return A, Q
 
 

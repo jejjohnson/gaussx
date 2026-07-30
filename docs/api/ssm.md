@@ -57,6 +57,15 @@ temporal inference.
 
 ## Process noise
 
+The exact discretisation $Q = P_\infty - A P_\infty A^\top$, which is the
+forward direction of the discrete Lyapunov equation that
+[`discrete_lyapunov_solve`](linalg.md#gaussx.discrete_lyapunov_solve) inverts.
+The congruence is delegated to
+[`cov_transform`](linalg.md#gaussx.cov_transform), so passing *operators*
+returns a lazy operator with structure intact — matched `Kronecker` factors stay
+factorised, a diagonal $P_\infty$ skips its $(N, N)$ materialization. Passing
+arrays returns an array.
+
 ::: gaussx
     options:
       show_root_heading: false
