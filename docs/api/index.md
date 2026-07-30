@@ -41,8 +41,9 @@ A few patterns hold across the whole package:
 
 - **Lazy over dense.** Primitives like `inv`, `sqrt`, and `cholesky` return
   *operators*, not arrays, wherever structure allows; nothing is materialized until
-  `.as_matrix()` is called. When a structured path has to densify, a
-  `DenseFallbackWarning` is emitted.
+  `.as_matrix()` is called. Where a structured operator nevertheless has to be
+  materialized — `cholesky` of a `SumKronecker` — a `DenseFallbackWarning` points
+  you at the matrix-free alternative.
 
 - **Pure functions.** Outside the operator classes everything is a pure function:
   arrays and operators in, arrays and operators out. PRNG keys are explicit
@@ -51,3 +52,14 @@ A few patterns hold across the whole package:
 Every public class and function carries a Google-style docstring with shapes in
 [jaxtyping](https://docs.kidger.site/jaxtyping/) notation; tensor contraction and
 reshaping inside the package go through [einx](https://github.com/fferflo/einx).
+
+## See also
+
+- [Architecture](../architecture.md) — the layered stack, the dispatch flow chart,
+  per-primitive fast-path coverage, and where gaussx sits relative to
+  [pyrox-gp](https://github.com/jejjohnson/pyrox),
+  [finitevolX](https://github.com/jejjohnson/finitevolX), and
+  [spectraldiffx](https://github.com/jejjohnson/spectraldiffx).
+- [Vision](../vision.md) — why the library exists and what it deliberately is not.
+- [Unified Solvers](../design/unified-solvers.md) — how the solver substrate is
+  shared with the PDE packages.

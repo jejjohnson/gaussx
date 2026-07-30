@@ -3,9 +3,10 @@
 Layer 0: pure functions over `lineax.AbstractLinearOperator` with **structural
 dispatch** — each primitive inspects the operator (diagonal, Kronecker,
 block-diagonal, low-rank, block-tridiagonal, …) and routes to the cheapest exact
-algorithm, falling back to a dense computation (with a
-[`DenseFallbackWarning`](#gaussx.DenseFallbackWarning)) only when no structured
-path exists.
+algorithm, falling back to a dense computation only when no structured path
+exists. Where a structured operator has to be materialized anyway — `cholesky`
+of a `SumKronecker` — a [`DenseFallbackWarning`](#gaussx.DenseFallbackWarning)
+names the matrix-free alternative.
 
 ## Solve, logdet & Cholesky
 
