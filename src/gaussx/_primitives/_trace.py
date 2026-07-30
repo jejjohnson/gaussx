@@ -16,7 +16,7 @@ from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._operators._sum_kronecker import SumKronecker
+from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 
 
@@ -64,7 +64,7 @@ def trace(
         return _trace_low_rank(operator)
     if isinstance(operator, KroneckerSum):
         return _trace_kronecker_sum(operator)
-    if isinstance(operator, SumKronecker):
+    if isinstance(operator, SumOfKroneckers):
         return ft.reduce(jnp.add, (trace(kron) for kron in operator.operators))
     if isinstance(operator, lx.TaggedLinearOperator):
         return trace(

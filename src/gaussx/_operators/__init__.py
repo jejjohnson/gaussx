@@ -40,6 +40,7 @@ from gaussx._operators._low_rank_update import (
 from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sum_kronecker import (
     SumKronecker,
+    SumOfKroneckers,
     sumkronecker_sample as sumkronecker_sample,
 )
 from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky, toeplitz_sample
@@ -280,21 +281,21 @@ def _(operator: Toeplitz) -> bool:
 # whose tag propagation lineax provides out of the box.
 
 
-# SumKronecker tag registrations
+# SumOfKroneckers tag registrations
 
 
-@lx.is_symmetric.register(SumKronecker)
-def _(operator: SumKronecker) -> bool:
+@lx.is_symmetric.register(SumOfKroneckers)
+def _(operator: SumOfKroneckers) -> bool:
     return all(lx.is_symmetric(kron) for kron in operator.operators)
 
 
-@lx.is_diagonal.register(SumKronecker)
-def _(operator: SumKronecker) -> bool:
+@lx.is_diagonal.register(SumOfKroneckers)
+def _(operator: SumOfKroneckers) -> bool:
     return False
 
 
-@lx.is_positive_semidefinite.register(SumKronecker)
-def _(operator: SumKronecker) -> bool:
+@lx.is_positive_semidefinite.register(SumOfKroneckers)
+def _(operator: SumOfKroneckers) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
@@ -431,8 +432,8 @@ def _(operator: Toeplitz) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
-@lx.is_negative_semidefinite.register(SumKronecker)
-def _(operator: SumKronecker) -> bool:
+@lx.is_negative_semidefinite.register(SumOfKroneckers)
+def _(operator: SumOfKroneckers) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
@@ -474,7 +475,7 @@ _ALL_TRIDIAG_DEFAULTS = (
     ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
-    SumKronecker,
+    SumOfKroneckers,
     InterpolatedOperator,
     KernelOperator,
     ImplicitCrossKernelOperator,
@@ -491,7 +492,7 @@ _TRI_DEFAULTS = (
     ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
-    SumKronecker,
+    SumOfKroneckers,
     InterpolatedOperator,
     KernelOperator,
     ImplicitCrossKernelOperator,
@@ -542,6 +543,7 @@ __all__ = [
     "SVDLowRankUpdate",
     "ScaledOperator",
     "SumKronecker",
+    "SumOfKroneckers",
     "SumOperator",
     "Toeplitz",
     "ToeplitzCholesky",

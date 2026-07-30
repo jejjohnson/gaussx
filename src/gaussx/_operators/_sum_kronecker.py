@@ -13,7 +13,7 @@ from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 from gaussx._operators._kronecker import Kronecker
 
 
-class SumKronecker(lx.AbstractLinearOperator):
+class SumOfKroneckers(lx.AbstractLinearOperator):
     r"""Sum of Kronecker products ``Σ_k A_k \otimes B_k``.
 
     Appears in multi-output GPs with correlated outputs, e.g.
@@ -27,6 +27,11 @@ class SumKronecker(lx.AbstractLinearOperator):
     dense ``(n_c n_d) x (n_c n_d)`` matrix internally, so it is
     intended for moderate factor sizes (typical for multi-output GPs
     where the task dimension is small).
+
+    Not to be confused with `KroneckerSum`, which is the standard
+    matrix-theory Kronecker *sum* ``A \otimes I + I \otimes B`` — a
+    different object with a closed-form eigendecomposition. This class is a
+    sum of arbitrary Kronecker *products*, which has none in general.
 
     Args:
         kron1: First Kronecker product ``A_1 \otimes B_1``.
@@ -49,7 +54,7 @@ class SumKronecker(lx.AbstractLinearOperator):
     ) -> None:
         operators = (kron1, kron2, *krons)
         if any(len(kron.operators) != 2 for kron in operators):
-            raise ValueError("SumKronecker requires two-factor Kronecker products.")
+            raise ValueError("SumOfKroneckers requires two-factor Kronecker products.")
         if any(kron.in_size() != kron1.in_size() for kron in operators[1:]):
             raise ValueError("Kronecker products must have the same size (input size).")
         if any(kron.out_size() != kron1.out_size() for kron in operators[1:]):
@@ -82,8 +87,8 @@ class SumKronecker(lx.AbstractLinearOperator):
             result = result + kron.as_matrix()
         return result
 
-    def transpose(self) -> SumKronecker:
-        return SumKronecker(
+    def transpose(self) -> SumOfKroneckers:
+        return SumOfKroneckers(
             *(
                 Kronecker(
                     kron.operators[0].T,
@@ -167,7 +172,7 @@ class SumKronecker(lx.AbstractLinearOperator):
 
 
 def sumkronecker_sample(
-    op: SumKronecker,
+    op: SumOfKroneckers,
     *,
     key: jax.Array,
     num_samples: int = 1,
@@ -177,11 +182,11 @@ def sumkronecker_sample(
 
     The square-root action is evaluated by ``matfree`` Lanczos against
     ``op.mv``. This avoids materialising the dense ``(n_A n_B) ×
-    (n_A n_B)`` covariance and costs ``lanczos_order`` SumKronecker
+    (n_A n_B)`` covariance and costs ``lanczos_order`` operator
     matvecs per sample.
 
     Args:
-        op: Positive-semidefinite SumKronecker covariance operator.
+        op: Positive-semidefinite `SumOfKroneckers` covariance operator.
         key: JAX PRNG key.
         num_samples: Number of independent samples to draw.
         lanczos_order: Lanczos truncation order.
@@ -193,7 +198,7 @@ def sumkronecker_sample(
 
     if op.in_size() != op.out_size():
         raise ValueError(
-            "sumkronecker_sample requires a square SumKronecker, got "
+            "sumkronecker_sample requires a square SumOfKroneckers, got "
             f"in_size={op.in_size()} and out_size={op.out_size()}."
         )
     if num_samples < 1:
@@ -204,3 +209,40 @@ def sumkronecker_sample(
         key, (num_samples, op.in_size()), dtype=op.in_structure().dtype
     )
     return jax.vmap(sqrt_op.mv)(eps)
+
+
+# ---------------------------------------------------------------------------
+# Deprecated compatibility class
+# ---------------------------------------------------------------------------
+
+
+class SumKronecker(SumOfKroneckers):
+    """Deprecated alias for `SumOfKroneckers`.
+
+    The old name was one word-order away from `KroneckerSum`, a
+    different operator with a different eigendecomposition — picking the wrong
+    one produced silently wrong solves. Renamed in gh-136.
+
+    Subclasses `SumOfKroneckers` so ``isinstance`` checks and
+    ``singledispatch`` registrations keyed on this class keep working, and
+    emits a `DeprecationWarning` on construction. Note that instances built
+    via `SumOfKroneckers` are *not* instances of this subclass; internal
+    dispatch keys on the parent. Will be removed in a future release.
+    """
+
+    def __init__(
+        self,
+        kron1: Kronecker,
+        kron2: Kronecker,
+        *krons: Kronecker,
+        tags: object | frozenset[object] = frozenset(),
+    ) -> None:
+        import warnings
+
+        warnings.warn(
+            "SumKronecker is deprecated; use SumOfKroneckers "
+            "(KroneckerSum remains a different operator).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(kron1, kron2, *krons, tags=tags)

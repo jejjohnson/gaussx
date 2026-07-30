@@ -141,6 +141,7 @@ from gaussx._operators import (
     ProductOperator as ProductOperator,
     ScaledOperator as ScaledOperator,
     SumKronecker as SumKronecker,
+    SumOfKroneckers as SumOfKroneckers,
     SumOperator as SumOperator,
     SVDLowRankUpdate as SVDLowRankUpdate,
     Toeplitz as Toeplitz,
