@@ -89,7 +89,7 @@ Two properties are worth internalising:
 - **Lazy over dense.** `cholesky`, `sqrt`, and `inv` return *operators*.
   The Cholesky of a `Kronecker` is a `Kronecker` of Cholesky factors; nothing
   is materialized until you call `.as_matrix()`.
-- **The expensive surprise is flagged.** `cholesky(SumKronecker)` is the one
+- **The expensive surprise is flagged.** `cholesky(SumOfKroneckers)` is the one
   path where a structured operator you would reasonably expect to stay
   structured must materialize the dense covariance, so it raises a
   [`DenseFallbackWarning`](api/primitives.md#gaussx.DenseFallbackWarning) and
@@ -135,7 +135,7 @@ instance, has no block-tridiagonal path and falls back there.
 | `BlockDiag` | per block | sum of logdets | per block | per block | per block | per block |
 | `Kronecker` | Roth's lemma | scaled sum | per factor | per factor | per factor | per factor |
 | `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | eigen-based | `KroneckerSumSqrt` | lazy |
-| `SumKronecker` | dense | dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
+| `SumOfKroneckers` | dense | dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
 | Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | unwrap | unwrap + recurse | unwrap | unwrap + recurse |
@@ -173,7 +173,7 @@ flowchart LR
 
     P --> P1["Kronecker"]
     P --> P2["KroneckerSum"]
-    P --> P3["SumKronecker"]
+    P --> P3["SumOfKroneckers"]
     P --> P4["BlockDiag"]
 
     LRK --> L1["LowRankUpdate"]
@@ -199,7 +199,7 @@ flowchart LR
 |----------|-----------|--------------------|
 | `Kronecker(A, B, ...)` | $A \otimes B \otimes \cdots$ | $O(\sum_i n_i^3)$ instead of $O((\prod_i n_i)^3)$; matvec is Roth's column lemma via einx |
 | `KroneckerSum(A, B)` | $A \oplus B = A \otimes I + I \otimes B$ | Diagonalises in the joint eigenbasis, eigenvalues $\lambda_i + \mu_j$ |
-| `SumKronecker` | $\sum_k A_k \otimes B_k$ | Structured Cholesky/sqrt for separable-plus-noise covariances |
+| `SumOfKroneckers` | $\sum_k A_k \otimes B_k$ | Structured Cholesky/sqrt for separable-plus-noise covariances. *Not* the same as `KroneckerSum`; was named `SumKronecker`, which survives as a deprecated alias |
 | `BlockDiag(A, B, ...)` | $\mathrm{diag}(A, B, \ldots)$ | Every primitive splits per block |
 | `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | $O(N d^3)$ --- the precision structure of Markovian GPs |
 | `LowRankUpdate(L, U, d, V)` | $L + U\,\mathrm{diag}(d)\,V^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
@@ -456,7 +456,7 @@ src/gaussx/
 ├── _linalg/                # Layer 0 — Woodbury, Schur, safe_cholesky,
 │                           #   tridiagonal, Lyapunov, symmetrize, batched matvec
 │
-├── _operators/             # Layer 1 — Kronecker, KroneckerSum, SumKronecker,
+├── _operators/             # Layer 1 — Kronecker, KroneckerSum, SumOfKroneckers,
 │                           #   BlockDiag, BlockTriDiag, LowRankUpdate, SVD
 │                           #   low-rank, Toeplitz, kernel/implicit/interpolated/
 │                           #   masked operators, lazy algebra, capacitance

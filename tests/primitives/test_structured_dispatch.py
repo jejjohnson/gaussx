@@ -17,7 +17,7 @@ from gaussx._operators import (
     Kronecker,
     KroneckerSum,
     LowRankUpdate,
-    SumKronecker,
+    SumOfKroneckers,
 )
 from gaussx._operators._block_tridiag import LowerBlockTriDiag, UpperBlockTriDiag
 from gaussx._primitives._cholesky import cholesky
@@ -95,7 +95,7 @@ class TestSumKroneckerDispatch:
     def sum_kron(self, getkey):
         k1 = Kronecker(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
         k2 = Kronecker(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
-        return SumKronecker(k1, k2)
+        return SumOfKroneckers(k1, k2)
 
     def test_diag(self, sum_kron):
         assert tree_allclose(diag(sum_kron), jnp.diag(sum_kron.as_matrix()))

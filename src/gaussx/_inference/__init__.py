@@ -25,7 +25,6 @@ from gaussx._inference._inference import (
     gaussian_expected_log_lik,
     log_marginal_likelihood,
     newton_update,
-    process_noise_covariance,
     trace_correction,
 )
 from gaussx._inference._natural_gradient import (
@@ -33,6 +32,12 @@ from gaussx._inference._natural_gradient import (
     gauss_newton_precision,
     riemannian_psd_correction,
 )
+
+# ``process_noise_covariance`` is a state-space concept and now lives in
+# ``gaussx._ssm``. Re-exported here so the historical import path keeps
+# working. Imported from the leaf module rather than the ``_ssm`` package to
+# avoid pulling the whole subpackage in (and any future import cycle).
+from gaussx._ssm._discretise import process_noise_covariance
 
 
 __all__ = [

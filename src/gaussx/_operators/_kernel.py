@@ -113,6 +113,21 @@ class KernelOperator(lx.AbstractLinearOperator):
     ``jax.custom_jvp`` keeps first-order autodiff efficient without
     materializing Jacobians.
 
+    **Contract** (see the operators API page for the full comparison):
+
+    | Property | Value |
+    |---|---|
+    | Shape | Rectangular ``(N, M)`` — ``X1`` and ``X2`` are independent |
+    | Evaluation | ``lax.scan`` over rows of ``X1``, one row per step |
+    | Peak memory | ``O(M)`` per step; the ``(N, M)`` block is never formed |
+    | Noise term | None — this is ``K``, not ``K + sigma^2 I`` |
+    | Kernel signature | ``k(params, x, x')``; ``params`` is a required argument |
+
+    Reach for this when you need a general kernel block. For a *square*
+    training covariance with the noise term fused in, use
+    `ImplicitKernelOperator`; for a data-inducing block where you want to
+    tune the scan chunk size, use `ImplicitCrossKernelOperator`.
+
     Batched inputs are supported: ``X1`` and ``X2`` may carry leading
     batch dimensions ``(*batch, N, D)`` / ``(*batch, M, D)`` (with
     matching ``*batch``). In that case ``mv`` expects a vector of shape

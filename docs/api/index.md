@@ -42,7 +42,7 @@ A few patterns hold across the whole package:
 - **Lazy over dense.** Primitives like `inv`, `sqrt`, and `cholesky` return
   *operators*, not arrays, wherever structure allows; nothing is materialized until
   `.as_matrix()` is called. Where a structured operator nevertheless has to be
-  materialized — `cholesky` of a `SumKronecker` — a `DenseFallbackWarning` points
+  materialized — `cholesky` of a `SumOfKroneckers` — a `DenseFallbackWarning` points
   you at the matrix-free alternative.
 
 - **Pure functions.** Outside the operator classes everything is a pure function:

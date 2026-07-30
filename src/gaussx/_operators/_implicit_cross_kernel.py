@@ -147,6 +147,20 @@ class ImplicitCrossKernelOperator(lx.AbstractLinearOperator):
     Adjoint / transpose computes ``K^T u = K(Z, X) u``, mapping an
     ``N``-vector to an ``M``-vector.
 
+    **Contract** (see the operators API page for the full comparison):
+
+    | Property | Value |
+    |---|---|
+    | Shape | Rectangular ``(N, M)`` — data rows against inducing columns |
+    | Evaluation | ``lax.scan`` over ``batch_size``-row chunks of ``X_data`` |
+    | Peak memory | ``O(batch_size * M)`` per step; ``(N, M)`` never formed |
+    | Noise term | None |
+    | Kernel signature | ``k(x, z)``, or ``k(params, x, z)`` with ``params=`` |
+
+    The tunable ``batch_size`` is what distinguishes this from
+    `KernelOperator`, which is also rectangular and scan-based but fixed
+    at one row per step: raising it trades peak memory for throughput.
+
     Supports two kernel signatures:
 
     - **No params** (default): ``k(x, z) -> scalar``.

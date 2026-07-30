@@ -9,6 +9,7 @@ from gaussx._ssm._cvi import (
     sites_to_precision,
 )
 from gaussx._ssm._dare import DAREResult, dare
+from gaussx._ssm._discretise import process_noise_covariance
 from gaussx._ssm._emission import EmissionModel
 from gaussx._ssm._infinite_horizon_kalman import (
     InfiniteHorizonState,
@@ -70,6 +71,7 @@ __all__ = [
     "pairwise_marginals",
     "parallel_kalman_filter",
     "parallel_rts_smoother",
+    "process_noise_covariance",
     "rts_smoother",
     "sde_autocovariance",
     "site_mean_var_from_natural",

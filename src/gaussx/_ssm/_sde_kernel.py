@@ -11,6 +11,7 @@ import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
 from gaussx._linalg._symmetrize import symmetrize
+from gaussx._ssm._discretise import process_noise_covariance
 
 
 class SDEParams(NamedTuple):
@@ -79,8 +80,7 @@ class SDEKernel(eqx.Module):
         """
         params = self.sde_params()
         A = jsl.expm(params.F * dt)
-        Q = params.P_inf - A @ params.P_inf @ A.T
-        Q = symmetrize(Q)
+        Q = symmetrize(process_noise_covariance(A, params.P_inf))
         return A, Q
 
     def discretise_sequence(
