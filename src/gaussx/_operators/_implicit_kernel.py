@@ -98,6 +98,20 @@ class ImplicitKernelOperator(lx.AbstractLinearOperator):
     The scan-based implementation is compatible with CG / BBMM solvers
     that only need matvec access.
 
+    **Contract** (see the operators API page for the full comparison):
+
+    | Property | Value |
+    |---|---|
+    | Shape | Square ``(N, N)`` — a single point set ``X`` |
+    | Evaluation | ``lax.scan`` over rows of ``X``, one row per step |
+    | Peak memory | ``O(N)`` per step; the ``(N, N)`` matrix is never formed |
+    | Noise term | **Fused** — applies ``K + noise_var * I`` in one pass |
+    | Kernel signature | ``k(x, x')``, or ``k(params, x, x')`` with ``params=`` |
+
+    The fused noise term is the reason to prefer this over
+    `KernelOperator` for a training covariance: ``K`` and ``sigma^2 I``
+    never exist as separate operators at scale.
+
     Supports two kernel signatures:
 
     - **No params** (default): ``k(x, x') -> scalar``.  Hyperparameters
