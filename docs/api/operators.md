@@ -13,11 +13,24 @@ The Kronecker product $A_1 \otimes A_2 \otimes \cdots$ gives $O(\sum_i n_i^3)$
 solves on a $\prod_i n_i$ grid; the Kronecker *sum* $A \otimes I + I \otimes B$
 diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
 
+!!! warning "`KroneckerSum` and `SumOfKroneckers` are different operators"
+    They are not word-order variants of one idea:
+
+    | | Math | Eigendecomposition |
+    |---|---|---|
+    | `KroneckerSum(A, B)` | $A \otimes I + I \otimes B$ | Closed form — eigenvalues $\lambda_i + \mu_j$, eigenvectors $V_A \otimes V_B$ |
+    | `SumOfKroneckers(K_1, K_2, …)` | $\sum_k A_k \otimes B_k$ | None in general; `eigendecompose` handles the two-term symmetric case by densifying a $(n_c n_d)^2$ block |
+
+    `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
+    still imports and subclasses the new one — so `isinstance` checks keep
+    working — but emits a `DeprecationWarning` on construction and will be
+    removed in a future release.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumKronecker]
+      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumOfKroneckers, SumKronecker]
 
 ## Low-rank updates
 
@@ -55,9 +68,53 @@ operators get $O(n \log n)$ matvecs and sampling via FFT circulant embedding.
 
 ## Kernel operators
 
-Kernel matrices as operators — dense (`KernelOperator`), matrix-free
-(`ImplicitKernelOperator`, rows generated on the fly per matvec), rectangular
-cross-kernels, and grid-interpolated (KISS-GP style) variants.
+Kernel matrices as operators, plus grid-interpolated (KISS-GP style) and masked
+variants.
+
+### Choosing between the three kernel operators
+
+All three are **matrix-free and scan-based** — none of them ever materializes
+its kernel block. The word *implicit* in two of the names is therefore not the
+distinction it appears to be. What actually separates them is the **shape
+contract**, whether a **noise term is fused in**, and the **scan granularity**:
+
+| | `KernelOperator` | `ImplicitKernelOperator` | `ImplicitCrossKernelOperator` |
+|---|---|---|---|
+| **Shape** | Rectangular $(N, M)$ | Square $(N, N)$ | Rectangular $(N, M)$ |
+| **Points** | `X1`, `X2` (independent) | `X` (one set) | `X_data`, `X_inducing` |
+| **Noise term** | — | **fused** `+ noise_var * I` | — |
+| **Scan step** | one row of `X1` | one row of `X` | `batch_size` rows (default 1024) |
+| **Peak memory/step** | $O(M)$ | $O(N)$ | $O(\texttt{batch\_size} \times M)$ |
+| **Kernel signature** | `k(params, x, x')` (required) | `k(x, x')` or `k(params, x, x')` | `k(x, z)` or `k(params, x, z)` |
+| **`jax.custom_jvp`** | always | only with `params=` | only with `params=` |
+
+!!! warning "The custom JVP follows `params`, not the class"
+    `KernelOperator` takes `params` as a required argument, so its matvec
+    always runs under a `jax.custom_jvp` that differentiates the kernel
+    without materializing Jacobians. The two `Implicit*` operators default to
+    `params=None`, and in that mode `mv` runs the ordinary scan with no custom
+    rule — autodiff falls back to differentiating straight through the scan.
+    Pass a `params` pytree (and use the `k(params, x, x')` signature) if you
+    are differentiating w.r.t. hyperparameters and want the efficient path.
+
+Practical guidance:
+
+- Building a **training covariance** you will pass to CG or BBMM? Use
+  `ImplicitKernelOperator` — the fused noise term means $K$ and $\sigma^2 I$
+  never exist as separate operators.
+- Need a **general kernel block** between two point sets? `KernelOperator`.
+- Need a **data-inducing block** and want to trade peak memory for throughput?
+  `ImplicitCrossKernelOperator`, and tune `batch_size`.
+
+!!! note "Naming rule for future kernel operators"
+    Every kernel operator in gaussx is matrix-free, so *implicit*, *lazy*, and
+    *matrix-free* carry no information in a class name — and neither would
+    *scan*, since all three scan. Name a new kernel operator after the part of
+    its **contract** that differs: what shape it produces, what it fuses in, or
+    what point sets it relates. The existing `Implicit*` names predate this rule
+    and are kept for compatibility; see
+    [#135](https://github.com/jejjohnson/gaussx/issues/135) for the rename
+    discussion.
 
 ::: gaussx
     options:

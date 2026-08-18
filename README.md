@@ -60,23 +60,33 @@ Pure functions with `isinstance`-based structural dispatch. Each primitive autom
 
 ### Layer 1 -- Operators
 
-Extend `lineax.AbstractLinearOperator` with structured matrices:
+Extend `lineax.AbstractLinearOperator` with structured matrices. All are immutable `equinox.Module` pytrees, safe under `jit` / `grad` / `vmap`:
 
 | Operator | Description |
 |----------|-------------|
 | `Kronecker` | Kronecker product A_1 &otimes; ... &otimes; A_k |
 | `KroneckerSum` | Kronecker sum A &oplus; B = A &otimes; I + I &otimes; B |
+| `SumOfKroneckers` | Sum of Kronecker products &Sigma;_k A_k &otimes; B_k (**not** the same as `KroneckerSum`) |
 | `BlockDiag` | Block diagonal diag(A_1, ..., A_k) |
 | `BlockTriDiag` | Block tridiagonal (lower/upper variants) |
-| `LowRankUpdate` | A + UDV^T |
-| `SVDLowRankUpdate` | SVD-factored low-rank update |
-| `ImplicitKernelOperator` | Matrix-free kernel operator |
+| `LowRankUpdate` | A + UDV^T (pass `orthonormal=True` for SVD / Nystrom factors) |
+| `Toeplitz` | Symmetric Toeplitz, O(n log n) matvec via FFT |
+| `KernelOperator` | Rectangular kernel block K(X1, X2), matrix-free |
+| `ImplicitKernelOperator` | Square training covariance with fused noise, matrix-free |
+| `ImplicitCrossKernelOperator` | Rectangular data-inducing block, tunable scan chunk |
+| `InterpolatedOperator` | Grid-interpolated (KISS-GP style) |
+| `MaskedOperator` | Row/column sub-selection of a base operator |
+| `SumOperator`, `ScaledOperator`, `ProductOperator` | Lazy algebra |
 
-### Layer 1.5 -- Solver Strategies
+### Layer 1.5 -- Solver Strategies & Preconditioners
 
-Pluggable solve + logdet algorithms that decouple numerics from distributions:
+Pluggable solve + logdet algorithms that decouple numerics from distributions. `linear_solve` is the high-level front door; `solver=None` anywhere means structural dispatch:
 
-`DenseSolver` | `AutoSolver` | `CGSolver` | `PreconditionedCGSolver` | `LSMRSolver` | `BBMMSolver` | `ComposedSolver`
+**Solvers**: `DenseSolver` | `AutoSolver` | `CGSolver` | `PreconditionedCGSolver` | `MINRESSolver` | `LSMRSolver` | `BBMMSolver` | `ComposedSolver`
+
+**Logdets**: `DenseLogdet` | `SLQLogdet` | `IndefiniteSLQLogdet`
+
+**Preconditioners**: `JacobiPreconditioner` | `NystromPreconditioner` | `PartialCholeskyPreconditioner` | `OperatorPreconditioner` (bring your own M^-1)
 
 ### Layer 2 -- Distributions & Sugar
 
@@ -105,8 +115,15 @@ Cross-cutting patterns combining multiple layers:
 | **Gaussian sites (CVI)** | `GaussianSites`, `cvi_update_sites`, `sites_to_precision` |
 | **Kronecker GP** | `kronecker_mll`, `kronecker_posterior_predictive` |
 | **SpinGP** | `spingp_log_likelihood`, `spingp_posterior` |
-| **LOVE** | `love_cache`, `love_variance` |
-| **Ensemble** | `ensemble_covariance`, `ensemble_cross_covariance` |
+| **LOVE / LOO** | `love_cache`, `love_variance`, `leave_one_out_cv` |
+| **Ensemble (EnKF)** | `ensemble_covariance`, `ensemble_cross_covariance`, `ensemble_kalman_gain`, `etkf_transform` |
+| **Localization / inflation** | `gaspari_cohn`, `localized_kalman_gain`, `inflate_rtpp`, `inflate_rtps` |
+| **GP conditioning** | `base_conditional`, `predict_mean`, `predict_variance`, `build_prediction_cache` |
+| **Variational bounds** | `variational_elbo_gaussian`, `variational_elbo_mc`, `collapsed_elbo`, `gauss_kl` |
+| **Pathwise sampling** | `matheron_update` |
+| **Multi-output (OILMM)** | `oilmm_project`, `oilmm_back_project` |
+| **SDE kernels** | `MaternSDE`, `PeriodicSDE`, `QuasiPeriodicSDE`, `CosineSDE`, `ConstantSDE`, `SumSDE`, `ProductSDE` |
+| **Steady-state Kalman** | `infinite_horizon_filter`, `infinite_horizon_smoother`, `dare` |
 | **Interpolation** | `conditional_interpolate` |
 
 ### Exponential Family
@@ -117,9 +134,17 @@ Gaussian in natural parameter form: `GaussianExpFam` with conversions between na
 
 Gaussian-in / Gaussian-out transforms for nonlinear functions:
 
-- **Integrators**: `TaylorIntegrator`, `UnscentedIntegrator`, `MonteCarloIntegrator`
+- **Integrators**: `GaussHermiteIntegrator`, `TaylorIntegrator`, `UnscentedIntegrator`, `MonteCarloIntegrator`
+- **Likelihoods**: `GaussianLikelihood`, `HeteroscedasticGaussianLikelihood`, `BernoulliLikelihood`, `PoissonLikelihood`, `SoftmaxLikelihood`, `StudentTLikelihood`
 - **State estimation**: `AssumedDensityFilter`
+- **EP moments**: `ep_tilted_moments`
 - **GP predictions under input uncertainty**: `uncertain_gp_predict`, `uncertain_svgp_predict`, `uncertain_vgp_predict`, `uncertain_bgplvm_predict`
+
+## Documentation
+
+- **[API Reference](https://jejjohnson.github.io/gaussx/api/)** — organised by layer; every public symbol is documented
+- **[Architecture](https://jejjohnson.github.io/gaussx/architecture/)** — the layered stack, dispatch flow, and per-primitive fast-path coverage
+- **[Vision](https://jejjohnson.github.io/gaussx/vision/)** — why gaussx exists and what it deliberately is not
 
 ## API Notes
 
@@ -127,6 +152,7 @@ A few usage details that are easy to miss:
 
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` so predictive variances use the exact prior diagonal at the test points instead of reconstructing it from cross-covariances.
 - `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` expects `Q[0]` to equal `P_0`; the function raises a `ValueError` if the initial covariance is inconsistent.
+- `gaussx.SumKronecker` and `gaussx.SVDLowRankUpdate` are **deprecated** aliases (for `SumOfKroneckers` and `LowRankUpdate(..., orthonormal=True)`); both warn on construction and will be removed in a future release.
 - `gaussx.ImplicitKernelOperator(...)` only reports `lineax` structure such as symmetry or PSD when those tags are passed explicitly.
 
 ## Development

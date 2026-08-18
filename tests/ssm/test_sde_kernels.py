@@ -2,17 +2,22 @@
 
 import jax
 import jax.numpy as jnp
+import lineax as lx
 import pytest
 
 from gaussx import (
     ConstantSDE,
     CosineSDE,
+    Kronecker,
     MaternSDE,
     PeriodicSDE,
     ProductSDE,
     QuasiPeriodicSDE,
     SDEParams,
     SumSDE,
+    discrete_lyapunov_solve,
+    process_noise_covariance,
+    symmetrize,
 )
 
 
@@ -172,3 +177,141 @@ class TestDiscretiseSequence:
         A_seq, Q_seq = kern.discretise_sequence(dts)
         assert A_seq.shape == (3, 2, 2)
         assert Q_seq.shape == (3, 2, 2)
+
+
+class TestDiscretiseSharesProcessNoiseHelper:
+    """`SDEKernel.discretise` must not re-inline the process-noise formula.
+
+    Two copies of ``Q = P_inf - A P_inf A^T`` had already drifted once: the
+    kernel path symmetrised the result and the standalone helper did not.
+    These tests pin the base implementation to the shared helper so a future
+    change to the numerics lands in both places (gh-151).
+    """
+
+    @pytest.mark.parametrize("order", [0, 1, 2])
+    def test_matches_shared_helper(self, order):
+        kern = MaternSDE(
+            variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=order
+        )
+        A, Q = kern.discretise(jnp.array(0.1))
+        expected = symmetrize(process_noise_covariance(A, kern.sde_params().P_inf))
+        assert jnp.allclose(Q, expected, atol=1e-12)
+
+    def test_helper_is_reachable_from_both_import_paths(self):
+        """The pre-move `_inference` path keeps working."""
+        from gaussx._inference import process_noise_covariance as legacy
+        from gaussx._ssm import process_noise_covariance as current
+
+        assert legacy is current is process_noise_covariance
+
+    def test_discretised_covariance_is_symmetric(self):
+        """`discretise` symmetrises; the bare helper deliberately does not."""
+        kern = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=2)
+        _, Q = kern.discretise(jnp.array(0.3))
+        assert jnp.allclose(Q, Q.T, atol=1e-12)
+
+
+class TestProcessNoiseCovarianceReuse:
+    """`process_noise_covariance` delegates its congruence to `cov_transform`.
+
+    That keeps one implementation of ``A P A^T`` in the package and lets
+    structured operands stay factorised instead of being materialised.
+    """
+
+    def _factors(self):
+        A1 = jnp.array([[0.9, 0.0], [0.0, 0.7]])
+        A2 = jnp.array([[0.5, 0.1], [0.1, 0.6]])
+        P1 = jnp.array([[2.0, 0.0], [0.0, 1.0]])
+        P2 = jnp.array([[1.5, 0.2], [0.2, 1.1]])
+        return A1, A2, P1, P2
+
+    def test_array_inputs_return_arrays(self):
+        A1, _, P1, _ = self._factors()
+        Q = process_noise_covariance(A1, P1)
+        assert isinstance(Q, jnp.ndarray)
+        assert jnp.allclose(Q, P1 - A1 @ P1 @ A1.T)
+
+    def test_operator_inputs_stay_lazy(self):
+        """Operator operands return an operator, not a materialised array."""
+        A1, _, P1, _ = self._factors()
+        Q = process_noise_covariance(
+            lx.MatrixLinearOperator(A1),
+            lx.MatrixLinearOperator(P1, lx.symmetric_tag),
+        )
+        assert isinstance(Q, lx.AbstractLinearOperator)
+        assert jnp.allclose(Q.as_matrix(), P1 - A1 @ P1 @ A1.T, atol=1e-6)
+
+    def test_kronecker_operands_keep_kronecker_structure(self):
+        """The congruence term must not collapse to a dense block."""
+        A1, A2, P1, P2 = self._factors()
+        A_op = Kronecker(lx.MatrixLinearOperator(A1), lx.MatrixLinearOperator(A2))
+        P_op = Kronecker(
+            lx.MatrixLinearOperator(P1, lx.symmetric_tag),
+            lx.MatrixLinearOperator(P2, lx.symmetric_tag),
+        )
+        Q = process_noise_covariance(A_op, P_op)
+
+        # Q = P - (A P A^T); the subtracted term is the sandwich.
+        sandwiched = Q.operator2.operator
+        assert isinstance(sandwiched, Kronecker)
+
+        A_dense, P_dense = A_op.as_matrix(), P_op.as_matrix()
+        expected = P_dense - A_dense @ P_dense @ A_dense.T
+        assert jnp.allclose(Q.as_matrix(), expected, atol=1e-5)
+
+    def test_diagonal_covariance_matches_dense(self):
+        A1, _, _, _ = self._factors()
+        d = jnp.array([2.0, 3.0])
+        Q = process_noise_covariance(A1, lx.DiagonalLinearOperator(d))
+        P_dense = jnp.diag(d)
+        assert jnp.allclose(Q.as_matrix(), P_dense - A1 @ P_dense @ A1.T, atol=1e-6)
+
+    def test_inverts_discrete_lyapunov_solve(self):
+        """Q -> P_inf -> Q is a round trip; the two are inverse maps."""
+        A1, _, P1, _ = self._factors()
+        Q = process_noise_covariance(A1, P1)
+        P_recovered = discrete_lyapunov_solve(A1, Q)
+        assert jnp.allclose(P_recovered, P1, atol=1e-5)
+
+
+class TestProductSDEKroneckerDiscretisation:
+    """`ProductSDE.discretise` contracts per factor, not on the full matrix."""
+
+    def _kernel(self):
+        return QuasiPeriodicSDE(
+            kernel1=MaternSDE(
+                variance=jnp.array(1.3), lengthscale=jnp.array(0.7), order=2
+            ),
+            kernel2=PeriodicSDE(
+                variance=jnp.array(1.0),
+                lengthscale=jnp.array(1.0),
+                period=jnp.array(2.0),
+                n_harmonics=3,
+            ),
+        )
+
+    def test_matches_dense_triple_product(self):
+        """Per-factor congruence agrees with the full (d1*d2)-square form."""
+        kern = self._kernel()
+        dt = jnp.array(0.37)
+        A, Q = kern.discretise(dt)
+        params = kern.sde_params()
+        Q_dense = symmetrize(process_noise_covariance(A, params.P_inf))
+        assert jnp.allclose(Q, Q_dense, atol=1e-5)
+
+    def test_result_is_symmetric(self):
+        kern = self._kernel()
+        _, Q = kern.discretise(jnp.array(0.2))
+        assert jnp.allclose(Q, Q.T, atol=1e-12)
+
+    def test_jit_compatible(self):
+        kern = self._kernel()
+
+        @jax.jit
+        def get_AQ(dt):
+            return kern.discretise(dt)
+
+        A, Q = get_AQ(jnp.array(0.37))
+        A_ref, Q_ref = kern.discretise(jnp.array(0.37))
+        assert jnp.allclose(A, A_ref, atol=1e-6)
+        assert jnp.allclose(Q, Q_ref, atol=1e-6)

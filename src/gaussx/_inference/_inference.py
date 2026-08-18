@@ -184,26 +184,3 @@ def newton_update(
     nat1 = jacobian - hessian @ mean
     nat2 = -hessian
     return nat1, nat2
-
-
-def process_noise_covariance(
-    A: Float[Array, "N N"],
-    Pinf: Float[Array, "N N"],
-) -> Float[Array, "N N"]:
-    """Compute process noise from stationary covariance.
-
-    Computes:
-
-        Q = Pinf - A @ Pinf @ A^T
-
-    For a discrete-time state-space model with stationary covariance
-    ``Pinf`` and transition matrix ``A``.
-
-    Args:
-        A: State transition matrix, shape ``(N, N)``.
-        Pinf: Stationary covariance, shape ``(N, N)``.
-
-    Returns:
-        Process noise covariance Q, shape ``(N, N)``.
-    """
-    return Pinf - A @ Pinf @ A.T

@@ -1,4 +1,4 @@
-"""Tests for the SumKronecker operator."""
+"""Tests for the SumOfKroneckers operator."""
 
 from __future__ import annotations
 
@@ -9,8 +9,20 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._operators import Kronecker, SumKronecker, sumkronecker_sample
-from gaussx._primitives import DenseFallbackWarning, SumKroneckerSqrt, cholesky, sqrt
+from gaussx._operators import (
+    Kronecker,
+    SumKronecker,
+    SumOfKroneckers,
+    sumkronecker_sample,
+)
+from gaussx._primitives import (
+    DenseFallbackWarning,
+    SumKroneckerSqrt,
+    cholesky,
+    diag,
+    sqrt,
+    trace,
+)
 from gaussx._testing import tree_allclose
 
 
@@ -24,7 +36,7 @@ def _make_psd_sum_kronecker(getkey):
     B1 = _make_psd(getkey(), 3)
     A2 = _make_psd(getkey(), 2)
     B2 = _make_psd(getkey(), 3)
-    return SumKronecker(
+    return SumOfKroneckers(
         Kronecker(
             lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
             lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
@@ -48,7 +60,7 @@ class TestConstruction:
         B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         A2 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         assert SK.in_size() == 6
         assert SK.out_size() == 6
 
@@ -60,7 +72,7 @@ class TestConstruction:
             )
             for _ in range(3)
         ]
-        SK = SumKronecker(*terms)
+        SK = SumOfKroneckers(*terms)
         expected = terms[0].as_matrix()
         for term in terms[1:]:
             expected = expected + term.as_matrix()
@@ -73,7 +85,7 @@ class TestConstruction:
         k3 = Kronecker(A, B, C)
         k2 = Kronecker(A, B)
         with pytest.raises(ValueError, match="two-factor"):
-            SumKronecker(k3, k2)
+            SumOfKroneckers(k3, k2)
 
     def test_rejects_input_size_mismatch(self, getkey):
         k1 = Kronecker(
@@ -85,7 +97,7 @@ class TestConstruction:
             lx.MatrixLinearOperator(jr.normal(getkey(), (4, 4))),
         )
         with pytest.raises(ValueError, match="same size"):
-            SumKronecker(k1, k2)
+            SumOfKroneckers(k1, k2)
 
     def test_rejects_output_size_mismatch(self, getkey):
         k1 = Kronecker(
@@ -97,7 +109,7 @@ class TestConstruction:
             lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),
         )
         with pytest.raises(ValueError, match="output size"):
-            SumKronecker(k1, k2)
+            SumOfKroneckers(k1, k2)
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +123,7 @@ class TestMv:
         B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         A2 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         v = jr.normal(getkey(), (6,))
         assert tree_allclose(SK.mv(v), SK.as_matrix() @ v)
 
@@ -122,7 +134,7 @@ class TestMv:
         sigma2 = 0.1
         I_a = lx.MatrixLinearOperator(jnp.sqrt(sigma2) * jnp.eye(2))
         I_b = lx.MatrixLinearOperator(jnp.sqrt(sigma2) * jnp.eye(3))
-        SK = SumKronecker(Kronecker(A, B), Kronecker(I_a, I_b))
+        SK = SumOfKroneckers(Kronecker(A, B), Kronecker(I_a, I_b))
         v = jr.normal(getkey(), (6,))
         expected = SK.as_matrix() @ v
         assert tree_allclose(SK.mv(v), expected)
@@ -139,7 +151,7 @@ class TestAsMatrix:
         B1_mat = jr.normal(getkey(), (3, 3))
         A2_mat = jr.normal(getkey(), (2, 2))
         B2_mat = jr.normal(getkey(), (3, 3))
-        SK = SumKronecker(
+        SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1_mat),
                 lx.MatrixLinearOperator(B1_mat),
@@ -164,7 +176,7 @@ class TestTranspose:
         B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         A2 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         assert tree_allclose(SK.T.as_matrix(), SK.as_matrix().T)
 
     def test_transpose_mv(self, getkey):
@@ -172,7 +184,7 @@ class TestTranspose:
         B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         A2 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         v = jr.normal(getkey(), (6,))
         assert tree_allclose(SK.T.mv(v), SK.as_matrix().T @ v)
 
@@ -188,7 +200,7 @@ class TestTags:
         B1 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
         A2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (2,)))
         B2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         assert lx.is_symmetric(SK) is True
 
     def test_not_symmetric_when_factor_not_symmetric(self, getkey):
@@ -196,7 +208,7 @@ class TestTags:
         B1 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
         A2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (2,)))
         B2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         assert lx.is_symmetric(SK) is False
 
     def test_not_diagonal(self, getkey):
@@ -204,7 +216,7 @@ class TestTags:
         B1 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
         A2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (2,)))
         B2 = lx.DiagonalLinearOperator(jr.normal(getkey(), (3,)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         assert lx.is_diagonal(SK) is False
 
 
@@ -219,7 +231,7 @@ class TestEigendecompose:
         B1 = _make_psd(getkey(), 3)
         A2 = _make_psd(getkey(), 2)
         B2 = _make_psd(getkey(), 3)
-        SK = SumKronecker(
+        SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
                 lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
@@ -239,7 +251,7 @@ class TestEigendecompose:
         B1 = _make_psd(getkey(), 2)
         A2 = _make_psd(getkey(), 3)
         B2 = _make_psd(getkey(), 2)
-        SK = SumKronecker(
+        SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
                 lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
@@ -257,7 +269,7 @@ class TestEigendecompose:
         B1 = _make_psd(getkey(), 3)
         A2 = _make_psd(getkey(), 2)
         B2 = _make_psd(getkey(), 3)
-        SK = SumKronecker(
+        SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
                 lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
@@ -284,7 +296,7 @@ class TestJAX:
         B1 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
         A2 = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)))
         B2 = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)))
-        SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+        SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
         v = jr.normal(getkey(), (6,))
 
         @eqx.filter_jit
@@ -300,7 +312,7 @@ class TestJAX:
         v = jr.normal(getkey(), (6,))
 
         def loss(a1_mat):
-            SK = SumKronecker(
+            SK = SumOfKroneckers(
                 Kronecker(
                     lx.MatrixLinearOperator(a1_mat),
                     lx.MatrixLinearOperator(B1_mat),
@@ -319,7 +331,7 @@ class TestJAX:
 
 
 def test_eigendecompose_supports_diagonal_kron2_factors(getkey, monkeypatch):
-    """SumKronecker.eigendecompose accepts Diagonal kron2 factors and
+    """SumOfKroneckers.eigendecompose accepts Diagonal kron2 factors and
     routes their per-factor eig through the structural primitive,
     *not* through ``jnp.linalg.eigh`` on a materialized matrix.
 
@@ -342,7 +354,7 @@ def test_eigendecompose_supports_diagonal_kron2_factors(getkey, monkeypatch):
     B1 = lx.MatrixLinearOperator(B1_mat, lx.symmetric_tag)
     A2 = lx.DiagonalLinearOperator(A2_diag)
     B2 = lx.DiagonalLinearOperator(B2_diag)
-    SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+    SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
 
     # Wrap jnp.linalg.eigh so we can count calls and inspect argument
     # shapes. The Diagonal-factor path should produce *exactly one*
@@ -376,7 +388,7 @@ def test_eigendecompose_rejects_nonsymmetric_kron1(getkey):
     B2_mat = jr.normal(getkey(), (3, 3))
     A2 = lx.MatrixLinearOperator(A2_mat @ A2_mat.T, lx.symmetric_tag)
     B2 = lx.MatrixLinearOperator(B2_mat @ B2_mat.T, lx.symmetric_tag)
-    SK = SumKronecker(Kronecker(A1, B1), Kronecker(A2, B2))
+    SK = SumOfKroneckers(Kronecker(A1, B1), Kronecker(A2, B2))
 
     with pytest.raises(ValueError, match="kron1 factors"):
         SK.eigendecompose()
@@ -387,9 +399,9 @@ def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
     v = jr.normal(getkey(), (SK.in_size(),))
 
     def fail_as_matrix(self):
-        raise AssertionError("Lanczos sqrt should use SumKronecker.mv")
+        raise AssertionError("Lanczos sqrt should use SumOfKroneckers.mv")
 
-    monkeypatch.setattr(SumKronecker, "as_matrix", fail_as_matrix)
+    monkeypatch.setattr(SumOfKroneckers, "as_matrix", fail_as_matrix)
     sqrt_op = sqrt(SK, lanczos_order=SK.in_size())
     assert isinstance(sqrt_op, SumKroneckerSqrt)
     result = sqrt_op.mv(v)
@@ -436,3 +448,68 @@ def test_sumkronecker_sample_rejects_nonpositive_num_samples(getkey):
     SK = _make_psd_sum_kronecker(getkey)
     with pytest.raises(ValueError, match="num_samples"):
         sumkronecker_sample(SK, key=getkey(), num_samples=0)
+
+
+class TestSumKroneckerDeprecatedAlias:
+    """`SumKronecker` was renamed to `SumOfKroneckers` (gh-136).
+
+    The old name was one word-order away from `KroneckerSum`, a different
+    operator with a different eigendecomposition.
+    """
+
+    def _krons(self, getkey):
+        A = lx.MatrixLinearOperator(_make_psd(getkey(), 2), lx.symmetric_tag)
+        B = lx.MatrixLinearOperator(_make_psd(getkey(), 3), lx.symmetric_tag)
+        return Kronecker(A, B), Kronecker(A, B)
+
+    def test_construction_warns(self, getkey):
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning, match="SumKronecker is deprecated"):
+            SumKronecker(k1, k2)
+
+    def test_alias_is_a_subclass(self):
+        assert issubclass(SumKronecker, SumOfKroneckers)
+
+    def test_alias_instances_pass_isinstance_checks(self, getkey):
+        """Existing `isinstance(x, SumOfKroneckers)` dispatch keeps working."""
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning):
+            op = SumKronecker(k1, k2)
+        assert isinstance(op, SumOfKroneckers)
+
+    def test_alias_builds_an_equivalent_operator(self, getkey):
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning):
+            old = SumKronecker(k1, k2)
+        new = SumOfKroneckers(k1, k2)
+        assert tree_allclose(old.as_matrix(), new.as_matrix())
+
+    def test_transpose_preserves_the_alias_type(self, getkey):
+        """`isinstance(op.T, SumKronecker)` kept working across the rename."""
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning):
+            old = SumKronecker(k1, k2)
+        with pytest.warns(DeprecationWarning):
+            transposed = old.T
+        assert isinstance(transposed, SumKronecker)
+        assert tree_allclose(transposed.as_matrix(), old.as_matrix().T)
+
+    def test_transpose_of_the_new_name_is_not_the_alias(self, getkey):
+        k1, k2 = self._krons(getkey)
+        new = SumOfKroneckers(k1, k2)
+        assert type(new.T) is SumOfKroneckers
+
+    def test_dispatch_is_unchanged_through_the_alias(self, getkey):
+        """trace / diag route through the parent class, not the alias."""
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning):
+            old = SumKronecker(k1, k2)
+        new = SumOfKroneckers(k1, k2)
+        assert tree_allclose(trace(old), trace(new))
+        assert tree_allclose(diag(old), diag(new))
+
+    def test_exported_from_top_level(self):
+        import gaussx
+
+        assert gaussx.SumOfKroneckers is SumOfKroneckers
+        assert gaussx.SumKronecker is SumKronecker

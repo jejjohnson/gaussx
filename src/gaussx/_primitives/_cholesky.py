@@ -10,7 +10,7 @@ import lineax as lx
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._sum_kronecker import SumKronecker
+from gaussx._operators._sum_kronecker import SumOfKroneckers
 
 
 class DenseFallbackWarning(UserWarning):
@@ -41,7 +41,7 @@ def cholesky(
         return _cholesky_kronecker(operator)
     if isinstance(operator, BlockTriDiag):
         return _cholesky_block_tridiag(operator)
-    if isinstance(operator, SumKronecker):
+    if isinstance(operator, SumOfKroneckers):
         return _cholesky_sum_kronecker(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return cholesky(operator.operator)
@@ -93,12 +93,12 @@ def _cholesky_block_tridiag(operator: BlockTriDiag) -> LowerBlockTriDiag:
     return LowerBlockTriDiag(L_diag, B_sub)
 
 
-def _cholesky_sum_kronecker(operator: SumKronecker) -> lx.MatrixLinearOperator:
+def _cholesky_sum_kronecker(operator: SumOfKroneckers) -> lx.MatrixLinearOperator:
     import warnings
 
     warnings.warn(
-        "cholesky(SumKronecker) materialises the dense covariance. "
-        "Use sumkronecker_sample(...) or sqrt(SumKronecker) for matrix-free "
+        "cholesky(SumOfKroneckers) materialises the dense covariance. "
+        "Use sumkronecker_sample(...) or sqrt(SumOfKroneckers) for matrix-free "
         "Lanczos sampling.",
         DenseFallbackWarning,
         stacklevel=2,

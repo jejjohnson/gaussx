@@ -11,7 +11,7 @@ import matfree.funm
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
-from gaussx._operators._sum_kronecker import SumKronecker
+from gaussx._operators._sum_kronecker import SumOfKroneckers
 
 
 _DEFAULT_LANCZOS_ORDER = 50
@@ -34,7 +34,7 @@ def sqrt(
         operator: A PSD linear operator.
         lanczos_order: Order of Lanczos iteration for matrix-free
             sqrt. If ``None``, uses dense eigendecomposition for most
-            operators, *except* `SumKronecker` — where ``None``
+            operators, *except* `SumOfKroneckers` — where ``None``
             falls back to a Lanczos sqrt with the module default order
             (no closed-form sqrt exists for the sum-of-Kronecker
             structure). Pass an explicit ``lanczos_order`` to override
@@ -55,7 +55,7 @@ def sqrt(
         return _sqrt_kronecker(operator)
     if isinstance(operator, KroneckerSum):
         return _sqrt_kronecker_sum(operator)
-    if isinstance(operator, SumKronecker):
+    if isinstance(operator, SumOfKroneckers):
         return _sqrt_sum_kronecker(
             operator,
             lanczos_order=(
@@ -87,7 +87,7 @@ def _sqrt_kronecker_sum(operator: KroneckerSum) -> KroneckerSumSqrt:
 
 
 def _sqrt_sum_kronecker(
-    operator: SumKronecker,
+    operator: SumOfKroneckers,
     *,
     lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
 ) -> SumKroneckerSqrt:
@@ -152,24 +152,24 @@ class SqrtOperator(lx.AbstractLinearOperator):
 
 
 class SumKroneckerSqrt(SqrtOperator):
-    """Lazy Lanczos square-root operator for ``SumKronecker`` covariances.
+    """Lazy Lanczos square-root operator for ``SumOfKroneckers`` covariances.
 
     Specialization of `SqrtOperator` that narrows ``original`` to a
-    `SumKronecker` operator. `mv` computes ``sqrt(A) v`` via
+    `SumOfKroneckers` operator. `mv` computes ``sqrt(A) v`` via
     matfree's Lanczos matrix-function product without materializing the full
     square root.
 
     Args:
-        original: The ``SumKronecker`` covariance to take the square root of.
+        original: The ``SumOfKroneckers`` covariance to take the square root of.
         lanczos_order: Number of Lanczos iterations; clamped to the operator
             size.
     """
 
-    original: SumKronecker
+    original: SumOfKroneckers
 
     def __init__(
         self,
-        original: SumKronecker,
+        original: SumOfKroneckers,
         lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
     ) -> None:
         super().__init__(original, lanczos_order=lanczos_order)
