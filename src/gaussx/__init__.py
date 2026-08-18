@@ -304,6 +304,11 @@ from gaussx._tags import (
 
 
 try:
+    from gaussx._distributions._lgssm import (
+        LGSSM as LGSSM,
+        LGSSMFactory as LGSSMFactory,
+        MaskedLGSSM as MaskedLGSSM,
+    )
     from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
     from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,

@@ -30,7 +30,11 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._symmetrize import symmetrize as _sym
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState, kalman_filter
-from gaussx._ssm._utils import _materialise, _normalise_tv_inputs
+from gaussx._ssm._utils import (
+    _masked_obs_inputs,
+    _materialise,
+    _normalise_tv_inputs,
+)
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -176,7 +180,7 @@ def parallel_kalman_filter(
     init_mean: Float[Array, " N"],
     init_cov: Float[Array, "N N"],
     *,
-    mask: Bool[Array, " T"] | None = None,
+    mask: Bool[Array, " T"] | Bool[Array, "T M"] | None = None,
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
     form: str = "covariance",
@@ -197,8 +201,13 @@ def parallel_kalman_filter(
         observations: Observed data, shape ``(T, M)``.
         init_mean: Initial state mean, shape ``(N,)``.
         init_cov: Initial state covariance, shape ``(N, N)``.
-        mask: Optional ``(T,)`` boolean mask; ``False`` runs predict-only
-            and contributes 0 to the log-likelihood. Defaults to all-True.
+        mask: Optional observation mask, dispatched on rank exactly as
+            in `gaussx.kalman_filter`. Shape ``(T,)`` gates whole
+            steps (``False`` runs predict-only and contributes 0 to the
+            log-likelihood); shape ``(T, M)`` gates individual channels
+            and yields the exact marginal log-likelihood over the
+            observed entries. Defaults to all-True. Not supported by
+            ``form="sqrt"``.
         solver: Accepted for API symmetry with `kalman_filter` but
             not currently threaded through the per-element solves; the
             covariance-form combinator uses unstructured dense solves.
@@ -271,34 +280,47 @@ def parallel_kalman_filter(
         )
 
     A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
-        transition, obs_model, process_noise, obs_noise, T=T, mask=mask
+        transition, obs_model, process_noise, obs_noise, T=T, mask=mask, M=M_obs
     )
+    # Work per-channel throughout: a ``(T,)`` gate is the special case
+    # where every channel of a step shares one flag, so broadcasting it
+    # reproduces the whole-step path exactly.
+    mask_ch = (
+        mask_seq
+        if mask_seq.ndim == 2
+        else jnp.broadcast_to(mask_seq[:, None], (T, M_obs))
+    )
+    step_active = jnp.any(mask_ch, axis=-1)
 
     # Build per-step elements. ``vmap`` of ``lax.cond`` evaluates both
     # branches and selects, so we instead substitute mask-aware safe
-    # inputs (H=0, R=I, y=0 for masked steps) into a single active path.
-    # With those substitutions the active builder collapses to
-    # (F, 0, Q, 0, 0) — exactly the predict-only element — and the
-    # Cholesky operates on the well-conditioned identity, so even
-    # garbage in masked H / R / y can't NaN the gradient.
+    # inputs (zeroed H rows, unit R block, zeroed y) into a single
+    # active path. For a fully-masked step those substitutions collapse
+    # the active builder to (F, 0, Q, 0, 0) — exactly the predict-only
+    # element — and the Cholesky operates on the well-conditioned
+    # identity, so even garbage in masked H / R / y can't NaN the
+    # gradient.
     def _build_step(F, H, Q, R, y, m):
-        H_eff = jnp.where(m, H, jnp.zeros_like(H))
-        R_eff = jnp.where(m, R, jnp.eye(M_obs, dtype=R.dtype))
-        y_eff = jnp.where(m, y, jnp.zeros_like(y))
+        H_eff, R_eff, y_eff, _ = _masked_obs_inputs(H, R, y, m)
         return _generic_filter_element_active(F, H_eff, Q, R_eff, y_eff)
 
-    elems = jax.vmap(_build_step)(A_seq, H_seq, Q_seq, R_seq, observations, mask_seq)
+    elems = jax.vmap(_build_step)(A_seq, H_seq, Q_seq, R_seq, observations, mask_ch)
 
     # Patch element 0 to absorb the initial prior. Outer ``lax.cond``
-    # genuinely skips the inactive branch (no ``vmap`` wrapping here).
+    # genuinely skips the inactive branch (no ``vmap`` wrapping here);
+    # a partially-observed step 0 takes the active branch on the
+    # substituted inputs.
+    H_first, R_first, y_first, _ = _masked_obs_inputs(
+        H_seq[0], R_seq[0], observations[0], mask_ch[0]
+    )
     first = jax.lax.cond(
-        mask_seq[0],
+        step_active[0],
         lambda: _first_filter_element_active(
             A_seq[0],
-            H_seq[0],
+            H_first,
             Q_seq[0],
-            R_seq[0],
-            observations[0],
+            R_first,
+            y_first,
             init_mean,
             init_cov,
         ),
@@ -332,21 +354,27 @@ def parallel_kalman_filter(
     # Log-likelihood from innovations. Same safe substitution as the
     # element builder so masked steps don't drive the Cholesky through
     # ill-conditioned user-supplied R / NaN gradients.
-    def _ll_contrib(y, m_pred, P_pred, H, R, m):
-        H_eff = jnp.where(m, H, jnp.zeros_like(H))
-        R_eff = jnp.where(m, R, jnp.eye(M_obs, dtype=R.dtype))
-        y_eff = jnp.where(m, y, jnp.zeros_like(y))
+    def _ll_contrib(y, m_pred, P_pred, H, R, m, active):
+        H_eff, R_eff, y_eff, n_missing = _masked_obs_inputs(H, R, y, m)
         v = y_eff - H_eff @ m_pred
         S = _sym(H_eff @ P_pred @ H_eff.T + R_eff)
         L = jnp.linalg.cholesky(S)
         Sinv_v = jax.scipy.linalg.cho_solve((L, True), v)
         quad = v @ Sinv_v
         logdet = cholesky_logdet(L)
-        contrib = -0.5 * (quad + logdet + M_obs * _LOG_2PI)
-        return jnp.where(m, contrib, jnp.zeros_like(contrib))
+        # Strip the dummy unit block's -0.5 * log(2 pi) per masked
+        # channel, so this is the exact marginal over observed entries.
+        contrib = -0.5 * (quad + logdet + M_obs * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
+        return jnp.where(active, contrib, jnp.zeros_like(contrib))
 
     ll_contribs = jax.vmap(_ll_contrib)(
-        observations, predicted_means, predicted_covs, H_seq, R_seq, mask_seq
+        observations,
+        predicted_means,
+        predicted_covs,
+        H_seq,
+        R_seq,
+        mask_ch,
+        step_active,
     )
     log_likelihood = jnp.sum(ll_contribs)
 

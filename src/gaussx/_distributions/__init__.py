@@ -18,6 +18,9 @@ from gaussx._distributions._project import project
 
 
 __all__ = [
+    "LGSSM",
+    "LGSSMFactory",
+    "MaskedLGSSM",
     "MultivariateNormal",
     "MultivariateNormalPrecision",
     "add_jitter",
@@ -32,8 +35,9 @@ __all__ = [
 ]
 
 
-# MultivariateNormal / MultivariateNormalPrecision require the optional
-# ``numpyro`` dependency. Exposing them via PEP 562 ``__getattr__`` means:
+# MultivariateNormal / MultivariateNormalPrecision / the LGSSM family
+# require the optional ``numpyro`` dependency. Exposing them via PEP 562
+# ``__getattr__`` means:
 #
 # - Importing ``gaussx._distributions`` always succeeds (so the non-numpyro
 #   helpers above are available in a base install).
@@ -43,6 +47,10 @@ __all__ = [
 # - Users get the expected ``ModuleNotFoundError`` (not a confusing
 #   ``ImportError``) if they directly access the name without the extra.
 def __getattr__(name: str) -> Any:
+    if name in ("LGSSM", "MaskedLGSSM", "LGSSMFactory"):
+        from gaussx._distributions import _lgssm
+
+        return getattr(_lgssm, name)
     if name == "MultivariateNormal":
         from gaussx._distributions._mvn import MultivariateNormal
 

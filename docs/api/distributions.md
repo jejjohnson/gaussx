@@ -18,6 +18,37 @@ be wasted work. Both require `numpyro` to be installed.
       show_root_toc_entry: false
       members: [MultivariateNormal, MultivariateNormalPrecision]
 
+## Sequential distributions
+
+The linear-Gaussian state-space model as a *density* rather than a set of
+functions: `log_prob` is the Kalman marginal likelihood $\log p(y_{1:T})$
+(delegated to [`kalman_filter`](ssm.md)), `sample` is ancestral forward
+simulation, and `event_shape` is $(T, M)$ so `log_prob` returns a scalar with
+no `.to_event()` wrapping. That makes them usable directly as a NumPyro
+likelihood site.
+
+`A`, `H`, `Q` and `R` each take a dense array *or* a lineax operator, exactly
+matching [`kalman_filter`](ssm.md)'s contract — a structured $Q$ / $R$ keeps its
+structure through the Cholesky in `sample`, and $H$ through the sandwich in
+`variance`.
+
+`MaskedLGSSM` carries a $(T, M)$ observation mask and returns the **exact**
+marginal $\log p(y_{\mathrm{obs}})$ — not a bound — because
+$p(y_{\mathrm{miss}} \mid y_{\mathrm{obs}})$ is closed-form Gaussian.
+`LGSSMFactory` is the `mask -> MaskedLGSSM` callable for conditional use; it
+is an `equinox.Module` rather than a closure so the state-space parameters
+stay visible to `equinox.filter_grad`.
+
+To use one as a normalizing-flow base, wrap it with `gauss_flows.NumpyroBase`,
+which already adapts any numpyro distribution — no bespoke adapter class is
+needed on either side. All three require `numpyro` to be installed.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [LGSSM, MaskedLGSSM, LGSSMFactory]
+
 ## Gaussian sugar ops
 
 $$

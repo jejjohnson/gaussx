@@ -55,6 +55,32 @@ def _reshape_batch(
     return rearrange(values, f"({batch_pattern}) -> {batch_pattern}", **axis_lengths)
 
 
+def _reshape_series(
+    values: Float[Array, "flat T M"],
+    batch_shape: tuple[int, ...],
+) -> Float[Array, "*batch T M"]:
+    """Reshape flat ``(T, M)`` series back to their original batch shape.
+
+    The rank-2-event counterpart of `_reshape_samples`, for
+    distributions whose ``event_shape`` is a matrix.
+
+    Args:
+        values: Flat series of shape ``(prod(batch_shape), T, M)``.
+        batch_shape: Target batch shape. When empty, the single series is
+            returned unwrapped.
+
+    Returns:
+        Array reshaped to ``(*batch_shape, T, M)``.
+    """
+    if not batch_shape:
+        return values[0]
+    batch_axes = _axis_names(len(batch_shape))
+    axis_lengths = dict(zip(batch_axes, batch_shape, strict=True))
+    batch_pattern = " ".join(batch_axes)
+    pattern = f"({batch_pattern}) T M -> {batch_pattern} T M"
+    return rearrange(values, pattern, **axis_lengths)
+
+
 def _reshape_samples(
     values: Float[Array, "flat N"],
     batch_shape: tuple[int, ...],
