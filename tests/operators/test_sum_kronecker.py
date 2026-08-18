@@ -484,6 +484,21 @@ class TestSumKroneckerDeprecatedAlias:
         new = SumOfKroneckers(k1, k2)
         assert tree_allclose(old.as_matrix(), new.as_matrix())
 
+    def test_transpose_preserves_the_alias_type(self, getkey):
+        """`isinstance(op.T, SumKronecker)` kept working across the rename."""
+        k1, k2 = self._krons(getkey)
+        with pytest.warns(DeprecationWarning):
+            old = SumKronecker(k1, k2)
+        with pytest.warns(DeprecationWarning):
+            transposed = old.T
+        assert isinstance(transposed, SumKronecker)
+        assert tree_allclose(transposed.as_matrix(), old.as_matrix().T)
+
+    def test_transpose_of_the_new_name_is_not_the_alias(self, getkey):
+        k1, k2 = self._krons(getkey)
+        new = SumOfKroneckers(k1, k2)
+        assert type(new.T) is SumOfKroneckers
+
     def test_dispatch_is_unchanged_through_the_alias(self, getkey):
         """trace / diag route through the parent class, not the alias."""
         k1, k2 = self._krons(getkey)

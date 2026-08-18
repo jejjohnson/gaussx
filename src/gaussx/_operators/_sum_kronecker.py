@@ -88,7 +88,11 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
         return result
 
     def transpose(self) -> SumOfKroneckers:
-        return SumOfKroneckers(
+        # ``type(self)`` rather than the literal class so the deprecated
+        # `SumKronecker` subclass survives a transpose — external
+        # ``isinstance`` checks and ``singledispatch`` registrations keyed on
+        # it would otherwise silently stop applying on ``op.T``.
+        return type(self)(
             *(
                 Kronecker(
                     kron.operators[0].T,
@@ -225,9 +229,11 @@ class SumKronecker(SumOfKroneckers):
 
     Subclasses `SumOfKroneckers` so ``isinstance`` checks and
     ``singledispatch`` registrations keyed on this class keep working, and
-    emits a `DeprecationWarning` on construction. Note that instances built
-    via `SumOfKroneckers` are *not* instances of this subclass; internal
-    dispatch keys on the parent. Will be removed in a future release.
+    emits a `DeprecationWarning` on construction. Structural operations that
+    rebuild the operator — ``transpose`` / ``.T`` — preserve this type, so
+    they warn again. Note that instances built via `SumOfKroneckers` are
+    *not* instances of this subclass; internal dispatch keys on the parent.
+    Will be removed in a future release.
     """
 
     def __init__(
