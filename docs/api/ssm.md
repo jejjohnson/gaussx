@@ -26,6 +26,36 @@ The forward filter and RTS smoother, their $O(\log N)$ parallel
 (associative-scan) counterparts, and the steady-state (infinite-horizon)
 variants built on the discrete algebraic Riccati equation.
 
+### Observation masks
+
+`kalman_filter` and `parallel_kalman_filter` take an optional `mask`,
+dispatched on its rank:
+
+| shape | meaning |
+|---|---|
+| `(T,)` | **Per-step gate.** `False` runs the predict step only and contributes nothing to the log-likelihood — the usual way to predict on a merged train/test grid. |
+| `(T, M)` | **Per-channel gate**, for partially observed multivariate series where different channels are measured at different times. |
+
+The per-channel path marginalises unobserved channels *exactly*: row $i$ of
+$H_t$ is zeroed, a unit block is substituted into $R_t$, and the residual
+entry is set to zero. The innovation covariance is then block-diagonal in the
+observed/masked split, so column $i$ of the gain vanishes and the masked
+channel cannot move the state — the posterior reproduces the row-deleted
+filter to machine precision, with no branching. A dummy block also
+contributes $-\tfrac12 \log 2\pi$ per masked channel to the full-vector
+density, which is stripped per step, so `log_likelihood` is the exact marginal
+$\log p(y_{\mathrm{obs}})$ and is invariant to both the mask pattern and the
+dummy variance.
+
+An all-`False` row of a `(T, M)` mask is equivalent to a `False` entry in the
+`(T,)` form, and `M == 1` is unambiguous either way. Masked entries of
+`observations` are never read, so they may be `NaN`. Operator-typed
+`obs_model` / `obs_noise` are materialised under a `(T, M)` mask, since
+zeroing rows is inherently dense; `form="sqrt"` supports the `(T,)` mask only
+and raises `NotImplementedError` otherwise. `rts_smoother` needs no mask of
+its own — it consumes filtered/predicted moments, which are already
+mask-aware.
+
 ::: gaussx
     options:
       show_root_heading: false

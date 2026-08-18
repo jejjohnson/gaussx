@@ -13,6 +13,7 @@ from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._ssm._utils import (
     _innovation_covariance,
     _left_matmul,
+    _masked_obs_inputs,
     _materialise,
     _normalise_tv_inputs,
     _right_matmul_transpose,
@@ -48,7 +49,7 @@ def kalman_filter(
     init_mean: Float[Array, " N"],
     init_cov: Float[Array, "N N"],
     *,
-    mask: Bool[Array, " T"] | None = None,
+    mask: Bool[Array, " T"] | Bool[Array, "T M"] | None = None,
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
 ) -> FilterState:
@@ -86,11 +87,29 @@ def kalman_filter(
         observations: Observed data, shape ``(T, M)``.
         init_mean: Initial state mean, shape ``(N,)``.
         init_cov: Initial state covariance, shape ``(N, N)``.
-        mask: Optional per-step boolean mask, shape ``(T,)``. ``True``
-            (or ``1``) runs the full predict + update step; ``False``
-            (or ``0``) runs the predict step only and skips the
-            log-likelihood contribution. Defaults to all-True. Useful
-            for prediction on merged train/test grids.
+        mask: Optional observation mask. Disambiguated by rank, so no
+            extra keyword is needed (``M == 1`` is unambiguous either
+            way, since a ``(T,)`` and a ``(T, 1)`` mask coincide).
+
+            - Shape ``(T,)`` — per-step gate. ``True`` (or ``1``) runs
+              the full predict + update step; ``False`` (or ``0``) runs
+              the predict step only and contributes nothing to the
+              log-likelihood. Useful for prediction on merged
+              train/test grids.
+            - Shape ``(T, M)`` — per-channel gate, for partially
+              observed multivariate series. ``False`` entries are
+              marginalised out exactly: the corresponding rows of
+              ``H_t`` are zeroed, a unit block is substituted into
+              ``R_t``, and the residual entry is set to zero. The
+              returned ``log_likelihood`` is the exact marginal
+              $\log p(y_{\mathrm{obs}})$, not the full-vector density.
+              Masked entries of ``observations`` are never read, so
+              they may be ``NaN``. An all-``False`` row is equivalent
+              to a ``False`` entry in the ``(T,)`` form.
+
+            Defaults to all-True. Operator-typed ``obs_model`` /
+            ``obs_noise`` are materialised under a ``(T, M)`` mask,
+            since zeroing rows is inherently a dense operation.
         solver: Optional solver strategy. When ``None``, uses
             structural dispatch.
         woodbury_innovation: When ``True``, build the innovation
@@ -118,6 +137,15 @@ def kalman_filter(
     A_op = transition if isinstance(transition, lx.AbstractLinearOperator) else None
     H_op = obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None
     R_op = obs_noise if isinstance(obs_noise, lx.AbstractLinearOperator) else None
+
+    # A per-channel mask rewrites the rows of H and the block structure
+    # of R, neither of which survives as a structured operator — so the
+    # (T, M) path drops to dense observation inputs.
+    channel_mask = mask is not None and jnp.ndim(mask) == 2
+    if channel_mask:
+        H_op = None
+        R_op = None
+
     A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
         transition,
         obs_model,
@@ -125,6 +153,7 @@ def kalman_filter(
         obs_noise,
         T=T,
         mask=mask,
+        M=M,
         materialise_transition=A_op is None,
         materialise_obs=H_op is None,
         # Skip the O(T M²) dense broadcast of structured R when the
@@ -145,52 +174,74 @@ def kalman_filter(
         else:
             P_pred = A_t @ P_filt @ A_t.T + Q_t
 
-        # --- Update (gated by mask via lax.cond so the predict-only
-        #             branch evaluates neither the update arithmetic
-        #             nor produces gradients for the dropped path). ---
-        def _do_update(_):
-            v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
-            # Resolve ``R`` for innovation: operator path uses the
-            # closed-over ``R_op`` (kept structural for Woodbury); array
-            # path falls back to the per-step ``R_t``.
-            R_innov = R_op if R_op is not None else R_t
-            # Resolve ``H`` similarly so the operator preserves structure
-            # in both the Woodbury and the structural-sandwich paths.
-            H_innov = H_op if H_op is not None else H_t
+        # --- Update ---
+        def _update(H_eff, R_eff, v, n_missing):
+            """Shared update body for the gated and per-channel paths.
+
+            ``H_eff`` is either a lineax operator (structural path) or a
+            dense ``(M, N)`` array; ``n_missing`` is the count of masked
+            channels, used to strip the dummy block's contribution from
+            the log-likelihood.
+            """
+            H_is_op = isinstance(H_eff, lx.AbstractLinearOperator)
             S_op = _innovation_covariance(
-                H_innov, P_pred, R_innov, woodbury=woodbury_innovation
+                H_eff, P_pred, R_eff, woodbury=woodbury_innovation
             )
 
             PHt = (
-                _right_matmul_transpose(P_pred, H_op)
-                if H_op is not None
-                else P_pred @ H_t.T
+                _right_matmul_transpose(P_pred, H_eff) if H_is_op else P_pred @ H_eff.T
             )  # (N, M)
             K = solve_rows(S_op, PHt, solver=solver)  # (N, M)
 
             x_upd = x_pred + K @ v
             if woodbury_innovation:
-                # Avoid materialising S for the covariance update. Use
-                # the operator path when available (H_t is a (0, 0)
-                # placeholder under operator mode).
-                HP_pred = (
-                    _left_matmul(H_op, P_pred) if H_op is not None else H_t @ P_pred
-                )
+                # Avoid materialising S for the covariance update.
+                HP_pred = _left_matmul(H_eff, P_pred) if H_is_op else H_eff @ P_pred
                 P_upd = P_pred - K @ HP_pred
             else:
                 P_upd = P_pred - K @ S_op.as_matrix() @ K.T
 
             Sinv_v = dispatch_solve(S_op, v, solver)
             ld = dispatch_logdet(S_op, solver)
-            ll_inc = -0.5 * (v @ Sinv_v + ld + M * _LOG_2PI)
+            # The dummy unit block contributes -0.5 * log(2 pi) per
+            # masked channel to the full-vector density; strip it here,
+            # per step, so the result is the exact marginal over the
+            # observed entries and is invariant to the dummy variance.
+            ll_inc = (
+                -0.5 * (v @ Sinv_v + ld + M * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
+            )
             return x_upd, P_upd, ll_inc
 
-        def _skip_update(_):
-            return x_pred, P_pred, jnp.array(0.0)
+        if channel_mask:
+            # No lax.cond: an all-False row degenerates to the
+            # predict-only step on its own, so the masked path is
+            # branch-free.
+            H_eff, R_eff, y_eff, n_missing = _masked_obs_inputs(H_t, R_t, y_t, mask_t)
+            x_filt_new, P_filt_new, ll_inc = _update(
+                H_eff, R_eff, y_eff - H_eff @ x_pred, n_missing
+            )
+        else:
+            # Gate the whole step via lax.cond so the predict-only
+            # branch evaluates neither the update arithmetic nor
+            # produces gradients for the dropped path.
+            def _do_update(_):
+                v = y_t - (H_op.mv(x_pred) if H_op is not None else H_t @ x_pred)
+                # Resolve ``R`` for innovation: operator path uses the
+                # closed-over ``R_op`` (kept structural for Woodbury);
+                # array path falls back to the per-step ``R_t``.
+                R_innov = R_op if R_op is not None else R_t
+                # Resolve ``H`` similarly so the operator preserves
+                # structure in both the Woodbury and the
+                # structural-sandwich paths.
+                H_innov = H_op if H_op is not None else H_t
+                return _update(H_innov, R_innov, v, 0.0)
 
-        x_filt_new, P_filt_new, ll_inc = jax.lax.cond(
-            mask_t, _do_update, _skip_update, operand=None
-        )
+            def _skip_update(_):
+                return x_pred, P_pred, jnp.array(0.0)
+
+            x_filt_new, P_filt_new, ll_inc = jax.lax.cond(
+                mask_t, _do_update, _skip_update, operand=None
+            )
         ll_new = ll + ll_inc
 
         carry_new = (x_filt_new, P_filt_new, ll_new)

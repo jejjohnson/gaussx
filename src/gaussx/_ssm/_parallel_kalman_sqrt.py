@@ -97,8 +97,25 @@ def parallel_kalman_filter_sqrt(
     mask: Bool[Array, " T"] | None = None,
     solver: AbstractSolverStrategy | None = None,
 ) -> FilterState:
-    """Square-root parallel Kalman filter via associative scan."""
+    """Square-root parallel Kalman filter via associative scan.
+
+    Only the ``(T,)`` per-step mask is supported. A per-channel
+    ``(T, M)`` mask makes the innovation covariance block-degenerate,
+    which the triangularisation-based factor path is not set up to
+    handle; use the covariance form (or `gaussx.kalman_filter`)
+    for per-channel masking.
+
+    Raises:
+        NotImplementedError: If ``mask`` is a ``(T, M)`` per-channel
+            mask.
+    """
     del solver
+
+    if mask is not None and jnp.ndim(mask) == 2:
+        raise NotImplementedError(
+            "form='sqrt' does not support per-channel (T, M) masks; pass a "
+            "(T,) per-step mask, or use form='covariance' / kalman_filter."
+        )
 
     M_obs = observations.shape[-1]
     T = observations.shape[0]

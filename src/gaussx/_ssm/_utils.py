@@ -120,6 +120,56 @@ def _innovation_covariance(
     return lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
 
+def _masked_obs_inputs(
+    H: Float[Array, "M N"],
+    R: Float[Array, "M M"],
+    y: Float[Array, " M"],
+    mask: Bool[Array, " M"],
+) -> tuple[
+    Float[Array, "M N"],
+    Float[Array, "M M"],
+    Float[Array, " M"],
+    Float[Array, ""],
+]:
+    r"""Substitute ``(H, R, y)`` so masked observation channels are inert.
+
+    Marginalising channel $i$ out of the update is equivalent to keeping
+    it but making it carry no information: zero the row $H_i$, replace
+    row/column $i$ of $R$ with the unit basis vector, and zero $y_i$.
+    The innovation covariance then splits as
+
+    $$
+    S = \begin{bmatrix} S_{\mathrm{obs}} & 0 \\ 0 & I \end{bmatrix},
+    $$
+
+    so column $i$ of the gain $K = P H^\top S^{-1}$ vanishes and the
+    masked channel cannot move the state. The posterior is therefore
+    *exactly* the row-deleted filter, with no branching.
+
+    The substitution is written with `jax.numpy.where` rather than a
+    multiply so a masked ``y`` entry may be ``NaN`` (the usual encoding
+    for "not measured") without poisoning the residual.
+
+    Args:
+        H: Observation matrix, shape ``(M, N)``.
+        R: Observation noise covariance, shape ``(M, M)``.
+        y: Observation vector, shape ``(M,)``.
+        mask: Per-channel boolean mask, shape ``(M,)``. ``True`` keeps
+            the channel.
+
+    Returns:
+        Tuple ``(H_eff, R_eff, y_eff, n_missing)`` where ``n_missing``
+        is the float count of masked channels, used to strip the dummy
+        block's contribution from the log-likelihood.
+    """
+    M = y.shape[-1]
+    H_eff = jnp.where(mask[:, None], H, jnp.zeros_like(H))
+    R_eff = jnp.where(mask[:, None] & mask[None, :], R, jnp.eye(M, dtype=R.dtype))
+    y_eff = jnp.where(mask, y, jnp.zeros_like(y))
+    n_missing = M - jnp.sum(mask.astype(y.dtype))
+    return H_eff, R_eff, y_eff, n_missing
+
+
 def _is_operator_input(value: object) -> bool:
     """True iff *value* is a lineax operator (and so signals TI mode)."""
     return isinstance(value, lx.AbstractLinearOperator)
@@ -132,7 +182,8 @@ def _normalise_tv_inputs(
     obs_noise: Float[Array, ...] | lx.AbstractLinearOperator,
     *,
     T: int,
-    mask: Bool[Array, " T"] | None,
+    mask: Bool[Array, " T"] | Bool[Array, "T M"] | None,
+    M: int | None = None,
     materialise_transition: bool = True,
     materialise_obs: bool = True,
     materialise_obs_noise: bool = True,
@@ -141,7 +192,7 @@ def _normalise_tv_inputs(
     Float[Array, "T M N"],
     Float[Array, "T N N"],
     Float[Array, "T M M"],
-    Bool[Array, " T"],
+    Bool[Array, " T"] | Bool[Array, "T M"],
     bool,
 ]:
     """Normalise the four shape-bearing args + ``mask`` for the scan body.
@@ -157,9 +208,18 @@ def _normalise_tv_inputs(
         Woodbury innovation) rather than index into the array. This
         avoids materialising structured operators into ``(T, …)`` dense
         stacks.
-    mask_seq : ``(T,)`` boolean array (defaults to all-True).
+    mask_seq : ``(T,)`` boolean array (defaults to all-True), or ``(T, M)``
+        when a per-channel mask was supplied. The rank is passed through
+        unchanged so the caller can dispatch on ``mask_seq.ndim``.
     is_time_invariant : True iff every shape-bearing input is either an
         operator or a 2D array (and was broadcast to ``(T, …)`` here).
+
+    Notes
+    -----
+    ``M`` is only needed to validate a per-channel ``(T, M)`` mask.
+    Leaving it ``None`` rejects 2D masks outright, which is how callers
+    that have no per-channel path (e.g. the square-root parallel filter)
+    opt out.
 
     Raises
     ------
@@ -249,13 +309,27 @@ def _normalise_tv_inputs(
     else:
         mask_seq = jnp.asarray(mask, dtype=bool)
         # Allow scalar broadcast for ergonomic ``mask=True`` / ``mask=False``;
-        # otherwise require a 1D array of length T to give a clear error
-        # before the scan rather than a confusing tracing failure.
+        # otherwise require ``(T,)`` (per-step gate) or ``(T, M)``
+        # (per-channel gate) to give a clear error before the scan rather
+        # than a confusing tracing failure.
         if mask_seq.ndim == 0:
             mask_seq = jnp.broadcast_to(mask_seq, (T,))
+        elif mask_seq.ndim == 2:
+            if M is None:
+                raise ValueError(
+                    "mask must be a scalar or have shape "
+                    f"({T},); got shape {mask_seq.shape}. Per-channel "
+                    "(T, M) masks are not supported by this filter."
+                )
+            if mask_seq.shape != (T, M):
+                raise ValueError(
+                    f"mask must be a scalar or have shape ({T},) or "
+                    f"({T}, {M}); got shape {mask_seq.shape}."
+                )
         elif mask_seq.shape != (T,):
+            expected = f"({T},)" if M is None else f"({T},) or ({T}, {M})"
             raise ValueError(
-                f"mask must be a scalar or have shape ({T},); got shape "
+                f"mask must be a scalar or have shape {expected}; got shape "
                 f"{mask_seq.shape}."
             )
 
