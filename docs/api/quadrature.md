@@ -16,7 +16,7 @@ propagate functions of it.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [GaussianState, PropagationResult, AbstractIntegrator, GaussHermiteIntegrator, UnscentedIntegrator, TaylorIntegrator, MonteCarloIntegrator, AssumedDensityFilter]
+      members: [GaussianState, PropagationResult, AbstractIntegrator, GaussHermiteIntegrator, UnscentedIntegrator, FifthOrderCubatureIntegrator, TaylorIntegrator, MonteCarloIntegrator, AssumedDensityFilter]
 
 ## Quadrature rules
 
@@ -27,7 +27,7 @@ control.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [gauss_hermite_points, cubature_points, sigma_points]
+      members: [gauss_hermite_points, cubature_points, fifth_order_cubature_points, sigma_points]
 
 ## Likelihoods
 
@@ -51,6 +51,21 @@ propagation.
       show_root_heading: false
       show_root_toc_entry: false
       members: [elbo, expected_log_likelihood, log_likelihood_expectation, mean_expectation, gradient_expectation, cost_expectation, ep_tilted_moments]
+
+## Moment matching & linearisation
+
+`moment_match` returns the tilted log-normaliser and its cavity-mean
+derivatives — the EP site update — from a single pass over the quadrature
+points. `statistical_linear_regression` returns the moment-matched
+linear-Gaussian surrogate $p(y \mid f) \approx \mathcal{N}(y \mid Af + b,
+\Omega)$ behind posterior linearisation and the iterated Kalman smoother.
+Both take any point-based integrator.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [moment_match, MomentMatchResult, statistical_linear_regression, SLRResult]
 
 ## Kernel expectations & uncertain-input GPs
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -124,12 +125,12 @@ def trace_correction(
 
 def cavity_distribution(
     post_mean: Float[Array, " N"],
-    post_cov: lx.AbstractLinearOperator,
+    post_cov: lx.AbstractLinearOperator | Float[Array, " N"],
     site_nat1: Float[Array, " N"],
-    site_nat2: lx.AbstractLinearOperator,
+    site_nat2: lx.AbstractLinearOperator | Float[Array, " N"],
     power: float = 1.0,
-) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
-    """Compute EP cavity distribution by removing a site.
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator | Float[Array, " N"]]:
+    r"""Compute EP cavity distribution by removing a site.
 
     Computes:
 
@@ -137,16 +138,55 @@ def cavity_distribution(
         cav_cov  = inv(cav_prec)
         cav_mean = cav_cov @ (post_prec @ post_mean - power * site_nat1)
 
+    Two forms are dispatched on the argument types. Passing ``post_cov``
+    and ``site_nat2`` as operators takes the full-covariance path. Passing
+    both as ``(N,)`` arrays — the marginal variances and per-site
+    precisions of ``N`` scalar latents, as site-based EP over GPs
+    represents them — takes an elementwise fast path costing ``O(N)``
+    rather than the ``O(N²)`` of wrapping them in a
+    `lineax.DiagonalLinearOperator`:
+
+    $$
+    v_{\mathrm{cav}}^{-1} = v^{-1} - \alpha \lambda_2, \qquad
+    m_{\mathrm{cav}} = v_{\mathrm{cav}}
+        \left( \frac{m}{v} - \alpha \lambda_1 \right).
+    $$
+
+    Note:
+        Both forms use the ``nat2 = +Λ`` (positive precision) convention,
+        matching `gaussx.newton_update` and `gaussx.damped_natural_update`.
+        This differs from `gaussx.mean_cov_to_natural` /
+        `gaussx.natural_to_mean_cov`, which use the exponential-family
+        convention ``η₂ = −Λ/2``.
+
     Args:
         post_mean: Posterior mean, shape ``(N,)``.
-        post_cov: Posterior covariance operator.
-        site_nat1: Site natural parameter (precision-weighted mean).
-        site_nat2: Site natural parameter (precision).
+        post_cov: Posterior covariance operator, or ``(N,)`` marginal
+            variances for the diagonal path.
+        site_nat1: Site natural parameter (precision-weighted mean),
+            shape ``(N,)``.
+        site_nat2: Site natural parameter (precision) as an operator, or
+            ``(N,)`` per-site precisions for the diagonal path.
         power: Power EP fraction (default 1.0 for standard EP).
 
     Returns:
-        Tuple ``(cav_mean, cav_cov)``.
+        Tuple ``(cav_mean, cav_cov)``. ``cav_cov`` is an operator for the
+        operator path and an ``(N,)`` array of variances for the diagonal
+        path.
+
+    Raises:
+        TypeError: If ``post_cov`` and ``site_nat2`` are not both arrays
+            or both operators.
     """
+    if isinstance(post_cov, jax.Array) and isinstance(site_nat2, jax.Array):
+        cav_prec = 1.0 / post_cov - power * site_nat2
+        cav_var = 1.0 / cav_prec
+        cav_mean = cav_var * (post_mean / post_cov - power * site_nat1)
+        return cav_mean, cav_var
+    if isinstance(post_cov, jax.Array) or isinstance(site_nat2, jax.Array):
+        msg = "post_cov and site_nat2 must both be arrays or both be operators"
+        raise TypeError(msg)
+
     post_prec = inv(post_cov)
     cav_prec_mat = post_prec.as_matrix() - power * site_nat2.as_matrix()
     cav_prec = lx.MatrixLinearOperator(cav_prec_mat)
@@ -161,9 +201,11 @@ def cavity_distribution(
 def newton_update(
     mean: Float[Array, " N"],
     jacobian: Float[Array, " N"],
-    hessian: Float[Array, "N N"],
-) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
-    """Convert a Newton step to natural pseudo-likelihood parameters.
+    hessian: Float[Array, "N N"] | Float[Array, " N"],
+    *,
+    precision_floor: float = 1e-6,
+) -> tuple[Float[Array, " N"], Float[Array, "N N"] | Float[Array, " N"]]:
+    r"""Convert a Newton step to natural pseudo-likelihood parameters.
 
     Computes:
 
@@ -173,14 +215,44 @@ def newton_update(
     Used in Laplace/Newton-based approximate inference to convert
     function-space derivatives into site natural parameters.
 
+    Passing ``hessian`` as an ``(N,)`` array of per-site second
+    derivatives — the shape site-based EP / Laplace inference over ``N``
+    scalar latents actually has — takes an elementwise ``O(N)`` path
+    instead of forming the ``(N, N)`` matrix product:
+
+    $$
+    \Lambda = \max(-h, \varepsilon), \qquad
+    \lambda_1 = g + \Lambda f, \qquad
+    \lambda_2 = \Lambda.
+    $$
+
+    Note:
+        Both forms use the ``nat2 = +Λ`` (positive precision) convention,
+        matching `gaussx.cavity_distribution` and
+        `gaussx.damped_natural_update`. This differs from
+        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov`, which
+        use the exponential-family convention ``η₂ = −Λ/2``.
+
     Args:
         mean: Current mean, shape ``(N,)`` or ``(D,)``.
         jacobian: First derivative of log-likelihood, shape ``(N,)``.
-        hessian: Second derivative (negative definite), shape ``(N, N)``.
+        hessian: Second derivative (negative definite), either the full
+            ``(N, N)`` matrix or an ``(N,)`` diagonal.
+        precision_floor: Lower bound on the returned precision, applied
+            only on the diagonal path. Keeps sites from a non-log-concave
+            likelihood (positive ``hessian`` entries) from producing a
+            negative precision. The full-matrix path returns
+            ``-hessian`` unmodified, since flooring it would require an
+            eigendecomposition.
 
     Returns:
-        Tuple ``(nat1, nat2)`` — site natural parameters.
+        Tuple ``(nat1, nat2)`` — site natural parameters. ``nat2`` matches
+        the shape of ``hessian``.
     """
+    if hessian.ndim == 1:
+        precision = jnp.maximum(-hessian, precision_floor)
+        return jacobian + precision * mean, precision
+
     nat1 = jacobian - hessian @ mean
     nat2 = -hessian
     return nat1, nat2

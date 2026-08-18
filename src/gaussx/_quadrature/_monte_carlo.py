@@ -45,30 +45,11 @@ class MonteCarloIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via Monte Carlo sampling."""
-        if self.n_samples < 2:
-            msg = (
-                f"MonteCarloIntegrator requires n_samples >= 2 for "
-                f"Bessel-corrected covariance, got {self.n_samples}."
-            )
-            raise ValueError(msg)
+        chi, w_m, w_c = self.points_and_weights(state)
         mu = state.mean
-        N = mu.shape[0]
-
-        key = self.key if self.key is not None else jr.key(0)
-
-        # Sample from input Gaussian: xᵢ = μ + L εᵢ
-        L = cholesky(state.cov).as_matrix()
-        eps = jr.normal(key, (self.n_samples, N))
-        chi = mu[None, :] + eps @ L.T  # (S, N)
 
         # Propagate samples
         Y = jax.vmap(fn)(chi)  # (S, M)
-
-        # Uniform weights = 1/S for empirical moments
-        # Use 1/(S−1) Bessel correction via covariance weights
-        S = self.n_samples
-        w_m = jnp.full(S, 1.0 / S)
-        w_c = jnp.full(S, 1.0 / (S - 1))
 
         result = assemble_propagation_result(chi, Y, mu, w_m, w_c)
 
@@ -82,3 +63,45 @@ class MonteCarloIntegrator(AbstractIntegrator):
         out_state = GaussianState(mean=result.state.mean, cov=cov_y)
 
         return PropagationResult(state=out_state, cross_cov=result.cross_cov)
+
+    def points_and_weights(
+        self,
+        state: GaussianState,
+    ) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]]:
+        """Return the Monte Carlo samples and their weights.
+
+        Args:
+            state: Input Gaussian distribution.
+
+        Returns:
+            Tuple ``(points, w_m, w_c)`` with ``P = n_samples``. Mean
+            weights are ``1/P``; covariance weights carry the Bessel
+            correction ``1/(P − 1)``.
+
+        Raises:
+            ValueError: If ``n_samples < 2``.
+        """
+        if self.n_samples < 2:
+            msg = (
+                f"MonteCarloIntegrator requires n_samples >= 2 for "
+                f"Bessel-corrected covariance, got {self.n_samples}."
+            )
+            raise ValueError(msg)
+
+        mu = state.mean
+        N = mu.shape[0]
+
+        key = self.key if self.key is not None else jr.key(0)
+
+        # Sample from input Gaussian: xᵢ = μ + L εᵢ
+        L = cholesky(state.cov).as_matrix()
+        eps = jr.normal(key, (self.n_samples, N))
+        chi = mu[None, :] + eps @ L.T  # (S, N)
+
+        # Uniform weights = 1/S for empirical moments
+        # Use 1/(S−1) Bessel correction via covariance weights
+        S = self.n_samples
+        w_m = jnp.full(S, 1.0 / S)
+        w_c = jnp.full(S, 1.0 / (S - 1))
+
+        return chi, w_m, w_c

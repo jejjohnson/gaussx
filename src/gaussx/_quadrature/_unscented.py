@@ -44,12 +44,27 @@ class UnscentedIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via unscented transform."""
-        chi, w_m, w_c = sigma_points(
+        chi, w_m, w_c = self.points_and_weights(state)
+        Y = jax.vmap(fn)(chi)
+        return assemble_propagation_result(chi, Y, state.mean, w_m, w_c)
+
+    def points_and_weights(
+        self,
+        state: GaussianState,
+    ) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]]:
+        """Return the scaled unscented sigma points and weights.
+
+        Args:
+            state: Input Gaussian distribution.
+
+        Returns:
+            Tuple ``(points, w_m, w_c)`` with ``P = 2N + 1``. Mean and
+            covariance weights differ in the centre point.
+        """
+        return sigma_points(
             state.mean,
             state.cov,
             alpha=self.alpha,
             beta=self.beta,
             kappa=self.kappa,
         )
-        Y = jax.vmap(fn)(chi)
-        return assemble_propagation_result(chi, Y, state.mean, w_m, w_c)
