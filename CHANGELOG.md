@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.19](https://github.com/jejjohnson/gaussx/compare/v0.0.18...v0.0.19) (2026-08-18)
+
+
+### Features
+
+* **ssm,distributions:** per-channel observation mask and LGSSM densities ([#210](https://github.com/jejjohnson/gaussx/issues/210)) ([0dc3e3a](https://github.com/jejjohnson/gaussx/commit/0dc3e3abf692f68d4a10d5fd9c264113a70da79e))
+
 ## [0.0.18](https://github.com/jejjohnson/gaussx/compare/v0.0.17...v0.0.18) (2026-06-10)
 
 
