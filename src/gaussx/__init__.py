@@ -66,6 +66,7 @@ from gaussx._inference import (
     blr_full_update as blr_full_update,
     cavity_distribution as cavity_distribution,
     damped_natural_update as damped_natural_update,
+    enkf_analysis as enkf_analysis,
     ensemble_covariance as ensemble_covariance,
     ensemble_cross_covariance as ensemble_cross_covariance,
     ensemble_kalman_gain as ensemble_kalman_gain,

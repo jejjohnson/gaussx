@@ -28,16 +28,28 @@ on the manifold.
       show_root_toc_entry: false
       members: [newton_update, damped_natural_update, gauss_newton_precision, ggn_diagonal, hutchinson_hessian_diag, riemannian_psd_correction, cavity_distribution, trace_correction]
 
-## Ensemble covariances & Kalman gain
+## Ensemble covariances, gain & analysis
 
-Bessel-corrected empirical (cross-)covariances from ensemble members and the
-ensemble Kalman gain built from them.
+Bessel-corrected empirical (cross-)covariances from ensemble members, the
+ensemble Kalman gain built from them, and the analysis step that applies it.
+
+The gain functions are the *pieces*; `enkf_analysis` is the *step* -- the
+stochastic (perturbed-observation) update that turns a prior ensemble and an
+observation into a posterior ensemble. `etkf_transform` is its deterministic
+square-root counterpart.
+
+A caveat worth stating up front: the Gaussian assumption in an ensemble Kalman
+filter is a property of the **coordinates**, not of the algorithm. Applied to a
+non-Gaussian prior the update is biased, and the bias does not shrink with
+ensemble size. Conjugating the update with a bijection that Gaussianises the
+prior -- warp, analyse, warp back -- removes it exactly when the likelihood is
+Gaussian in the same latent coordinates.
 
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, etkf_transform]
+      members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, enkf_analysis, etkf_transform]
 
 ## Localization & inflation
 
