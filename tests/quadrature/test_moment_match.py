@@ -205,3 +205,55 @@ def test_jit_vmap_grad():
     grad = jax.grad(total)(_MEAN)
     assert grad.shape == _MEAN.shape
     assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+@pytest.mark.parametrize("power", [1.0, 0.5, 0.25])
+def test_documented_site_conversion_is_exact(power):
+    """The docstring's tilted-moment and site formulas recover the true site.
+
+    For a Gaussian likelihood the tilted distribution is itself Gaussian, so
+    the site is known in closed form. This pins both documented conversions
+    and the warning attached to them: the naive ``(g, -H)`` pair is not the
+    site.
+    """
+    result = moment_match(
+        _gaussian_log_lik,
+        _gaussian_state(),
+        GaussHermiteIntegrator(order=30),
+        power=power,
+    )
+    g, hess = result.d_log_Z, result.d2_log_Z
+
+    # Documented tilted moments.
+    tilt_mean = _MEAN + _COV @ g
+    tilt_cov = _COV + _COV @ hess @ _COV
+
+    # Exact tilted distribution: the conjugate posterior for the likelihood
+    # raised to ``power``, i.e. with noise R / power.
+    scaled_noise_inv = power * jnp.linalg.inv(_NOISE)
+    exact_cov = jnp.linalg.inv(
+        jnp.linalg.inv(_COV) + _GAIN.T @ scaled_noise_inv @ _GAIN
+    )
+    exact_mean = exact_cov @ (
+        jnp.linalg.solve(_COV, _MEAN) + _GAIN.T @ scaled_noise_inv @ _OBS
+    )
+
+    assert tree_allclose(tilt_mean, exact_mean, atol=1e-8)
+    assert tree_allclose(tilt_cov, exact_cov, atol=1e-8)
+
+    # Documented site conversion, undoing the power scaling to recover the
+    # site of p(y | f) itself.
+    factor = jnp.linalg.inv(jnp.eye(_MEAN.shape[0]) + hess @ _COV)
+    site_prec = -factor @ hess / power
+    site_shift = factor @ (g - hess @ _MEAN) / power
+
+    exact_prec = _GAIN.T @ jnp.linalg.solve(_NOISE, _GAIN)
+    exact_shift = _GAIN.T @ jnp.linalg.solve(_NOISE, _OBS)
+
+    assert tree_allclose(site_prec, exact_prec, atol=1e-8)
+    assert tree_allclose(site_shift, exact_shift, atol=1e-8)
+
+    # The pair the docstring warns against is materially wrong, not a
+    # near-miss: dropping -H m and the (I + H C)^-1 factor matters.
+    assert not bool(jnp.allclose(-hess / power, exact_prec, atol=1e-3))
+    assert not bool(jnp.allclose(g / power, exact_shift, atol=1e-3))

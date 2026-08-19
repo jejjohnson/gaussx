@@ -55,11 +55,13 @@ propagation.
 ## Moment matching & linearisation
 
 `moment_match` returns the tilted log-normaliser and its cavity-mean
-derivatives — the EP site update — from a single pass over the quadrature
-points. `statistical_linear_regression` returns the moment-matched
-linear-Gaussian surrogate $p(y \mid f) \approx \mathcal{N}(y \mid Af + b,
-\Omega)$ behind posterior linearisation and the iterated Kalman smoother.
-Both take any point-based integrator.
+derivatives from a single pass over the quadrature points; the tilted
+moments and the EP site follow from those in closed form (see its
+docstring — the derivatives are not themselves the site naturals).
+`statistical_linear_regression` returns the moment-matched linear-Gaussian
+surrogate $p(y \mid f) \approx \mathcal{N}(y \mid Af + b, \Omega)$ behind
+posterior linearisation and the iterated Kalman smoother. Both take any
+point-based integrator.
 
 ::: gaussx
     options:

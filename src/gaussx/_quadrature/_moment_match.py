@@ -56,7 +56,35 @@ def moment_match(
 
     This is the EP quantity, *not* ``E_q[log p(y|f)]`` (which is what
     variational inference needs — see `gaussx.expected_log_likelihood`).
-    Feed ``(d_log_Z, -d2_log_Z)`` in as a Gaussian-site natural update.
+
+    Writing ``g = d_log_Z`` and ``H = d2_log_Z``, the tilted moments follow
+    directly from the two derivatives:
+
+    $$
+    m_{\mathrm{tilt}} = m + C g, \qquad
+    C_{\mathrm{tilt}} = C + C H C.
+    $$
+
+    The Gaussian site is the natural-parameter *difference* between the
+    tilted distribution and the cavity, which reduces to
+
+    $$
+    \Lambda_{\mathrm{site}} = C_{\mathrm{tilt}}^{-1} - C^{-1}
+        = -(I + H C)^{-1} H,
+    \qquad
+    \lambda_{\mathrm{site}} = C_{\mathrm{tilt}}^{-1} m_{\mathrm{tilt}}
+        - C^{-1} m = (I + H C)^{-1} (g - H m),
+    $$
+
+    in the same ``nat2 = +Λ`` convention `gaussx.cavity_distribution` uses.
+    That site approximates ``p(y | f) ** power``, so divide both naturals by
+    ``power`` to recover the site for ``p(y | f)`` itself.
+
+    Do **not** feed ``(g, -H)`` in as the site: it drops the ``-H m`` term
+    and the ``(I + H C)^{-1}`` factor. Nor is `gaussx.newton_update` the
+    right conversion here — it yields ``(g - H m, -H)``, which is the
+    local-Newton site, i.e. only the first-order approximation to the EP
+    site above.
 
     All three outputs come from a **single** pass over the quadrature
     points: applying Stein's lemma to the derivatives of the Gaussian
