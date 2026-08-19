@@ -469,3 +469,77 @@ def test_rejects_obs_noise_with_the_wrong_size(getkey):
             lx.DiagonalLinearOperator(jnp.array([0.1])),
             perturbed_obs=jnp.zeros_like(obs_prior),
         )
+
+
+def test_rejects_localization_tapers_with_the_wrong_shape(getkey):
+    """Broadcast-compatible tapers give a plausible, wrong gain otherwise."""
+    n_state, n_obs = 5, 3
+    prior, obs_prior, y, noise = _small_problem(
+        getkey, n_ens=16, n_state=n_state, n_obs=n_obs
+    )
+    perturbed = jnp.zeros_like(obs_prior)
+
+    # (N, 1) would repeat one observation's taper across all M.
+    with pytest.raises(ValueError, match=r"localization must have shape \(5, 3\)"):
+        enkf_analysis(
+            prior,
+            obs_prior,
+            y,
+            noise,
+            perturbed_obs=perturbed,
+            localization=jnp.ones((n_state, 1)),
+        )
+
+    # (1, 1) would rescale every entry of the observation covariance.
+    with pytest.raises(ValueError, match=r"obs_localization must have shape \(3, 3\)"):
+        enkf_analysis(
+            prior,
+            obs_prior,
+            y,
+            noise,
+            perturbed_obs=perturbed,
+            localization=jnp.ones((n_state, n_obs)),
+            obs_localization=jnp.ones((1, 1)),
+        )
+
+
+def test_dense_innovation_override_agrees_with_the_shape_heuristic(getkey):
+    """Forcing either route must not change the answer, only the cost."""
+    prior, obs_prior, y, noise = _small_problem(getkey, n_ens=32, n_state=5, n_obs=4)
+    perturbed = y[None, :] + 0.1 * jr.normal(getkey(), obs_prior.shape)
+    kwargs = {"perturbed_obs": perturbed}
+
+    heuristic = enkf_analysis(prior, obs_prior, y, noise, **kwargs)  # J >= M -> dense
+    forced_dense = enkf_analysis(
+        prior, obs_prior, y, noise, dense_innovation=True, **kwargs
+    )
+    forced_low_rank = enkf_analysis(
+        prior, obs_prior, y, noise, dense_innovation=False, **kwargs
+    )
+    assert jnp.array_equal(heuristic, forced_dense)
+    assert jnp.allclose(heuristic, forced_low_rank, atol=1e-8)
+
+
+def test_dense_innovation_true_handles_singular_observation_noise(getkey):
+    """The Woodbury route divides by zero on a singular R; the dense one does not.
+
+    `C^HH + R` is invertible here even though `R` is not, so the answer exists
+    -- it is only the low-rank route that cannot reach it.
+    """
+    n_state, n_obs = 4, 3
+    k_prior, k_obs = jr.split(getkey())
+    prior = jr.normal(k_prior, (2, n_state))  # J = 2 < M = 3
+    obs_prior = jr.normal(k_obs, (2, n_obs))
+    y = jnp.zeros(n_obs)
+    singular = lx.DiagonalLinearOperator(jnp.array([1.0, 1.0, 0.0]))
+    perturbed = jnp.zeros((2, n_obs))
+
+    dense = enkf_analysis(
+        prior,
+        obs_prior,
+        y,
+        singular,
+        perturbed_obs=perturbed,
+        dense_innovation=True,
+    )
+    assert jnp.all(jnp.isfinite(dense))

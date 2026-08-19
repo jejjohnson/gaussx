@@ -42,8 +42,19 @@ A caveat worth stating up front: the Gaussian assumption in an ensemble Kalman
 filter is a property of the **coordinates**, not of the algorithm. Applied to a
 non-Gaussian prior the update is biased, and the bias does not shrink with
 ensemble size. Conjugating the update with a bijection that Gaussianises the
-prior -- warp, analyse, warp back -- removes it exactly when the likelihood is
-Gaussian in the same latent coordinates.
+prior -- warp, analyse, warp back -- removes it.
+
+That conjugated update is exact Bayes only under conditions worth stating
+precisely, since they are easy to over-claim. It holds **in the population
+limit** -- with a finite ensemble the gain is empirical and the perturbations
+are Monte Carlo, so the result is an estimate regardless -- and only when the
+observation model is **affine with additive Gaussian noise** in the same latent
+coordinates that Gaussianise the prior. A Gaussian conditional likelihood is not
+sufficient on its own: `y = z² + ε` has Gaussian noise and a non-Gaussian
+posterior that no Kalman update reproduces. Outside those conditions
+conjugation is an approximation with no guaranteed ordering against the
+physical-space update -- usually much better, but a badly matched warp can make
+the latent joint less Gaussian and do worse.
 
 ::: gaussx
     options:

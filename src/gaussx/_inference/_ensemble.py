@@ -357,6 +357,7 @@ def enkf_analysis(
     localization: Float[Array, "N M"] | None = None,
     obs_localization: Float[Array, "M M"] | None = None,
     solver: AbstractSolverStrategy | None = None,
+    dense_innovation: bool | None = None,
     bessel: bool = True,
 ) -> Float[Array, "J N"]:
     r"""Stochastic (perturbed-observation) ensemble Kalman analysis step.
@@ -437,7 +438,15 @@ def enkf_analysis(
             defaults to all-ones, i.e. no tapering of the innovation
             covariance.
         solver: Optional solver strategy for the innovation solve. ``None``
-            uses structural dispatch.
+            uses structural dispatch. A matrix-free strategy (e.g. `CGSolver`)
+            wants ``dense_innovation=False`` so it is handed the structured
+            operator instead of a materialised one.
+        dense_innovation: Whether to form the ``(M, M)`` innovation covariance
+            densely. ``None`` (default) chooses by shape, as described in the
+            note below. ``False`` keeps the structured `LowRankUpdate` no
+            matter the shapes -- for a matrix-free solver, or when
+            ``obs_noise`` is singular. ``True`` forces the dense assembly, the
+            way out when ``J < M`` but ``obs_noise`` is not positive definite.
         bessel: Use the $1/(J-1)$ divisor. Defaults to ``True``, matching
             `ensemble_kalman_gain`.
 
@@ -445,15 +454,34 @@ def enkf_analysis(
         Analysis ensemble, shape ``(J, N)``.
 
     Note:
-        How the innovation covariance $C^{HH} + R$ is assembled is chosen from
-        the static shapes, because the two regimes have wildly different costs.
-        With $J < M$ the gain comes from `ensemble_kalman_gain`, which keeps
-        the ensemble term low-rank and inverts a $(J, J)$ Woodbury capacitance
-        -- the right choice for the geoscience regime of a few dozen members
-        against many observations. With $J \ge M$ that capacitance is the
-        larger of the two (320 GB at $J = 200{,}000$), so the $(M, M)$
-        innovation is formed densely instead. Both routes solve the same
-        system and agree to round-off.
+        How the innovation covariance $C^{HH} + R$ is assembled defaults to a
+        choice made from the static shapes, because the two regimes have wildly
+        different costs. With $J < M$ the gain comes from
+        `ensemble_kalman_gain`, which keeps the ensemble term low-rank and
+        inverts a $(J, J)$ Woodbury capacitance -- the right choice for the
+        geoscience regime of a few dozen members against many observations.
+        With $J \ge M$ that capacitance is the larger of the two (320 GB at
+        $J = 200{,}000$), so the $(M, M)$ innovation is formed densely instead.
+        Both routes solve the same system and agree to round-off.
+
+        Shapes are the wrong criterion in two cases, which is why
+        ``dense_innovation`` exists to override it:
+
+        - **A matrix-free solver.** With $J \ge M$ and $M$ still large, the
+          dense assembly allocates an $(M, M)$ array before the solver is ever
+          called -- around 40 GB at $M = 100{,}000$ in float32 -- even though
+          an iterative strategy could work through matvecs on the structured
+          operator. Pass ``dense_innovation=False``.
+        - **Singular observation noise.** The Woodbury route solves against
+          $R$ itself, so a positive *semi*-definite $R$ divides by zero and
+          returns infinities or ``NaN`` even when $C^{HH} + R$ is perfectly
+          invertible -- e.g. $R = \mathrm{diag}(1, 1, 0)$ with ensemble
+          anomalies spanning the third observation direction. The $J < M$ path
+          therefore requires $R$ to be positive **definite**; with a singular
+          $R$, pass ``dense_innovation=True`` to solve the full innovation
+          instead. This is not checked: PSD-ness of an arbitrary operator is
+          not something this function can establish cheaply, and certainly not
+          under ``jit``.
 
     Raises:
         ValueError: If neither or both of ``key`` / ``perturbed_obs`` are
@@ -524,17 +552,38 @@ def enkf_analysis(
                 f"{None if perturbed is None else perturbed.shape}."
             )
 
-    if localization is None and n_ens < n_obs:
+    if localization is not None:
+        n_state = particles.shape[1]
+        # Broadcast-compatible but wrong shapes are the danger: an (N, 1) taper
+        # repeats one observation's taper across all M, and a (1, 1)
+        # obs_localization rescales the whole observation covariance. Both give
+        # a plausible, wrong gain rather than an error.
+        if localization.shape != (n_state, n_obs):
+            raise ValueError(
+                f"localization must have shape ({n_state}, {n_obs}) to match "
+                f"particles and obs_particles, got {localization.shape}."
+            )
+        if obs_localization is not None and obs_localization.shape != (n_obs, n_obs):
+            raise ValueError(
+                f"obs_localization must have shape ({n_obs}, {n_obs}) to match "
+                f"obs_particles, got {obs_localization.shape}."
+            )
+
+    # Whether to form the (M, M) innovation densely. `None` picks by shape; an
+    # explicit value overrides that, which is what a matrix-free solver needs.
+    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
+
+    if localization is None and not use_dense:
         # Fewer members than observations: the Woodbury capacitance is (J, J)
         # and cheap, so let `ensemble_kalman_gain` keep the low-rank structure.
         gain = ensemble_kalman_gain(
             particles, obs_particles, obs_noise, solver=solver, bessel=bessel
         )  # (N, M)
     elif localization is None:
-        # J >= M, the usual regime for this function. A `LowRankUpdate`
-        # innovation would send `solve_rows` through Woodbury and form a
-        # (J, J) capacitance matrix -- 320 GB at J = 200_000 -- so assemble
-        # the (M, M) innovation densely instead. Same solve, same answer.
+        # A `LowRankUpdate` innovation would send `solve_rows` through Woodbury
+        # and form a (J, J) capacitance matrix -- 320 GB at J = 200_000 -- so
+        # assemble the (M, M) innovation densely instead. Same solve, same
+        # answer.
         cross_cov = ensemble_cross_covariance(particles, obs_particles, bessel=bessel)
         obs_cov = ensemble_cross_covariance(obs_particles, obs_particles, bessel=bessel)
         innovation = symmetrize(obs_cov + obs_noise.as_matrix())  # (M, M)
