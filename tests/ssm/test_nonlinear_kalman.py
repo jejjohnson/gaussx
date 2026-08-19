@@ -942,3 +942,98 @@ def test_singular_predicted_covariance_is_handled(init_cov, process_noise, label
     assert bool(jnp.isfinite(result.log_likelihood))
     # The two covariance forms agree analytically, singular P^- included.
     assert tree_allclose(result.filtered_covs, standard.filtered_covs, atol=1e-10)
+
+
+def test_smoother_handles_a_singular_predicted_covariance():
+    """A deterministic process must not fail once it reaches the smoother.
+
+    The RTS gain is ``Cov[x, f(x)] (P^-)^-1``; with zero process noise
+    ``P^-`` is singular while the correction stays well defined on the
+    supported subspace, so the gain needs a least-squares solve too. A
+    filter run that survives a singular covariance would otherwise fail at
+    the backward pass.
+    """
+    integrator = CubatureIntegrator()
+    zero_noise = jnp.zeros((_N, _N))
+
+    filtered = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        zero_noise,
+        _R,
+        _YS,
+        _M0,
+        jnp.diag(jnp.array([1.0, 1.0, 0.0])),
+        integrator=integrator,
+    )
+    means, covs = nonlinear_rts_smoother(
+        filtered, _linear_dynamics, integrator=integrator
+    )
+
+    assert bool(jnp.all(jnp.isfinite(means)))
+    assert bool(jnp.all(jnp.isfinite(covs)))
+
+
+def test_linearisation_keeps_small_covariance_modes():
+    """The rank policy must not discard representable low-variance modes.
+
+    ``lstsq``'s default cutoff scales with the dtype epsilon, so in float32
+    a mode at 1e-8 relative to 1 is thrown away -- and the Joseph update
+    then *grows* that variance instead of shrinking it. ``rcond=0.0``
+    discards only exactly-zero singular values.
+
+    Checked directly on the solve, because the suite runs in x64 where the
+    default cutoff would not bite.
+    """
+    cov = jnp.diag(jnp.array([1.0, 1e-8], dtype=jnp.float32))
+    cross = jnp.array([[0.0], [1e-8]], dtype=jnp.float32)
+
+    kept = jnp.linalg.lstsq(cov, cross, rcond=0.0)[0].T
+    discarded = jnp.linalg.lstsq(cov, cross)[0].T
+
+    # C^T P^-1 = [0, 1] here.
+    assert tree_allclose(kept, jnp.array([[0.0, 1.0]], dtype=jnp.float32), atol=1e-5)
+    # The default policy loses it entirely -- this is what we avoid.
+    assert float(jnp.abs(discarded).max()) == 0.0
+
+    # And an exactly singular covariance still gives the min-norm answer.
+    singular = jnp.linalg.lstsq(jnp.zeros((2, 2)), jnp.zeros((2, 1)), rcond=0.0)[0].T
+    assert tree_allclose(singular, jnp.zeros((1, 2)), atol=0.0)
+
+
+def test_inconsistent_matched_joint_is_rejected():
+    """A positive-definite S is not enough; the joint must be consistent.
+
+    With ``P = 1``, ``S_yy = 1``, ``C = 2`` the residual
+    ``Omega = S_yy - C^T P^-1 C`` is negative while ``S = S_yy + R`` stays
+    positive definite, so the innovation check passes and the posterior
+    variance still goes negative.
+    """
+
+    class _InconsistentIntegrator(AbstractIntegrator):
+        def integrate(self, fn, state):
+            dim_in = state.mean.shape[-1]
+            mean = fn(state.mean)
+            dim_out = mean.shape[-1]
+            return PropagationResult(
+                state=GaussianState(
+                    mean=mean,
+                    cov=lx.MatrixLinearOperator(jnp.eye(dim_out), lx.symmetric_tag),
+                ),
+                # Far too large to be a valid cross-covariance for this pair.
+                cross_cov=2.0 * jnp.ones((dim_in, dim_out)),
+            )
+
+    with pytest.raises(Exception, match="negative variance"):
+        jax.block_until_ready(
+            nonlinear_kalman_filter(
+                lambda x: x,
+                lambda x: x[:1],
+                0.1 * jnp.eye(1),
+                jnp.array([[0.1]]),
+                jnp.zeros((3, 1)),
+                jnp.zeros(1),
+                jnp.eye(1),
+                integrator=_InconsistentIntegrator(),
+            )
+        )

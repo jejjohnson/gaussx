@@ -390,3 +390,38 @@ class TestMomentTransform:
                 state.cov.as_matrix(),
                 integrator=_NoCrossCov(),
             )
+
+
+def test_moment_transform_default_is_float32_safe():
+    """The public helper must not inherit the unsafe alpha=1e-3 default.
+
+    ``moment_transform`` is documented for building custom filter loops, so
+    it needs the same float32-safe rule the filter uses: ``alpha=1e-3``
+    recovers even affine moments through cancellation between weights of
+    order 1e6.
+    """
+    from gaussx import moment_transform
+
+    state = _make_state()
+    mean, cov, cross = moment_transform(_linear_fn, state.mean, state.cov.as_matrix())
+    safe_mean, safe_cov, safe_cross = moment_transform(
+        _linear_fn,
+        state.mean,
+        state.cov.as_matrix(),
+        integrator=UnscentedIntegrator(alpha=1.0),
+    )
+    classic = moment_transform(
+        _linear_fn,
+        state.mean,
+        state.cov.as_matrix(),
+        integrator=UnscentedIntegrator(),
+    )
+
+    assert jnp.array_equal(mean, safe_mean)
+    assert jnp.array_equal(cov, safe_cov)
+    assert jnp.array_equal(cross, safe_cross)
+
+    # The classic rule is a numerically different route to the same limit.
+    matrix = jnp.array([[2.0, 1.0], [0.0, 3.0]])
+    exact = matrix @ state.cov.as_matrix() @ matrix.T
+    assert jnp.abs(safe_cov - exact).max() < jnp.abs(classic[1] - exact).max()

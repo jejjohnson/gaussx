@@ -386,7 +386,13 @@ def nonlinear_kalman_update(
         # invertible). The pseudo-inverse gives the minimum-norm H_eff,
         # which is the natural reading of the linearisation when the
         # belief is confined to a subspace.
-        obs_eff = jnp.linalg.lstsq(cov, cross_e)[0].T
+        #
+        # rcond=0.0 is deliberate: it discards only exactly-zero singular
+        # values. lstsq's default cutoff scales with the dtype's epsilon,
+        # which in float32 also discards small-but-real covariance modes --
+        # for P = diag(1, 1e-8) it zeroes H_eff along the second axis, and
+        # the update then *grows* that variance instead of shrinking it.
+        obs_eff = jnp.linalg.lstsq(cov, cross_e, rcond=0.0)[0].T
 
         # The noise of that regression is R + Omega, *not* R: linearising
         # h leaves a residual eps ~ N(0, Omega) on top of the measurement
@@ -409,6 +415,23 @@ def nonlinear_kalman_update(
         # on the moment triple being mutually consistent (Omega >= 0),
         # which a negative-weight rule can violate.
         cov_upd = symmetrize(cov - gain @ innovation @ gain.T)
+
+    # A positive-definite S is not on its own enough: the *joint* over
+    # (x, h(x)) must be consistent. An inconsistent triple -- Omega =
+    # S_yy - H_eff P^- H_eff^T indefinite, which a negative-weight rule can
+    # produce even where S is fine -- drives the posterior variance
+    # negative. Checking the diagonal is O(N) and catches exactly that; it
+    # is necessary rather than sufficient for PSD, which is the right
+    # trade at this cost.
+    cov_upd = eqx.error_if(
+        cov_upd,
+        jnp.diagonal(cov_upd).min() < 0.0,
+        "nonlinear_kalman_update: the updated covariance has a negative "
+        "variance. The matched moments (Cov[h(x)], Cov[x, h(x)]) are not a "
+        "consistent joint, which a negative-weight quadrature rule can "
+        "produce. Use a positive-weight rule such as CubatureIntegrator or "
+        "UnscentedIntegrator(alpha=1.0).",
+    )
 
     # ll += -0.5 (v^T S^-1 v + log|S| + M log 2pi).
     #
@@ -458,7 +481,11 @@ def nonlinear_rts_step(
         mean_smoothed: Smoothed mean at $t + 1$.
         cov_smoothed: Smoothed covariance at $t + 1$.
         integrator: Moment-matching rule; use the one the filter used.
-        solver: Optional solver strategy.
+        solver: Accepted for API symmetry with `gaussx.rts_smoother` and
+            unused. The smoother gain is taken with a least-squares solve
+            so that a singular predicted covariance -- a deterministic or
+            rank-deficient process -- still yields the correction defined
+            on its supported subspace, which supersedes the strategy.
 
     Returns:
         Tuple ``(mean, cov)`` smoothed at $t$.
@@ -480,10 +507,18 @@ def nonlinear_rts_step(
         dynamics, mean_filtered, cov_filtered, integrator=integrator
     )
 
-    # G = Sigma_xx+ (P-_{t+1})^-1, again via a row-wise solve rather than
-    # an inverse. For linear f this is P_t A^T (P-_{t+1})^-1, the textbook
-    # RTS gain.
-    gain = solve_rows(_symmetric(cov_predicted), cross, solver=solver)  # (N, N)
+    # G = Sigma_xx+ (P-_{t+1})^-1. For linear f this is
+    # P_t A^T (P-_{t+1})^-1, the textbook RTS gain.
+    #
+    # Least-squares rather than a well-posed solve, for the same reason as
+    # the filter's Joseph linearisation: a deterministic or rank-deficient
+    # process leaves P^- singular while the RTS correction stays perfectly
+    # well defined on the subspace the belief actually occupies. A
+    # well-posed solver returns NaN there, so a filter run that handles a
+    # singular covariance would still fail the moment its result reached
+    # the smoother. rcond=0.0 keeps every representable mode.
+    del solver  # the rank policy below supersedes the solver strategy
+    gain = jnp.linalg.lstsq(cov_predicted, cross.T, rcond=0.0)[0].T  # (N, N)
 
     # The RTS corrections: push the filtered belief toward the smoothed
     # future, by however much that future disagreed with what was predicted
@@ -714,8 +749,8 @@ def nonlinear_rts_smoother(
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``; use the one the filter
             used.
-        solver: Optional solver strategy. When ``None``, uses structural
-            dispatch.
+        solver: Accepted for API symmetry with `gaussx.rts_smoother` and
+            unused -- see `gaussx.nonlinear_rts_step`.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.

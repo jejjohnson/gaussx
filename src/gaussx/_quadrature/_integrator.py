@@ -103,7 +103,9 @@ def moment_transform(
         mean: Input mean $\mu$, shape ``(N,)``.
         cov: Input covariance $\Sigma$, shape ``(N, N)``. Assumed PSD.
         integrator: Rule realising $\mathcal{T}$. Defaults to
-            `gaussx.UnscentedIntegrator`.
+            ``UnscentedIntegrator(alpha=1.0)``. Note this is *not*
+            `gaussx.UnscentedIntegrator`'s own ``alpha=1e-3`` default,
+            which is not safe in float32.
 
     Returns:
         Tuple ``(mean_out, cov_out, cross_cov)`` with shapes ``(M,)``,
@@ -116,7 +118,10 @@ def moment_transform(
     if integrator is None:
         from gaussx._quadrature._unscented import UnscentedIntegrator
 
-        integrator = UnscentedIntegrator()
+        # alpha=1.0, not UnscentedIntegrator's own 1e-3: that spread
+        # recovers even affine moments by cancellation between weights of
+        # order 1e6, which costs ~7 digits and is ruinous in float32.
+        integrator = UnscentedIntegrator(alpha=1.0)
 
     state = GaussianState(
         mean=mean, cov=lx.MatrixLinearOperator(cov, lx.positive_semidefinite_tag)
