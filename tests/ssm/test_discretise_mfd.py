@@ -390,7 +390,7 @@ def test_autocovariance_rejects_missing_p_inf():
 
     learned = _learned_sde_class()(F=_OSCILLATOR)
 
-    with pytest.raises(ValueError, match="no stationary covariance"):
+    with pytest.raises(ValueError, match="does not supply a stationary"):
         sde_autocovariance(learned, jnp.array([0.0, 0.5]))
 
 
@@ -449,3 +449,30 @@ def test_stiff_drift_stays_differentiable():
     assert bool(jnp.isfinite(grad))
     # Q -> Q_c / (2 d), so dQ/dd -> -1 / (2 d^2).
     assert tree_allclose(grad, jnp.asarray(-1.0 / (2 * 500.0**2)), rtol=1e-4)
+
+
+def test_drift_too_stiff_for_one_step_is_rejected():
+    """Past the doubling cap, say so rather than returning a silent NaN.
+
+    The cap exists because every doubling is unrolled statically; beyond it
+    the scaled step is still stiff enough to overflow the augmented
+    exponential, so the honest answer is to ask for a shorter step.
+    """
+    with pytest.raises(Exception, match="too large to discretise"):
+        jax.block_until_ready(
+            discretise_mfd(jnp.array([[-1e9]]), jnp.eye(1), jnp.asarray(1.0))
+        )
+
+
+def test_sequence_is_unaffected_by_the_doubling_path():
+    """Vectorising over time steps still matches the scalar function."""
+    steps = jnp.array([0.0, 0.05, 1.0])
+    F = jnp.array([[-50.0, 1.0], [0.0, -60.0]])
+    Q_c = jnp.eye(2)
+
+    A_seq, Q_seq = discretise_mfd_sequence(F, Q_c, steps)
+
+    for i, step in enumerate(steps):
+        A_i, Q_i = discretise_mfd(F, Q_c, step)
+        assert tree_allclose(A_seq[i], A_i, atol=1e-12)
+        assert tree_allclose(Q_seq[i], Q_i, atol=1e-12)

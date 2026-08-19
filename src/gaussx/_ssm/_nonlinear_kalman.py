@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -329,6 +330,26 @@ def nonlinear_kalman_update(
     # Cholesky path that returns NaN on such a matrix instead of a solver
     # that copes.
     innovation = symmetrize(obs_cov_e + R_e)
+
+    # A quadrature rule with negative weights can return an indefinite
+    # Cov[h(x)], and R may be too small to repair it. Neither the update
+    # nor the likelihood is defined then -- the quadratic form can go
+    # negative and the log-determinant becomes log|det S| -- so this is
+    # rejected rather than allowed to produce a plausible-looking but
+    # meaningless number. The eigendecomposition is on the (M, M)
+    # innovation and is negligible beside the moment transform that
+    # produced it.
+    smallest_eigenvalue = jnp.linalg.eigvalsh(innovation).min()
+    innovation = eqx.error_if(
+        innovation,
+        smallest_eigenvalue <= 0.0,
+        "nonlinear_kalman_update: the innovation covariance S = Cov[h(x)] + R "
+        "is not positive definite. A negative-weight quadrature rule (the "
+        "scaled unscented transform, or the degree-5 cubature rule above "
+        "N = 4) can return an indefinite Cov[h(x)]. Use a positive-weight "
+        "rule such as CubatureIntegrator or UnscentedIntegrator(alpha=1.0), "
+        "or increase obs_noise.",
+    )
     innovation_op = _symmetric(innovation)
 
     # K = C S^-1. solve_rows solves S x = c for each *row* of C, i.e. it
@@ -357,7 +378,15 @@ def nonlinear_kalman_update(
         # Omega = S_yy - A P- A^T the linearisation residual: PSD, and zero
         # for affine h. Hence switching this default cannot perturb the
         # linear reduction.
-        obs_eff = solve_rows(_symmetric(cov), cross_e.T, solver=solver)
+        # H_eff = C^T (P^-)^-1, via a least-squares solve rather than
+        # `solve_rows`. P^- is legitimately singular for a deterministic
+        # initial state, zero process noise, or dimension-reducing
+        # dynamics, and a well-posed solver returns NaN on those even
+        # though the update itself is perfectly well defined (R keeps S
+        # invertible). The pseudo-inverse gives the minimum-norm H_eff,
+        # which is the natural reading of the linearisation when the
+        # belief is confined to a subspace.
+        obs_eff = jnp.linalg.lstsq(cov, cross_e)[0].T
 
         # The noise of that regression is R + Omega, *not* R: linearising
         # h leaves a residual eps ~ N(0, Omega) on top of the measurement
@@ -496,7 +525,8 @@ def nonlinear_kalman_filter(
     |---|---|
     | `gaussx.TaylorIntegrator` | extended Kalman filter (EKF) |
     | `gaussx.UnscentedIntegrator` | unscented Kalman filter (UKF) |
-    | `gaussx.FifthOrderCubatureIntegrator` | cubature Kalman filter (CKF) |
+    | `gaussx.CubatureIntegrator` | cubature Kalman filter (CKF), $2N$ pts |
+    | `gaussx.FifthOrderCubatureIntegrator` | degree-5 cubature, $2N^2+1$ pts |
     | `gaussx.GaussHermiteIntegrator` | Gauss-Hermite Kalman filter (GHKF) |
     | `gaussx.MonteCarloIntegrator` | Monte-Carlo Kalman filter |
 

@@ -817,13 +817,14 @@ def test_misshapen_obs_noise_is_rejected(noise):
         nonlinear_kalman_filter(_linear_dynamics, _linear_obs, _Q, noise, _YS, _M0, _P0)
 
 
-def test_indefinite_innovation_is_not_tagged_positive_definite():
-    """An approximate innovation must not be asserted PSD.
+def test_indefinite_innovation_is_rejected():
+    """An indefinite innovation must be rejected, not quietly used.
 
     ``Cov[h(x)]`` comes from a quadrature rule; a negative-weight rule can
-    return it indefinite. Tagging the innovation PSD would route the solve
-    to a Cholesky path that returns NaN. This drives an indefinite matched
-    covariance through the update and requires a finite result.
+    return it indefinite, and ``R`` may be too small to repair it. Neither
+    the gain nor the likelihood is defined then -- the quadratic form can
+    go negative and the log-determinant becomes ``log|det S|`` -- so the
+    filter must say so rather than emit a plausible-looking number.
     """
 
     class _IndefiniteIntegrator(AbstractIntegrator):
@@ -843,20 +844,20 @@ def test_indefinite_innovation_is_not_tagged_positive_definite():
                 cross_cov=jnp.ones((state.mean.shape[-1], dim)) * 0.1,
             )
 
-    result = nonlinear_kalman_filter(
-        _linear_dynamics,
-        _linear_obs,
-        _Q,
-        1e-3 * jnp.eye(_M),  # too small to rescue the indefinite block
-        _YS,
-        _M0,
-        _P0,
-        integrator=_IndefiniteIntegrator(),
-        joseph=True,
-    )
-
-    assert bool(jnp.all(jnp.isfinite(result.filtered_means)))
-    assert bool(jnp.all(jnp.isfinite(result.filtered_covs)))
+    with pytest.raises(Exception, match="not positive definite"):
+        jax.block_until_ready(
+            nonlinear_kalman_filter(
+                _linear_dynamics,
+                _linear_obs,
+                _Q,
+                1e-3 * jnp.eye(_M),  # too small to rescue the indefinite block
+                _YS,
+                _M0,
+                _P0,
+                integrator=_IndefiniteIntegrator(),
+                joseph=True,
+            )
+        )
 
 
 def test_default_is_the_float32_safe_unscented_rule():
@@ -894,3 +895,50 @@ def test_default_is_the_float32_safe_unscented_rule():
     default_error = jnp.abs(default.log_likelihood - reference.log_likelihood)
     classic_error = jnp.abs(classic.log_likelihood - reference.log_likelihood)
     assert float(default_error) < float(classic_error)
+
+
+@pytest.mark.parametrize(
+    ("init_cov", "process_noise", "label"),
+    [
+        (jnp.zeros((_N, _N)), jnp.zeros((_N, _N)), "deterministic-init"),
+        (jnp.diag(jnp.array([1.0, 1.0, 0.0])), jnp.zeros((_N, _N)), "rank-deficient"),
+    ],
+)
+def test_singular_predicted_covariance_is_handled(init_cov, process_noise, label):
+    """A singular ``P^-`` is a valid belief, not a failure.
+
+    A deterministic initial state or zero process noise leaves ``P^-``
+    singular while the update stays well defined, because ``R`` keeps the
+    innovation invertible. Joseph form needs ``C^T (P^-)^-1``, so it must
+    use a least-squares solve rather than a well-posed one, which would
+    return NaN here — and Joseph is the default.
+    """
+    del label
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        process_noise,
+        _R,
+        _YS,
+        _M0,
+        init_cov,
+        integrator=CubatureIntegrator(),
+        joseph=True,
+    )
+    standard = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        process_noise,
+        _R,
+        _YS,
+        _M0,
+        init_cov,
+        integrator=CubatureIntegrator(),
+        joseph=False,
+    )
+
+    assert bool(jnp.all(jnp.isfinite(result.filtered_means)))
+    assert bool(jnp.all(jnp.isfinite(result.filtered_covs)))
+    assert bool(jnp.isfinite(result.log_likelihood))
+    # The two covariance forms agree analytically, singular P^- included.
+    assert tree_allclose(result.filtered_covs, standard.filtered_covs, atol=1e-10)

@@ -229,23 +229,37 @@ def discretise_mfd(
     # never as a trip count -- so the whole function stays reverse-mode
     # differentiable, unlike a lax.while_loop.
     drift_scale = jnp.abs(F).sum(axis=0).max() * dt
-    n_squarings = jnp.clip(
-        jnp.ceil(jnp.log2(jnp.maximum(drift_scale / _MFD_EXPONENT_BUDGET, 1.0))),
-        0.0,
-        _MFD_MAX_SQUARINGS,
+    required = jnp.ceil(jnp.log2(jnp.maximum(drift_scale / _MFD_EXPONENT_BUDGET, 1.0)))
+    n_squarings = jnp.clip(required, 0.0, _MFD_MAX_SQUARINGS)
+
+    # Beyond the cap the scaled step is still too stiff and the augmented
+    # exponential would overflow anyway, so say so rather than returning a
+    # silent NaN. In float32 this starts to bite around ||F|| dt ~ 1e6.
+    dt = eqx.error_if(
+        dt,
+        required > _MFD_MAX_SQUARINGS,
+        f"discretise_mfd: ||F|| * dt is too large to discretise in one step "
+        f"(more than {_MFD_MAX_SQUARINGS} doublings would be needed). Split "
+        f"the interval into shorter steps, or rescale time.",
     )
 
     A, Q = _van_loan(F, Q_c, dt / 2.0**n_squarings)
 
-    # Compose back up. The unrolled loop is static; each step is applied or
-    # skipped by a select on the traced count, so a well-scaled drift pays
-    # a few tiny matmuls and takes on no extra rounding error.
+    # Compose back up. The unroll is static, but each doubling is placed
+    # behind a lax.cond rather than a select so an inactive step is not
+    # evaluated at all -- a well-scaled drift, which is the common case,
+    # pays nothing here. lax.cond is used over a while_loop because it
+    # stays reverse-mode differentiable.
+    #
+    # Under vmap (as in discretise_mfd_sequence) a cond with a batched
+    # predicate lowers back to a select, so batched callers do pay for the
+    # inactive branches; that is a JAX limitation, not an oversight.
+    def _double(operands):
+        A_i, Q_i = operands
+        return A_i @ A_i, symmetrize(A_i @ Q_i @ A_i.T + Q_i)
+
     for i in range(_MFD_MAX_SQUARINGS):
-        apply = i < n_squarings
-        A_doubled = A @ A
-        Q_doubled = symmetrize(A @ Q @ A.T + Q)
-        A = jnp.where(apply, A_doubled, A)
-        Q = jnp.where(apply, Q_doubled, Q)
+        A, Q = jax.lax.cond(i < n_squarings, _double, lambda operands: operands, (A, Q))
 
     return A, Q
 
