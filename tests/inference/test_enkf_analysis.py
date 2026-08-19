@@ -160,10 +160,15 @@ def test_perturbed_obs_reproduces_the_key_path(getkey):
     key = getkey()
     from_key = enkf_analysis(prior, obs_prior, y, noise, key=key)
 
-    # Rebuild the same realisation by hand and pass it in explicitly.
+    # Rebuild the same realisation by hand and pass it in explicitly, through
+    # the same factor the implementation uses -- a PSD square root rather than
+    # a Cholesky, so that a singular R still works (both satisfy L L^T = R, but
+    # they are different factors and so give different draws for one key).
+    from gaussx._inference._ensemble import _noise_factor
+
     n_ens, n_obs = obs_prior.shape
-    chol = jnp.linalg.cholesky(noise.as_matrix())
-    eps = jr.normal(key, (n_ens, n_obs), dtype=prior.dtype) @ chol.T
+    factor = _noise_factor(noise).as_matrix()
+    eps = jr.normal(key, (n_ens, n_obs), dtype=prior.dtype) @ factor.T
     from_explicit = enkf_analysis(
         prior, obs_prior, y, noise, perturbed_obs=y[None, :] + eps
     )
@@ -543,3 +548,45 @@ def test_dense_innovation_true_handles_singular_observation_noise(getkey):
         dense_innovation=True,
     )
     assert jnp.all(jnp.isfinite(dense))
+
+
+def test_singular_dense_noise_perturbations_are_finite(getkey):
+    """The documented singular-R escape hatch must survive the `key` path.
+
+    Perturbations are drawn before `dense_innovation` is consulted, so a
+    PD-only Cholesky of `diag(1, 1, 0)` would return a NaN factor and the
+    analysis would be NaN no matter what the flag says.
+    """
+    n_state, n_obs = 4, 3
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    prior = jr.normal(k_prior, (2, n_state))  # J = 2 < M = 3
+    obs_prior = jr.normal(k_obs, (2, n_obs))
+    singular = lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([1.0, 1.0, 0.0])), lx.positive_semidefinite_tag
+    )
+    out = enkf_analysis(
+        prior,
+        obs_prior,
+        jnp.zeros(n_obs),
+        singular,
+        key=k_draw,
+        dense_innovation=True,
+    )
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_noise_factor_reproduces_the_covariance(getkey):
+    """Whatever route the factor takes, ``L L^T`` must be ``R``."""
+    from gaussx._inference._ensemble import _noise_factor
+
+    dense = random_pd_matrix(getkey(), 4)
+    for operator in (
+        lx.MatrixLinearOperator(dense, lx.positive_semidefinite_tag),
+        lx.DiagonalLinearOperator(jnp.array([0.1, 0.2, 0.3, 0.4])),
+        lx.MatrixLinearOperator(
+            jnp.diag(jnp.array([1.0, 1.0, 0.0, 2.0])), lx.positive_semidefinite_tag
+        ),
+    ):
+        factor = _noise_factor(operator).as_matrix()
+        assert jnp.allclose(factor @ factor.T, operator.as_matrix(), atol=1e-6)
+        assert jnp.all(jnp.isfinite(factor))
