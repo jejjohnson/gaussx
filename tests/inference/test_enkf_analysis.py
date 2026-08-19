@@ -408,3 +408,64 @@ def test_non_gaussian_bias_does_not_shrink_with_ensemble_size():
     assert physical_errors[1] > 0.01
     assert physical_errors[1] > 0.5 * physical_errors[0]  # plateau, not decay
     assert physical_errors[1] > 10 * latent_errors[1]
+
+
+# ---------------------------------------------------------------------------
+# Operator handling: structure preserved, shape validated
+# ---------------------------------------------------------------------------
+
+
+def test_diagonal_noise_is_not_materialised_in_the_low_rank_regime(getkey, monkeypatch):
+    """With `J < M` the whole path must stay structure-preserving.
+
+    That regime exists for `M` far too large to densify: a dense `(M, M)`
+    Cholesky just to draw the perturbations would cost O(M^3) and OOM before
+    the low-rank gain is ever formed. (The `J >= M` branch densifies the
+    `(M, M)` innovation on purpose -- there `M` is small by construction.)
+    """
+    import lineax
+
+    n_obs = 8
+    prior, obs_prior, y, _ = _small_problem(
+        getkey, n_ens=4, n_state=5, n_obs=n_obs
+    )  # J = 4 < M = 8
+    diagonal_noise = lx.DiagonalLinearOperator(0.1 + jnp.arange(n_obs) / 10.0)
+
+    def _explode(self):
+        raise AssertionError("obs_noise was materialised via as_matrix()")
+
+    monkeypatch.setattr(lineax.DiagonalLinearOperator, "as_matrix", _explode)
+    out = enkf_analysis(prior, obs_prior, y, diagonal_noise, key=getkey())
+    assert out.shape == prior.shape
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_structured_and_dense_noise_agree(getkey):
+    """The structure-preserving factor must give the same draw as a dense one."""
+    prior, obs_prior, y, _ = _small_problem(getkey, n_ens=32, n_state=5, n_obs=4)
+    diag = jnp.array([0.1, 0.2, 0.3, 0.4])
+    key = getkey()
+    structured = enkf_analysis(
+        prior, obs_prior, y, lx.DiagonalLinearOperator(diag), key=key
+    )
+    dense = enkf_analysis(
+        prior,
+        obs_prior,
+        y,
+        lx.MatrixLinearOperator(jnp.diag(diag), lx.positive_semidefinite_tag),
+        key=key,
+    )
+    assert jnp.allclose(structured, dense, atol=1e-10)
+
+
+def test_rejects_obs_noise_with_the_wrong_size(getkey):
+    """A (1, 1) operator against M = 3 would broadcast into a plausible gain."""
+    prior, obs_prior, y, _ = _small_problem(getkey, n_ens=16, n_state=5, n_obs=3)
+    with pytest.raises(ValueError, match=r"obs_noise must be \(3, 3\)"):
+        enkf_analysis(
+            prior,
+            obs_prior,
+            y,
+            lx.DiagonalLinearOperator(jnp.array([0.1])),
+            perturbed_obs=jnp.zeros_like(obs_prior),
+        )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -13,6 +14,7 @@ from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._primitives._cholesky import cholesky
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -399,12 +401,23 @@ def enkf_analysis(
 
     The fix is to conjugate the update with a bijection $\Gamma$ that
     Gaussianises the prior -- call this function on $\Gamma^{-1}(X^f)$ and map
-    the result back through $\Gamma$. When the likelihood is Gaussian in those
-    same latent coordinates the conjugated update is *exact Bayes*, not an
-    improved approximation: the ensemble Kalman filter's Gaussian assumption is
-    a statement about coordinates, not about the algorithm. Pass the same
-    ``perturbed_obs`` through both routes to compare them on one noise
+    the result back through $\Gamma$: the ensemble Kalman filter's Gaussian
+    assumption is a statement about coordinates, not about the algorithm. Pass
+    the same ``perturbed_obs`` through both routes to compare them on one noise
     realisation.
+
+    That conjugated update is *exact Bayes* only under conditions worth stating
+    precisely, because it is easy to over-claim. It needs the population limit
+    -- with a finite ensemble the gain is empirical and the perturbations are
+    Monte Carlo, so the result is an estimate either way -- and it needs the
+    observation model to be **affine with additive Gaussian noise** in the same
+    latent coordinates that Gaussianise the prior. A merely "Gaussian
+    likelihood" is not enough: $y = \zeta^2 + \varepsilon$ has Gaussian noise
+    and a non-Gaussian posterior that no Kalman update reproduces. Outside
+    those conditions conjugation is an approximation with no guaranteed
+    ordering against the physical-space update -- usually much better, but a
+    badly matched $\Gamma$ can make the latent joint less Gaussian and do
+    worse.
 
     Args:
         particles: Prior ensemble in state space, shape ``(J, N)``.
@@ -482,14 +495,26 @@ def enkf_analysis(
             f"observation must have shape ({n_obs},) to match obs_particles, "
             f"got {observation.shape}."
         )
+    # Without this an operator of the wrong size broadcasts against the (M, M)
+    # empirical covariance instead of raising -- a (1, 1) R against M = 3 adds
+    # the scalar to every entry and yields a plausible but wrong gain.
+    if (obs_noise.in_size(), obs_noise.out_size()) != (n_obs, n_obs):
+        raise ValueError(
+            f"obs_noise must be ({n_obs}, {n_obs}) to match obs_particles, got "
+            f"({obs_noise.out_size()}, {obs_noise.in_size()})."
+        )
 
     # Branch on `key` rather than on `perturbed_obs`: the check above makes the
     # two equivalent, but this way each branch narrows the argument it uses.
     if key is not None:
-        # eps ~ N(0, R): right-multiply standard normals by L^T, with R = L L^T.
-        chol = jnp.linalg.cholesky(obs_noise.as_matrix())  # (M, M)
+        # eps_j = L n_j with R = L L^T. `cholesky` dispatches on structure, so a
+        # DiagonalLinearOperator stays diagonal and its matvec stays O(M) --
+        # materialising R here would allocate a dense (M, M) and cost O(M^3),
+        # which for the low-rank branch below (J < M, M possibly enormous) would
+        # OOM before the gain is ever formed.
+        chol = cholesky(obs_noise)
         noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
-        perturbed = observation[None, :] + noise @ chol.T  # (J, M)
+        perturbed = observation[None, :] + jax.vmap(chol.mv)(noise)  # (J, M)
     else:
         perturbed = perturbed_obs
         if perturbed is None or perturbed.shape != (n_ens, n_obs):
