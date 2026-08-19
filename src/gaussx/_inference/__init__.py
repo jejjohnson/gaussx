@@ -7,6 +7,7 @@ from gaussx._inference._blr import (
     hutchinson_hessian_diag,
 )
 from gaussx._inference._ensemble import (
+    enkf_analysis,
     ensemble_covariance,
     ensemble_cross_covariance,
     ensemble_kalman_gain,
@@ -45,6 +46,7 @@ __all__ = [
     "blr_full_update",
     "cavity_distribution",
     "damped_natural_update",
+    "enkf_analysis",
     "ensemble_covariance",
     "ensemble_cross_covariance",
     "ensemble_kalman_gain",
