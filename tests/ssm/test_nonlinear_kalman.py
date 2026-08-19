@@ -129,7 +129,11 @@ def test_integrator_without_cross_covariance_is_rejected():
 
 
 def test_default_integrator_is_unscented():
-    """Omitting the integrator gives the derivative-free default."""
+    """Omitting the integrator gives the derivative-free default.
+
+    The default is ``alpha=1.0``, not `UnscentedIntegrator`'s own
+    ``alpha=1e-3``: see ``test_default_is_float32_safe``.
+    """
     explicit = nonlinear_kalman_filter(
         _linear_dynamics,
         _linear_obs,
@@ -138,7 +142,7 @@ def test_default_integrator_is_unscented():
         _YS,
         _M0,
         _P0,
-        integrator=UnscentedIntegrator(),
+        integrator=UnscentedIntegrator(alpha=1.0),
     )
     default = nonlinear_kalman_filter(
         _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0
@@ -302,13 +306,14 @@ def test_joseph_coincides_with_standard_form_for_affine_maps():
     assert tree_allclose(joseph.filtered_covs, standard.filtered_covs, atol=1e-12)
 
 
-def test_joseph_differs_from_standard_form_by_the_linearisation_residual():
-    """Per step, ``standard - joseph = K Omega K^T``, which is PSD.
+def test_joseph_agrees_with_the_standard_form_on_a_nonlinear_step():
+    """Joseph reproduces the matched-joint posterior, it does not shrink it.
 
-    Checked on a single step so the two runs cannot diverge through the
-    carry. ``Omega`` is the residual covariance
-    `gaussx.statistical_linear_regression` reports, so the Joseph update is
-    the statistically-linearised one and is never larger.
+    Joseph form linearises ``obs_fn`` as ``H_eff x + b + eps``, so its
+    effective noise is ``R + Omega``, not ``R``. Passing ``R`` alone would
+    return ``standard - K Omega K^T`` -- systematically overconfident on
+    nonlinear maps. Checked on a single step so the two runs cannot
+    diverge through the carry.
     """
     from gaussx import statistical_linear_regression
 
@@ -328,26 +333,20 @@ def test_joseph_differs_from_standard_form_by_the_linearisation_residual():
     standard = nonlinear_kalman_filter(
         _nonlinear_dynamics, _nonlinear_obs, joseph=False, **kwargs
     )
-    difference = standard.filtered_covs[0] - joseph.filtered_covs[0]
+    # The two covariance updates now agree analytically.
+    assert tree_allclose(joseph.filtered_covs[0], standard.filtered_covs[0], atol=1e-12)
 
-    # Rebuild K and Omega independently from the moment transform.
+    # And the residual they used to differ by is genuinely nonzero here, so
+    # the agreement above is a real check rather than a vacuous one.
     predicted = GaussianState(
         mean=joseph.predicted_means[0],
-        cov=lx.MatrixLinearOperator(
-            joseph.predicted_covs[0], lx.positive_semidefinite_tag
-        ),
+        cov=lx.MatrixLinearOperator(joseph.predicted_covs[0], lx.symmetric_tag),
     )
-    moments = integrator.integrate(_nonlinear_obs, predicted)
-    innovation = moments.state.cov.as_matrix() + _R
-    gain = moments.cross_cov @ jnp.linalg.inv(innovation)
     slr = statistical_linear_regression(
         _nonlinear_obs, lambda f: _R, predicted, integrator
     )
     residual_cov = slr.omega - _R
-
-    assert tree_allclose(difference, gain @ residual_cov @ gain.T, atol=1e-12)
-    assert float(jnp.linalg.eigvalsh(residual_cov).min()) > 0.0
-    assert float(jnp.linalg.eigvalsh(difference).min()) > -1e-12
+    assert float(jnp.linalg.eigvalsh(residual_cov).min()) > 1e-6
 
 
 def test_joseph_keeps_covariances_psd_on_an_ill_conditioned_problem():
@@ -683,7 +682,7 @@ def test_step_functions_default_to_the_unscented_rule():
     from gaussx import nonlinear_kalman_predict
 
     explicit = nonlinear_kalman_predict(
-        _nonlinear_dynamics, _M0, _P0, _Q, integrator=UnscentedIntegrator()
+        _nonlinear_dynamics, _M0, _P0, _Q, integrator=UnscentedIntegrator(alpha=1.0)
     )
     default = nonlinear_kalman_predict(_nonlinear_dynamics, _M0, _P0, _Q)
 
@@ -791,3 +790,107 @@ def test_masked_moment_inputs_gradient_is_nan_free():
 
     grad = jax.grad(loss)(jnp.array([0.25, 7.0]))
     assert bool(jnp.all(jnp.isfinite(grad)))
+
+
+@pytest.mark.parametrize(
+    ("noise", "name"),
+    [
+        (jnp.ones((1, 1)), "process_noise"),
+        (jnp.ones((_N, 1)), "process_noise"),
+        (jnp.ones((_N + 1, _N + 1)), "process_noise"),
+    ],
+)
+def test_misshapen_process_noise_is_rejected(noise, name):
+    """A misshapen covariance must not broadcast across the whole matrix.
+
+    A ``(1, 1)`` process noise with ``N = 3`` would otherwise be added to
+    every entry of ``Cov[f(x)]``, corrupting the filter silently.
+    """
+    with pytest.raises(ValueError, match=name):
+        nonlinear_kalman_filter(_linear_dynamics, _linear_obs, noise, _R, _YS, _M0, _P0)
+
+
+@pytest.mark.parametrize("noise", [jnp.ones((1, 1)), jnp.ones((_M + 1, _M + 1))])
+def test_misshapen_obs_noise_is_rejected(noise):
+    """Likewise for the observation noise."""
+    with pytest.raises(ValueError, match="obs_noise"):
+        nonlinear_kalman_filter(_linear_dynamics, _linear_obs, _Q, noise, _YS, _M0, _P0)
+
+
+def test_indefinite_innovation_is_not_tagged_positive_definite():
+    """An approximate innovation must not be asserted PSD.
+
+    ``Cov[h(x)]`` comes from a quadrature rule; a negative-weight rule can
+    return it indefinite. Tagging the innovation PSD would route the solve
+    to a Cholesky path that returns NaN. This drives an indefinite matched
+    covariance through the update and requires a finite result.
+    """
+
+    class _IndefiniteIntegrator(AbstractIntegrator):
+        """Returns a deliberately indefinite output covariance."""
+
+        def integrate(self, fn, state):
+            mean = fn(state.mean)
+            dim = mean.shape[-1]
+            indefinite = jnp.diag(
+                jnp.array([1.0, -0.5][:dim] + [1.0] * max(0, dim - 2))
+            )
+            return PropagationResult(
+                state=GaussianState(
+                    mean=mean,
+                    cov=lx.MatrixLinearOperator(indefinite, lx.symmetric_tag),
+                ),
+                cross_cov=jnp.ones((state.mean.shape[-1], dim)) * 0.1,
+            )
+
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        1e-3 * jnp.eye(_M),  # too small to rescue the indefinite block
+        _YS,
+        _M0,
+        _P0,
+        integrator=_IndefiniteIntegrator(),
+        joseph=True,
+    )
+
+    assert bool(jnp.all(jnp.isfinite(result.filtered_means)))
+    assert bool(jnp.all(jnp.isfinite(result.filtered_covs)))
+
+
+def test_default_is_the_float32_safe_unscented_rule():
+    """The default must be ``alpha=1.0``, not the classic ``alpha=1e-3``.
+
+    `UnscentedIntegrator`'s own default places the sigma points ~1e-3 from
+    the mean and recovers the moments by cancellation. Under x64 that shows
+    up only as the looser tolerance this file gives ``unscented-default``;
+    in float32 -- JAX's default, and the configuration this suite cannot
+    reach because ``conftest`` enables x64 globally -- it misplaces the
+    log-likelihood of a *linear* problem by over one nat, where
+    ``alpha=1.0`` stays at 4e-6.
+
+    Pinning the default here is what keeps that from silently regressing.
+    """
+    common = (_linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0)
+
+    default = nonlinear_kalman_filter(*common)
+    safe = nonlinear_kalman_filter(*common, integrator=UnscentedIntegrator(alpha=1.0))
+    classic = nonlinear_kalman_filter(*common, integrator=UnscentedIntegrator())
+
+    assert tree_allclose(default.filtered_means, safe.filtered_means, atol=0.0)
+    assert tree_allclose(default.log_likelihood, safe.log_likelihood, atol=0.0)
+
+    # And the classic rule really is a different, worse-conditioned answer.
+    # rtol=0: on a log-likelihood of order -40, allclose's default
+    # rtol=1e-5 would tolerate 4e-4 and hide the difference entirely.
+    assert not bool(
+        jnp.allclose(
+            default.log_likelihood, classic.log_likelihood, atol=1e-12, rtol=0.0
+        )
+    )
+
+    reference = kalman_filter(_A, _H, _Q, _R, _YS, _M0, _P0)
+    default_error = jnp.abs(default.log_likelihood - reference.log_likelihood)
+    classic_error = jnp.abs(classic.log_likelihood - reference.log_likelihood)
+    assert float(default_error) < float(classic_error)

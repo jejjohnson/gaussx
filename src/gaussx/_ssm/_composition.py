@@ -163,10 +163,35 @@ class ProductSDE(SDEKernel):
         # ``Kronecker`` lets the shared helper contract each factor
         # separately instead of forming the (d1 d2)-square triple product.
         if p1.P_inf is None or p2.P_inf is None:
-            # The factorised congruence below needs both stationary
-            # covariances. Without them, defer to the base implementation,
-            # which discretises the composed ``F`` via ``discretise_mfd``.
-            return super().discretise(dt)
+            # Deferring to the base MFD path here would be *wrong*, not
+            # merely slower. ``sde_params`` reports the composite diffusion
+            # as L Q_c L^T = B_1 (x) B_2, but the diffusion consistent with
+            # the Kronecker-sum drift is
+            #
+            #     B = B_1 (x) P_2  +  P_1 (x) B_2
+            #
+            # (substitute P_1 (x) P_2 into the Lyapunov equation for
+            # F_1 (+) F_2 to see it). The two differ in general; for a
+            # Matern (x) Cosine product the reported one is identically
+            # zero, because CosineSDE has Q_c = 0. MFD would then return
+            # the right transition matrix with process noise for a
+            # different SDE.
+            #
+            # The correct diffusion needs both factor stationary
+            # covariances -- exactly what is missing -- so this is
+            # rejected rather than silently approximated.
+            msg = (
+                f"ProductSDE cannot be discretised when a factor has no "
+                f"stationary covariance: "
+                f"{type(self.kernel1).__name__}.P_inf is "
+                f"{'None' if p1.P_inf is None else 'set'} and "
+                f"{type(self.kernel2).__name__}.P_inf is "
+                f"{'None' if p2.P_inf is None else 'set'}. The composite "
+                f"diffusion of a product kernel is B1 (x) P2 + P1 (x) B2, "
+                f"which needs both. Discretise the factors separately, or "
+                f"give the factor a P_inf."
+            )
+            raise NotImplementedError(msg)
 
         A_op = Kronecker(
             lx.MatrixLinearOperator(A1),

@@ -331,8 +331,15 @@ def test_sum_composition_propagates_missing_p_inf():
     assert tree_allclose(Q, Q.T, atol=1e-14)
 
 
-def test_product_composition_propagates_missing_p_inf():
-    """Likewise for the Kronecker product, whose fast path needs both."""
+def test_product_composition_rejects_missing_p_inf():
+    """A product with a P_inf-less factor is rejected, not approximated.
+
+    ``ProductSDE.sde_params`` reports the composite diffusion as
+    ``B1 (x) B2``, but the diffusion consistent with the Kronecker-sum
+    drift is ``B1 (x) P2 + P1 (x) B2``. Falling back to MFD would pair the
+    correct transition matrix with process noise for a different SDE, so
+    the missing-``P_inf`` case must fail loudly instead.
+    """
     from gaussx import ProductSDE
 
     learned = _learned_sde_class()(F=_OSCILLATOR)
@@ -341,11 +348,8 @@ def test_product_composition_propagates_missing_p_inf():
     composed = ProductSDE(kernel1=matern, kernel2=learned)
     assert composed.sde_params().P_inf is None
 
-    # ProductSDE.discretise overrides with a factorised congruence that
-    # needs both P_inf; it must defer rather than fail.
-    A, Q = composed.discretise(jnp.asarray(0.3))
-    assert A.shape == (4, 4)
-    assert bool(jnp.all(jnp.isfinite(Q)))
+    with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
+        composed.discretise(jnp.asarray(0.3))
 
     # The factorised path is still taken when both factors supply P_inf.
     both = ProductSDE(kernel1=matern, kernel2=matern)
@@ -353,6 +357,31 @@ def test_product_composition_propagates_missing_p_inf():
     A_both, Q_both = both.discretise(jnp.asarray(0.3))
     assert bool(jnp.all(jnp.isfinite(A_both)))
     assert bool(jnp.all(jnp.isfinite(Q_both)))
+
+
+def test_product_reported_diffusion_is_not_the_composite_one():
+    """Documents *why* the case above is rejected rather than approximated."""
+    from gaussx import CosineSDE, ProductSDE
+
+    k1 = MaternSDE(variance=jnp.asarray(1.0), lengthscale=jnp.asarray(1.0), order=1)
+    k2 = CosineSDE(variance=jnp.asarray(1.0), frequency=jnp.asarray(_OMEGA))
+    p1, p2 = k1.sde_params(), k2.sde_params()
+    params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
+
+    reported = params.L @ params.Q_c @ params.L.T  # B1 (x) B2
+    correct = jnp.kron(p1.L @ p1.Q_c @ p1.L.T, p2.P_inf) + jnp.kron(
+        p1.P_inf, p2.L @ p2.Q_c @ p2.L.T
+    )
+
+    # CosineSDE has Q_c = 0, so the reported composite diffusion vanishes
+    # entirely while the true one does not.
+    assert float(jnp.abs(reported).max()) == 0.0
+    assert float(jnp.abs(correct).max()) > 1.0
+
+    # Only the correct one is consistent with the composite P_inf.
+    lyapunov = params.F @ params.P_inf + params.P_inf @ params.F.T
+    assert float(jnp.abs(lyapunov + correct).max()) < 1e-10
+    assert float(jnp.abs(lyapunov + reported).max()) > 1.0
 
 
 def test_autocovariance_rejects_missing_p_inf():
@@ -363,3 +392,60 @@ def test_autocovariance_rejects_missing_p_inf():
 
     with pytest.raises(ValueError, match="no stationary covariance"):
         sde_autocovariance(learned, jnp.array([0.0, 0.5]))
+
+
+@pytest.mark.parametrize("decay", [10.0, 100.0, 1000.0, 20_000.0])
+def test_stiff_stable_drift_does_not_overflow(decay):
+    """A stiff drift must not overflow the augmented exponential.
+
+    The Van Loan block contains ``exp(-F^T dt)``, which *grows* for a
+    stable ``F``: at ``F = -100``, ``dt = 1`` that is ``exp(100)``, beyond
+    float32's range, and the subsequent ``inf * 0`` yields NaN even though
+    the true ``Q`` is a perfectly ordinary ``Q_c / 200``. Scaling and
+    squaring keeps every intermediate in range.
+    """
+    F = jnp.array([[-decay]])
+    Q_c = jnp.array([[1.0]])
+    dt = jnp.asarray(1.0)
+
+    A, Q = discretise_mfd(F, Q_c, dt)
+
+    assert bool(jnp.all(jnp.isfinite(A)))
+    assert bool(jnp.all(jnp.isfinite(Q)))
+    # For a scalar stable drift the stationary variance is Q_c / (2|F|),
+    # and over a step long compared with the time constant Q reaches it.
+    assert tree_allclose(Q, jnp.array([[1.0 / (2 * decay)]]), rtol=1e-6)
+
+
+def test_scaling_and_squaring_is_exact_where_it_is_not_needed():
+    """A well-scaled drift must not pay any accuracy for the new path.
+
+    The doublings are applied only as needed, so an ordinary problem takes
+    the identical unscaled route.
+    """
+    kernel = MaternSDE(variance=jnp.asarray(1.3), lengthscale=jnp.asarray(0.8), order=1)
+    params = kernel.sde_params()
+    diffusion = params.L @ params.Q_c @ params.L.T
+
+    for dt in (0.01, 0.5, 3.0):
+        A_stat, Q_stat = kernel.discretise(jnp.asarray(dt))
+        A_mfd, Q_mfd = discretise_mfd(params.F, diffusion, jnp.asarray(dt))
+        assert tree_allclose(A_mfd, A_stat, atol=1e-13)
+        assert tree_allclose(Q_mfd, Q_stat, atol=1e-13)
+
+
+def test_stiff_drift_stays_differentiable():
+    """Scaling and squaring must not break reverse-mode.
+
+    It is written as a static unroll with a selected count rather than a
+    ``lax.while_loop`` precisely so that ``jax.grad`` still works.
+    """
+
+    def loss(decay):
+        _, Q = discretise_mfd(-decay * jnp.eye(1), jnp.eye(1), jnp.asarray(1.0))
+        return jnp.sum(Q)
+
+    grad = jax.grad(loss)(jnp.asarray(500.0))
+    assert bool(jnp.isfinite(grad))
+    # Q -> Q_c / (2 d), so dQ/dd -> -1 / (2 d^2).
+    assert tree_allclose(grad, jnp.asarray(-1.0 / (2 * 500.0**2)), rtol=1e-4)

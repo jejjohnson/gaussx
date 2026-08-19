@@ -96,6 +96,70 @@ def process_noise_covariance(
     return Pinf - congruence.as_matrix()
 
 
+# The augmented block below contains exp(-F^T dt), which *grows* for a
+# stable drift, so a stiff F or a long step overflows the float range even
+# when the process covariance itself is small and finite. The remedy is
+# exact rather than approximate: discretise over dt / 2**k, then compose
+# the result back up k times via
+#
+#     A(2h) = A(h) A(h),    Q(2h) = A(h) Q(h) A(h)^T + Q(h)
+#
+# Only as many doublings as the drift actually needs are applied, since
+# each one costs a little precision. _MFD_MAX_SQUARINGS bounds the static
+# unrolling; _MFD_EXPONENT_BUDGET is the per-step ||F|| dt kept below the
+# float32 overflow point of ~88 with margin to spare.
+_MFD_MAX_SQUARINGS = 12
+_MFD_EXPONENT_BUDGET = 30.0
+
+
+def _van_loan(
+    F: Float[Array, "d d"],
+    Q_c: Float[Array, "d d"],
+    dt: Float[Array, ""],
+) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
+    """One unscaled Van Loan discretisation; see `discretise_mfd`."""
+    d = F.shape[0]
+    dtype = jnp.result_type(F, Q_c)
+
+    # Van Loan's augmented generator. The key property is that it is block
+    # upper triangular, so its exponential is too, and the three blocks of
+    # exp(Phi dt) each carry a piece of the answer:
+    #
+    #     Phi = [  F   Q_c ]          exp(Phi dt) = [ A   C ]
+    #           [  0  -F^T ]                        [ 0   D ]
+    #
+    # with A = exp(F dt), D = exp(-F^T dt), and -- the whole point --
+    # C = (integral_0^dt exp(F s) Q_c exp(F^T s) ds) . D. The integral we
+    # want is therefore recovered as Q = C D^-1, without ever discretising
+    # the integral or solving a Lyapunov equation.
+    generator = jnp.block(
+        [
+            [F, Q_c],
+            [jnp.zeros((d, d), dtype=dtype), -F.T],
+        ]
+    )
+    block = jsl.expm(generator * dt)
+
+    # A = exp(F dt). This is also block[:d, :d]; computing it separately
+    # costs one small extra expm and keeps the transition matrix -- the
+    # more load-bearing of the two outputs -- independent of the
+    # conditioning of the 2d-square augmented problem.
+    A = jsl.expm(F * dt)
+
+    # C, the top-right block: the integral post-multiplied by D.
+    cross = block[:d, d:]
+
+    # Q = C D^-1. No inverse or solve is formed: D = exp(-F^T dt), so
+    # D^-1 = exp(F^T dt) = (exp(F dt))^T = A^T exactly. Measured at 0.0 to
+    # 2.2e-16 against an explicit inv(D) across stable, unstable and
+    # undamped-oscillatory drifts.
+    #
+    # The symmetrise is not cosmetic: C @ A^T is a product of two
+    # unrelated exponentials and is asymmetric at the 1e-16 level, which
+    # downstream Cholesky factorisations will reject.
+    return A, symmetrize(cross @ A.T)
+
+
 def discretise_mfd(
     F: Float[Array, "d d"],
     Q_c: Float[Array, "d d"],
@@ -159,46 +223,31 @@ def discretise_mfd(
     # evaluation time so this stays traceable under jit.
     dt = eqx.error_if(dt, dt < 0, "discretise_mfd requires dt >= 0.")
 
-    d = F.shape[0]
-    dtype = jnp.result_type(F, Q_c)
-
-    # Van Loan's augmented generator. The key property is that it is block
-    # upper triangular, so its exponential is too, and the three blocks of
-    # exp(Phi dt) each carry a piece of the answer:
-    #
-    #     Phi = [  F   Q_c ]          exp(Phi dt) = [ A   C ]
-    #           [  0  -F^T ]                        [ 0   D ]
-    #
-    # with A = exp(F dt), D = exp(-F^T dt), and -- the whole point --
-    # C = (integral_0^dt exp(F s) Q_c exp(F^T s) ds) . D. The integral we
-    # want is therefore recovered as Q = C D^-1, without ever discretising
-    # the integral or solving a Lyapunov equation.
-    generator = jnp.block(
-        [
-            [F, Q_c],
-            [jnp.zeros((d, d), dtype=dtype), -F.T],
-        ]
+    # How many doublings are needed to keep the augmented exponential in
+    # range. The 1-norm bounds the spectral radius, so this is
+    # conservative. Traced, but only ever used as a *predicate* below --
+    # never as a trip count -- so the whole function stays reverse-mode
+    # differentiable, unlike a lax.while_loop.
+    drift_scale = jnp.abs(F).sum(axis=0).max() * dt
+    n_squarings = jnp.clip(
+        jnp.ceil(jnp.log2(jnp.maximum(drift_scale / _MFD_EXPONENT_BUDGET, 1.0))),
+        0.0,
+        _MFD_MAX_SQUARINGS,
     )
-    block = jsl.expm(generator * dt)
 
-    # A = exp(F dt). This is also block[:d, :d]; computing it separately
-    # costs one small extra expm and keeps the transition matrix -- the
-    # more load-bearing of the two outputs -- independent of the
-    # conditioning of the 2d-square augmented problem.
-    A = jsl.expm(F * dt)
+    A, Q = _van_loan(F, Q_c, dt / 2.0**n_squarings)
 
-    # C, the top-right block: the integral post-multiplied by D.
-    cross = block[:d, d:]
+    # Compose back up. The unrolled loop is static; each step is applied or
+    # skipped by a select on the traced count, so a well-scaled drift pays
+    # a few tiny matmuls and takes on no extra rounding error.
+    for i in range(_MFD_MAX_SQUARINGS):
+        apply = i < n_squarings
+        A_doubled = A @ A
+        Q_doubled = symmetrize(A @ Q @ A.T + Q)
+        A = jnp.where(apply, A_doubled, A)
+        Q = jnp.where(apply, Q_doubled, Q)
 
-    # Q = C D^-1. No inverse or solve is formed: D = exp(-F^T dt), so
-    # D^-1 = exp(F^T dt) = (exp(F dt))^T = A^T exactly. Measured at 0.0 to
-    # 2.2e-16 against an explicit inv(D) across stable, unstable and
-    # undamped-oscillatory drifts.
-    #
-    # The symmetrise is not cosmetic: C @ A^T is a product of two
-    # unrelated exponentials and is asymmetric at the 1e-16 level, which
-    # downstream Cholesky factorisations will reject.
-    return A, symmetrize(cross @ A.T)
+    return A, Q
 
 
 def discretise_mfd_sequence(
