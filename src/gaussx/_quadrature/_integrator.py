@@ -36,3 +36,32 @@ class AbstractIntegrator(eqx.Module):
             cross-covariance.
         """
         ...
+
+    def points_and_weights(
+        self,
+        state: GaussianState,
+    ) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]]:
+        """Return the raw quadrature points and weights for ``state``.
+
+        Point-based rules override this so that consumers needing the raw
+        evaluations — `gaussx.moment_match`,
+        `gaussx.statistical_linear_regression` — can reuse a single pass
+        over the points instead of re-deriving the rule.
+
+        Args:
+            state: Input Gaussian distribution.
+
+        Returns:
+            Tuple ``(points, w_m, w_c)`` where ``points`` has shape
+            ``(P, N)`` in the input space, ``w_m`` are the mean weights and
+            ``w_c`` the covariance weights, both shape ``(P,)``.
+
+        Raises:
+            NotImplementedError: If the integrator is not point-based, e.g.
+                `TaylorIntegrator`, which linearises instead of sampling.
+        """
+        msg = (
+            f"{type(self).__name__} is not a point-based rule and does not "
+            f"expose quadrature points and weights."
+        )
+        raise NotImplementedError(msg)

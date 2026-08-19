@@ -9,6 +9,7 @@ from gaussx._quadrature._expectations import (
     log_likelihood_expectation,
     mean_expectation,
 )
+from gaussx._quadrature._fifth_order import FifthOrderCubatureIntegrator
 from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
 from gaussx._quadrature._gp_predict import (
     kernel_expectations,
@@ -27,6 +28,7 @@ from gaussx._quadrature._likelihoods import (
     SoftmaxLikelihood,
     StudentTLikelihood,
 )
+from gaussx._quadrature._moment_match import MomentMatchResult, moment_match
 from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._psi_statistics import (
     AnalyticalPsiStatistics,
@@ -34,9 +36,11 @@ from gaussx._quadrature._psi_statistics import (
 )
 from gaussx._quadrature._quadrature import (
     cubature_points,
+    fifth_order_cubature_points,
     gauss_hermite_points,
     sigma_points,
 )
+from gaussx._quadrature._slr import SLRResult, statistical_linear_regression
 from gaussx._quadrature._taylor import TaylorIntegrator
 from gaussx._quadrature._tilted_moments import ep_tilted_moments
 from gaussx._quadrature._types import GaussianState, PropagationResult
@@ -49,13 +53,16 @@ __all__ = [
     "AnalyticalPsiStatistics",
     "AssumedDensityFilter",
     "BernoulliLikelihood",
+    "FifthOrderCubatureIntegrator",
     "GaussHermiteIntegrator",
     "GaussianLikelihood",
     "GaussianState",
     "HeteroscedasticGaussianLikelihood",
+    "MomentMatchResult",
     "MonteCarloIntegrator",
     "PoissonLikelihood",
     "PropagationResult",
+    "SLRResult",
     "SoftmaxLikelihood",
     "StudentTLikelihood",
     "TaylorIntegrator",
@@ -66,12 +73,15 @@ __all__ = [
     "elbo",
     "ep_tilted_moments",
     "expected_log_likelihood",
+    "fifth_order_cubature_points",
     "gauss_hermite_points",
     "gradient_expectation",
     "kernel_expectations",
     "log_likelihood_expectation",
     "mean_expectation",
+    "moment_match",
     "sigma_points",
+    "statistical_linear_regression",
     "uncertain_bgplvm_predict",
     "uncertain_gp_predict",
     "uncertain_gp_predict_mc",

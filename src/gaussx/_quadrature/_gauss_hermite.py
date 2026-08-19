@@ -40,6 +40,27 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         state: GaussianState,
     ) -> PropagationResult:
         """Propagate Gaussian via Gauss-Hermite quadrature."""
+        chi, w, _ = self.points_and_weights(state)
+
+        # Propagate all quadrature points
+        Y = jax.vmap(fn)(chi)  # (P, M)
+
+        return assemble_propagation_result(chi, Y, state.mean, w)
+
+    def points_and_weights(
+        self,
+        state: GaussianState,
+    ) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]]:
+        """Return the tensor-product Gauss-Hermite points and weights.
+
+        Args:
+            state: Input Gaussian distribution.
+
+        Returns:
+            Tuple ``(points, w_m, w_c)`` with ``P = order^N``. The rule
+            uses a single weight set, so ``w_m`` and ``w_c`` are the same
+            array, normalised to sum to one.
+        """
         from gaussx._primitives._sqrt import sqrt
         from gaussx._quadrature._quadrature import gauss_hermite_points
 
@@ -56,7 +77,4 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         # Normalize weights to sum to 1
         w = w / jnp.sum(w)
 
-        # Propagate all quadrature points
-        Y = jax.vmap(fn)(chi)  # (P, M)
-
-        return assemble_propagation_result(chi, Y, mu, w)
+        return chi, w, w
