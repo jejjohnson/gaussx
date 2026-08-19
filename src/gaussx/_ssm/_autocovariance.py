@@ -28,6 +28,15 @@ def sde_autocovariance(
         Autocovariance values ``K(tau)``, shape ``(*batch,)``.
     """
     params = kernel.sde_params()
+    if params.P_inf is None:
+        msg = (
+            f"{type(kernel).__name__} has no stationary covariance "
+            f"(sde_params().P_inf is None), so its stationary "
+            f"autocovariance is undefined. This is expected for a kernel "
+            f"with a learned drift; discretise it with "
+            f"gaussx.discretise_mfd instead."
+        )
+        raise ValueError(msg)
 
     def _single_autocov(t: Float[Array, ""]) -> Float[Array, ""]:
         abs_t = jnp.abs(t)

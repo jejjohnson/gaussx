@@ -11,7 +11,7 @@ import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
 from gaussx._linalg._symmetrize import symmetrize
-from gaussx._ssm._discretise import process_noise_covariance
+from gaussx._ssm._discretise import discretise_mfd, process_noise_covariance
 
 
 class SDEParams(NamedTuple):
@@ -28,14 +28,17 @@ class SDEParams(NamedTuple):
         L: Diffusion matrix, shape ``(d, s)``.
         H: Observation matrix, shape ``(1, d)``.
         Q_c: Spectral density, shape ``(s, s)``.
-        P_inf: Stationary covariance, shape ``(d, d)``.
+        P_inf: Stationary covariance, shape ``(d, d)``, or ``None`` when
+            the kernel has no closed-form stationary covariance — as for a
+            learned drift matrix. `SDEKernel.discretise` then falls back to
+            `gaussx.discretise_mfd`, which needs no ``P_inf``.
     """
 
     F: Float[Array, "d d"]
     L: Float[Array, "d s"]
     H: Float[Array, "1 d"]
     Q_c: Float[Array, "s s"]
-    P_inf: Float[Array, "d d"]
+    P_inf: Float[Array, "d d"] | None = None
 
 
 class SDEKernel(eqx.Module):
@@ -69,16 +72,27 @@ class SDEKernel(eqx.Module):
             A = expm(F * dt)
             Q = P_inf - A @ P_inf @ A^T
 
+        When ``sde_params()`` returns ``P_inf=None`` — a kernel with no
+        closed-form stationary covariance, such as one whose drift is a
+        learned parameter — this falls back to `gaussx.discretise_mfd`,
+        which recovers both ``A`` and ``Q`` from one matrix exponential and
+        is well defined for every ``F``. The fallback is chosen at trace
+        time from a static ``None`` check, so kernels that do supply
+        ``P_inf`` keep the stationary route and its precision exactly.
+
         Subclasses may override with closed-form expressions.
 
         Args:
-            dt: Time step (scalar, positive).
+            dt: Time step (scalar, non-negative).
 
         Returns:
             Tuple ``(A, Q)`` where A is the transition matrix and
             Q is the process noise covariance.
         """
         params = self.sde_params()
+        if params.P_inf is None:
+            diffusion = params.L @ params.Q_c @ params.L.T
+            return discretise_mfd(params.F, diffusion, dt)
         A = jsl.expm(params.F * dt)
         Q = symmetrize(process_noise_covariance(A, params.P_inf))
         return A, Q
