@@ -257,3 +257,14 @@ def test_documented_site_conversion_is_exact(power):
     # near-miss: dropping -H m and the (I + H C)^-1 factor matters.
     assert not bool(jnp.allclose(-hess / power, exact_prec, atol=1e-3))
     assert not bool(jnp.allclose(g / power, exact_shift, atol=1e-3))
+
+
+def test_rejects_non_scalar_log_likelihood():
+    """``log_lik_fn`` must return a scalar; a vector fails clearly, not deep
+    inside the point weighting with an opaque broadcast error."""
+    with pytest.raises(ValueError, match="must return a scalar per point"):
+        moment_match(
+            lambda f: jnp.atleast_1d(_bernoulli_log_lik(f)),
+            _gaussian_state(),
+            FifthOrderCubatureIntegrator(),
+        )

@@ -115,12 +115,19 @@ def moment_match(
 
     Raises:
         NotImplementedError: If ``integrator`` is not point-based.
+        ValueError: If ``log_lik_fn`` does not return a scalar per point.
     """
     chi, w_m, _ = integrator.points_and_weights(state)
 
     # Tilted weights, shifted for numerical stability. The shift cancels in
     # every ratio below and is differentiated as a constant.
     log_p = power * jax.vmap(log_lik_fn)(chi)  # (P,)
+    if log_p.ndim != 1:
+        msg = (
+            f"log_lik_fn must return a scalar per point, got trailing "
+            f"shape {log_p.shape[1:]}."
+        )
+        raise ValueError(msg)
     shift = jax.lax.stop_gradient(jnp.max(log_p))
     p_tilde = w_m * jnp.exp(log_p - shift)  # (P,), signed
     Z_tilde = jnp.sum(p_tilde)

@@ -92,8 +92,9 @@ def statistical_linear_regression(
 
     Raises:
         NotImplementedError: If ``integrator`` is not point-based.
-        ValueError: If ``conditional_var_fn`` returns neither an ``(M,)``
-            nor an ``(M, M)`` array.
+        ValueError: If ``conditional_var_fn`` does not return an ``(M,)``
+            or ``(M, M)`` array matching the ``M`` outputs of
+            ``conditional_mean_fn``.
     """
     chi, w_m, w_c = integrator.points_and_weights(state)
 
@@ -105,16 +106,22 @@ def statistical_linear_regression(
     cross_cov = moments.cross_cov  # C_xf, (D, M)
     assert cross_cov is not None, "Integrator must return cross_cov"
 
-    # Second pass: E_q[Var[y|f]], reusing the same points.
+    # Second pass: E_q[Var[y|f]], reusing the same points. The trailing
+    # shape is checked against M rather than just the rank: a (1,) or
+    # (1, 1) return would otherwise broadcast across the whole of ``S``
+    # and silently corrupt every entry of ``omega``.
+    out_dim = G.shape[-1]
     V = jax.vmap(conditional_var_fn)(chi)
-    if V.ndim == 2:  # (P, M) diagonal variances
+    if V.shape[1:] == (out_dim,):  # (P, M) diagonal variances
         mean_of_var = jnp.diag(jnp.sum(w_m[:, None] * V, axis=0))
-    elif V.ndim == 3:  # (P, M, M) full covariances
+    elif V.shape[1:] == (out_dim, out_dim):  # (P, M, M) full covariances
         mean_of_var = jnp.sum(w_m[:, None, None] * V, axis=0)
     else:
         msg = (
-            f"conditional_var_fn must return an (M,) or (M, M) array per "
-            f"point, got trailing shape {V.shape[1:]}."
+            f"conditional_var_fn must return an ({out_dim},) or "
+            f"({out_dim}, {out_dim}) array per point to match the "
+            f"{out_dim} outputs of conditional_mean_fn, got trailing "
+            f"shape {V.shape[1:]}."
         )
         raise ValueError(msg)
 

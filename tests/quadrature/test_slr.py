@@ -92,17 +92,54 @@ def test_diagonal_conditional_variance_matches_full(getkey):
     assert tree_allclose(full.A, vector.A, atol=1e-10)
 
 
-def test_rejects_badly_shaped_conditional_variance(getkey):
-    """A conditional variance that is neither (M,) nor (M, M) is an error."""
-    state, gain, offset, _ = _linear_problem(getkey)
+@pytest.mark.parametrize(
+    "bad_shape",
+    [
+        (1,),  # would broadcast across every entry of omega
+        (1, 1),  # ditto
+        (2,),  # plain mismatch
+        (2, 2),
+        (3, 3, 3),  # wrong rank entirely
+    ],
+)
+def test_rejects_badly_shaped_conditional_variance(getkey, bad_shape):
+    """A conditional variance whose shape does not match M is an error.
+
+    The ``(1,)`` and ``(1, 1)`` cases are the dangerous ones: checking only
+    the rank would accept them, and JAX would then broadcast the resulting
+    ``(1, 1)`` covariance across the whole of ``S``, silently corrupting
+    every entry of ``omega`` rather than raising.
+    """
+    state, gain, offset, _ = _linear_problem(getkey, out=3)
 
     with pytest.raises(ValueError, match="must return an"):
         statistical_linear_regression(
             lambda f: gain @ f + offset,
-            lambda f: jnp.zeros((3, 3, 3)),
+            lambda f: jnp.zeros(bad_shape),
             state,
             FifthOrderCubatureIntegrator(),
         )
+
+
+def test_scalar_output_accepts_both_forms(getkey):
+    """With M = 1 both an (M,) and an (M, M) conditional variance are valid."""
+    state, gain, offset, _ = _linear_problem(getkey, out=1)
+
+    vector = statistical_linear_regression(
+        lambda f: gain @ f + offset,
+        lambda f: jnp.array([0.7]),
+        state,
+        FifthOrderCubatureIntegrator(),
+    )
+    matrix = statistical_linear_regression(
+        lambda f: gain @ f + offset,
+        lambda f: jnp.array([[0.7]]),
+        state,
+        FifthOrderCubatureIntegrator(),
+    )
+
+    assert tree_allclose(vector.omega, jnp.array([[0.7]]), atol=1e-10)
+    assert tree_allclose(matrix.omega, vector.omega, atol=1e-12)
 
 
 def test_rejects_non_point_based_integrator(getkey):
