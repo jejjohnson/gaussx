@@ -1,0 +1,793 @@
+"""Tests for the moment-matched nonlinear Kalman filter and smoother."""
+
+import equinox as eqx
+import jax
+import jax.numpy as jnp
+import lineax as lx
+import pytest
+
+from gaussx import (
+    AbstractIntegrator,
+    CubatureIntegrator,
+    FifthOrderCubatureIntegrator,
+    GaussHermiteIntegrator,
+    GaussianState,
+    MonteCarloIntegrator,
+    PropagationResult,
+    TaylorIntegrator,
+    UnscentedIntegrator,
+    kalman_filter,
+    nonlinear_kalman_filter,
+    nonlinear_rts_smoother,
+    rts_smoother,
+)
+from gaussx._testing import tree_allclose
+
+
+_N, _M, _T = 3, 2, 12
+
+_A = jnp.array([[0.9, 0.1, 0.0], [0.0, 0.8, 0.2], [0.1, 0.0, 0.7]])
+_H = jnp.array([[1.0, 0.0, 0.5], [0.0, 1.0, 0.0]])
+_Q = 0.05 * jnp.eye(_N)
+_R = jnp.diag(jnp.array([0.2, 0.3]))
+_M0 = jnp.array([0.5, -0.2, 0.1])
+_P0 = 0.4 * jnp.eye(_N)
+_YS = jax.random.normal(jax.random.key(0), (_T, _M))
+
+
+def _linear_dynamics(x):
+    return _A @ x
+
+
+def _linear_obs(x):
+    return _H @ x
+
+
+# The scaled unscented transform with the default alpha=1e-3 places its sigma
+# points ~1e-3 away from the mean and recovers the moments by cancellation,
+# which costs roughly seven digits. That is a property of the rule, not of the
+# filter wiring -- alpha=1.0 reaches machine precision on the same problem.
+_INTEGRATORS = [
+    pytest.param(TaylorIntegrator(), 1e-12, id="taylor-ekf"),
+    pytest.param(UnscentedIntegrator(alpha=1.0), 1e-12, id="unscented-alpha1"),
+    pytest.param(UnscentedIntegrator(), 1e-8, id="unscented-default"),
+    pytest.param(CubatureIntegrator(), 1e-12, id="cubature-ckf"),
+    pytest.param(FifthOrderCubatureIntegrator(), 1e-12, id="cubature-degree5"),
+    pytest.param(GaussHermiteIntegrator(order=4), 1e-12, id="gauss-hermite-ghkf"),
+    pytest.param(
+        MonteCarloIntegrator(n_samples=20_000, key=jax.random.key(0)), 5e-2, id="mc"
+    ),
+]
+
+
+@pytest.mark.parametrize(("integrator", "atol"), _INTEGRATORS)
+@pytest.mark.parametrize("joseph", [True, False])
+def test_linear_reduction_matches_kalman_filter(integrator, atol, joseph):
+    """With affine maps the filter must reproduce ``kalman_filter`` exactly.
+
+    Every moment-matching rule here is exact for affine maps, so any
+    discrepancy beyond the rule's own conditioning is a bug in the wiring,
+    not an approximation. This is the load-bearing test.
+    """
+    reference = kalman_filter(_A, _H, _Q, _R, _YS, _M0, _P0)
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+        joseph=joseph,
+    )
+
+    assert tree_allclose(result.filtered_means, reference.filtered_means, atol=atol)
+    assert tree_allclose(result.filtered_covs, reference.filtered_covs, atol=atol)
+    assert tree_allclose(result.predicted_means, reference.predicted_means, atol=atol)
+    assert tree_allclose(result.predicted_covs, reference.predicted_covs, atol=atol)
+    assert tree_allclose(result.log_likelihood, reference.log_likelihood, atol=atol)
+
+
+@pytest.mark.parametrize(("integrator", "atol"), _INTEGRATORS)
+def test_cross_covariance_contract(integrator, atol):
+    """Every supported integrator supplies the cross-covariance the gain needs."""
+    del atol
+    state = GaussianState(
+        mean=_M0, cov=lx.MatrixLinearOperator(_P0, lx.positive_semidefinite_tag)
+    )
+    result = integrator.integrate(_linear_obs, state)
+
+    assert result.cross_cov is not None
+    assert result.cross_cov.shape == (_N, _M)
+
+
+def test_integrator_without_cross_covariance_is_rejected():
+    """A missing cross-covariance is a loud failure, not a silent zero gain."""
+
+    class _NoCrossCov(AbstractIntegrator):
+        def integrate(self, fn, state):
+            values = jax.vmap(fn)(state.mean[None, :])
+            cov = lx.MatrixLinearOperator(
+                jnp.eye(values.shape[-1]), lx.positive_semidefinite_tag
+            )
+            return PropagationResult(
+                state=GaussianState(mean=values[0], cov=cov), cross_cov=None
+            )
+
+    with pytest.raises(TypeError, match="cross_cov=None"):
+        nonlinear_kalman_filter(
+            _linear_dynamics,
+            _linear_obs,
+            _Q,
+            _R,
+            _YS,
+            _M0,
+            _P0,
+            integrator=_NoCrossCov(),
+        )
+
+
+def test_default_integrator_is_unscented():
+    """Omitting the integrator gives the derivative-free default."""
+    explicit = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=UnscentedIntegrator(),
+    )
+    default = nonlinear_kalman_filter(
+        _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0
+    )
+
+    assert tree_allclose(default.filtered_means, explicit.filtered_means, atol=1e-14)
+
+
+def test_time_varying_noise():
+    """``(T, N, N)`` noise stacks are accepted, as in ``kalman_filter``."""
+    Q_seq = (
+        jnp.broadcast_to(_Q, (_T, _N, _N)) * jnp.linspace(0.5, 2.0, _T)[:, None, None]
+    )
+    R_seq = jnp.broadcast_to(_R, (_T, _M, _M))
+
+    reference = kalman_filter(_A, _H, Q_seq, R_seq, _YS, _M0, _P0)
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        Q_seq,
+        R_seq,
+        _YS,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+    )
+
+    assert tree_allclose(result.filtered_means, reference.filtered_means, atol=1e-10)
+    assert tree_allclose(result.log_likelihood, reference.log_likelihood, atol=1e-10)
+
+
+# --------------------------------------------------------------------------
+# Masks
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "mask",
+    [
+        jnp.array([True] * 6 + [False] * 6),
+        jnp.stack([jnp.array([True, False])] * _T),
+        jnp.stack([jnp.array([True, True])] * _T),
+    ],
+    ids=["step-gate", "channel-gate", "channel-all-true"],
+)
+def test_masks_match_the_linear_filter(mask):
+    """Both mask forms behave exactly as ``kalman_filter``'s."""
+    reference = kalman_filter(_A, _H, _Q, _R, _YS, _M0, _P0, mask=mask)
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+        mask=mask,
+    )
+
+    assert tree_allclose(result.filtered_means, reference.filtered_means, atol=1e-10)
+    assert tree_allclose(result.filtered_covs, reference.filtered_covs, atol=1e-10)
+    assert tree_allclose(result.log_likelihood, reference.log_likelihood, atol=1e-10)
+
+
+def test_fully_masked_step_leaves_state_at_prediction():
+    """A gated-off step contributes nothing and does not move the state."""
+    mask = jnp.ones((_T,), dtype=bool).at[5].set(False)
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+        mask=mask,
+    )
+
+    assert tree_allclose(result.filtered_means[5], result.predicted_means[5], atol=0.0)
+    assert tree_allclose(result.filtered_covs[5], result.predicted_covs[5], atol=0.0)
+
+
+def test_masked_channels_may_be_nan():
+    """Masked entries are never read, so they may carry the usual NaN sentinel."""
+    observations = _YS.at[:, 1].set(jnp.nan)
+    mask = jnp.stack([jnp.array([True, False])] * _T)
+
+    result = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        observations,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+        mask=mask,
+    )
+    reference = kalman_filter(_A, _H, _Q, _R, observations, _M0, _P0, mask=mask)
+
+    assert bool(jnp.all(jnp.isfinite(result.filtered_means)))
+    assert tree_allclose(result.log_likelihood, reference.log_likelihood, atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    "bad", [jnp.ones((_T + 1,), bool), jnp.ones((_T, _M + 1), bool)]
+)
+def test_bad_mask_shape_is_rejected(bad):
+    """A misshapen mask fails before the scan, with a clear message."""
+    with pytest.raises(ValueError, match="mask must be"):
+        nonlinear_kalman_filter(
+            _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0, mask=bad
+        )
+
+
+# --------------------------------------------------------------------------
+# Joseph form
+# --------------------------------------------------------------------------
+
+
+def _nonlinear_dynamics(x):
+    return 0.9 * x + 0.2 * jnp.sin(x)
+
+
+def _nonlinear_obs(x):
+    return jnp.array([jnp.tanh(2 * x[0] + x[2]), jnp.sin(1.5 * x[1])])
+
+
+def test_joseph_coincides_with_standard_form_for_affine_maps():
+    """For affine maps the statistical-linearisation residual vanishes.
+
+    The two covariance updates differ by ``K Omega K^T``; ``Omega`` is zero
+    for an affine ``obs_fn``, so the Joseph default cannot change the
+    linear-reduction result.
+    """
+    joseph = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+        joseph=True,
+    )
+    standard = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=FifthOrderCubatureIntegrator(),
+        joseph=False,
+    )
+
+    assert tree_allclose(joseph.filtered_covs, standard.filtered_covs, atol=1e-12)
+
+
+def test_joseph_differs_from_standard_form_by_the_linearisation_residual():
+    """Per step, ``standard - joseph = K Omega K^T``, which is PSD.
+
+    Checked on a single step so the two runs cannot diverge through the
+    carry. ``Omega`` is the residual covariance
+    `gaussx.statistical_linear_regression` reports, so the Joseph update is
+    the statistically-linearised one and is never larger.
+    """
+    from gaussx import statistical_linear_regression
+
+    integrator = FifthOrderCubatureIntegrator()
+    observations = jnp.array([[0.3, -0.4]])
+    kwargs = {
+        "process_noise": _Q,
+        "obs_noise": _R,
+        "observations": observations,
+        "init_mean": _M0,
+        "init_cov": _P0,
+        "integrator": integrator,
+    }
+    joseph = nonlinear_kalman_filter(
+        _nonlinear_dynamics, _nonlinear_obs, joseph=True, **kwargs
+    )
+    standard = nonlinear_kalman_filter(
+        _nonlinear_dynamics, _nonlinear_obs, joseph=False, **kwargs
+    )
+    difference = standard.filtered_covs[0] - joseph.filtered_covs[0]
+
+    # Rebuild K and Omega independently from the moment transform.
+    predicted = GaussianState(
+        mean=joseph.predicted_means[0],
+        cov=lx.MatrixLinearOperator(
+            joseph.predicted_covs[0], lx.positive_semidefinite_tag
+        ),
+    )
+    moments = integrator.integrate(_nonlinear_obs, predicted)
+    innovation = moments.state.cov.as_matrix() + _R
+    gain = moments.cross_cov @ jnp.linalg.inv(innovation)
+    slr = statistical_linear_regression(
+        _nonlinear_obs, lambda f: _R, predicted, integrator
+    )
+    residual_cov = slr.omega - _R
+
+    assert tree_allclose(difference, gain @ residual_cov @ gain.T, atol=1e-12)
+    assert float(jnp.linalg.eigvalsh(residual_cov).min()) > 0.0
+    assert float(jnp.linalg.eigvalsh(difference).min()) > -1e-12
+
+
+def test_joseph_keeps_covariances_psd_on_an_ill_conditioned_problem():
+    """Joseph form stays PSD where the gain is only approximately optimal."""
+    steps = 30
+    process_noise = 1e-6 * jnp.eye(2)
+    obs_noise = jnp.array([[1e-3]])
+    init_cov = jnp.array([[1.0, 0.99], [0.99, 1.0]])  # near-singular
+
+    def dynamics(x):
+        return jnp.array([x[0] + 0.1 * jnp.sin(3 * x[1]), 0.98 * x[1]])
+
+    def obs_fn(x):
+        return jnp.array([jnp.tanh(4.0 * x[0]) * jnp.exp(-0.5 * x[1] ** 2)])
+
+    observations = 0.5 * jnp.sin(jnp.arange(steps, dtype=float))[:, None]
+
+    result = nonlinear_kalman_filter(
+        dynamics,
+        obs_fn,
+        process_noise,
+        obs_noise,
+        observations,
+        jnp.array([1.0, 0.3]),
+        init_cov,
+        integrator=UnscentedIntegrator(alpha=1.0),
+        joseph=True,
+    )
+
+    eigenvalues = jnp.linalg.eigvalsh(result.filtered_covs)
+    assert float(eigenvalues.min()) > 0.0
+    assert bool(jnp.all(jnp.isfinite(result.log_likelihood)))
+
+
+# --------------------------------------------------------------------------
+# Smoother
+# --------------------------------------------------------------------------
+
+
+def test_smoother_linear_reduction():
+    """With affine dynamics the smoother reproduces ``rts_smoother``."""
+    integrator = FifthOrderCubatureIntegrator()
+    reference_filter = kalman_filter(_A, _H, _Q, _R, _YS, _M0, _P0)
+    ref_means, ref_covs = rts_smoother(reference_filter, _A, _Q)
+
+    filtered = nonlinear_kalman_filter(
+        _linear_dynamics,
+        _linear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+    )
+    means, covs = nonlinear_rts_smoother(
+        filtered, _linear_dynamics, integrator=integrator
+    )
+
+    assert tree_allclose(means, ref_means, atol=1e-10)
+    assert tree_allclose(covs, ref_covs, atol=1e-10)
+
+
+def test_smoothed_variances_do_not_exceed_filtered():
+    """Conditioning on the future cannot increase marginal variance."""
+    integrator = FifthOrderCubatureIntegrator()
+    filtered = nonlinear_kalman_filter(
+        _nonlinear_dynamics,
+        _nonlinear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+    )
+    _, covs = nonlinear_rts_smoother(
+        filtered, _nonlinear_dynamics, integrator=integrator
+    )
+
+    smoothed_var = jnp.diagonal(covs, axis1=1, axis2=2)
+    filtered_var = jnp.diagonal(filtered.filtered_covs, axis1=1, axis2=2)
+    assert bool(jnp.all(smoothed_var <= filtered_var + 1e-10))
+
+
+def test_smoother_accepts_process_noise_for_symmetry():
+    """``process_noise`` is accepted and ignored, as in ``rts_smoother``."""
+    integrator = FifthOrderCubatureIntegrator()
+    filtered = nonlinear_kalman_filter(
+        _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0, integrator=integrator
+    )
+
+    without = nonlinear_rts_smoother(filtered, _linear_dynamics, integrator=integrator)
+    with_noise = nonlinear_rts_smoother(
+        filtered, _linear_dynamics, _Q, integrator=integrator
+    )
+
+    assert tree_allclose(without[0], with_noise[0], atol=0.0)
+
+
+# --------------------------------------------------------------------------
+# Nonlinear behaviour, tracing, gradients
+# --------------------------------------------------------------------------
+
+
+def test_rules_are_ordered_by_polynomial_exactness_on_one_step():
+    """On a nonlinear update the rules order by their degree of exactness.
+
+    Tested on a *single* step: over a trajectory the filters diverge
+    through the carry, so a whole-run comparison measures compounding
+    rather than the quality of the moment transform. A high-order
+    Gauss-Hermite rule is the converged reference (order 11 and 15 agree
+    to 1e-7 here), and the degree-5 cubature rule must land closer to it
+    than the degree-3 unscented rule.
+    """
+    single_step = {
+        "process_noise": 0.02 * jnp.eye(_N),
+        "obs_noise": jnp.diag(jnp.array([0.1, 0.15])),
+        "observations": jnp.array([[0.3, -0.25]]),
+        "init_mean": _M0,
+        "init_cov": 0.1 * jnp.eye(_N),
+    }
+
+    def run(integrator):
+        return nonlinear_kalman_filter(
+            _nonlinear_dynamics, _nonlinear_obs, integrator=integrator, **single_step
+        ).filtered_means
+
+    reference = run(GaussHermiteIntegrator(order=15))
+    coarse_reference = run(GaussHermiteIntegrator(order=11))
+    cubature = run(FifthOrderCubatureIntegrator())
+    unscented = run(UnscentedIntegrator(alpha=1.0))
+
+    # The reference is converged, so the comparisons below are meaningful.
+    assert tree_allclose(coarse_reference, reference, atol=1e-5)
+
+    cubature_error = jnp.abs(cubature - reference).max()
+    unscented_error = jnp.abs(unscented - reference).max()
+
+    assert float(cubature_error) < 1e-2
+    assert float(cubature_error) < float(unscented_error)
+
+
+def test_filter_beats_the_prior_on_a_nonlinear_tracking_problem():
+    """The filter actually uses the observations."""
+    steps = 40
+
+    def dynamics(x):
+        return jnp.array([0.95 * x[0] + 0.1 * jnp.sin(x[1]), 0.9 * x[1]])
+
+    def obs_fn(x):
+        return jnp.array([jnp.tanh(x[0])])
+
+    key = jax.random.key(7)
+    truth = [jnp.array([1.5, 0.8])]
+    for _ in range(steps - 1):
+        truth.append(dynamics(truth[-1]))
+    states = jnp.stack(truth)
+    observations = jax.vmap(obs_fn)(states) + 0.02 * jax.random.normal(key, (steps, 1))
+
+    result = nonlinear_kalman_filter(
+        dynamics,
+        obs_fn,
+        1e-4 * jnp.eye(2),
+        jnp.array([[4e-4]]),
+        observations,
+        jnp.array([0.0, 0.8]),  # wrong initial x0
+        jnp.eye(2),
+        integrator=UnscentedIntegrator(alpha=1.0),
+    )
+
+    filtered_error = jnp.abs(result.filtered_means[-1, 0] - states[-1, 0])
+    prior_error = jnp.abs(result.predicted_means[0, 0] - states[0, 0])
+    assert float(filtered_error) < float(prior_error)
+    assert bool(jnp.isfinite(result.log_likelihood))
+
+
+@pytest.mark.parametrize(
+    "integrator",
+    [TaylorIntegrator(), UnscentedIntegrator(alpha=1.0)],
+    ids=["taylor", "unscented"],
+)
+def test_gradient_through_closed_over_parameters(integrator):
+    """``jax.grad`` of the log-likelihood w.r.t. dynamics parameters is finite."""
+
+    def negative_log_likelihood(decay):
+        def dynamics(x):
+            return decay * x + 0.2 * jnp.sin(x)
+
+        result = nonlinear_kalman_filter(
+            dynamics,
+            _nonlinear_obs,
+            _Q,
+            _R,
+            _YS,
+            _M0,
+            _P0,
+            integrator=integrator,
+        )
+        return -result.log_likelihood
+
+    grad = jax.grad(negative_log_likelihood)(jnp.asarray(0.9))
+    assert bool(jnp.isfinite(grad))
+    assert float(jnp.abs(grad)) > 0.0
+
+
+def test_jit():
+    """The filter traces under ``eqx.filter_jit`` with the integrator static."""
+    integrator = FifthOrderCubatureIntegrator()
+
+    @eqx.filter_jit
+    def run(observations):
+        return nonlinear_kalman_filter(
+            _nonlinear_dynamics,
+            _nonlinear_obs,
+            _Q,
+            _R,
+            observations,
+            _M0,
+            _P0,
+            integrator=integrator,
+        )
+
+    jitted = run(_YS)
+    eager = nonlinear_kalman_filter(
+        _nonlinear_dynamics,
+        _nonlinear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+    )
+
+    assert tree_allclose(jitted.filtered_means, eager.filtered_means, atol=1e-12)
+    assert bool(jnp.all(jnp.isfinite(jitted.log_likelihood)))
+
+
+# --------------------------------------------------------------------------
+# The functional per-step API
+# --------------------------------------------------------------------------
+
+
+def test_manual_loop_reproduces_the_filter():
+    """The wrapper is exactly a scan over the public per-step functions.
+
+    This is the contract that makes the step functions usable on their
+    own: someone driving their own loop must get bit-for-bit what the
+    wrapper produces.
+    """
+    from gaussx import nonlinear_kalman_predict, nonlinear_kalman_update
+
+    integrator = FifthOrderCubatureIntegrator()
+    wrapped = nonlinear_kalman_filter(
+        _nonlinear_dynamics,
+        _nonlinear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+    )
+
+    mean, cov = _M0, _P0
+    total_ll = jnp.zeros(())
+    means, covs = [], []
+    for t in range(_T):
+        mean_pred, cov_pred = nonlinear_kalman_predict(
+            _nonlinear_dynamics, mean, cov, _Q, integrator=integrator
+        )
+        mean, cov, ll_inc = nonlinear_kalman_update(
+            _nonlinear_obs,
+            mean_pred,
+            cov_pred,
+            _YS[t],
+            _R,
+            integrator=integrator,
+        )
+        total_ll = total_ll + ll_inc
+        means.append(mean)
+        covs.append(cov)
+
+    assert tree_allclose(jnp.stack(means), wrapped.filtered_means, atol=0.0)
+    assert tree_allclose(jnp.stack(covs), wrapped.filtered_covs, atol=0.0)
+    assert tree_allclose(total_ll, wrapped.log_likelihood, atol=1e-12)
+
+
+def test_manual_backward_loop_reproduces_the_smoother():
+    """Likewise for ``nonlinear_rts_step``."""
+    from gaussx import nonlinear_rts_step
+
+    integrator = FifthOrderCubatureIntegrator()
+    filtered = nonlinear_kalman_filter(
+        _nonlinear_dynamics,
+        _nonlinear_obs,
+        _Q,
+        _R,
+        _YS,
+        _M0,
+        _P0,
+        integrator=integrator,
+    )
+    ref_means, ref_covs = nonlinear_rts_smoother(
+        filtered, _nonlinear_dynamics, integrator=integrator
+    )
+
+    mean = filtered.filtered_means[-1]
+    cov = filtered.filtered_covs[-1]
+    means = [mean]
+    covs = [cov]
+    for t in range(_T - 2, -1, -1):
+        mean, cov = nonlinear_rts_step(
+            _nonlinear_dynamics,
+            filtered.filtered_means[t],
+            filtered.filtered_covs[t],
+            filtered.predicted_means[t + 1],
+            filtered.predicted_covs[t + 1],
+            mean,
+            cov,
+            integrator=integrator,
+        )
+        means.insert(0, mean)
+        covs.insert(0, cov)
+
+    assert tree_allclose(jnp.stack(means), ref_means, atol=0.0)
+    assert tree_allclose(jnp.stack(covs), ref_covs, atol=0.0)
+
+
+def test_step_functions_default_to_the_unscented_rule():
+    """Each step function stands alone, integrator included."""
+    from gaussx import nonlinear_kalman_predict
+
+    explicit = nonlinear_kalman_predict(
+        _nonlinear_dynamics, _M0, _P0, _Q, integrator=UnscentedIntegrator()
+    )
+    default = nonlinear_kalman_predict(_nonlinear_dynamics, _M0, _P0, _Q)
+
+    assert tree_allclose(default[0], explicit[0], atol=0.0)
+
+
+def test_update_step_honours_a_channel_mask():
+    """The standalone update marginalises masked channels the same way."""
+    from gaussx import nonlinear_kalman_update
+
+    integrator = FifthOrderCubatureIntegrator()
+    mask = jnp.array([True, False])
+
+    masked = nonlinear_kalman_update(
+        _linear_obs,
+        _M0,
+        _P0,
+        jnp.array([0.3, jnp.nan]),
+        _R,
+        integrator=integrator,
+        mask=mask,
+    )
+
+    # Equivalent to dropping the second channel outright.
+    dropped = nonlinear_kalman_update(
+        lambda x: _linear_obs(x)[:1],
+        _M0,
+        _P0,
+        jnp.array([0.3]),
+        _R[:1, :1],
+        integrator=integrator,
+    )
+
+    assert tree_allclose(masked[0], dropped[0], atol=1e-10)
+    assert tree_allclose(masked[1], dropped[1], atol=1e-10)
+    assert tree_allclose(masked[2], dropped[2], atol=1e-10)
+
+
+def test_masked_moment_inputs_makes_channels_inert():
+    """The public mask substitution zeroes exactly the right blocks."""
+    from gaussx import masked_moment_inputs
+
+    obs_cov = jnp.array([[2.0, 0.5], [0.5, 3.0]])
+    cross_cov = jnp.arange(6.0).reshape(3, 2)
+    obs_noise = jnp.array([[0.4, 0.1], [0.1, 0.6]])
+    y = jnp.array([1.0, jnp.nan])
+    y_hat = jnp.array([0.25, 7.0])
+    mask = jnp.array([True, False])
+
+    cov_e, cross_e, noise_e, residual, n_missing = masked_moment_inputs(
+        obs_cov, cross_cov, obs_noise, y, y_hat, mask
+    )
+
+    # Masked row and column of the matched covariance are cleared, and the
+    # noise picks up a unit block there instead.
+    assert tree_allclose(cov_e, jnp.array([[2.0, 0.0], [0.0, 0.0]]), atol=0.0)
+    assert tree_allclose(noise_e, jnp.array([[0.4, 0.0], [0.0, 1.0]]), atol=0.0)
+
+    # Masked column of the cross-covariance is cleared, so the gain cannot
+    # move the state through that channel.
+    assert tree_allclose(cross_e[:, 0], cross_cov[:, 0], atol=0.0)
+    assert tree_allclose(cross_e[:, 1], jnp.zeros(3), atol=0.0)
+
+    # The NaN never reaches the residual.
+    assert tree_allclose(residual, jnp.array([0.75, 0.0]), atol=0.0)
+    assert float(n_missing) == 1.0
+
+
+def test_masked_moment_inputs_is_the_identity_when_nothing_is_masked():
+    """An all-True mask must not perturb the moments."""
+    from gaussx import masked_moment_inputs
+
+    obs_cov = jnp.array([[2.0, 0.5], [0.5, 3.0]])
+    cross_cov = jnp.arange(6.0).reshape(3, 2)
+    obs_noise = jnp.array([[0.4, 0.1], [0.1, 0.6]])
+    y = jnp.array([1.0, -0.5])
+    y_hat = jnp.array([0.25, 0.5])
+
+    cov_e, cross_e, noise_e, residual, n_missing = masked_moment_inputs(
+        obs_cov, cross_cov, obs_noise, y, y_hat, jnp.array([True, True])
+    )
+
+    assert tree_allclose(cov_e, obs_cov, atol=0.0)
+    assert tree_allclose(cross_e, cross_cov, atol=0.0)
+    assert tree_allclose(noise_e, obs_noise, atol=0.0)
+    assert tree_allclose(residual, y - y_hat, atol=0.0)
+    assert float(n_missing) == 0.0
+
+
+def test_masked_moment_inputs_gradient_is_nan_free():
+    """A NaN in a masked observation must not poison the gradient."""
+    from gaussx import masked_moment_inputs
+
+    obs_cov = jnp.eye(2)
+    cross_cov = jnp.ones((3, 2))
+    obs_noise = jnp.eye(2)
+    mask = jnp.array([True, False])
+
+    def loss(y_hat):
+        y = jnp.array([1.0, jnp.nan])
+        _, _, _, residual, _ = masked_moment_inputs(
+            obs_cov, cross_cov, obs_noise, y, y_hat, mask
+        )
+        return jnp.sum(residual**2)
+
+    grad = jax.grad(loss)(jnp.array([0.25, 7.0]))
+    assert bool(jnp.all(jnp.isfinite(grad)))

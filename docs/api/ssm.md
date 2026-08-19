@@ -20,6 +20,108 @@ site machinery for non-conjugate likelihoods.
       show_root_toc_entry: false
       members: [SDEKernel, SDEParams, ConstantSDE, MaternSDE, PeriodicSDE, QuasiPeriodicSDE, CosineSDE, ProductSDE, SumSDE, sde_autocovariance]
 
+### Discretisation
+
+Turning the continuous-time SDE into $x_k = A x_{k-1} + q_k$ takes two
+routes, and which one applies depends on whether a stationary covariance
+exists.
+
+The default, `SDEKernel.discretise`, uses the *stationary* route
+$Q = P_\infty - A P_\infty A^\top$ ([`process_noise_covariance`](#gaussx.process_noise_covariance),
+documented under *Process noise* below). It is
+exact and cheap, and every kernel in the zoo above supplies the
+$P_\infty$ it needs.
+
+`discretise_mfd` is the fallback for when that covariance is not
+available — most importantly when $F$ is a **learned parameter** rather
+than derived from a kernel. Recovering $P_\infty$ then means solving the
+Lyapunov equation $F P + P F^\top + Q_c = 0$, which has a unique solution
+**only if $\lambda_i(F) + \lambda_j(F) \neq 0$ for every pair of
+eigenvalues**. That condition fails for any undamped oscillatory mode,
+where $\lambda = \pm i\omega$ and so $\lambda + \bar\lambda = 0$
+identically — `CosineSDE` has exactly that drift, and sidesteps it with a
+closed form that a learned $F$ cannot use.
+
+Matrix-fraction decomposition needs no $P_\infty$ at all: it recovers
+both $A$ and $Q$ from a single $2d \times 2d$ matrix exponential (Van
+Loan 1978) and is well defined for **every** $F$. Reach for it when the
+drift is fitted; keep the stationary route otherwise. Note the
+obstruction is degeneracy of that Sylvester system, not instability —
+constraining $F$ to be Hurwitz would not fix it, and would forbid the
+oscillatory modes MFD exists to support.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [discretise_mfd, discretise_mfd_sequence]
+
+## Nonlinear filters
+
+`nonlinear_kalman_filter` and `nonlinear_rts_smoother` take *callables*
+rather than matrices, and moment-match them through an
+[integrator](quadrature.md). The choice of integrator is the choice of
+filter — one loop yields the whole textbook family:
+
+| integrator | filter |
+|---|---|
+| `TaylorIntegrator` | extended Kalman filter (EKF) |
+| `UnscentedIntegrator` | unscented Kalman filter (UKF) |
+| `CubatureIntegrator` | cubature Kalman filter (CKF), degree 3 |
+| `FifthOrderCubatureIntegrator` | degree-5 cubature filter |
+| `GaussHermiteIntegrator` | Gauss-Hermite Kalman filter (GHKF) |
+| `MonteCarloIntegrator` | Monte-Carlo Kalman filter |
+
+The gain is $K = C S^{-1}$, built from the integrator's *cross-covariance*
+$C$, so no Jacobian is formed anywhere — that is what makes the EKF and
+the UKF the same code. An integrator that does not supply a
+cross-covariance is rejected rather than silently producing a zero gain.
+
+Two behaviours differ from `kalman_filter`, both deliberately:
+
+- **`log_likelihood` is a moment-matched surrogate**, not the exact
+  marginal likelihood, because $S$ is the matched innovation covariance
+  rather than the true one. It coincides with the exact value when the
+  maps are affine. Maximising it to tune hyperparameters is standard
+  practice for nonlinear Gaussian filters, but it is a surrogate.
+- **The covariance update defaults to Joseph form** (`joseph=True`).
+  $K = C S^{-1}$ is only approximately the optimal gain, and
+  $P^- - K S K^\top$ is guaranteed PSD only *for* the optimal gain,
+  whereas Joseph form is PSD for any $K$. The effective observation
+  matrix it needs is the statistical-linearisation gain
+  $H_{\text{eff}} = C^\top (P^-)^{-1}$ — what
+  [`statistical_linear_regression`](quadrature.md) returns as `A`. The two
+  forms differ by $K \Omega K^\top$ with $\Omega$ the linearisation
+  residual, so they coincide exactly for affine maps and the nonlinear
+  filter still reduces to `kalman_filter` under the default.
+
+With affine `dynamics` and `obs_fn` the filter reproduces `kalman_filter`
+— means, covariances *and* log-likelihood — and the smoother reproduces
+`rts_smoother`, for every integrator.
+
+### Driving your own loop
+
+The wrappers above are a `jax.lax.scan` over three public per-step
+functions, which are usable on their own when the loop is the part you
+want to control — an irregular time grid, a custom gating rule, a filter
+interleaved with something else, or a bank of filters:
+
+| function | step |
+|---|---|
+| `nonlinear_kalman_predict` | $m^-, P^- = \mathcal{T}[f](m, P)$, $P^- \mathrel{+}= Q$ |
+| `nonlinear_kalman_update` | match $h$, then $K = C S^{-1}$ and the Gaussian update |
+| `nonlinear_rts_step` | one RTS backward correction |
+
+Each takes the same `integrator`, so the choice of filter carries through
+unchanged. `nonlinear_kalman_update` returns its log-likelihood increment
+rather than accumulating, leaving the accumulation to the caller.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [nonlinear_kalman_filter, nonlinear_rts_smoother, nonlinear_kalman_predict, nonlinear_kalman_update, nonlinear_rts_step, masked_moment_inputs]
+
 ## Kalman filtering & smoothing
 
 The forward filter and RTS smoother, their $O(\log N)$ parallel

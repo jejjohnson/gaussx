@@ -6,6 +6,7 @@ import abc
 from collections.abc import Callable
 
 import equinox as eqx
+import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._quadrature._types import GaussianState, PropagationResult
@@ -65,3 +66,68 @@ class AbstractIntegrator(eqx.Module):
             f"expose quadrature points and weights."
         )
         raise NotImplementedError(msg)
+
+
+def moment_transform(
+    fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],
+    mean: Float[Array, " N"],
+    cov: Float[Array, "N N"],
+    *,
+    integrator: AbstractIntegrator | None = None,
+) -> tuple[Float[Array, " M"], Float[Array, "M M"], Float[Array, "N M"]]:
+    r"""Moment triple of ``(x, fn(x))`` for ``x`` Gaussian.
+
+    The Gaussian moment transform,
+
+    $$
+    \mathcal{T}[g; \mu, \Sigma] = (\mu_g,\ \Sigma_g,\ \Sigma_{xg}),
+    \qquad x \sim \mathcal{N}(\mu, \Sigma),
+    $$
+
+    with $\mu_g = \mathbb{E}[g(x)]$, $\Sigma_g = \mathrm{Cov}[g(x)]$ and
+    $\Sigma_{xg} = \mathrm{Cov}[x, g(x)]$.
+
+    This is the one method-specific step of every Gaussian filter: the
+    filter loop, the smoother backward pass and the log-likelihood are
+    identical across methods, and only $\mathcal{T}$ changes. Taking
+    dense arrays and returning dense arrays, it is the convenient form for
+    building a filter — `gaussx.nonlinear_kalman_filter` is built on it —
+    while `AbstractIntegrator.integrate` is the operator-typed form.
+
+    Unlike calling ``integrate`` directly, this **requires** the
+    cross-covariance and says so if it is missing, rather than letting a
+    ``None`` propagate into a silently zero Kalman gain.
+
+    Args:
+        fn: The map ``(N,) -> (M,)`` to push the Gaussian through.
+        mean: Input mean $\mu$, shape ``(N,)``.
+        cov: Input covariance $\Sigma$, shape ``(N, N)``. Assumed PSD.
+        integrator: Rule realising $\mathcal{T}$. Defaults to
+            `gaussx.UnscentedIntegrator`.
+
+    Returns:
+        Tuple ``(mean_out, cov_out, cross_cov)`` with shapes ``(M,)``,
+        ``(M, M)`` and ``(N, M)``.
+
+    Raises:
+        TypeError: If the integrator does not supply a cross-covariance.
+            Raised at trace time, so it costs nothing per step.
+    """
+    if integrator is None:
+        from gaussx._quadrature._unscented import UnscentedIntegrator
+
+        integrator = UnscentedIntegrator()
+
+    state = GaussianState(
+        mean=mean, cov=lx.MatrixLinearOperator(cov, lx.positive_semidefinite_tag)
+    )
+    result = integrator.integrate(fn, state)
+    if result.cross_cov is None:
+        msg = (
+            f"{type(integrator).__name__} returned cross_cov=None, but the "
+            f"moment transform is defined by all three moments. Downstream "
+            f"consumers build a Kalman gain as cross_cov @ S^-1, so a "
+            f"missing cross-covariance would silently give a zero gain."
+        )
+        raise TypeError(msg)
+    return result.state.mean, result.state.cov.as_matrix(), result.cross_cov

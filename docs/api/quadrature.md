@@ -16,7 +16,11 @@ propagate functions of it.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [GaussianState, PropagationResult, AbstractIntegrator, GaussHermiteIntegrator, UnscentedIntegrator, FifthOrderCubatureIntegrator, TaylorIntegrator, MonteCarloIntegrator, AssumedDensityFilter]
+      members: [GaussianState, PropagationResult, AbstractIntegrator, moment_transform, GaussHermiteIntegrator, UnscentedIntegrator, CubatureIntegrator, FifthOrderCubatureIntegrator, TaylorIntegrator, MonteCarloIntegrator, AssumedDensityFilter]
+
+The integrators are also what selects the filter in
+[`nonlinear_kalman_filter`](ssm.md) — EKF, UKF, CKF, GHKF and the
+Monte-Carlo variant are the same loop under a different rule.
 
 ## Quadrature rules
 

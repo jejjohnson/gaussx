@@ -302,3 +302,91 @@ class TestAssumedDensityFilter:
 
         result2 = run(integrator, state)
         assert jnp.allclose(result1.state.mean, result2.state.mean, atol=1e-10)
+
+
+class TestMomentTransform:
+    """The public ``moment_transform`` wrapper around any integrator."""
+
+    def test_matches_integrate(self):
+        """Returns the same three moments as ``integrate``, densified."""
+        from gaussx import moment_transform
+
+        state = _make_state()
+        integrator = UnscentedIntegrator(alpha=1.0)
+        result = integrator.integrate(_linear_fn, state)
+
+        mean, cov, cross = moment_transform(
+            _linear_fn,
+            state.mean,
+            state.cov.as_matrix(),
+            integrator=integrator,
+        )
+
+        assert jnp.allclose(mean, result.state.mean, atol=1e-12)
+        assert jnp.allclose(cov, result.state.cov.as_matrix(), atol=1e-12)
+        assert jnp.allclose(cross, result.cross_cov, atol=1e-12)
+
+    def test_exact_for_a_linear_map(self):
+        """For f(x) = Ax + b the triple is (A mu + b, A S A^T, S A^T)."""
+        from gaussx import moment_transform
+
+        state = _make_state()
+        matrix = jnp.array([[2.0, 1.0], [0.0, 3.0]])
+        sigma = state.cov.as_matrix()
+
+        mean, cov, cross = moment_transform(
+            _linear_fn,
+            state.mean,
+            sigma,
+            integrator=UnscentedIntegrator(alpha=1.0),
+        )
+
+        assert jnp.allclose(mean, _linear_fn(state.mean), atol=1e-10)
+        assert jnp.allclose(cov, matrix @ sigma @ matrix.T, atol=1e-10)
+        assert jnp.allclose(cross, sigma @ matrix.T, atol=1e-10)
+
+    def test_defaults_to_unscented(self):
+        """The integrator argument is optional."""
+        from gaussx import moment_transform
+
+        state = _make_state()
+        default = moment_transform(_linear_fn, state.mean, state.cov.as_matrix())
+        explicit = moment_transform(
+            _linear_fn,
+            state.mean,
+            state.cov.as_matrix(),
+            integrator=UnscentedIntegrator(),
+        )
+
+        assert jnp.allclose(default[0], explicit[0], atol=0.0)
+
+    def test_rejects_a_missing_cross_covariance(self):
+        """A None cross-covariance is an error, not a silent zero gain."""
+        import lineax as lx
+        import pytest
+
+        from gaussx import (
+            AbstractIntegrator,
+            GaussianState,
+            PropagationResult,
+            moment_transform,
+        )
+
+        class _NoCrossCov(AbstractIntegrator):
+            def integrate(self, fn, state):
+                value = fn(state.mean)
+                cov = lx.MatrixLinearOperator(
+                    jnp.eye(value.shape[-1]), lx.positive_semidefinite_tag
+                )
+                return PropagationResult(
+                    state=GaussianState(mean=value, cov=cov), cross_cov=None
+                )
+
+        state = _make_state()
+        with pytest.raises(TypeError, match="cross_cov=None"):
+            moment_transform(
+                _linear_fn,
+                state.mean,
+                state.cov.as_matrix(),
+                integrator=_NoCrossCov(),
+            )
