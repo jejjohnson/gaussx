@@ -346,6 +346,37 @@ def localized_kalman_gain(
 # ---------------------------------------------------------------------------
 
 
+def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
+    """A factor ``L`` with ``L L^T = R``, valid for singular ``R``.
+
+    `cholesky` dispatches on structure and is the right tool wherever it
+    applies: for a `lineax.DiagonalLinearOperator` it returns
+    ``sqrt(diag)``, which stays diagonal and handles a zero entry without
+    complaint. Its *dense* fallback is `jax.numpy.linalg.cholesky`, which
+    requires positive definiteness and returns ``NaN`` for a positive
+    semi-definite matrix such as ``diag(1, 1, 0)``.
+
+    That matters because a singular ``R`` is a documented, supported case --
+    ``dense_innovation=True`` exists for it -- and the perturbations are drawn
+    before that flag is ever consulted, so a PD-only factor would poison the
+    analysis with ``NaN`` regardless. Dense operators therefore go through a
+    symmetric (eigendecomposition) square root, which is defined for any PSD
+    matrix. Both factors satisfy ``L L^T = R``, so the draws are
+    distributionally identical.
+
+    Args:
+        obs_noise: Observation error covariance, shape ``(M, M)``.
+
+    Returns:
+        An operator ``L`` such that ``L L^T = obs_noise``.
+    """
+    if isinstance(obs_noise, lx.TaggedLinearOperator):
+        return _noise_factor(obs_noise.operator)
+    if isinstance(obs_noise, lx.MatrixLinearOperator):
+        return lx.MatrixLinearOperator(_symmetric_sqrt(obs_noise.as_matrix()))
+    return cholesky(obs_noise)
+
+
 def enkf_analysis(
     particles: Float[Array, "J N"],
     obs_particles: Float[Array, "J M"],
@@ -444,9 +475,10 @@ def enkf_analysis(
         dense_innovation: Whether to form the ``(M, M)`` innovation covariance
             densely. ``None`` (default) chooses by shape, as described in the
             note below. ``False`` keeps the structured `LowRankUpdate` no
-            matter the shapes -- for a matrix-free solver, or when
-            ``obs_noise`` is singular. ``True`` forces the dense assembly, the
-            way out when ``J < M`` but ``obs_noise`` is not positive definite.
+            matter the shapes -- what a matrix-free solver wants. ``True``
+            forces the dense assembly, which is the way out when ``obs_noise``
+            is only positive *semi*-definite, since the structured route
+            solves against ``obs_noise`` itself.
         bessel: Use the $1/(J-1)$ divisor. Defaults to ``True``, matching
             `ensemble_kalman_gain`.
 
@@ -540,9 +572,9 @@ def enkf_analysis(
         # materialising R here would allocate a dense (M, M) and cost O(M^3),
         # which for the low-rank branch below (J < M, M possibly enormous) would
         # OOM before the gain is ever formed.
-        chol = cholesky(obs_noise)
+        factor = _noise_factor(obs_noise)
         noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
-        perturbed = observation[None, :] + jax.vmap(chol.mv)(noise)  # (J, M)
+        perturbed = observation[None, :] + jax.vmap(factor.mv)(noise)  # (J, M)
     else:
         perturbed = perturbed_obs
         if perturbed is None or perturbed.shape != (n_ens, n_obs):
