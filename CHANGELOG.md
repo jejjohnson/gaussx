@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.20](https://github.com/jejjohnson/gaussx/compare/v0.0.19...v0.0.20) (2026-08-19)
+
+
+### Features
+
+* **inference:** enkf_analysis — perturbed-observation ensemble Kalman update ([#214](https://github.com/jejjohnson/gaussx/issues/214)) ([2328fa1](https://github.com/jejjohnson/gaussx/commit/2328fa10834731ec131fdc3542057e4a7826aa06))
+* **quadrature,inference:** cubature moment matching, SLR, and diagonal sites ([#212](https://github.com/jejjohnson/gaussx/issues/212)) ([3bc48cf](https://github.com/jejjohnson/gaussx/commit/3bc48cf29c50950a435ae99df96fec7b432c1217))
+
 ## [0.0.19](https://github.com/jejjohnson/gaussx/compare/v0.0.18...v0.0.19) (2026-08-18)
 
 
