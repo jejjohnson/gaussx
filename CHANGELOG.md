@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.0.21](https://github.com/jejjohnson/gaussx/compare/v0.0.20...v0.0.21) (2026-08-20)
+
+
+### Features
+
+* **ssm:** nonlinear Kalman filter/smoother and matrix-fraction discretisation ([#216](https://github.com/jejjohnson/gaussx/issues/216)) ([a28b86a](https://github.com/jejjohnson/gaussx/commit/a28b86a92df98bbcbe8a613781dd30355185e8c6))
+
+
+### Bug Fixes
+
+* **inference:** draw enkf_analysis perturbations with a PSD square root ([#217](https://github.com/jejjohnson/gaussx/issues/217)) ([2c27c35](https://github.com/jejjohnson/gaussx/commit/2c27c358de0466063970fd12cb4defe0f4d86ee9))
+
 ## [0.0.20](https://github.com/jejjohnson/gaussx/compare/v0.0.19...v0.0.20) (2026-08-19)
 
 
