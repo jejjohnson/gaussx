@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -753,3 +755,76 @@ class TestNoiseFactorDispatch:
             )
 
         assert jnp.all(jnp.isfinite(analyse(obs_noise, getkey())))
+
+    def test_block_tridiag_takes_the_dense_factor_when_the_gain_densifies(self, getkey):
+        """Structure is only worth a NaN while it is still being preserved.
+
+        Every gain route but Woodbury calls ``obs_noise.as_matrix()``, so once
+        the caller has picked one of those the ``(M, M)`` allocation is
+        happening regardless and the banded factor buys nothing.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        operator = self._block_tridiag(getkey)
+        assert isinstance(_noise_factor(operator), LowerBlockTriDiag)
+        forced = _noise_factor(operator, allow_dense=True)
+        assert isinstance(forced, lx.MatrixLinearOperator)
+        dense = forced.as_matrix()
+        assert jnp.allclose(dense @ dense.T, operator.as_matrix(), atol=1e-6)
+
+    @pytest.mark.parametrize("route", ["dense_innovation", "localization"])
+    def test_singular_block_tridiag_survives_the_densifying_routes(self, route, getkey):
+        """A zero Schur complement makes the banded Cholesky return NaN.
+
+        The innovation covariance is still invertible, so there is a perfectly
+        good analysis on the other side of the factor.
+        """
+        block = 2
+        obs_noise = BlockTriDiag(
+            jnp.stack(
+                [
+                    2.0 * jnp.eye(block),
+                    3.0 * jnp.eye(block),
+                    jnp.diag(jnp.array([1.0, 0.0])),  # singular block
+                ]
+            ),
+            jnp.zeros((2, block, block)),
+        )
+        n_obs = obs_noise.in_size()
+        n_state = 5
+        prior = jr.normal(getkey(), (3, n_state))
+        obs_prior = jr.normal(getkey(), (3, n_obs))
+        kwargs = (
+            {"dense_innovation": True}
+            if route == "dense_innovation"
+            else {"localization": jnp.ones((n_state, n_obs))}
+        )
+        out = enkf_analysis(
+            prior, obs_prior, jnp.zeros(n_obs), obs_noise, key=getkey(), **kwargs
+        )
+        assert jnp.all(jnp.isfinite(out))
+
+    def test_sum_of_kroneckers_warning_is_silent_when_dense_is_already_paid(
+        self, getkey
+    ):
+        """The warning tells the caller to draw perturbations themselves.
+
+        That is only actionable while the gain path would have kept ``R``
+        structured; otherwise it is advice that saves nothing.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        def kron(size):
+            return Kronecker(
+                *(
+                    lx.MatrixLinearOperator(
+                        random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                    )
+                    for _ in range(2)
+                )
+            )
+
+        operator = SumOfKroneckers(kron(3), kron(3))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DenseFallbackWarning)
+            _noise_factor(operator, allow_dense=True)

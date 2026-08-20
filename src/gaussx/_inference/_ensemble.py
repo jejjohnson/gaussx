@@ -352,7 +352,11 @@ def localized_kalman_gain(
 # ---------------------------------------------------------------------------
 
 
-def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
+def _noise_factor(
+    obs_noise: lx.AbstractLinearOperator,
+    *,
+    allow_dense: bool = False,
+) -> lx.AbstractLinearOperator:
     """A factor ``L`` with ``L L^T = R``, valid for singular ``R``.
 
     Perturbations are drawn as ``eps_j = L n_j``, so ``L`` has three jobs, and
@@ -387,8 +391,8 @@ def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOper
       so structure survives *and* each leaf gets the PSD-safe treatment.
     - `gaussx.BlockTriDiag`: `gaussx.cholesky`, whose banded recurrence is
       ``O(N d^3)`` against ``O((N d)^3)`` dense. It has no PSD-safe blockwise
-      analogue, so this is the one operator where a singular ``R`` still gives
-      ``NaN`` -- densifying it would trade that for the ``OOM`` in (3).
+      analogue, so it is the one structure where (2) and (3) genuinely
+      conflict -- hence ``allow_dense``, below.
     - Anything else, including every dense leaf: the symmetric square root.
 
     That last branch is where `gaussx.KroneckerSum` and
@@ -404,22 +408,35 @@ def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOper
 
     Args:
         obs_noise: Observation error covariance, shape ``(M, M)``.
+        allow_dense: Whether the caller's gain path materialises ``R`` anyway.
+            When it does, requirement (3) is already spent and cannot justify
+            declining (2), so `gaussx.BlockTriDiag` takes the PSD-safe dense
+            factor too and a singular ``R`` stops being fatal. Only
+            `enkf_analysis`'s Woodbury route -- no localization, structured
+            innovation -- keeps ``R`` unmaterialised, so only there is the
+            banded factor worth a ``NaN``.
 
     Returns:
         An operator ``L`` such that ``L L^T = obs_noise``.
     """
     if isinstance(obs_noise, lx.TaggedLinearOperator):
-        return _noise_factor(obs_noise.operator)
-    if isinstance(
-        obs_noise,
-        lx.IdentityLinearOperator | lx.DiagonalLinearOperator | BlockTriDiag,
-    ):
+        return _noise_factor(obs_noise.operator, allow_dense=allow_dense)
+    if isinstance(obs_noise, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
+        return cholesky(obs_noise)
+    if isinstance(obs_noise, BlockTriDiag) and not allow_dense:
         return cholesky(obs_noise)
     if isinstance(obs_noise, BlockDiag):
-        return BlockDiag(*(_noise_factor(op) for op in obs_noise.operators))
+        return BlockDiag(
+            *(_noise_factor(op, allow_dense=allow_dense) for op in obs_noise.operators)
+        )
     if isinstance(obs_noise, Kronecker):
-        return Kronecker(*(_noise_factor(op) for op in obs_noise.operators))
-    if isinstance(obs_noise, SumOfKroneckers):
+        return Kronecker(
+            *(_noise_factor(op, allow_dense=allow_dense) for op in obs_noise.operators)
+        )
+    # Only worth saying when the caller could act on it: if the gain path
+    # materialises R regardless, drawing the perturbations elsewhere saves
+    # nothing.
+    if isinstance(obs_noise, SumOfKroneckers) and not allow_dense:
         warnings.warn(
             "enkf_analysis materialises a SumOfKroneckers obs_noise to draw "
             "exact perturbations. For a matrix-free alternative, sample "
@@ -620,6 +637,11 @@ def enkf_analysis(
             f"({obs_noise.out_size()}, {obs_noise.in_size()})."
         )
 
+    # Whether to form the (M, M) innovation densely. `None` picks by shape; an
+    # explicit value overrides that, which is what a matrix-free solver needs.
+    # Decided here rather than at the gain, because the factor below needs it.
+    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
+
     # Branch on `key` rather than on `perturbed_obs`: the check above makes the
     # two equivalent, but this way each branch narrows the argument it uses.
     if key is not None:
@@ -628,7 +650,14 @@ def enkf_analysis(
         # materialising R here would allocate a dense (M, M) and cost O(M^3),
         # which for the low-rank branch below (J < M, M possibly enormous) would
         # OOM before the gain is ever formed.
-        factor = _noise_factor(obs_noise)
+        #
+        # Unless the gain is about to allocate that (M, M) anyway: every route
+        # but Woodbury calls `obs_noise.as_matrix()`, and once the dense cost
+        # is being paid regardless there is nothing left to protect by holding
+        # on to a positive-definite-only factor.
+        factor = _noise_factor(
+            obs_noise, allow_dense=use_dense or localization is not None
+        )
         noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
         perturbed = observation[None, :] + jax.vmap(factor.mv)(noise)  # (J, M)
     else:
@@ -656,10 +685,6 @@ def enkf_analysis(
                 f"obs_localization must have shape ({n_obs}, {n_obs}) to match "
                 f"obs_particles, got {obs_localization.shape}."
             )
-
-    # Whether to form the (M, M) innovation densely. `None` picks by shape; an
-    # explicit value overrides that, which is what a matrix-free solver needs.
-    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
 
     if localization is None and not use_dense:
         # Fewer members than observations: the Woodbury capacitance is (J, J)
