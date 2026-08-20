@@ -32,7 +32,15 @@ class SumSDE(SDEKernel):
         params_list = [k.sde_params() for k in self.kernels]
 
         F = jsl.block_diag(*[p.F for p in params_list])
-        P_inf = jsl.block_diag(*[p.P_inf for p in params_list])
+        # A component with no closed-form stationary covariance leaves the
+        # sum without one either; propagating ``None`` routes the composite
+        # through ``discretise_mfd`` rather than fabricating a ``P_inf``.
+        component_p_inf = [p.P_inf for p in params_list]
+        P_inf = (
+            None
+            if any(block is None for block in component_p_inf)
+            else jsl.block_diag(*component_p_inf)
+        )
 
         L_blocks = [p.L for p in params_list]
         total_rows = sum(b.shape[0] for b in L_blocks)
@@ -94,7 +102,13 @@ class ProductSDE(SDEKernel):
         L = jnp.kron(p1.L, p2.L)
         H = jnp.kron(p1.H, p2.H)
         Q_c = jnp.kron(p1.Q_c, p2.Q_c)
-        P_inf = jnp.kron(p1.P_inf, p2.P_inf)
+        # As for ``SumSDE``: no factorised stationary covariance means the
+        # product has none, and the base ``discretise`` falls back to MFD.
+        P_inf = (
+            None
+            if p1.P_inf is None or p2.P_inf is None
+            else jnp.kron(p1.P_inf, p2.P_inf)
+        )
 
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
@@ -148,6 +162,37 @@ class ProductSDE(SDEKernel):
         # whole point of this override. Keeping both operands as
         # ``Kronecker`` lets the shared helper contract each factor
         # separately instead of forming the (d1 d2)-square triple product.
+        if p1.P_inf is None or p2.P_inf is None:
+            # Deferring to the base MFD path here would be *wrong*, not
+            # merely slower. ``sde_params`` reports the composite diffusion
+            # as L Q_c L^T = B_1 (x) B_2, but the diffusion consistent with
+            # the Kronecker-sum drift is
+            #
+            #     B = B_1 (x) P_2  +  P_1 (x) B_2
+            #
+            # (substitute P_1 (x) P_2 into the Lyapunov equation for
+            # F_1 (+) F_2 to see it). The two differ in general; for a
+            # Matern (x) Cosine product the reported one is identically
+            # zero, because CosineSDE has Q_c = 0. MFD would then return
+            # the right transition matrix with process noise for a
+            # different SDE.
+            #
+            # The correct diffusion needs both factor stationary
+            # covariances -- exactly what is missing -- so this is
+            # rejected rather than silently approximated.
+            msg = (
+                f"ProductSDE cannot be discretised when a factor has no "
+                f"stationary covariance: "
+                f"{type(self.kernel1).__name__}.P_inf is "
+                f"{'None' if p1.P_inf is None else 'set'} and "
+                f"{type(self.kernel2).__name__}.P_inf is "
+                f"{'None' if p2.P_inf is None else 'set'}. The composite "
+                f"diffusion of a product kernel is B1 (x) P2 + P1 (x) B2, "
+                f"which needs both. Discretise the factors separately, or "
+                f"give the factor a P_inf."
+            )
+            raise NotImplementedError(msg)
+
         A_op = Kronecker(
             lx.MatrixLinearOperator(A1),
             lx.MatrixLinearOperator(A2),

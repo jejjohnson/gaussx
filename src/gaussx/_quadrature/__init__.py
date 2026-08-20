@@ -1,6 +1,7 @@
 """GaussX quadrature / moment-matching -- deterministic and stochastic rules."""
 
 from gaussx._quadrature._adf import AssumedDensityFilter
+from gaussx._quadrature._cubature import CubatureIntegrator
 from gaussx._quadrature._expectations import (
     cost_expectation,
     elbo,
@@ -19,7 +20,7 @@ from gaussx._quadrature._gp_predict import (
     uncertain_svgp_predict,
     uncertain_vgp_predict,
 )
-from gaussx._quadrature._integrator import AbstractIntegrator
+from gaussx._quadrature._integrator import AbstractIntegrator, moment_transform
 from gaussx._quadrature._likelihood import AbstractLikelihood, GaussianLikelihood
 from gaussx._quadrature._likelihoods import (
     BernoulliLikelihood,
@@ -53,6 +54,7 @@ __all__ = [
     "AnalyticalPsiStatistics",
     "AssumedDensityFilter",
     "BernoulliLikelihood",
+    "CubatureIntegrator",
     "FifthOrderCubatureIntegrator",
     "GaussHermiteIntegrator",
     "GaussianLikelihood",
@@ -80,6 +82,7 @@ __all__ = [
     "log_likelihood_expectation",
     "mean_expectation",
     "moment_match",
+    "moment_transform",
     "sigma_points",
     "statistical_linear_regression",
     "uncertain_bgplvm_predict",

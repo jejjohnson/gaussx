@@ -9,7 +9,11 @@ from gaussx._ssm._cvi import (
     sites_to_precision,
 )
 from gaussx._ssm._dare import DAREResult, dare
-from gaussx._ssm._discretise import process_noise_covariance
+from gaussx._ssm._discretise import (
+    discretise_mfd,
+    discretise_mfd_sequence,
+    process_noise_covariance,
+)
 from gaussx._ssm._emission import EmissionModel
 from gaussx._ssm._infinite_horizon_kalman import (
     InfiniteHorizonState,
@@ -23,6 +27,14 @@ from gaussx._ssm._kalman import (
     rts_smoother,
 )
 from gaussx._ssm._matern import MaternSDE
+from gaussx._ssm._nonlinear_kalman import (
+    masked_moment_inputs,
+    nonlinear_kalman_filter,
+    nonlinear_kalman_predict,
+    nonlinear_kalman_update,
+    nonlinear_rts_smoother,
+    nonlinear_rts_step,
+)
 from gaussx._ssm._pairwise_marginals import pairwise_marginals
 from gaussx._ssm._parallel_kalman import (
     parallel_kalman_filter,
@@ -62,12 +74,20 @@ __all__ = [
     "cavity_from_marginal",
     "cvi_update_sites",
     "dare",
+    "discretise_mfd",
+    "discretise_mfd_sequence",
     "expectations_to_ssm",
     "infinite_horizon_filter",
     "infinite_horizon_smoother",
     "kalman_filter",
     "kalman_gain",
+    "masked_moment_inputs",
     "naturals_to_ssm",
+    "nonlinear_kalman_filter",
+    "nonlinear_kalman_predict",
+    "nonlinear_kalman_update",
+    "nonlinear_rts_smoother",
+    "nonlinear_rts_step",
     "pairwise_marginals",
     "parallel_kalman_filter",
     "parallel_rts_smoother",
