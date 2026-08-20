@@ -315,3 +315,114 @@ class TestProductSDEKroneckerDiscretisation:
         A_ref, Q_ref = kern.discretise(jnp.array(0.37))
         assert jnp.allclose(A, A_ref, atol=1e-6)
         assert jnp.allclose(Q, Q_ref, atol=1e-6)
+
+
+def _kernel_zoo():
+    """Every kernel with a closed-form stationary covariance, composites included."""
+    m0 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=0)
+    m1 = MaternSDE(variance=jnp.array(1.3), lengthscale=jnp.array(2.0), order=1)
+    m2 = MaternSDE(variance=jnp.array(0.7), lengthscale=jnp.array(0.8), order=2)
+    cos = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(1.4))
+    const = ConstantSDE(variance=jnp.array(2.0))
+    per = PeriodicSDE(
+        variance=jnp.array(1.0),
+        lengthscale=jnp.array(1.0),
+        period=jnp.array(2.0),
+        n_harmonics=2,
+    )
+    return {
+        "matern0": m0,
+        "matern1": m1,
+        "matern2": m2,
+        "cosine": cos,
+        "constant": const,
+        "periodic": per,
+        "sum(m1, cos)": SumSDE(kernels=(m1, cos)),
+        "sum(m0, m2, const)": SumSDE(kernels=(m0, m2, const)),
+        # The Cosine factor is the pointed case: Q_c = 0, so the old
+        # B1 (x) B2 diffusion was identically zero.
+        "product(m1, cos)": ProductSDE(kernel1=m1, kernel2=cos),
+        "product(m1, m2)": ProductSDE(kernel1=m1, kernel2=m2),
+        "product(m0, per)": ProductSDE(kernel1=m0, kernel2=per),
+        "quasiperiodic(m1, per)": QuasiPeriodicSDE(kernel1=m1, kernel2=per),
+        # Nested composite: the corrected diffusion must survive one more level.
+        "product(product(m1, cos), m0)": ProductSDE(
+            kernel1=ProductSDE(kernel1=m1, kernel2=cos), kernel2=m0
+        ),
+    }
+
+
+class TestLyapunovConsistency:
+    """Every reported ``(F, L, Q_c, P_inf)`` must satisfy its own Lyapunov equation.
+
+    For a stationary linear SDE, ``F P + P Fᵀ + L Q_c Lᵀ = 0``. ``ProductSDE``
+    used to report ``L = L1 ⊗ L2`` / ``Q_c = Q_c1 ⊗ Q_c2``, implying a
+    diffusion ``B1 ⊗ B2`` — but the drift is the Kronecker *sum* ``F1 ⊕ F2``
+    and the stationary covariance the Kronecker *product* ``P1 ⊗ P2``, which
+    force ``B = B1 ⊗ P2 + P1 ⊗ B2`` instead. Regression for gh-219.
+    """
+
+    @pytest.mark.parametrize("name", list(_kernel_zoo()))
+    def test_stationary_lyapunov_residual_is_zero(self, name):
+        params = _kernel_zoo()[name].sde_params()
+        assert params.P_inf is not None, f"{name} has no stationary covariance"
+
+        B = params.L @ params.Q_c @ params.L.T
+        residual = params.F @ params.P_inf + params.P_inf @ params.F.T + B
+
+        scale = jnp.maximum(jnp.max(jnp.abs(B)), 1.0)
+        assert jnp.max(jnp.abs(residual)) < 1e-8 * scale
+
+    @pytest.mark.parametrize("name", list(_kernel_zoo()))
+    def test_reported_shapes_are_consistent(self, name):
+        kern = _kernel_zoo()[name]
+        params = kern.sde_params()
+        d = kern.state_dim
+
+        assert params.F.shape == (d, d)
+        assert params.H.shape == (1, d)
+        assert params.P_inf.shape == (d, d)
+        # L is (d, s) and Q_c is (s, s) for whatever noise dimension s the
+        # kernel needs — products widen it to s1*d2 + d1*s2.
+        assert params.L.shape[0] == d
+        s = params.L.shape[1]
+        assert params.Q_c.shape == (s, s)
+
+
+class TestProductSDEDiffusionConsistency:
+    def test_composite_diffusion_matches_closed_form(self):
+        """``L Q_c Lᵀ`` reproduces ``B1 ⊗ P2 + P1 ⊗ B2`` exactly."""
+        k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=1)
+        k2 = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(1.4))
+        p1, p2 = k1.sde_params(), k2.sde_params()
+
+        params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
+        reported = params.L @ params.Q_c @ params.L.T
+
+        B1 = p1.L @ p1.Q_c @ p1.L.T
+        B2 = p2.L @ p2.Q_c @ p2.L.T
+        expected = jnp.kron(B1, p2.P_inf) + jnp.kron(p1.P_inf, B2)
+
+        assert jnp.allclose(reported, expected, atol=1e-10)
+        # The old B1 ⊗ B2 was identically zero here, so this is the
+        # assertion that actually pins the bug.
+        assert jnp.max(jnp.abs(reported)) > 1.0
+
+    def test_sde_params_rejects_missing_stationary_covariance(self):
+        """A factor without ``P_inf`` makes the composite diffusion unbuildable."""
+
+        class _NoPInfSDE(MaternSDE):
+            def sde_params(self):
+                params = super().sde_params()
+                return SDEParams(
+                    F=params.F, L=params.L, H=params.H, Q_c=params.Q_c, P_inf=None
+                )
+
+        k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=1)
+        k2 = _NoPInfSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=1)
+        kern = ProductSDE(kernel1=k1, kernel2=k2)
+
+        with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
+            kern.sde_params()
+        with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
+            kern.discretise(jnp.array(0.1))
