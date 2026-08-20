@@ -94,6 +94,25 @@ automatically — trigger them on demand with the "Extended Tests" workflow:
 - `@pytest.mark.integration`: end-to-end workflows (e.g. MCMC/SVI fits
   through numpyro). Usually combined with `slow`.
 
+## Tests That Assert On Random Draws
+
+The `getkey` fixture is `equinox.internal.GetKey`, which seeds itself from
+`random.randint` unless `EQX_GETKEY_SEED` is set — so every run draws a
+different model. Reproduce a one-off failure with
+`EQX_GETKEY_SEED=<n> uv run pytest <nodeid>`, and sweep `n` to find the
+failing seeds. Two rules keep such tests from reddening CI at random:
+
+- **If the randomness is incidental** — the test checks a correctness
+  property and any model would do — pin the key (`jr.key(0)`) instead of
+  taking `getkey`. Deterministic makes the tolerance mean something.
+- **If the test is genuinely about sampling behaviour**, bound the
+  estimator by its own sampling distribution rather than a fixed `atol`:
+  `gaussx._testing.assert_sample_moments` does this for mean/covariance at
+  a default 7 sigma. A flat `atol` against a randomly drawn covariance is a
+  different number of sigmas on every run — the defect behind gh-220.
+
+Either way, say in a comment where the bound came from.
+
 ## Coding Conventions
 
 - All operators are `equinox.Module` subclasses (immutable, PyTree-compatible)

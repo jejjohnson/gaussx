@@ -351,19 +351,25 @@ class TestEdgeCases:
             kalman_filter(A, H, Q, R, y, m0, P0, mask=jnp.ones((T, M + 1), dtype=bool))
 
     @pytest.mark.slow
-    def test_float32_tracks_row_deleted_reference(self, getkey):
+    def test_float32_tracks_row_deleted_reference(self):
         """Tight noise in float32 is where the dummy block could bite.
 
-        The bound is set from a 30-seed sweep: relative log-likelihood
-        error is ~3e-6 median with a 1.3e-5 tail, which is float32
-        accumulation over 60 steps rather than a defect. ``5e-5`` clears
-        that tail with room to spare while staying orders of magnitude
-        below what this test exists to catch — the missing likelihood
-        correction shifts this model by ~100 nats, a relative error of
-        order 1.
+        What this test exists to catch is a *structural* error — a
+        missing likelihood correction shifts this model by ~100 nats, a
+        relative error of order 1 — so the model is drawn from a fixed
+        key rather than the ``getkey`` fixture. The randomness was
+        incidental, and it was not free: the residual here is float32
+        accumulation over 60 steps, whose size varies by more than an
+        order of magnitude with the draw (~4e-6 median, but 7.3e-5 at
+        equinox ``GetKey`` seed 19), so the previous bound was a lottery
+        that reddened CI at random (gh-220).
+
+        At this key the relative log-likelihood error is 1.3e-6 and the
+        mean absolute state deviation 3.0e-7, leaving both bounds below
+        roughly 35x margin.
         """
         T, M, N = 60, 6, 3
-        k = jr.split(getkey(), 4)
+        k = jr.split(jr.key(0), 4)
         A = (0.95 * jnp.eye(N) + 0.01 * jr.normal(k[0], (N, N))).astype(jnp.float32)
         H = jr.normal(k[1], (M, N)).astype(jnp.float32)
         Q = (1e-4 * jnp.eye(N)).astype(jnp.float32)

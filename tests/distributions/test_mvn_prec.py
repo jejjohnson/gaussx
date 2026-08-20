@@ -13,7 +13,7 @@ import jax.random as jr
 import lineax as lx
 
 from gaussx._distributions import MultivariateNormal, MultivariateNormalPrecision
-from gaussx._testing import tree_allclose
+from gaussx._testing import assert_sample_moments, tree_allclose
 
 
 def _make_psd(key, n):
@@ -92,11 +92,11 @@ class TestSample:
         d = MultivariateNormalPrecision(mu, op)
 
         samples = d.sample(getkey(), sample_shape=(10_000,))
-        sample_mean = jnp.mean(samples, axis=0)
-        sample_cov = jnp.cov(samples.T)
 
-        assert jnp.allclose(sample_mean, mu, atol=0.15)
-        assert jnp.allclose(sample_cov, Sigma, atol=0.5)
+        # Bounded by the estimators' own sampling distributions, not a
+        # fixed atol: ``Sigma`` is drawn per-seed, so an absolute
+        # tolerance is a different number of sigmas on every run (gh-220).
+        assert_sample_moments(samples, mu, Sigma)
 
     def test_batched_loc_sample_shape(self, getkey):
         n = 3

@@ -9,6 +9,7 @@ import lineax as lx
 import gaussx
 from gaussx._gp._love import love_cache, love_variance
 from gaussx._primitives import root_decomposition, root_inv_decomposition
+from gaussx._testing import assert_sample_moments
 
 
 def test_root_decomposition_truncated_diagonal():
@@ -91,23 +92,18 @@ def test_root_decomposition_cholesky_ignores_rank_sentinel(getkey):
 
 def test_root_matmul_sampling_covariance(getkey):
     num_samples = 4096
-    empirical_cov_tolerance = 0.12
     diag = jnp.array([1.0, 2.0, 3.0])
     op = lx.DiagonalLinearOperator(diag)
     root = root_decomposition(op, rank=3, method="svd")
 
     eps = jax.random.normal(getkey(), (num_samples, root.rank))
     samples = root.matmul(eps)
-    centered = samples - jnp.mean(samples, axis=0)
-    empirical = centered.T @ centered / (samples.shape[0] - 1)
 
     assert samples.shape == (num_samples, 3)
-    assert jnp.allclose(
-        empirical,
-        jnp.diag(diag),
-        rtol=empirical_cov_tolerance,
-        atol=empirical_cov_tolerance,
-    )
+    # The previous flat 0.12 tolerance was only ~3.1 sigma on the
+    # largest off-diagonal entry, so it would have reddened CI on its
+    # own eventually (gh-220).
+    assert_sample_moments(samples, jnp.zeros(3), jnp.diag(diag))
 
 
 def test_whitening_reconstructs_identity(getkey):
