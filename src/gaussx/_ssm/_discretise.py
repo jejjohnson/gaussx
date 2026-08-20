@@ -243,7 +243,16 @@ def discretise_mfd(
         f"the interval into shorter steps, or rescale time.",
     )
 
-    A, Q = _van_loan(F, Q_c, dt / 2.0**n_squarings)
+    # Q is *linear* in Q_c, so the diffusion's magnitude can be divided out
+    # of the exponential and multiplied back afterwards. Without this the
+    # augmented generator inherits ||Q_c|| in its off-diagonal block and
+    # overflows for a large diffusion even when the drift is benign and the
+    # answer trivial -- F = 0 with Q_c = 1e6 already returns NaN. Scaling
+    # the *step* would not help there and would wrongly reject it: the
+    # growth is linear in Q_c, not exponential.
+    diffusion_scale = jnp.maximum(jnp.abs(Q_c).max(), jnp.finfo(Q_c.dtype).tiny)
+
+    A, Q = _van_loan(F, Q_c / diffusion_scale, dt / 2.0**n_squarings)
 
     # Compose back up. The unroll is static, but each doubling is placed
     # behind a lax.cond rather than a select so an inactive step is not
@@ -261,7 +270,7 @@ def discretise_mfd(
     for i in range(_MFD_MAX_SQUARINGS):
         A, Q = jax.lax.cond(i < n_squarings, _double, lambda operands: operands, (A, Q))
 
-    return A, Q
+    return A, Q * diffusion_scale
 
 
 def discretise_mfd_sequence(

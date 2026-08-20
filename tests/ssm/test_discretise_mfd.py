@@ -476,3 +476,30 @@ def test_sequence_is_unaffected_by_the_doubling_path():
         A_i, Q_i = discretise_mfd(F, Q_c, step)
         assert tree_allclose(A_seq[i], A_i, atol=1e-12)
         assert tree_allclose(Q_seq[i], Q_i, atol=1e-12)
+
+
+@pytest.mark.parametrize("magnitude", [1e6, 1e9, 1e12])
+def test_large_diffusion_does_not_overflow(magnitude):
+    """A large diffusion must not overflow the augmented exponential.
+
+    The generator carries ``Q_c`` in its off-diagonal block, so a large
+    diffusion inflates its norm even when the drift is benign and the
+    answer trivial: ``F = 0`` with ``Q_c = 1e6`` returned NaN. ``Q`` is
+    linear in ``Q_c``, so the magnitude is divided out of the exponential
+    and multiplied back -- scaling the *step* instead would not help, since
+    the growth here is linear rather than exponential.
+    """
+    A, Q = discretise_mfd(jnp.zeros((1, 1)), jnp.array([[magnitude]]), jnp.asarray(1.0))
+
+    assert tree_allclose(A, jnp.eye(1), atol=1e-12)
+    assert tree_allclose(Q, jnp.array([[magnitude]]), rtol=1e-10)
+
+
+def test_zero_diffusion_is_handled():
+    """A kernel with no diffusion at all must not divide by zero."""
+    A, Q = discretise_mfd(
+        jnp.array([[0.0, -1.4], [1.4, 0.0]]), jnp.zeros((2, 2)), jnp.asarray(0.5)
+    )
+
+    assert bool(jnp.all(jnp.isfinite(A)))
+    assert tree_allclose(Q, jnp.zeros((2, 2)), atol=1e-14)

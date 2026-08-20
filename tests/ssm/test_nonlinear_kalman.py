@@ -1024,7 +1024,7 @@ def test_inconsistent_matched_joint_is_rejected():
                 cross_cov=2.0 * jnp.ones((dim_in, dim_out)),
             )
 
-    with pytest.raises(Exception, match="negative variance"):
+    with pytest.raises(Exception, match="not positive semi-definite"):
         jax.block_until_ready(
             nonlinear_kalman_filter(
                 lambda x: x,
@@ -1035,5 +1035,43 @@ def test_inconsistent_matched_joint_is_rejected():
                 jnp.zeros(1),
                 jnp.eye(1),
                 integrator=_InconsistentIntegrator(),
+            )
+        )
+
+
+def test_indefinite_posterior_with_positive_variances_is_rejected():
+    """The PSD guard checks the spectrum, not just the variances.
+
+    An indefinite covariance can have entirely positive diagonal entries --
+    ``[[0.36, -0.64], [-0.64, 0.36]]`` has smallest eigenvalue ``-0.28`` --
+    so a diagonal-only test would pass it and hand the next predict step a
+    covariance it treats as PSD.
+    """
+
+    class _CorrelatedInconsistent(AbstractIntegrator):
+        """Cross-covariance too correlated to be consistent with P and S."""
+
+        def integrate(self, fn, state):
+            mean = fn(state.mean)
+            dim_out = mean.shape[-1]
+            return PropagationResult(
+                state=GaussianState(
+                    mean=mean,
+                    cov=lx.MatrixLinearOperator(jnp.eye(dim_out), lx.symmetric_tag),
+                ),
+                cross_cov=jnp.array([[0.8, 0.0], [0.8, 0.0]]),
+            )
+
+    with pytest.raises(Exception, match="not positive semi-definite"):
+        jax.block_until_ready(
+            nonlinear_kalman_filter(
+                lambda x: x,
+                lambda x: x,
+                jnp.zeros((2, 2)),
+                jnp.zeros((2, 2)),
+                jnp.zeros((2, 2)),
+                jnp.zeros(2),
+                jnp.eye(2),
+                integrator=_CorrelatedInconsistent(),
             )
         )

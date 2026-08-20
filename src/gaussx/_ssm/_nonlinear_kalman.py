@@ -419,18 +419,33 @@ def nonlinear_kalman_update(
     # A positive-definite S is not on its own enough: the *joint* over
     # (x, h(x)) must be consistent. An inconsistent triple -- Omega =
     # S_yy - H_eff P^- H_eff^T indefinite, which a negative-weight rule can
-    # produce even where S is fine -- drives the posterior variance
-    # negative. Checking the diagonal is O(N) and catches exactly that; it
-    # is necessary rather than sufficient for PSD, which is the right
-    # trade at this cost.
+    # produce even where S is fine -- leaves the posterior indefinite.
+    #
+    # The full spectrum is checked, not just the diagonal: an indefinite
+    # covariance can have entirely positive variances, e.g.
+    # [[0.36, -0.64], [-0.64, 0.36]], whose smallest eigenvalue is -0.28.
+    # A diagonal test would pass that and hand the next predict step a
+    # covariance it will go on to treat as PSD.
+    #
+    # The threshold is scaled to the size of the covariance rather than
+    # being exactly zero. A legitimately rank-deficient posterior -- a
+    # deterministic state, zero process noise -- is singular by
+    # construction, and rounding puts its null directions a few ulps either
+    # side of zero; a strict test would reject those. Genuine
+    # inconsistency is not marginal: the example above sits at -0.28
+    # against a trace of 0.72, many orders above this bound.
+    dimension = cov_upd.shape[-1]
+    psd_tolerance = (
+        dimension * jnp.finfo(cov_upd.dtype).eps * jnp.maximum(jnp.trace(cov_upd), 1.0)
+    )
     cov_upd = eqx.error_if(
         cov_upd,
-        jnp.diagonal(cov_upd).min() < 0.0,
-        "nonlinear_kalman_update: the updated covariance has a negative "
-        "variance. The matched moments (Cov[h(x)], Cov[x, h(x)]) are not a "
-        "consistent joint, which a negative-weight quadrature rule can "
-        "produce. Use a positive-weight rule such as CubatureIntegrator or "
-        "UnscentedIntegrator(alpha=1.0).",
+        jnp.linalg.eigvalsh(cov_upd).min() < -psd_tolerance,
+        "nonlinear_kalman_update: the updated covariance is not positive "
+        "semi-definite. The matched moments (Cov[h(x)], Cov[x, h(x)]) are "
+        "not a consistent joint, which a negative-weight quadrature rule "
+        "can produce. Use a positive-weight rule such as CubatureIntegrator "
+        "or UnscentedIntegrator(alpha=1.0).",
     )
 
     # ll += -0.5 (v^T S^-1 v + log|S| + M log 2pi).

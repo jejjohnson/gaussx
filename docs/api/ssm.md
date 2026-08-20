@@ -87,17 +87,27 @@ Two behaviours differ from `kalman_filter`, both deliberately:
 - **The covariance update defaults to Joseph form** (`joseph=True`).
   $K = C S^{-1}$ is only approximately the optimal gain, and
   $P^- - K S K^\top$ is guaranteed PSD only *for* the optimal gain,
-  whereas Joseph form is PSD for any $K$. The effective observation
-  matrix it needs is the statistical-linearisation gain
+  whereas Joseph form is a sum of two PSD terms for any $K$. The effective
+  observation matrix it needs is the statistical-linearisation gain
   $H_{\text{eff}} = C^\top (P^-)^{-1}$ — what
-  [`statistical_linear_regression`](quadrature.md) returns as `A`. The two
-  forms differ by $K \Omega K^\top$ with $\Omega$ the linearisation
-  residual, so they coincide exactly for affine maps and the nonlinear
-  filter still reduces to `kalman_filter` under the default.
+  [`statistical_linear_regression`](quadrature.md) returns as `A` — and
+  its noise is $R + \Omega$, not $R$, with $\Omega$ the linearisation
+  residual.
+
+  With that residual included the two forms are analytically identical for
+  any consistent matched joint, not merely for affine maps. **`joseph` is
+  therefore a numerical choice, not a modelling one**: it selects how the
+  same covariance is computed, and should not change results beyond
+  floating point. Dropping $\Omega$ — the naive reading of Joseph here —
+  would instead understate the posterior by $K \Omega K^\top$.
 
 With affine `dynamics` and `obs_fn` the filter reproduces `kalman_filter`
 — means, covariances *and* log-likelihood — and the smoother reproduces
-`rts_smoother`, for every integrator.
+`rts_smoother`, for every *deterministic* rule, since each is exact for
+affine maps. `MonteCarloIntegrator` is the exception: it propagates
+finite-sample empirical moments, so it converges to the linear filter at
+the usual $O(1/\sqrt{n})$ rate rather than matching it. A discrepancy
+there is sampling error, not a bug.
 
 ### Driving your own loop
 
