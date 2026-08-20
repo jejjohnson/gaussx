@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import matfree.decomp
 import matfree.funm
+from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._kronecker import Kronecker
@@ -94,14 +96,72 @@ def _sqrt_sum_kronecker(
     return SumKroneckerSqrt(operator, lanczos_order=lanczos_order)
 
 
+@jax.custom_jvp
+def dense_symmetric_sqrt(matrix: Float[Array, "N N"]) -> Float[Array, "N N"]:
+    """Symmetric square root of a PSD matrix: ``S = Q diag(sqrt(lam)) Q^T``.
+
+    Array in, array out -- `sqrt` is the operator-level entry point. Unlike a
+    Cholesky factor this is symmetric and defined for a *semi*-definite
+    matrix, so ``S @ S.T == matrix`` holds even when ``matrix`` is singular.
+
+    The custom JVP exists because the naive derivative -- differentiating
+    straight through `jax.numpy.linalg.eigh` -- is non-finite whenever an
+    eigenvalue is repeated, and a repeated eigenvalue is the *common* case
+    here: an isotropic covariance ``sigma^2 I`` is nothing but repeated
+    eigenvalues. See `_dense_symmetric_sqrt_jvp` for why the true derivative
+    has no such singularity.
+    """
+    eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    sqrt_eigs = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
+    return (eigenvectors * sqrt_eigs[None, :]) @ eigenvectors.T
+
+
+@dense_symmetric_sqrt.defjvp
+def _dense_symmetric_sqrt_jvp(primals, tangents):
+    r"""Sylvester-equation derivative of the symmetric square root.
+
+    Differentiating the defining identity ``S S = A`` gives the Sylvester
+    equation ``dS S + S dS = dA``. In the eigenbasis of ``A`` -- which is
+    also the eigenbasis of ``S`` -- with ``s_i = sqrt(lam_i)`` this is
+    diagonalised entrywise into
+    ``(V^T dS V)_ij (s_i + s_j) = (V^T dA V)_ij``,
+    so the derivative divides by *sums* of square-rooted eigenvalues. The
+    eigendecomposition's own derivative divides by eigenvalue *gaps*
+    ``lam_i - lam_j``, which is why chaining through `eigh` blows up at a
+    repeated eigenvalue while the square root itself stays perfectly smooth
+    there -- ``s_i + s_j`` is bounded away from zero for any ``A`` with at
+    most one zero eigenvalue.
+
+    The one genuinely singular case is a doubly-degenerate zero eigenvalue,
+    where ``s_i + s_j = 0`` and the square root really is non-differentiable
+    (scalar ``sqrt`` at the origin). Those entries are returned as zero
+    rather than ``NaN``, so a rank-deficient covariance still yields a
+    usable gradient for the directions that are identified.
+    """
+    (matrix,) = primals
+    (tangent,) = tangents
+    eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    sqrt_eigs = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
+    primal_out = (eigenvectors * sqrt_eigs[None, :]) @ eigenvectors.T
+
+    # eigh reads one triangle, so the primal only ever sees the symmetric
+    # part of its argument; the tangent must be projected the same way.
+    tangent = 0.5 * (tangent + tangent.T)
+    rotated = eigenvectors.T @ tangent @ eigenvectors
+    denominator = sqrt_eigs[:, None] + sqrt_eigs[None, :]
+    # Double `where` so the unused branch cannot contribute a NaN to any
+    # higher-order tangent, the standard JAX safe-divide idiom.
+    safe = jnp.where(denominator > 0.0, denominator, 1.0)
+    scaled = jnp.where(denominator > 0.0, rotated / safe, 0.0)
+    tangent_out = eigenvectors @ scaled @ eigenvectors.T
+    return primal_out, tangent_out
+
+
 def _sqrt_dense(
     operator: lx.AbstractLinearOperator,
 ) -> lx.MatrixLinearOperator:
     """Eigendecomposition: S = Q diag(sqrt(lam)) Q^T."""
-    mat = operator.as_matrix()
-    eigenvalues, eigenvectors = jnp.linalg.eigh(mat)
-    sqrt_eigs = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
-    S = eigenvectors @ jnp.diag(sqrt_eigs) @ eigenvectors.T
+    S = dense_symmetric_sqrt(operator.as_matrix())
     return lx.MatrixLinearOperator(S, lx.symmetric_tag)
 
 

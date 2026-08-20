@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -9,6 +10,7 @@ import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
 from gaussx._primitives import solve, sqrt
+from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -91,3 +93,51 @@ def test_sqrt_dense(getkey):
     S = sqrt(op)
     reconstructed = S.as_matrix() @ S.as_matrix()
     assert tree_allclose(reconstructed, op.as_matrix(), rtol=1e-4)
+
+
+class TestDenseSqrtGradients:
+    """`sqrt`'s dense branch must be differentiable at repeated eigenvalues.
+
+    Differentiating straight through `jnp.linalg.eigh` divides by eigenvalue
+    gaps, so an isotropic matrix -- nothing *but* repeated eigenvalues, and the
+    single most common covariance there is -- would give ``NaN``. The square
+    root itself is smooth there; only the naive chain rule is not.
+    """
+
+    def test_isotropic_gradient_is_finite_and_correct(self):
+        # d/ds sum(sqrt(s I_3)) = d/ds 3 sqrt(s) = 3 / (2 sqrt(s)).
+        grad = jax.grad(lambda s: jnp.sum(dense_symmetric_sqrt(s * jnp.eye(3))))(2.0)
+        assert jnp.isfinite(grad)
+        assert tree_allclose(grad, 3.0 / (2.0 * jnp.sqrt(jnp.asarray(2.0))))
+
+    @pytest.mark.parametrize(
+        "matrix",
+        [
+            3.0 * jnp.eye(4),  # one eigenvalue, multiplicity 4
+            jnp.diag(jnp.array([2.0, 2.0, 5.0, 5.0])),  # two degenerate pairs
+            jnp.diag(jnp.array([1.0, 2.0, 3.0, 4.0])),  # fully distinct
+        ],
+        ids=["isotropic", "degenerate-pairs", "distinct"],
+    )
+    def test_jvp_matches_finite_differences(self, matrix, getkey):
+        direction = random_pd_matrix(getkey(), matrix.shape[0])
+        step = 1e-6
+        expected = (
+            dense_symmetric_sqrt(matrix + step * direction)
+            - dense_symmetric_sqrt(matrix - step * direction)
+        ) / (2.0 * step)
+        _, tangent = jax.jvp(dense_symmetric_sqrt, (matrix,), (direction,))
+        assert tree_allclose(tangent, expected, atol=1e-6, rtol=1e-5)
+
+    def test_singular_matrix_gradient_stays_finite(self):
+        """A zero eigenvalue is non-differentiable; it must not poison the rest.
+
+        ``sqrt`` at the origin has an infinite derivative, so the entries of
+        the null direction are returned as zero rather than ``NaN`` -- the
+        identified directions keep a usable gradient.
+        """
+        matrix = jnp.diag(jnp.array([1.0, 2.0, 0.0]))
+        direction = jnp.diag(jnp.array([1.0, 0.0, 0.0]))
+        _, tangent = jax.jvp(dense_symmetric_sqrt, (matrix,), (direction,))
+        assert jnp.all(jnp.isfinite(tangent))
+        assert tree_allclose(tangent[0, 0], jnp.asarray(0.5))

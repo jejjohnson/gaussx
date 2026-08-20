@@ -14,7 +14,7 @@ from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._sqrt import dense_symmetric_sqrt, sqrt
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -349,20 +349,27 @@ def localized_kalman_gain(
 def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     """A factor ``L`` with ``L L^T = R``, valid for singular ``R``.
 
-    `cholesky` dispatches on structure and is the right tool wherever it
-    applies: for a `lineax.DiagonalLinearOperator` it returns
-    ``sqrt(diag)``, which stays diagonal and handles a zero entry without
-    complaint. Its *dense* fallback is `jax.numpy.linalg.cholesky`, which
-    requires positive definiteness and returns ``NaN`` for a positive
-    semi-definite matrix such as ``diag(1, 1, 0)``.
+    The obvious choice, `gaussx.cholesky`, is PD-only wherever it bottoms out
+    in `jax.numpy.linalg.cholesky` -- which is every dense leaf, whether that
+    leaf is the whole operator or one block of a `gaussx.BlockDiag`. For a
+    positive *semi*-definite ``R`` such as ``diag(1, 1, 0)`` that returns
+    ``NaN``. Only the diagonal case escapes, because its "Cholesky" is an
+    elementwise ``sqrt`` that takes a zero in its stride.
 
     That matters because a singular ``R`` is a documented, supported case --
     ``dense_innovation=True`` exists for it -- and the perturbations are drawn
     before that flag is ever consulted, so a PD-only factor would poison the
-    analysis with ``NaN`` regardless. Dense operators therefore go through a
-    symmetric (eigendecomposition) square root, which is defined for any PSD
-    matrix. Both factors satisfy ``L L^T = R``, so the draws are
-    distributionally identical.
+    analysis with ``NaN`` regardless of what the caller asked for.
+
+    `gaussx.sqrt` is the PSD-safe counterpart, and it dispatches on exactly the
+    same structure: diagonal and Kronecker factors stay factored, block-diagonal
+    blocks are square-rooted independently, and a `gaussx.SumOfKroneckers` gets
+    a matrix-free Lanczos square root instead of `gaussx.cholesky`'s dense
+    fallback. So nothing here trades structure for definiteness. It returns the
+    *symmetric* square root rather than a triangular factor, which is a
+    different factorisation of the same ``R`` -- both satisfy ``L L^T = R``, so
+    the draws are distributionally identical, but a given key gives different
+    (equally valid) realisations.
 
     Args:
         obs_noise: Observation error covariance, shape ``(M, M)``.
@@ -370,11 +377,7 @@ def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOper
     Returns:
         An operator ``L`` such that ``L L^T = obs_noise``.
     """
-    if isinstance(obs_noise, lx.TaggedLinearOperator):
-        return _noise_factor(obs_noise.operator)
-    if isinstance(obs_noise, lx.MatrixLinearOperator):
-        return lx.MatrixLinearOperator(_symmetric_sqrt(obs_noise.as_matrix()))
-    return cholesky(obs_noise)
+    return sqrt(obs_noise)
 
 
 def enkf_analysis(
@@ -567,8 +570,8 @@ def enkf_analysis(
     # Branch on `key` rather than on `perturbed_obs`: the check above makes the
     # two equivalent, but this way each branch narrows the argument it uses.
     if key is not None:
-        # eps_j = L n_j with R = L L^T. `cholesky` dispatches on structure, so a
-        # DiagonalLinearOperator stays diagonal and its matvec stays O(M) --
+        # eps_j = L n_j with R = L L^T. The factor dispatches on structure, so
+        # a DiagonalLinearOperator stays diagonal and its matvec stays O(M) --
         # materialising R here would allocate a dense (M, M) and cost O(M^3),
         # which for the low-rank branch below (J < M, M possibly enormous) would
         # OOM before the gain is ever formed.
@@ -794,7 +797,14 @@ def etkf_transform(
 
 
 def _symmetric_sqrt(matrix: Float[Array, "J J"]) -> Float[Array, "J J"]:
-    """Symmetric (eigendecomposition) square root of an SPD matrix."""
-    eigvals, eigvecs = jnp.linalg.eigh(matrix)
-    sqrt_eigvals = jnp.sqrt(jnp.maximum(eigvals, 0.0))
-    return (eigvecs * sqrt_eigvals[None, :]) @ eigvecs.T
+    """Symmetric (eigendecomposition) square root of an SPD matrix.
+
+    Thin alias for `gaussx._primitives._sqrt.dense_symmetric_sqrt`, which
+    carries a Sylvester-equation JVP so that the derivative stays finite at
+    repeated eigenvalues. `etkf_transform` square-roots an analysis covariance
+    that always has them -- ``Y R^-1 Y^T`` has rank at most ``min(M, J - 1)``,
+    so the prior eigenvalue survives with multiplicity ``J - M`` whenever
+    ``M < J`` -- and while the naive derivative happens to stay finite on the
+    tangents that arise there, it is one input away from not doing so.
+    """
+    return dense_symmetric_sqrt(matrix)

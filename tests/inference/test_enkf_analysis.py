@@ -14,6 +14,7 @@ from gaussx import (
     ensemble_kalman_gain,
     localization_matrix,
 )
+from gaussx._operators import BlockDiag, Kronecker
 from gaussx._testing import random_pd_matrix
 
 
@@ -576,17 +577,79 @@ def test_singular_dense_noise_perturbations_are_finite(getkey):
 
 
 def test_noise_factor_reproduces_the_covariance(getkey):
-    """Whatever route the factor takes, ``L L^T`` must be ``R``."""
+    """Whatever route the factor takes, ``L L^T`` must be ``R``.
+
+    The singular cases are the point: a Cholesky-based factor returns ``NaN``
+    for every one of them except the plain diagonal, whose elementwise
+    ``sqrt`` happens to tolerate a zero.
+    """
     from gaussx._inference._ensemble import _noise_factor
 
-    dense = random_pd_matrix(getkey(), 4)
+    singular_dense = lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([1.0, 0.0])), lx.positive_semidefinite_tag
+    )
     for operator in (
-        lx.MatrixLinearOperator(dense, lx.positive_semidefinite_tag),
+        lx.MatrixLinearOperator(random_pd_matrix(getkey(), 4)),
         lx.DiagonalLinearOperator(jnp.array([0.1, 0.2, 0.3, 0.4])),
+        lx.DiagonalLinearOperator(jnp.array([0.1, 0.0, 0.3, 0.4])),
         lx.MatrixLinearOperator(
             jnp.diag(jnp.array([1.0, 1.0, 0.0, 2.0])), lx.positive_semidefinite_tag
         ),
+        # A singular *block* of an otherwise healthy structured operator: the
+        # dense leaf is buried, so dispatching on the top-level type alone
+        # would still route it into a PD-only factorisation.
+        BlockDiag(lx.DiagonalLinearOperator(jnp.array([1.0, 2.0])), singular_dense),
+        Kronecker(
+            lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2)), singular_dense
+        ),
     ):
         factor = _noise_factor(operator).as_matrix()
-        assert jnp.allclose(factor @ factor.T, operator.as_matrix(), atol=1e-6)
         assert jnp.all(jnp.isfinite(factor))
+        assert jnp.allclose(factor @ factor.T, operator.as_matrix(), atol=1e-6)
+
+
+def test_singular_block_of_structured_noise_stays_finite(getkey):
+    """The escape hatch must survive a singular block, not just a singular ``R``.
+
+    `gaussx.cholesky` recurses into a `gaussx.BlockDiag` and hits
+    `jnp.linalg.cholesky` on the dense block, so the analysis came back
+    ``NaN`` even though the assembled innovation covariance is invertible.
+    """
+    n_state, n_obs = 5, 4
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    obs_noise = BlockDiag(
+        lx.DiagonalLinearOperator(jnp.array([1.0, 2.0])),
+        lx.MatrixLinearOperator(
+            jnp.diag(jnp.array([1.0, 0.0])), lx.positive_semidefinite_tag
+        ),
+    )
+    out = enkf_analysis(
+        jr.normal(k_prior, (3, n_state)),
+        jr.normal(k_obs, (3, n_obs)),
+        jnp.zeros(n_obs),
+        obs_noise,
+        key=k_draw,
+        dense_innovation=True,
+    )
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_gradient_through_isotropic_noise_is_finite(getkey):
+    """``R = sigma^2 I`` is the commonest EnKF covariance -- and all repeated
+    eigenvalues, where a naive eigendecomposition derivative is ``NaN``.
+    """
+    n_obs = 3
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    prior = jr.normal(k_prior, (6, 4))
+    obs_prior = jr.normal(k_obs, (6, n_obs))
+
+    def loss(variance):
+        noise = lx.MatrixLinearOperator(variance * jnp.eye(n_obs))
+        out = enkf_analysis(prior, obs_prior, jnp.ones(n_obs), noise, key=k_draw)
+        return jnp.sum(out**2)
+
+    grad = jax.grad(loss)(2.0)
+    assert jnp.isfinite(grad)
+    step = 1e-4
+    expected = (loss(2.0 + step) - loss(2.0 - step)) / (2.0 * step)
+    assert jnp.allclose(grad, expected, rtol=1e-4)
