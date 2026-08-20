@@ -58,7 +58,7 @@ class MonteCarloIntegrator(AbstractIntegrator):
         M = Y.shape[1]
         import lineax as lx
 
-        Sigma_y = Sigma_y + self.regularization * jnp.eye(M)
+        Sigma_y = Sigma_y + self.regularization * jnp.eye(M, dtype=Sigma_y.dtype)
         cov_y = lx.MatrixLinearOperator(Sigma_y, lx.positive_semidefinite_tag)
         out_state = GaussianState(mean=result.state.mean, cov=cov_y)
 
@@ -93,15 +93,17 @@ class MonteCarloIntegrator(AbstractIntegrator):
 
         key = self.key if self.key is not None else jr.key(0)
 
-        # Sample from input Gaussian: xᵢ = μ + L εᵢ
+        # Sample from input Gaussian: xᵢ = μ + L εᵢ. Draws and weights are
+        # built in the input dtype: the defaults would otherwise land in
+        # float64 under x64 and promote the whole transform.
         L = cholesky(state.cov).as_matrix()
-        eps = jr.normal(key, (self.n_samples, N))
+        eps = jr.normal(key, (self.n_samples, N), dtype=mu.dtype)
         chi = mu[None, :] + eps @ L.T  # (S, N)
 
         # Uniform weights = 1/S for empirical moments
         # Use 1/(S−1) Bessel correction via covariance weights
         S = self.n_samples
-        w_m = jnp.full(S, 1.0 / S)
-        w_c = jnp.full(S, 1.0 / (S - 1))
+        w_m = jnp.full(S, 1.0 / S, dtype=mu.dtype)
+        w_c = jnp.full(S, 1.0 / (S - 1), dtype=mu.dtype)
 
         return chi, w_m, w_c

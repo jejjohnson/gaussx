@@ -67,8 +67,9 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         mu = state.mean
         N = mu.shape[0]
 
-        # GH points in standard normal space
-        z, w = gauss_hermite_points(self.order, N)
+        # GH points in standard normal space, in the input dtype so a
+        # float32 belief is not promoted under x64.
+        z, w = gauss_hermite_points(self.order, N, dtype=mu.dtype)
 
         # Transform to input space: xᵢ = μ + S zᵢ
         S = sqrt(state.cov).as_matrix()

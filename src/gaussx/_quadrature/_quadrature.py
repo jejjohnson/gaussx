@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
+from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange, reduce
@@ -14,6 +15,7 @@ from gaussx._primitives._sqrt import sqrt
 def gauss_hermite_points(
     order: int,
     dim: int,
+    dtype: DTypeLike | None = None,
 ) -> tuple[Float[Array, "P D"], Float[Array, " P"]]:
     r"""Gauss-Hermite quadrature points and weights.
 
@@ -25,6 +27,11 @@ def gauss_hermite_points(
     Args:
         order: Number of quadrature points per dimension.
         dim: Dimensionality of the integration domain.
+        dtype: Floating dtype of the returned points and weights.
+            Defaults to JAX's default float dtype. Unlike the other rules
+            here this one has no mean to take a dtype from, so callers
+            propagating an input dtype must pass it explicitly —
+            `gaussx.GaussHermiteIntegrator` does.
 
     Returns:
         Tuple ``(points, weights)`` where points has shape
@@ -32,8 +39,8 @@ def gauss_hermite_points(
     """
     # 1D probabilists' Gauss-Hermite (weight = exp(-x^2/2))
     x1d_np, w1d_np = np.polynomial.hermite_e.hermegauss(order)
-    x1d = jnp.array(x1d_np)
-    w1d = jnp.array(w1d_np)
+    x1d = jnp.array(x1d_np, dtype=dtype)
+    w1d = jnp.array(w1d_np, dtype=dtype)
 
     if dim == 1:
         return x1d[:, None], w1d
@@ -94,13 +101,17 @@ def sigma_points(
     chi_minus = mean[None, :] - S_scaled.T  # (N, N)
     chi = jnp.concatenate([chi_0, chi_plus, chi_minus], axis=0)  # (2N+1, N)
 
+    # Weights are built in the input dtype: Python floats would otherwise
+    # land in float64 under x64 and promote the whole downstream transform.
+    dtype = mean.dtype
+
     # Mean weights
     w_m_0 = lam / c
     w_m_i = 1.0 / (2.0 * c)
     w_m = jnp.concatenate(
         [
-            jnp.array([w_m_0]),
-            jnp.full(2 * N, w_m_i),
+            jnp.array([w_m_0], dtype=dtype),
+            jnp.full(2 * N, w_m_i, dtype=dtype),
         ]
     )
 
@@ -108,8 +119,8 @@ def sigma_points(
     w_c_0 = lam / c + (1.0 - alpha**2 + beta)
     w_c = jnp.concatenate(
         [
-            jnp.array([w_c_0]),
-            jnp.full(2 * N, w_m_i),
+            jnp.array([w_c_0], dtype=dtype),
+            jnp.full(2 * N, w_m_i, dtype=dtype),
         ]
     )
 
@@ -146,7 +157,7 @@ def cubature_points(
     chi_minus = mean[None, :] - S_scaled.T  # (N, N)
     chi = jnp.concatenate([chi_plus, chi_minus], axis=0)  # (2N, N)
 
-    weights = jnp.full(2 * N, 1.0 / (2.0 * N))
+    weights = jnp.full(2 * N, 1.0 / (2.0 * N), dtype=mean.dtype)
 
     return chi, weights
 
@@ -194,14 +205,20 @@ def fifth_order_cubature_points(
     """
     N = mean.shape[0]
 
-    r1 = np.sqrt(N + 2.0)
-    r2 = np.sqrt((N + 2.0) / 2.0)
+    # Python floats, not numpy scalars: a np.float64 radius is strongly
+    # typed and would promote the points it scales back to float64.
+    r1 = float(np.sqrt(N + 2.0))
+    r2 = float(np.sqrt((N + 2.0) / 2.0))
     w0 = 2.0 / (N + 2.0)
     w1 = (4.0 - N) / (2.0 * (N + 2.0) ** 2)
     w2 = 1.0 / (N + 2.0) ** 2
 
-    eye = jnp.eye(N)
-    origin = jnp.zeros((1, N))
+    # Points and weights are built in the input dtype: the defaults would
+    # otherwise land in float64 under x64 and promote the whole transform.
+    dtype = mean.dtype
+
+    eye = jnp.eye(N, dtype=dtype)
+    origin = jnp.zeros((1, N), dtype=dtype)
     axis = jnp.concatenate([r1 * eye, -r1 * eye], axis=0)  # (2N, N)
 
     # Diagonal shell: all four sign combinations of ±eᵢ ± eⱼ for i < j.
@@ -226,9 +243,9 @@ def fifth_order_cubature_points(
 
     weights = jnp.concatenate(
         [
-            jnp.array([w0]),
-            jnp.full(2 * N, w1),
-            jnp.full(4 * n_pairs, w2),
+            jnp.array([w0], dtype=dtype),
+            jnp.full(2 * N, w1, dtype=dtype),
+            jnp.full(4 * n_pairs, w2, dtype=dtype),
         ]
     )
 

@@ -4,8 +4,12 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._quadrature._adf import AssumedDensityFilter
+from gaussx._quadrature._cubature import CubatureIntegrator
+from gaussx._quadrature._fifth_order import FifthOrderCubatureIntegrator
+from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
 from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._taylor import TaylorIntegrator
 from gaussx._quadrature._types import GaussianState
@@ -425,3 +429,71 @@ def test_moment_transform_default_is_float32_safe():
     matrix = jnp.array([[2.0, 1.0], [0.0, 3.0]])
     exact = matrix @ state.cov.as_matrix() @ matrix.T
     assert jnp.abs(safe_cov - exact).max() < jnp.abs(classic[1] - exact).max()
+
+
+class TestFloat32Preservation:
+    """A float32 belief must stay float32 through every integrator.
+
+    The suite runs under ``jax_enable_x64``, so a rule that builds its
+    points or weights without a dtype silently promotes the propagated
+    moments to float64. Regression coverage for gh-219.
+    """
+
+    @staticmethod
+    def _fn32(x):
+        """Affine map whose constants follow ``x``'s dtype.
+
+        ``_linear_fn`` hardcodes float64 literals under x64, which would
+        promote the output regardless of the rule under test.
+        """
+        A = jnp.array([[2.0, 1.0], [0.0, 3.0]], dtype=x.dtype)
+        b = jnp.array([1.0, -1.0], dtype=x.dtype)
+        return A @ x + b
+
+    def _state32(self):
+        mean = jnp.array([1.0, 2.0], dtype=jnp.float32)
+        cov = lx.MatrixLinearOperator(
+            jnp.array([[1.0, 0.3], [0.3, 0.5]], dtype=jnp.float32),
+            lx.positive_semidefinite_tag,
+        )
+        return GaussianState(mean=mean, cov=cov)
+
+    @pytest.mark.parametrize(
+        "integrator",
+        [
+            TaylorIntegrator(order=1),
+            TaylorIntegrator(order=2),
+            UnscentedIntegrator(alpha=1.0),
+            CubatureIntegrator(),
+            FifthOrderCubatureIntegrator(),
+            GaussHermiteIntegrator(order=3),
+            MonteCarloIntegrator(n_samples=32),
+            AssumedDensityFilter(n_samples=32),
+        ],
+        ids=lambda i: type(i).__name__,
+    )
+    def test_integrate_preserves_float32(self, integrator):
+        state = self._state32()
+        result = integrator.integrate(self._fn32, state)
+
+        assert result.state.mean.dtype == jnp.float32
+        assert result.state.cov.as_matrix().dtype == jnp.float32
+        if result.cross_cov is not None:
+            assert result.cross_cov.dtype == jnp.float32
+
+    @pytest.mark.parametrize(
+        "integrator",
+        [
+            UnscentedIntegrator(alpha=1.0),
+            CubatureIntegrator(),
+            FifthOrderCubatureIntegrator(),
+            GaussHermiteIntegrator(order=3),
+            MonteCarloIntegrator(n_samples=32),
+        ],
+        ids=lambda i: type(i).__name__,
+    )
+    def test_points_and_weights_preserve_float32(self, integrator):
+        chi, w_m, w_c = integrator.points_and_weights(self._state32())
+        assert chi.dtype == jnp.float32
+        assert w_m.dtype == jnp.float32
+        assert w_c.dtype == jnp.float32
