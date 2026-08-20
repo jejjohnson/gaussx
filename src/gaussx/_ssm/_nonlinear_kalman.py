@@ -59,6 +59,45 @@ def _symmetric(matrix: Float[Array, "N N"]) -> lx.AbstractLinearOperator:
     return lx.MatrixLinearOperator(matrix, lx.symmetric_tag)
 
 
+def _check_noise_shape(
+    noise: Float[Array, "D D"],
+    dim: int,
+    name: str,
+) -> Float[Array, "D D"]:
+    """Reject a covariance whose shape would broadcast instead of failing.
+
+    A ``(1, 1)`` or ``(D, 1)`` covariance passes a rank-only check and is
+    then broadcast across every entry of the matrix it is added to, which
+    corrupts the result silently rather than raising.
+    """
+    if jnp.shape(noise) != (dim, dim):
+        msg = f"{name} must have shape ({dim}, {dim}); got {jnp.shape(noise)}."
+        raise ValueError(msg)
+    return noise
+
+
+def _reject_indefinite(
+    cov: Float[Array, "N N"],
+    message: str,
+) -> Float[Array, "N N"]:
+    """Reject a covariance that is not positive semi-definite.
+
+    The threshold is scaled to the size of the covariance rather than being
+    exactly zero. A legitimately rank-deficient covariance -- a
+    deterministic state, zero process noise -- is singular by construction,
+    and rounding puts its null directions a few ulps either side of zero; a
+    strict test would reject those. Genuine indefiniteness from an
+    inconsistent moment triple is orders of magnitude away from this bound.
+
+    The full spectrum is checked rather than the diagonal, because an
+    indefinite covariance can have entirely positive variances -- e.g.
+    ``[[0.36, -0.64], [-0.64, 0.36]]``, whose smallest eigenvalue is -0.28.
+    """
+    dimension = cov.shape[-1]
+    tolerance = dimension * jnp.finfo(cov.dtype).eps * jnp.maximum(jnp.trace(cov), 1.0)
+    return eqx.error_if(cov, jnp.linalg.eigvalsh(cov).min() < -tolerance, message)
+
+
 def _broadcast_noise(
     noise: Float[Array, "*T D D"] | lx.AbstractLinearOperator,
     T: int,
@@ -243,13 +282,32 @@ def nonlinear_kalman_predict(
     if integrator is None:
         integrator = UnscentedIntegrator(alpha=1.0)
 
+    process_noise = _check_noise_shape(process_noise, mean.shape[-1], "process_noise")
+
     # The process noise is additive and independent of x, so it enters only
     # as an additive term on the covariance -- the moment transform sees
     # the *deterministic* dynamics alone. No cross-covariance is needed
     # here (nothing is being conditioned on yet); the smoother re-runs the
     # same transform precisely to recover it.
     mean_pred, cov_dyn, _ = moment_transform(dynamics, mean, cov, integrator=integrator)
-    return mean_pred, symmetrize(cov_dyn + process_noise)
+    cov_pred = symmetrize(cov_dyn + process_noise)
+
+    # Validate here as well as after the update. A negative-weight rule can
+    # return an indefinite Cov[f(x)] that a small process noise does not
+    # repair, and a step-level False mask would then expose it directly as
+    # the filtered covariance. Nothing downstream would complain: the next
+    # moment transform tags it PSD, and the dense square-root path clips
+    # negative eigenvalues to zero, silently altering the belief rather
+    # than reporting it.
+    cov_pred = _reject_indefinite(
+        cov_pred,
+        "nonlinear_kalman_predict: the predicted covariance is not positive "
+        "semi-definite. Cov[f(x)] came back indefinite, which a "
+        "negative-weight quadrature rule can produce, and process_noise did "
+        "not repair it. Use a positive-weight rule such as "
+        "CubatureIntegrator or UnscentedIntegrator(alpha=1.0).",
+    )
+    return mean_pred, cov_pred
 
 
 def nonlinear_kalman_update(
@@ -306,6 +364,7 @@ def nonlinear_kalman_update(
         integrator = UnscentedIntegrator(alpha=1.0)
 
     M = observation.shape[-1]
+    obs_noise = _check_noise_shape(obs_noise, M, "obs_noise")
 
     y_hat, obs_cov, cross = moment_transform(obs_fn, mean, cov, integrator=integrator)
 
@@ -434,13 +493,8 @@ def nonlinear_kalman_update(
     # side of zero; a strict test would reject those. Genuine
     # inconsistency is not marginal: the example above sits at -0.28
     # against a trace of 0.72, many orders above this bound.
-    dimension = cov_upd.shape[-1]
-    psd_tolerance = (
-        dimension * jnp.finfo(cov_upd.dtype).eps * jnp.maximum(jnp.trace(cov_upd), 1.0)
-    )
-    cov_upd = eqx.error_if(
+    cov_upd = _reject_indefinite(
         cov_upd,
-        jnp.linalg.eigvalsh(cov_upd).min() < -psd_tolerance,
         "nonlinear_kalman_update: the updated covariance is not positive "
         "semi-definite. The matched moments (Cov[h(x)], Cov[x, h(x)]) are "
         "not a consistent joint, which a negative-weight quadrature rule "

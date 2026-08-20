@@ -503,3 +503,34 @@ def test_zero_diffusion_is_handled():
 
     assert bool(jnp.all(jnp.isfinite(A)))
     assert tree_allclose(Q, jnp.zeros((2, 2)), atol=1e-14)
+
+
+def test_ordinary_diffusions_are_not_rescaled():
+    """The common case must take the unscaled path exactly.
+
+    Normalising unconditionally by the largest entry pushes every smaller
+    mode down by the same factor. Nothing is scaled unless the magnitude
+    actually threatens the exponential, and the factor is a power of two so
+    it is exact when it does apply.
+    """
+    F = jnp.array([[-1.0, 0.5], [0.0, -2.0]])
+    modest = jnp.diag(jnp.array([1.0, 1e-6]))
+
+    _, Q = discretise_mfd(F, modest, jnp.asarray(0.5))
+    truth = _quadrature_Q(F, modest, jnp.asarray(0.5))
+
+    # The small mode survives intact rather than being scaled away.
+    assert tree_allclose(Q, truth, atol=1e-9)
+    assert float(Q[1, 1]) > 0.0
+
+
+def test_large_diffusion_preserves_smaller_modes():
+    """Scaling a large diffusion must not collapse its smaller channels."""
+    magnitude = 1e8
+    Q_c = jnp.diag(jnp.array([magnitude, 1.0]))
+
+    A, Q = discretise_mfd(jnp.zeros((2, 2)), Q_c, jnp.asarray(1.0))
+
+    assert tree_allclose(A, jnp.eye(2), atol=1e-12)
+    # Both channels come back, across eight orders of magnitude.
+    assert tree_allclose(Q, Q_c, rtol=1e-10)

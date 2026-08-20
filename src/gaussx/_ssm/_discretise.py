@@ -110,6 +110,10 @@ def process_noise_covariance(
 # float32 overflow point of ~88 with margin to spare.
 _MFD_MAX_SQUARINGS = 12
 _MFD_EXPONENT_BUDGET = 30.0
+# Largest diffusion entry left unscaled. Van Loan's generator carries Q_c in
+# its off-diagonal block, and expm starts returning NaN well below the float
+# range -- measured at 1e6 for an otherwise trivial problem.
+_MFD_DIFFUSION_BUDGET = 1e3
 
 
 def _van_loan(
@@ -250,7 +254,23 @@ def discretise_mfd(
     # answer trivial -- F = 0 with Q_c = 1e6 already returns NaN. Scaling
     # the *step* would not help there and would wrongly reject it: the
     # growth is linear in Q_c, not exponential.
-    diffusion_scale = jnp.maximum(jnp.abs(Q_c).max(), jnp.finfo(Q_c.dtype).tiny)
+    # Scale by a power of two, and only when the magnitude actually
+    # threatens the exponential. A power of two is exact in binary floating
+    # point, so it introduces no rounding of its own, and leaving small
+    # diffusions alone matters: normalising unconditionally by the largest
+    # entry pushes smaller modes down by the same factor, and one that
+    # underflows is lost outright rather than merely rounded.
+    #
+    # A diffusion whose dynamic range exceeds the dtype's own cannot
+    # survive any uniform scaling -- in float32, diag(1e30, 1e-20) has no
+    # scaling that keeps both representable. That is a limit of the format,
+    # not of the scheme.
+    max_entry = jnp.abs(Q_c).max()
+    diffusion_scale = jnp.where(
+        max_entry > _MFD_DIFFUSION_BUDGET,
+        2.0 ** jnp.ceil(jnp.log2(max_entry / _MFD_DIFFUSION_BUDGET)),
+        1.0,
+    )
 
     A, Q = _van_loan(F, Q_c / diffusion_scale, dt / 2.0**n_squarings)
 

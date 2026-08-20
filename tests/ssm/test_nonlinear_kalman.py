@@ -844,16 +844,19 @@ def test_indefinite_innovation_is_rejected():
                 cross_cov=jnp.ones((state.mean.shape[-1], dim)) * 0.1,
             )
 
+    # Exercised through the update step directly: driven through the whole
+    # filter, the predict guard would catch this stub's dynamics covariance
+    # first, and it is the innovation check under test here.
+    from gaussx import nonlinear_kalman_update
+
     with pytest.raises(Exception, match="not positive definite"):
         jax.block_until_ready(
-            nonlinear_kalman_filter(
-                _linear_dynamics,
+            nonlinear_kalman_update(
                 _linear_obs,
-                _Q,
-                1e-3 * jnp.eye(_M),  # too small to rescue the indefinite block
-                _YS,
                 _M0,
                 _P0,
+                _YS[0],
+                1e-3 * jnp.eye(_M),  # too small to rescue the indefinite block
                 integrator=_IndefiniteIntegrator(),
                 joseph=True,
             )
@@ -1073,5 +1076,64 @@ def test_indefinite_posterior_with_positive_variances_is_rejected():
                 jnp.zeros(2),
                 jnp.eye(2),
                 integrator=_CorrelatedInconsistent(),
+            )
+        )
+
+
+@pytest.mark.parametrize("bad", [jnp.ones((1, 1)), jnp.ones((_N, 1))])
+def test_predict_step_rejects_misshapen_process_noise(bad):
+    """The public step functions validate shapes, not just the wrapper.
+
+    These are advertised for custom loops, so they cannot rely on
+    ``nonlinear_kalman_filter`` having checked first: a ``(1, 1)`` noise
+    would broadcast across the whole covariance and corrupt the prediction
+    silently.
+    """
+    from gaussx import nonlinear_kalman_predict
+
+    with pytest.raises(ValueError, match="process_noise must have shape"):
+        nonlinear_kalman_predict(_linear_dynamics, _M0, _P0, bad)
+
+
+@pytest.mark.parametrize("bad", [jnp.ones((1, 1)), jnp.ones((_M + 1, _M + 1))])
+def test_update_step_rejects_misshapen_obs_noise(bad):
+    """Likewise for the observation noise on the standalone update."""
+    from gaussx import nonlinear_kalman_update
+
+    with pytest.raises(ValueError, match="obs_noise must have shape"):
+        nonlinear_kalman_update(_linear_obs, _M0, _P0, _YS[0], bad)
+
+
+def test_predicted_covariance_is_validated():
+    """An indefinite prediction is rejected, not passed on.
+
+    A step-level ``False`` mask would expose it directly as the filtered
+    covariance, and nothing downstream would object: the next moment
+    transform tags it PSD and the dense square-root path clips negative
+    eigenvalues to zero, quietly altering the belief.
+    """
+    from gaussx import nonlinear_kalman_predict
+
+    class _IndefiniteDynamics(AbstractIntegrator):
+        def integrate(self, fn, state):
+            dim = state.mean.shape[-1]
+            return PropagationResult(
+                state=GaussianState(
+                    mean=fn(state.mean),
+                    cov=lx.MatrixLinearOperator(
+                        jnp.diag(jnp.array([1.0, 1.0, -0.5])), lx.symmetric_tag
+                    ),
+                ),
+                cross_cov=jnp.zeros((dim, dim)),
+            )
+
+    with pytest.raises(Exception, match="not positive semi-definite"):
+        jax.block_until_ready(
+            nonlinear_kalman_predict(
+                _linear_dynamics,
+                _M0,
+                _P0,
+                jnp.zeros((_N, _N)),
+                integrator=_IndefiniteDynamics(),
             )
         )
