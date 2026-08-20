@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import jax
@@ -13,8 +14,13 @@ from jaxtyping import Array, Float, PRNGKeyArray
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._primitives._sqrt import dense_symmetric_sqrt, sqrt
+from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
+from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -349,27 +355,52 @@ def localized_kalman_gain(
 def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     """A factor ``L`` with ``L L^T = R``, valid for singular ``R``.
 
-    The obvious choice, `gaussx.cholesky`, is PD-only wherever it bottoms out
-    in `jax.numpy.linalg.cholesky` -- which is every dense leaf, whether that
-    leaf is the whole operator or one block of a `gaussx.BlockDiag`. For a
-    positive *semi*-definite ``R`` such as ``diag(1, 1, 0)`` that returns
-    ``NaN``. Only the diagonal case escapes, because its "Cholesky" is an
-    elementwise ``sqrt`` that takes a zero in its stride.
+    Perturbations are drawn as ``eps_j = L n_j``, so ``L`` has three jobs, and
+    neither `gaussx.cholesky` nor `gaussx.sqrt` does all three on its own:
 
-    That matters because a singular ``R`` is a documented, supported case --
-    ``dense_innovation=True`` exists for it -- and the perturbations are drawn
-    before that flag is ever consulted, so a PD-only factor would poison the
-    analysis with ``NaN`` regardless of what the caller asked for.
+    1. **Exact.** ``enkf_analysis`` promises ``eps ~ N(0, R)``. An approximate
+       factor gives the perturbations the wrong covariance and biases the
+       analysis silently, so a truncated Lanczos square root is not an
+       acceptable default however cheap it is.
+    2. **Defined for a singular ``R``.** That is a documented, supported case
+       -- ``dense_innovation=True`` exists for it -- and perturbations are
+       drawn before that flag is ever consulted, so a positive-*definite*-only
+       factor poisons the analysis with ``NaN`` regardless of what the caller
+       asked for.
+    3. **Structure-preserving.** ``M`` is routinely large enough that
+       materialising ``R`` is the thing the structured operator existed to
+       avoid, and a dense fallback trades a ``NaN`` for an ``OOM``.
 
-    `gaussx.sqrt` is the PSD-safe counterpart, and it dispatches on exactly the
-    same structure: diagonal and Kronecker factors stay factored, block-diagonal
-    blocks are square-rooted independently, and a `gaussx.SumOfKroneckers` gets
-    a matrix-free Lanczos square root instead of `gaussx.cholesky`'s dense
-    fallback. So nothing here trades structure for definiteness. It returns the
-    *symmetric* square root rather than a triangular factor, which is a
-    different factorisation of the same ``R`` -- both satisfy ``L L^T = R``, so
-    the draws are distributionally identical, but a given key gives different
-    (equally valid) realisations.
+    `gaussx.cholesky` fails (2) at every dense leaf -- whether that leaf is the
+    whole operator or one block of a `gaussx.BlockDiag` -- because it bottoms
+    out in `jax.numpy.linalg.cholesky`, which returns ``NaN`` for a positive
+    *semi*-definite matrix such as ``diag(1, 1, 0)``. Only the diagonal case
+    escapes, its "Cholesky" being an elementwise ``sqrt`` that takes a zero in
+    its stride. `gaussx.sqrt` fixes (2) but breaks (1) for
+    `gaussx.SumOfKroneckers` and (3) for `gaussx.BlockTriDiag`.
+
+    So the dispatch is by operator, taking whichever is better per structure:
+
+    - Diagonal and identity: `gaussx.cholesky`, already exact and PSD-safe.
+    - `gaussx.BlockDiag` / `gaussx.Kronecker`: recurse. Both factor into
+      independent leaves -- ``(L_1 (x) L_2)(L_1 (x) L_2)^T = A_1 (x) A_2`` --
+      so structure survives *and* each leaf gets the PSD-safe treatment.
+    - `gaussx.BlockTriDiag`: `gaussx.cholesky`, whose banded recurrence is
+      ``O(N d^3)`` against ``O((N d)^3)`` dense. It has no PSD-safe blockwise
+      analogue, so this is the one operator where a singular ``R`` still gives
+      ``NaN`` -- densifying it would trade that for the ``OOM`` in (3).
+    - Anything else, including every dense leaf: the symmetric square root.
+
+    That last branch is where `gaussx.KroneckerSum` and
+    `gaussx.SumOfKroneckers` land. Both densify -- exactly as `gaussx.cholesky`
+    did -- rather than take their matrix-free `gaussx.sqrt` routes, which are
+    respectively not traceable (a Python ``bool`` on a data-dependent
+    definiteness check) and not exact.
+
+    The result is the *symmetric* square root at dense leaves rather than a
+    triangular factor. That is a different factorisation of the same ``R``:
+    both satisfy ``L L^T = R``, so the draws are distributionally identical,
+    but a given key gives a different (equally valid) realisation.
 
     Args:
         obs_noise: Observation error covariance, shape ``(M, M)``.
@@ -377,7 +408,29 @@ def _noise_factor(obs_noise: lx.AbstractLinearOperator) -> lx.AbstractLinearOper
     Returns:
         An operator ``L`` such that ``L L^T = obs_noise``.
     """
-    return sqrt(obs_noise)
+    if isinstance(obs_noise, lx.TaggedLinearOperator):
+        return _noise_factor(obs_noise.operator)
+    if isinstance(
+        obs_noise,
+        lx.IdentityLinearOperator | lx.DiagonalLinearOperator | BlockTriDiag,
+    ):
+        return cholesky(obs_noise)
+    if isinstance(obs_noise, BlockDiag):
+        return BlockDiag(*(_noise_factor(op) for op in obs_noise.operators))
+    if isinstance(obs_noise, Kronecker):
+        return Kronecker(*(_noise_factor(op) for op in obs_noise.operators))
+    if isinstance(obs_noise, SumOfKroneckers):
+        warnings.warn(
+            "enkf_analysis materialises a SumOfKroneckers obs_noise to draw "
+            "exact perturbations. For a matrix-free alternative, sample "
+            "eps ~ N(0, R) yourself -- sumkronecker_sample or "
+            "sqrt(obs_noise, lanczos_order=...) -- and pass them as "
+            "perturbed_obs=observation + eps. Both are approximate, so that "
+            "is an opt-in, not the default.",
+            DenseFallbackWarning,
+            stacklevel=2,
+        )
+    return lx.MatrixLinearOperator(dense_symmetric_sqrt(obs_noise.as_matrix()))
 
 
 def enkf_analysis(

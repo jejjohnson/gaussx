@@ -14,7 +14,15 @@ from gaussx import (
     ensemble_kalman_gain,
     localization_matrix,
 )
-from gaussx._operators import BlockDiag, Kronecker
+from gaussx._operators import (
+    BlockDiag,
+    BlockTriDiag,
+    Kronecker,
+    KroneckerSum,
+    LowerBlockTriDiag,
+    SumOfKroneckers,
+)
+from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._testing import random_pd_matrix
 
 
@@ -653,3 +661,95 @@ def test_gradient_through_isotropic_noise_is_finite(getkey):
     step = 1e-4
     expected = (loss(2.0 + step) - loss(2.0 - step)) / (2.0 * step)
     assert jnp.allclose(grad, expected, rtol=1e-4)
+
+
+class TestNoiseFactorDispatch:
+    """The factor must be exact, PSD-safe *and* structure-preserving.
+
+    No single primitive is all three: `gaussx.cholesky` gives up PSD-safety at
+    every dense leaf, and `gaussx.sqrt` gives up exactness for
+    `SumOfKroneckers` and structure for `BlockTriDiag`. These pin the choice
+    made per operator, since getting it wrong is silent in every case --
+    approximate draws, a dense blow-up, or a trace-time crash.
+    """
+
+    def _block_tridiag(self, getkey, n_blocks=6, block=3):
+        diagonal = jnp.stack(
+            [
+                random_pd_matrix(getkey(), block) + 2.0 * jnp.eye(block)
+                for _ in range(n_blocks)
+            ]
+        )
+        sub = jnp.stack(
+            [0.05 * jr.normal(getkey(), (block, block)) for _ in range(n_blocks - 1)]
+        )
+        return BlockTriDiag(diagonal, sub)
+
+    def test_block_tridiag_keeps_its_banded_factor(self, getkey):
+        """Densifying costs ``O((N d)^3)`` against the banded ``O(N d^3)``.
+
+        A block-tridiagonal ``R`` is chosen precisely when ``M`` is too large
+        to materialise, so a dense fallback trades a NaN for an OOM.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        operator = self._block_tridiag(getkey)
+        factor = _noise_factor(operator)
+        assert isinstance(factor, LowerBlockTriDiag)
+        dense = factor.as_matrix()
+        assert jnp.allclose(dense @ dense.T, operator.as_matrix(), atol=1e-6)
+
+    def test_sum_of_kroneckers_factor_is_exact(self, getkey):
+        """A truncated Lanczos square root would give the draws a covariance
+        that is only approximately ``R``, biasing the analysis silently.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        def kron(size):
+            return Kronecker(
+                lx.MatrixLinearOperator(
+                    random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                ),
+                lx.MatrixLinearOperator(
+                    random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                ),
+            )
+
+        # Side 8 x 8 -> M = 64, past the default Lanczos order of 50, which is
+        # where an approximate square root stops being incidentally exact.
+        operator = SumOfKroneckers(kron(8), kron(8))
+        with pytest.warns(DenseFallbackWarning):
+            factor = _noise_factor(operator).as_matrix()
+        reference = operator.as_matrix()
+        error = jnp.abs(factor @ factor.T - reference).max()
+        assert error < 1e-10 * jnp.abs(reference).max()
+
+    def test_kronecker_sum_noise_survives_tracing(self, getkey):
+        """`KroneckerSumSqrt` validates definiteness with a Python ``bool``.
+
+        Under ``jit`` that value is a tracer, so building it while tracing
+        raises before a single perturbation is drawn.
+        """
+        factors = [
+            lx.MatrixLinearOperator(
+                random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+            )
+            for size in (3, 4)
+        ]
+        obs_noise = KroneckerSum(*factors)
+        n_obs = obs_noise.in_size()
+        prior = jr.normal(getkey(), (5, 7))
+        obs_prior = jr.normal(getkey(), (5, n_obs))
+
+        @eqx.filter_jit
+        def analyse(noise, key):
+            return enkf_analysis(
+                prior,
+                obs_prior,
+                jnp.zeros(n_obs),
+                noise,
+                key=key,
+                dense_innovation=True,
+            )
+
+        assert jnp.all(jnp.isfinite(analyse(obs_noise, getkey())))
