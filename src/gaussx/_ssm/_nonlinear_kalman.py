@@ -365,6 +365,12 @@ def nonlinear_kalman_update(
 
     M = observation.shape[-1]
     obs_noise = _check_noise_shape(obs_noise, M, "obs_noise")
+    if mask is not None and jnp.shape(mask) != (M,):
+        # A (1,) mask would broadcast across every channel: False would
+        # suppress them all and return an identity update, True would enable
+        # them all, in either case silently.
+        msg = f"mask must have shape ({M},); got {jnp.shape(mask)}."
+        raise ValueError(msg)
 
     y_hat, obs_cov, cross = moment_transform(obs_fn, mean, cov, integrator=integrator)
 
@@ -601,6 +607,20 @@ def nonlinear_rts_step(
     # ones.
     mean_new = mean_filtered + gain @ (mean_smoothed - mean_predicted)
     cov_new = symmetrize(cov_filtered + gain @ (cov_smoothed - cov_predicted) @ gain.T)
+
+    # Validated for the same reason predict and update are. The filtered and
+    # predicted covariances can each be PSD while an inconsistent
+    # cross-covariance still drives the correction indefinite -- in one
+    # dimension P_f = P_pred = 1 with cross = 2 gives G = 2 and a smoothed
+    # variance of -2.6.
+    cov_new = _reject_indefinite(
+        cov_new,
+        "nonlinear_rts_step: the smoothed covariance is not positive "
+        "semi-definite. The dynamics moment triple is not a consistent "
+        "joint, which a negative-weight quadrature rule can produce. Use a "
+        "positive-weight rule such as CubatureIntegrator or "
+        "UnscentedIntegrator(alpha=1.0).",
+    )
     return mean_new, cov_new
 
 

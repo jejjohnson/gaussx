@@ -534,3 +534,17 @@ def test_large_diffusion_preserves_smaller_modes():
     assert tree_allclose(A, jnp.eye(2), atol=1e-12)
     # Both channels come back, across eight orders of magnitude.
     assert tree_allclose(Q, Q_c, rtol=1e-10)
+
+
+def test_long_step_with_modest_diffusion_does_not_overflow():
+    """The budget applies to ``Q_c`` times the substep, not ``Q_c`` alone.
+
+    ``_van_loan`` exponentiates ``Phi * dt``, so a modest diffusion over a
+    long step presents the same off-diagonal magnitude as a large one over
+    a short step: ``Q_c = 1e3`` with ``dt = 1e5`` is the same 1e8 that NaNs
+    at ``Q_c = 1e8``, ``dt = 1``.
+    """
+    A, Q = discretise_mfd(jnp.zeros((1, 1)), jnp.array([[1e3]]), jnp.asarray(1e5))
+
+    assert tree_allclose(A, jnp.eye(1), atol=1e-12)
+    assert tree_allclose(Q, jnp.array([[1e8]]), rtol=1e-10)

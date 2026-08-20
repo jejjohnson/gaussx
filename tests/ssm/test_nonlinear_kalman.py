@@ -1137,3 +1137,52 @@ def test_predicted_covariance_is_validated():
                 integrator=_IndefiniteDynamics(),
             )
         )
+
+
+@pytest.mark.parametrize("bad", [jnp.array([False]), jnp.ones((_M + 1,), bool)])
+def test_update_step_rejects_a_misshapen_mask(bad):
+    """A per-step mask must be exactly ``(M,)``.
+
+    A ``(1,)`` mask broadcasts across every channel: ``False`` suppresses
+    them all and returns an identity update, ``True`` enables them all —
+    either way silently, which is precisely what a custom loop cannot
+    afford.
+    """
+    from gaussx import nonlinear_kalman_update
+
+    with pytest.raises(ValueError, match="mask must have shape"):
+        nonlinear_kalman_update(_linear_obs, _M0, _P0, _YS[0], _R, mask=bad)
+
+
+def test_smoothed_covariance_is_validated():
+    """An indefinite smoothed covariance is rejected, as in predict/update.
+
+    The filtered and predicted covariances can each be PSD while an
+    inconsistent cross-covariance still drives the correction indefinite.
+    """
+    from gaussx import nonlinear_rts_step
+
+    class _InconsistentDynamics(AbstractIntegrator):
+        def integrate(self, fn, state):
+            dim = state.mean.shape[-1]
+            return PropagationResult(
+                state=GaussianState(
+                    mean=fn(state.mean),
+                    cov=lx.MatrixLinearOperator(jnp.eye(dim), lx.symmetric_tag),
+                ),
+                cross_cov=2.0 * jnp.eye(dim),
+            )
+
+    with pytest.raises(Exception, match="not positive semi-definite"):
+        jax.block_until_ready(
+            nonlinear_rts_step(
+                lambda x: x,
+                jnp.zeros(1),
+                jnp.eye(1),
+                jnp.zeros(1),
+                jnp.eye(1),
+                jnp.zeros(1),
+                0.1 * jnp.eye(1),
+                integrator=_InconsistentDynamics(),
+            )
+        )

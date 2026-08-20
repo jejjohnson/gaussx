@@ -110,9 +110,10 @@ def process_noise_covariance(
 # float32 overflow point of ~88 with margin to spare.
 _MFD_MAX_SQUARINGS = 12
 _MFD_EXPONENT_BUDGET = 30.0
-# Largest diffusion entry left unscaled. Van Loan's generator carries Q_c in
-# its off-diagonal block, and expm starts returning NaN well below the float
-# range -- measured at 1e6 for an otherwise trivial problem.
+# Largest diffusion *times substep* left unscaled. Van Loan's generator
+# carries Q_c in its off-diagonal block and is exponentiated as Phi * dt, so
+# expm starts returning NaN well below the float range -- measured at 1e6 for
+# an otherwise trivial problem.
 _MFD_DIFFUSION_BUDGET = 1e3
 
 
@@ -265,14 +266,21 @@ def discretise_mfd(
     # survive any uniform scaling -- in float32, diag(1e30, 1e-20) has no
     # scaling that keeps both representable. That is a limit of the format,
     # not of the scheme.
-    max_entry = jnp.abs(Q_c).max()
+    #
+    # The budget applies to what the exponential actually sees, which is
+    # Q_c scaled by the *substep*: `_van_loan` exponentiates Phi * dt, so a
+    # modest diffusion over a long step is just as dangerous as a large one
+    # over a short step. Q_c = 1e3 with dt = 1e5 presents the same 1e8
+    # off-diagonal magnitude that NaNs at Q_c = 1e8, dt = 1.
+    substep = dt / 2.0**n_squarings
+    effective_diffusion = jnp.abs(Q_c).max() * substep
     diffusion_scale = jnp.where(
-        max_entry > _MFD_DIFFUSION_BUDGET,
-        2.0 ** jnp.ceil(jnp.log2(max_entry / _MFD_DIFFUSION_BUDGET)),
+        effective_diffusion > _MFD_DIFFUSION_BUDGET,
+        2.0 ** jnp.ceil(jnp.log2(effective_diffusion / _MFD_DIFFUSION_BUDGET)),
         1.0,
     )
 
-    A, Q = _van_loan(F, Q_c / diffusion_scale, dt / 2.0**n_squarings)
+    A, Q = _van_loan(F, Q_c / diffusion_scale, substep)
 
     # Compose back up. The unroll is static, but each doubling is placed
     # behind a lax.cond rather than a select so an inactive step is not
