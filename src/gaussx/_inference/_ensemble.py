@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable
 
 import jax
@@ -13,8 +14,13 @@ from jaxtyping import Array, Float, PRNGKeyArray
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._primitives._cholesky import cholesky
+from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
+from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -346,6 +352,104 @@ def localized_kalman_gain(
 # ---------------------------------------------------------------------------
 
 
+def _noise_factor(
+    obs_noise: lx.AbstractLinearOperator,
+    *,
+    allow_dense: bool = False,
+) -> lx.AbstractLinearOperator:
+    """A factor ``L`` with ``L L^T = R``, valid for singular ``R``.
+
+    Perturbations are drawn as ``eps_j = L n_j``, so ``L`` has three jobs, and
+    neither `gaussx.cholesky` nor `gaussx.sqrt` does all three on its own:
+
+    1. **Exact.** ``enkf_analysis`` promises ``eps ~ N(0, R)``. An approximate
+       factor gives the perturbations the wrong covariance and biases the
+       analysis silently, so a truncated Lanczos square root is not an
+       acceptable default however cheap it is.
+    2. **Defined for a singular ``R``.** That is a documented, supported case
+       -- ``dense_innovation=True`` exists for it -- and perturbations are
+       drawn before that flag is ever consulted, so a positive-*definite*-only
+       factor poisons the analysis with ``NaN`` regardless of what the caller
+       asked for.
+    3. **Structure-preserving.** ``M`` is routinely large enough that
+       materialising ``R`` is the thing the structured operator existed to
+       avoid, and a dense fallback trades a ``NaN`` for an ``OOM``.
+
+    `gaussx.cholesky` fails (2) at every dense leaf -- whether that leaf is the
+    whole operator or one block of a `gaussx.BlockDiag` -- because it bottoms
+    out in `jax.numpy.linalg.cholesky`, which returns ``NaN`` for a positive
+    *semi*-definite matrix such as ``diag(1, 1, 0)``. Only the diagonal case
+    escapes, its "Cholesky" being an elementwise ``sqrt`` that takes a zero in
+    its stride. `gaussx.sqrt` fixes (2) but breaks (1) for
+    `gaussx.SumOfKroneckers` and (3) for `gaussx.BlockTriDiag`.
+
+    So the dispatch is by operator, taking whichever is better per structure:
+
+    - Diagonal and identity: `gaussx.cholesky`, already exact and PSD-safe.
+    - `gaussx.BlockDiag` / `gaussx.Kronecker`: recurse. Both factor into
+      independent leaves -- ``(L_1 (x) L_2)(L_1 (x) L_2)^T = A_1 (x) A_2`` --
+      so structure survives *and* each leaf gets the PSD-safe treatment.
+    - `gaussx.BlockTriDiag`: `gaussx.cholesky`, whose banded recurrence is
+      ``O(N d^3)`` against ``O((N d)^3)`` dense. It has no PSD-safe blockwise
+      analogue, so it is the one structure where (2) and (3) genuinely
+      conflict -- hence ``allow_dense``, below.
+    - Anything else, including every dense leaf: the symmetric square root.
+
+    That last branch is where `gaussx.KroneckerSum` and
+    `gaussx.SumOfKroneckers` land. Both densify -- exactly as `gaussx.cholesky`
+    did -- rather than take their matrix-free `gaussx.sqrt` routes, which are
+    respectively not traceable (a Python ``bool`` on a data-dependent
+    definiteness check) and not exact.
+
+    The result is the *symmetric* square root at dense leaves rather than a
+    triangular factor. That is a different factorisation of the same ``R``:
+    both satisfy ``L L^T = R``, so the draws are distributionally identical,
+    but a given key gives a different (equally valid) realisation.
+
+    Args:
+        obs_noise: Observation error covariance, shape ``(M, M)``.
+        allow_dense: Whether the caller's gain path materialises ``R`` anyway.
+            When it does, requirement (3) is already spent and cannot justify
+            declining (2), so `gaussx.BlockTriDiag` takes the PSD-safe dense
+            factor too and a singular ``R`` stops being fatal. Only
+            `enkf_analysis`'s Woodbury route -- no localization, structured
+            innovation -- keeps ``R`` unmaterialised, so only there is the
+            banded factor worth a ``NaN``.
+
+    Returns:
+        An operator ``L`` such that ``L L^T = obs_noise``.
+    """
+    if isinstance(obs_noise, lx.TaggedLinearOperator):
+        return _noise_factor(obs_noise.operator, allow_dense=allow_dense)
+    if isinstance(obs_noise, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
+        return cholesky(obs_noise)
+    if isinstance(obs_noise, BlockTriDiag) and not allow_dense:
+        return cholesky(obs_noise)
+    if isinstance(obs_noise, BlockDiag):
+        return BlockDiag(
+            *(_noise_factor(op, allow_dense=allow_dense) for op in obs_noise.operators)
+        )
+    if isinstance(obs_noise, Kronecker):
+        return Kronecker(
+            *(_noise_factor(op, allow_dense=allow_dense) for op in obs_noise.operators)
+        )
+    # Only worth saying when the caller could act on it: if the gain path
+    # materialises R regardless, drawing the perturbations elsewhere saves
+    # nothing.
+    if isinstance(obs_noise, SumOfKroneckers) and not allow_dense:
+        warnings.warn(
+            "enkf_analysis materialises a SumOfKroneckers obs_noise to draw "
+            "exact perturbations. For a matrix-free alternative, sample "
+            "eps ~ N(0, R) yourself -- sumkronecker_sample or "
+            "sqrt(obs_noise, lanczos_order=...) -- and pass them as "
+            "perturbed_obs=observation + eps. Both are approximate, so that "
+            "is an opt-in, not the default.",
+            DenseFallbackWarning,
+            stacklevel=2,
+        )
+    return lx.MatrixLinearOperator(dense_symmetric_sqrt(obs_noise.as_matrix()))
+
+
 def enkf_analysis(
     particles: Float[Array, "J N"],
     obs_particles: Float[Array, "J M"],
@@ -444,9 +548,10 @@ def enkf_analysis(
         dense_innovation: Whether to form the ``(M, M)`` innovation covariance
             densely. ``None`` (default) chooses by shape, as described in the
             note below. ``False`` keeps the structured `LowRankUpdate` no
-            matter the shapes -- for a matrix-free solver, or when
-            ``obs_noise`` is singular. ``True`` forces the dense assembly, the
-            way out when ``J < M`` but ``obs_noise`` is not positive definite.
+            matter the shapes -- what a matrix-free solver wants. ``True``
+            forces the dense assembly, which is the way out when ``obs_noise``
+            is only positive *semi*-definite, since the structured route
+            solves against ``obs_noise`` itself.
         bessel: Use the $1/(J-1)$ divisor. Defaults to ``True``, matching
             `ensemble_kalman_gain`.
 
@@ -532,17 +637,29 @@ def enkf_analysis(
             f"({obs_noise.out_size()}, {obs_noise.in_size()})."
         )
 
+    # Whether to form the (M, M) innovation densely. `None` picks by shape; an
+    # explicit value overrides that, which is what a matrix-free solver needs.
+    # Decided here rather than at the gain, because the factor below needs it.
+    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
+
     # Branch on `key` rather than on `perturbed_obs`: the check above makes the
     # two equivalent, but this way each branch narrows the argument it uses.
     if key is not None:
-        # eps_j = L n_j with R = L L^T. `cholesky` dispatches on structure, so a
-        # DiagonalLinearOperator stays diagonal and its matvec stays O(M) --
+        # eps_j = L n_j with R = L L^T. The factor dispatches on structure, so
+        # a DiagonalLinearOperator stays diagonal and its matvec stays O(M) --
         # materialising R here would allocate a dense (M, M) and cost O(M^3),
         # which for the low-rank branch below (J < M, M possibly enormous) would
         # OOM before the gain is ever formed.
-        chol = cholesky(obs_noise)
+        #
+        # Unless the gain is about to allocate that (M, M) anyway: every route
+        # but Woodbury calls `obs_noise.as_matrix()`, and once the dense cost
+        # is being paid regardless there is nothing left to protect by holding
+        # on to a positive-definite-only factor.
+        factor = _noise_factor(
+            obs_noise, allow_dense=use_dense or localization is not None
+        )
         noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
-        perturbed = observation[None, :] + jax.vmap(chol.mv)(noise)  # (J, M)
+        perturbed = observation[None, :] + jax.vmap(factor.mv)(noise)  # (J, M)
     else:
         perturbed = perturbed_obs
         if perturbed is None or perturbed.shape != (n_ens, n_obs):
@@ -568,10 +685,6 @@ def enkf_analysis(
                 f"obs_localization must have shape ({n_obs}, {n_obs}) to match "
                 f"obs_particles, got {obs_localization.shape}."
             )
-
-    # Whether to form the (M, M) innovation densely. `None` picks by shape; an
-    # explicit value overrides that, which is what a matrix-free solver needs.
-    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
 
     if localization is None and not use_dense:
         # Fewer members than observations: the Woodbury capacitance is (J, J)
@@ -762,7 +875,14 @@ def etkf_transform(
 
 
 def _symmetric_sqrt(matrix: Float[Array, "J J"]) -> Float[Array, "J J"]:
-    """Symmetric (eigendecomposition) square root of an SPD matrix."""
-    eigvals, eigvecs = jnp.linalg.eigh(matrix)
-    sqrt_eigvals = jnp.sqrt(jnp.maximum(eigvals, 0.0))
-    return (eigvecs * sqrt_eigvals[None, :]) @ eigvecs.T
+    """Symmetric (eigendecomposition) square root of an SPD matrix.
+
+    Thin alias for `gaussx._primitives._sqrt.dense_symmetric_sqrt`, which
+    carries a Sylvester-equation JVP so that the derivative stays finite at
+    repeated eigenvalues. `etkf_transform` square-roots an analysis covariance
+    that always has them -- ``Y R^-1 Y^T`` has rank at most ``min(M, J - 1)``,
+    so the prior eigenvalue survives with multiplicity ``J - M`` whenever
+    ``M < J`` -- and while the naive derivative happens to stay finite on the
+    tangents that arise there, it is one input away from not doing so.
+    """
+    return dense_symmetric_sqrt(matrix)

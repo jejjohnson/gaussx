@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -14,6 +16,15 @@ from gaussx import (
     ensemble_kalman_gain,
     localization_matrix,
 )
+from gaussx._operators import (
+    BlockDiag,
+    BlockTriDiag,
+    Kronecker,
+    KroneckerSum,
+    LowerBlockTriDiag,
+    SumOfKroneckers,
+)
+from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._testing import random_pd_matrix
 
 
@@ -160,10 +171,15 @@ def test_perturbed_obs_reproduces_the_key_path(getkey):
     key = getkey()
     from_key = enkf_analysis(prior, obs_prior, y, noise, key=key)
 
-    # Rebuild the same realisation by hand and pass it in explicitly.
+    # Rebuild the same realisation by hand and pass it in explicitly, through
+    # the same factor the implementation uses -- a PSD square root rather than
+    # a Cholesky, so that a singular R still works (both satisfy L L^T = R, but
+    # they are different factors and so give different draws for one key).
+    from gaussx._inference._ensemble import _noise_factor
+
     n_ens, n_obs = obs_prior.shape
-    chol = jnp.linalg.cholesky(noise.as_matrix())
-    eps = jr.normal(key, (n_ens, n_obs), dtype=prior.dtype) @ chol.T
+    factor = _noise_factor(noise).as_matrix()
+    eps = jr.normal(key, (n_ens, n_obs), dtype=prior.dtype) @ factor.T
     from_explicit = enkf_analysis(
         prior, obs_prior, y, noise, perturbed_obs=y[None, :] + eps
     )
@@ -543,3 +559,272 @@ def test_dense_innovation_true_handles_singular_observation_noise(getkey):
         dense_innovation=True,
     )
     assert jnp.all(jnp.isfinite(dense))
+
+
+def test_singular_dense_noise_perturbations_are_finite(getkey):
+    """The documented singular-R escape hatch must survive the `key` path.
+
+    Perturbations are drawn before `dense_innovation` is consulted, so a
+    PD-only Cholesky of `diag(1, 1, 0)` would return a NaN factor and the
+    analysis would be NaN no matter what the flag says.
+    """
+    n_state, n_obs = 4, 3
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    prior = jr.normal(k_prior, (2, n_state))  # J = 2 < M = 3
+    obs_prior = jr.normal(k_obs, (2, n_obs))
+    singular = lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([1.0, 1.0, 0.0])), lx.positive_semidefinite_tag
+    )
+    out = enkf_analysis(
+        prior,
+        obs_prior,
+        jnp.zeros(n_obs),
+        singular,
+        key=k_draw,
+        dense_innovation=True,
+    )
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_noise_factor_reproduces_the_covariance(getkey):
+    """Whatever route the factor takes, ``L L^T`` must be ``R``.
+
+    The singular cases are the point: a Cholesky-based factor returns ``NaN``
+    for every one of them except the plain diagonal, whose elementwise
+    ``sqrt`` happens to tolerate a zero.
+    """
+    from gaussx._inference._ensemble import _noise_factor
+
+    singular_dense = lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([1.0, 0.0])), lx.positive_semidefinite_tag
+    )
+    for operator in (
+        lx.MatrixLinearOperator(random_pd_matrix(getkey(), 4)),
+        lx.DiagonalLinearOperator(jnp.array([0.1, 0.2, 0.3, 0.4])),
+        lx.DiagonalLinearOperator(jnp.array([0.1, 0.0, 0.3, 0.4])),
+        lx.MatrixLinearOperator(
+            jnp.diag(jnp.array([1.0, 1.0, 0.0, 2.0])), lx.positive_semidefinite_tag
+        ),
+        # A singular *block* of an otherwise healthy structured operator: the
+        # dense leaf is buried, so dispatching on the top-level type alone
+        # would still route it into a PD-only factorisation.
+        BlockDiag(lx.DiagonalLinearOperator(jnp.array([1.0, 2.0])), singular_dense),
+        Kronecker(
+            lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2)), singular_dense
+        ),
+    ):
+        factor = _noise_factor(operator).as_matrix()
+        assert jnp.all(jnp.isfinite(factor))
+        assert jnp.allclose(factor @ factor.T, operator.as_matrix(), atol=1e-6)
+
+
+def test_singular_block_of_structured_noise_stays_finite(getkey):
+    """The escape hatch must survive a singular block, not just a singular ``R``.
+
+    `gaussx.cholesky` recurses into a `gaussx.BlockDiag` and hits
+    `jnp.linalg.cholesky` on the dense block, so the analysis came back
+    ``NaN`` even though the assembled innovation covariance is invertible.
+    """
+    n_state, n_obs = 5, 4
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    obs_noise = BlockDiag(
+        lx.DiagonalLinearOperator(jnp.array([1.0, 2.0])),
+        lx.MatrixLinearOperator(
+            jnp.diag(jnp.array([1.0, 0.0])), lx.positive_semidefinite_tag
+        ),
+    )
+    out = enkf_analysis(
+        jr.normal(k_prior, (3, n_state)),
+        jr.normal(k_obs, (3, n_obs)),
+        jnp.zeros(n_obs),
+        obs_noise,
+        key=k_draw,
+        dense_innovation=True,
+    )
+    assert jnp.all(jnp.isfinite(out))
+
+
+def test_gradient_through_isotropic_noise_is_finite(getkey):
+    """``R = sigma^2 I`` is the commonest EnKF covariance -- and all repeated
+    eigenvalues, where a naive eigendecomposition derivative is ``NaN``.
+    """
+    n_obs = 3
+    k_prior, k_obs, k_draw = jr.split(getkey(), 3)
+    prior = jr.normal(k_prior, (6, 4))
+    obs_prior = jr.normal(k_obs, (6, n_obs))
+
+    def loss(variance):
+        noise = lx.MatrixLinearOperator(variance * jnp.eye(n_obs))
+        out = enkf_analysis(prior, obs_prior, jnp.ones(n_obs), noise, key=k_draw)
+        return jnp.sum(out**2)
+
+    grad = jax.grad(loss)(2.0)
+    assert jnp.isfinite(grad)
+    step = 1e-4
+    expected = (loss(2.0 + step) - loss(2.0 - step)) / (2.0 * step)
+    assert jnp.allclose(grad, expected, rtol=1e-4)
+
+
+class TestNoiseFactorDispatch:
+    """The factor must be exact, PSD-safe *and* structure-preserving.
+
+    No single primitive is all three: `gaussx.cholesky` gives up PSD-safety at
+    every dense leaf, and `gaussx.sqrt` gives up exactness for
+    `SumOfKroneckers` and structure for `BlockTriDiag`. These pin the choice
+    made per operator, since getting it wrong is silent in every case --
+    approximate draws, a dense blow-up, or a trace-time crash.
+    """
+
+    def _block_tridiag(self, getkey, n_blocks=6, block=3):
+        diagonal = jnp.stack(
+            [
+                random_pd_matrix(getkey(), block) + 2.0 * jnp.eye(block)
+                for _ in range(n_blocks)
+            ]
+        )
+        sub = jnp.stack(
+            [0.05 * jr.normal(getkey(), (block, block)) for _ in range(n_blocks - 1)]
+        )
+        return BlockTriDiag(diagonal, sub)
+
+    def test_block_tridiag_keeps_its_banded_factor(self, getkey):
+        """Densifying costs ``O((N d)^3)`` against the banded ``O(N d^3)``.
+
+        A block-tridiagonal ``R`` is chosen precisely when ``M`` is too large
+        to materialise, so a dense fallback trades a NaN for an OOM.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        operator = self._block_tridiag(getkey)
+        factor = _noise_factor(operator)
+        assert isinstance(factor, LowerBlockTriDiag)
+        dense = factor.as_matrix()
+        assert jnp.allclose(dense @ dense.T, operator.as_matrix(), atol=1e-6)
+
+    def test_sum_of_kroneckers_factor_is_exact(self, getkey):
+        """A truncated Lanczos square root would give the draws a covariance
+        that is only approximately ``R``, biasing the analysis silently.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        def kron(size):
+            return Kronecker(
+                lx.MatrixLinearOperator(
+                    random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                ),
+                lx.MatrixLinearOperator(
+                    random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                ),
+            )
+
+        # Side 8 x 8 -> M = 64, past the default Lanczos order of 50, which is
+        # where an approximate square root stops being incidentally exact.
+        operator = SumOfKroneckers(kron(8), kron(8))
+        with pytest.warns(DenseFallbackWarning):
+            factor = _noise_factor(operator).as_matrix()
+        reference = operator.as_matrix()
+        error = jnp.abs(factor @ factor.T - reference).max()
+        assert error < 1e-10 * jnp.abs(reference).max()
+
+    def test_kronecker_sum_noise_survives_tracing(self, getkey):
+        """`KroneckerSumSqrt` validates definiteness with a Python ``bool``.
+
+        Under ``jit`` that value is a tracer, so building it while tracing
+        raises before a single perturbation is drawn.
+        """
+        factors = [
+            lx.MatrixLinearOperator(
+                random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+            )
+            for size in (3, 4)
+        ]
+        obs_noise = KroneckerSum(*factors)
+        n_obs = obs_noise.in_size()
+        prior = jr.normal(getkey(), (5, 7))
+        obs_prior = jr.normal(getkey(), (5, n_obs))
+
+        @eqx.filter_jit
+        def analyse(noise, key):
+            return enkf_analysis(
+                prior,
+                obs_prior,
+                jnp.zeros(n_obs),
+                noise,
+                key=key,
+                dense_innovation=True,
+            )
+
+        assert jnp.all(jnp.isfinite(analyse(obs_noise, getkey())))
+
+    def test_block_tridiag_takes_the_dense_factor_when_the_gain_densifies(self, getkey):
+        """Structure is only worth a NaN while it is still being preserved.
+
+        Every gain route but Woodbury calls ``obs_noise.as_matrix()``, so once
+        the caller has picked one of those the ``(M, M)`` allocation is
+        happening regardless and the banded factor buys nothing.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        operator = self._block_tridiag(getkey)
+        assert isinstance(_noise_factor(operator), LowerBlockTriDiag)
+        forced = _noise_factor(operator, allow_dense=True)
+        assert isinstance(forced, lx.MatrixLinearOperator)
+        dense = forced.as_matrix()
+        assert jnp.allclose(dense @ dense.T, operator.as_matrix(), atol=1e-6)
+
+    @pytest.mark.parametrize("route", ["dense_innovation", "localization"])
+    def test_singular_block_tridiag_survives_the_densifying_routes(self, route, getkey):
+        """A zero Schur complement makes the banded Cholesky return NaN.
+
+        The innovation covariance is still invertible, so there is a perfectly
+        good analysis on the other side of the factor.
+        """
+        block = 2
+        obs_noise = BlockTriDiag(
+            jnp.stack(
+                [
+                    2.0 * jnp.eye(block),
+                    3.0 * jnp.eye(block),
+                    jnp.diag(jnp.array([1.0, 0.0])),  # singular block
+                ]
+            ),
+            jnp.zeros((2, block, block)),
+        )
+        n_obs = obs_noise.in_size()
+        n_state = 5
+        prior = jr.normal(getkey(), (3, n_state))
+        obs_prior = jr.normal(getkey(), (3, n_obs))
+        kwargs = (
+            {"dense_innovation": True}
+            if route == "dense_innovation"
+            else {"localization": jnp.ones((n_state, n_obs))}
+        )
+        out = enkf_analysis(
+            prior, obs_prior, jnp.zeros(n_obs), obs_noise, key=getkey(), **kwargs
+        )
+        assert jnp.all(jnp.isfinite(out))
+
+    def test_sum_of_kroneckers_warning_is_silent_when_dense_is_already_paid(
+        self, getkey
+    ):
+        """The warning tells the caller to draw perturbations themselves.
+
+        That is only actionable while the gain path would have kept ``R``
+        structured; otherwise it is advice that saves nothing.
+        """
+        from gaussx._inference._ensemble import _noise_factor
+
+        def kron(size):
+            return Kronecker(
+                *(
+                    lx.MatrixLinearOperator(
+                        random_pd_matrix(getkey(), size), lx.positive_semidefinite_tag
+                    )
+                    for _ in range(2)
+                )
+            )
+
+        operator = SumOfKroneckers(kron(3), kron(3))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DenseFallbackWarning)
+            _noise_factor(operator, allow_dense=True)
