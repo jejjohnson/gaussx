@@ -8,7 +8,6 @@ import jax.scipy.linalg as jsl
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._kronecker import Kronecker
 from gaussx._ssm._discretise import process_noise_covariance
@@ -98,18 +97,23 @@ class ProductSDE(SDEKernel):
         identically zero, since `CosineSDE` has $Q_c = 0$.
 
         The sum of two Kronecker products is still expressible in the
-        ``(L, Q_c)`` form, by widening the noise dimension: with
-        $S_i S_i^\top = P_i$,
+        ``(L, Q_c)`` form, by widening the noise dimension and carrying
+        each factor's stationary covariance in the spectral density:
 
         $$
-        L = \bigl[\, L_1 \otimes S_2 \;\;\big|\;\; S_1 \otimes L_2 \,\bigr],
+        L = \bigl[\, L_1 \otimes I_{d_2} \;\;\big|\;\; I_{d_1} \otimes L_2 \,\bigr],
         \qquad
         Q_c = \operatorname{blockdiag}\!\bigl(
-            Q_{c,1} \otimes I_{d_2},\; I_{d_1} \otimes Q_{c,2}
+            Q_{c,1} \otimes P_2,\; P_1 \otimes Q_{c,2}
         \bigr),
         $$
 
-        so that $L Q_c L^\top$ telescopes to exactly the $B$ above.
+        so that $L Q_c L^\top$ telescopes to exactly the $B$ above by the
+        mixed-product property. Writing it this way rather than through
+        square roots $S_i S_i^\top = P_i$ keeps the result exact for
+        singular or zero $P_\infty$ (where a Cholesky would need jitter,
+        and would then violate the very Lyapunov equation this enforces)
+        and keeps ``sde_params`` reverse-mode differentiable.
 
         Note:
             ``SDEParams`` currently types its fields as dense
@@ -149,22 +153,35 @@ class ProductSDE(SDEKernel):
             )
             raise NotImplementedError(msg)
 
-        F = jnp.kron(p1.F, jnp.eye(d2)) + jnp.kron(jnp.eye(d1), p2.F)
+        # Identities carry the factor dtypes: an untyped ``jnp.eye`` is
+        # float64 under x64 and would promote float32 kernels.
+        eye1 = jnp.eye(d1, dtype=p1.F.dtype)
+        eye2 = jnp.eye(d2, dtype=p2.F.dtype)
+
+        F = jnp.kron(p1.F, eye2) + jnp.kron(eye1, p2.F)
         H = jnp.kron(p1.H, p2.H)
         P_inf = jnp.kron(p1.P_inf, p2.P_inf)
 
-        # B = B1 (x) P2 + P1 (x) B2, factored through the stationary
-        # square roots so it still fits the (L, Q_c) pair. The noise
-        # dimension widens from s1*s2 to s1*d2 + d1*s2.
-        S1 = safe_cholesky(lx.MatrixLinearOperator(p1.P_inf, lx.symmetric_tag))
-        S2 = safe_cholesky(lx.MatrixLinearOperator(p2.P_inf, lx.symmetric_tag))
+        # B = B1 (x) P2 + P1 (x) B2, kept in the (L, Q_c) pair by putting
+        # each factor's P_inf in the *spectral density* rather than taking
+        # its square root:
+        #
+        #     B1 (x) P2 = (L1 (x) I) (Q_c1 (x) P2) (L1 (x) I)^T
+        #     P1 (x) B2 = (I (x) L2) (P1 (x) Q_c2) (I (x) L2)^T
+        #
+        # by the mixed-product property. Exact for any PSD P_inf --
+        # including singular or zero ones, where a Cholesky would need
+        # jitter and stop satisfying the Lyapunov equation this is here to
+        # enforce -- and reverse-mode differentiable, which a jittered
+        # ``safe_cholesky`` (data-dependent ``lax.while_loop``) is not.
+        # The noise dimension widens from s1*s2 to s1*d2 + d1*s2.
         L = jnp.concatenate(
-            [jnp.kron(p1.L, S2), jnp.kron(S1, p2.L)],
+            [jnp.kron(p1.L, eye2), jnp.kron(eye1, p2.L)],
             axis=1,
         )
         Q_c = jsl.block_diag(
-            jnp.kron(p1.Q_c, jnp.eye(d2)),
-            jnp.kron(jnp.eye(d1), p2.Q_c),
+            jnp.kron(p1.Q_c, p2.P_inf),
+            jnp.kron(p1.P_inf, p2.Q_c),
         )
 
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)

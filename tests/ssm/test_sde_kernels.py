@@ -426,3 +426,69 @@ class TestProductSDEDiffusionConsistency:
             kern.sde_params()
         with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
             kern.discretise(jnp.array(0.1))
+
+
+class TestProductSDEParamsRobustness:
+    """Cases the square-root formulation would have got wrong (gh-219 review)."""
+
+    def test_semidefinite_factor_stays_exact(self):
+        """A zero-variance factor must not pick up a jitter term.
+
+        ``ConstantSDE(variance=0)`` has ``P_inf = 0``, so the product's
+        stationary covariance and diffusion are both exactly zero. A
+        jittered Cholesky would report ``eps * B_other`` instead and break
+        the Lyapunov equation.
+        """
+        k1 = ConstantSDE(variance=jnp.array(0.0))
+        k2 = MaternSDE(variance=jnp.array(1.3), lengthscale=jnp.array(0.8), order=1)
+        params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
+
+        B = params.L @ params.Q_c @ params.L.T
+        assert jnp.max(jnp.abs(params.P_inf)) == 0.0
+        assert jnp.max(jnp.abs(B)) == 0.0
+
+        residual = params.F @ params.P_inf + params.P_inf @ params.F.T + B
+        assert jnp.max(jnp.abs(residual)) == 0.0
+
+    def test_composition_adds_no_dtype_promotion(self):
+        """The identity blocks must follow the factors, not JAX's default.
+
+        An untyped ``jnp.eye`` is float64 under x64 and would promote the
+        composite past what its factors carry. Asserted relative to the
+        factors rather than against float32 outright: the leaf kernels
+        already report a float64 ``L``/``Q_c`` from float32 inputs, which
+        is a separate defect in ``_matern.py`` / ``_periodic.py`` and not
+        this composition's to fix.
+        """
+        f32 = jnp.float32
+        k1 = MaternSDE(
+            variance=jnp.array(1.0, dtype=f32),
+            lengthscale=jnp.array(1.0, dtype=f32),
+            order=1,
+        )
+        k2 = CosineSDE(
+            variance=jnp.array(1.0, dtype=f32), frequency=jnp.array(1.4, dtype=f32)
+        )
+        p1, p2 = k1.sde_params(), k2.sde_params()
+        params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
+
+        assert params.F.dtype == jnp.result_type(p1.F, p2.F)
+        assert params.L.dtype == jnp.result_type(p1.L, p2.L)
+        assert params.P_inf.dtype == jnp.result_type(p1.P_inf, p2.P_inf)
+        assert params.Q_c.dtype == jnp.result_type(p1.Q_c, p2.P_inf, p1.P_inf, p2.Q_c)
+        # F is built purely from the drifts and the identities, so it is
+        # the one that pins the identities' dtype directly.
+        assert params.F.dtype == f32
+
+    def test_sde_params_is_reverse_mode_differentiable(self):
+        """``safe_cholesky``'s ``lax.while_loop`` has no reverse-mode rule."""
+
+        def loss(variance):
+            k1 = MaternSDE(variance=variance, lengthscale=jnp.array(0.8), order=1)
+            k2 = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(1.4))
+            params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
+            return jnp.sum(params.L @ params.Q_c @ params.L.T)
+
+        grad = jax.grad(loss)(jnp.array(1.3))
+        assert jnp.isfinite(grad)
+        assert jnp.abs(grad) > 0.0
