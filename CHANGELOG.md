@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.22](https://github.com/jejjohnson/gaussx/compare/v0.0.21...v0.0.22) (2026-08-21)
+
+
+### Bug Fixes
+
+* **ssm,quadrature:** preserve input dtype under x64 (gh-219) ([#221](https://github.com/jejjohnson/gaussx/issues/221)) ([b29f4f8](https://github.com/jejjohnson/gaussx/commit/b29f4f863e491bd061752c461c5b22f8e0f3631c))
+* **ssm:** report a Lyapunov-consistent diffusion for ProductSDE (gh-219) ([#222](https://github.com/jejjohnson/gaussx/issues/222)) ([f38ffe7](https://github.com/jejjohnson/gaussx/commit/f38ffe7e05721f5a2feb31be83bf39ffc9e63df5))
+
 ## [0.0.21](https://github.com/jejjohnson/gaussx/compare/v0.0.20...v0.0.21) (2026-08-20)
 
 
