@@ -524,3 +524,53 @@ def test_mixed_numpy_3d_with_operator_raises(getkey):
     y = jr.normal(getkey(), (T, M))
     with pytest.raises(TypeError, match="Time-varying"):
         kalman_filter(A_seq_np, H, Q_op, R, y, jnp.zeros(N), jnp.eye(N))
+
+
+def test_kalman_filter_float32_inputs_stay_float32():
+    """float32 inputs must survive the ``lax.cond`` gate under x64.
+
+    The predict-only branch used to return a bare ``jnp.array(0.0)`` — a
+    float64 scalar under ``jax_enable_x64`` — which made ``lax.cond``
+    reject the branches outright on float32 inputs. Regression for
+    gh-219.
+    """
+    f32 = jnp.float32
+    N, M, T = 3, 2, 5
+
+    state = kalman_filter(
+        jnp.eye(N, dtype=f32) * 0.9,
+        jnp.eye(M, N, dtype=f32),
+        (0.05 * jnp.eye(N)).astype(f32),
+        (0.1 * jnp.eye(M)).astype(f32),
+        jnp.zeros((T, M), dtype=f32),
+        jnp.zeros(N, dtype=f32),
+        jnp.eye(N, dtype=f32),
+    )
+
+    assert state.filtered_means.dtype == f32
+    assert state.filtered_covs.dtype == f32
+    assert state.predicted_means.dtype == f32
+    assert state.predicted_covs.dtype == f32
+    assert state.log_likelihood.dtype == f32
+
+
+def test_kalman_filter_float32_with_partial_mask():
+    """The gated path is the one that broke; exercise it explicitly."""
+    f32 = jnp.float32
+    N, M, T = 3, 2, 6
+    mask = jnp.array([True, False, True, True, False, True])
+
+    state = kalman_filter(
+        jnp.eye(N, dtype=f32) * 0.9,
+        jnp.eye(M, N, dtype=f32),
+        (0.05 * jnp.eye(N)).astype(f32),
+        (0.1 * jnp.eye(M)).astype(f32),
+        jnp.zeros((T, M), dtype=f32),
+        jnp.zeros(N, dtype=f32),
+        jnp.eye(N, dtype=f32),
+        mask=mask,
+    )
+
+    assert state.filtered_means.dtype == f32
+    assert state.log_likelihood.dtype == f32
+    assert jnp.isfinite(state.log_likelihood)

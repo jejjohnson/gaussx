@@ -84,7 +84,7 @@ class AssumedDensityFilter(AbstractIntegrator):
 
         # Sample from input Gaussian
         L = cholesky(state.cov).as_matrix()
-        eps = jr.normal(key, (self.n_samples, N))
+        eps = jr.normal(key, (self.n_samples, N), dtype=mu.dtype)
         x_samples = mu[None, :] + eps @ L.T
 
         # Propagate samples
@@ -101,7 +101,7 @@ class AssumedDensityFilter(AbstractIntegrator):
             eps_reg = self.regularization * jnp.trace(Sigma_y) / M
         else:
             eps_reg = self.regularization
-        Sigma_y = Sigma_y + eps_reg * jnp.eye(M)
+        Sigma_y = Sigma_y + eps_reg * jnp.eye(M, dtype=Sigma_y.dtype)
         Sigma_y = symmetrize(Sigma_y)
 
         # Cross-covariance

@@ -237,7 +237,10 @@ def kalman_filter(
                 return _update(H_innov, R_innov, v, 0.0)
 
             def _skip_update(_):
-                return x_pred, P_pred, jnp.array(0.0)
+                # Match the update branch's dtype: a bare ``jnp.array(0.0)``
+                # is float64 under x64 and makes ``lax.cond`` reject the
+                # branches on float32 inputs.
+                return x_pred, P_pred, jnp.zeros((), dtype=P_pred.dtype)
 
             x_filt_new, P_filt_new, ll_inc = jax.lax.cond(
                 mask_t, _do_update, _skip_update, operand=None
@@ -248,7 +251,7 @@ def kalman_filter(
         outputs = (x_filt_new, P_filt_new, x_pred, P_pred)
         return carry_new, outputs
 
-    init_carry = (init_mean, init_cov, jnp.array(0.0))
+    init_carry = (init_mean, init_cov, jnp.zeros((), dtype=init_cov.dtype))
     final_carry, (f_means, f_covs, p_means, p_covs) = jax.lax.scan(
         step, init_carry, (A_seq, H_seq, Q_seq, R_seq, observations, mask_seq)
     )

@@ -5,6 +5,7 @@ import lineax as lx
 
 from gaussx._quadrature._quadrature import (
     cubature_points,
+    fifth_order_cubature_points,
     gauss_hermite_points,
     sigma_points,
 )
@@ -125,3 +126,49 @@ class TestCubaturePoints:
         chi, wts = cubature_points(mean, cov)
         recovered_mean = jnp.sum(wts[:, None] * chi, axis=0)
         assert jnp.allclose(recovered_mean, mean, atol=1e-6)
+
+
+class TestFloat32Preservation:
+    """Quadrature rules must not promote a float32 belief under x64.
+
+    The test suite runs with ``jax_enable_x64`` on (see ``tests/conftest``),
+    so any rule building points or weights from Python/NumPy scalars without
+    a dtype lands in float64 and drags the whole downstream transform with
+    it. Regression coverage for gh-219.
+    """
+
+    def _state(self, N=3):
+        mean = jnp.zeros(N, dtype=jnp.float32)
+        cov = lx.MatrixLinearOperator(
+            jnp.eye(N, dtype=jnp.float32), lx.positive_semidefinite_tag
+        )
+        return mean, cov
+
+    def test_sigma_points_stay_float32(self):
+        mean, cov = self._state()
+        chi, w_m, w_c = sigma_points(mean, cov)
+        assert chi.dtype == jnp.float32
+        assert w_m.dtype == jnp.float32
+        assert w_c.dtype == jnp.float32
+
+    def test_cubature_points_stay_float32(self):
+        mean, cov = self._state()
+        chi, wts = cubature_points(mean, cov)
+        assert chi.dtype == jnp.float32
+        assert wts.dtype == jnp.float32
+
+    def test_fifth_order_points_stay_float32(self):
+        mean, cov = self._state()
+        chi, wts = fifth_order_cubature_points(mean, cov)
+        assert chi.dtype == jnp.float32
+        assert wts.dtype == jnp.float32
+
+    def test_gauss_hermite_honours_dtype(self):
+        """``gauss_hermite_points`` has no mean, so dtype is explicit."""
+        pts32, wts32 = gauss_hermite_points(3, 2, dtype=jnp.float32)
+        assert pts32.dtype == jnp.float32
+        assert wts32.dtype == jnp.float32
+
+        # Default is unchanged: JAX's default float dtype.
+        pts_default, _ = gauss_hermite_points(3, 2)
+        assert pts_default.dtype == jnp.zeros(()).dtype
