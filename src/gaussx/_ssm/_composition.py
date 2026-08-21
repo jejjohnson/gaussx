@@ -78,7 +78,42 @@ class ProductSDE(SDEKernel):
         return self.kernel1.state_dim * self.kernel2.state_dim
 
     def sde_params(self) -> SDEParams:
-        """Return Kronecker-structured SDE parameters.
+        r"""Return Kronecker-structured SDE parameters.
+
+        The drift is the Kronecker **sum** $F_1 \oplus F_2$ and the
+        stationary covariance the Kronecker **product**
+        $P_1 \otimes P_2$. Substituting those into the Lyapunov equation
+        $F P + P F^\top + B = 0$ fixes the composite diffusion at
+
+        $$
+        B \;=\; B_1 \otimes P_2 \;+\; P_1 \otimes B_2,
+        \qquad B_i = L_i Q_{c,i} L_i^\top,
+        $$
+
+        which is **not** $B_1 \otimes B_2$ — the value a naive
+        $L_1 \otimes L_2$, $Q_{c,1} \otimes Q_{c,2}$ pair would imply.
+        Reporting the latter used to hand out a tuple that failed its own
+        Lyapunov equation (gh-219); for a Matérn ⊗ Cosine product it was
+        identically zero, since `CosineSDE` has $Q_c = 0$.
+
+        The sum of two Kronecker products is still expressible in the
+        ``(L, Q_c)`` form, by widening the noise dimension and carrying
+        each factor's stationary covariance in the spectral density:
+
+        $$
+        L = \bigl[\, L_1 \otimes I_{d_2} \;\;\big|\;\; I_{d_1} \otimes L_2 \,\bigr],
+        \qquad
+        Q_c = \operatorname{blockdiag}\!\bigl(
+            Q_{c,1} \otimes P_2,\; P_1 \otimes Q_{c,2}
+        \bigr),
+        $$
+
+        so that $L Q_c L^\top$ telescopes to exactly the $B$ above by the
+        mixed-product property. Writing it this way rather than through
+        square roots $S_i S_i^\top = P_i$ keeps the result exact for
+        singular or zero $P_\infty$ (where a Cholesky would need jitter,
+        and would then violate the very Lyapunov equation this enforces)
+        and keeps ``sde_params`` reverse-mode differentiable.
 
         Note:
             ``SDEParams`` currently types its fields as dense
@@ -91,6 +126,12 @@ class ProductSDE(SDEKernel):
             could expose a parallel ``sde_operators()`` method that
             returns `gaussx.Kronecker` operators for downstream
             filters that can exploit the structure (issue #153).
+
+        Raises:
+            NotImplementedError: If either factor lacks a stationary
+                covariance. The composite diffusion needs both, so the
+                tuple cannot be built — and reporting the inconsistent
+                Kronecker product instead is what gh-219 was about.
         """
         p1 = self.kernel1.sde_params()
         p2 = self.kernel2.sde_params()
@@ -98,16 +139,49 @@ class ProductSDE(SDEKernel):
         d1 = self.kernel1.state_dim
         d2 = self.kernel2.state_dim
 
-        F = jnp.kron(p1.F, jnp.eye(d2)) + jnp.kron(jnp.eye(d1), p2.F)
-        L = jnp.kron(p1.L, p2.L)
+        if p1.P_inf is None or p2.P_inf is None:
+            msg = (
+                f"ProductSDE cannot report SDE parameters when a factor has "
+                f"no stationary covariance: "
+                f"{type(self.kernel1).__name__}.P_inf is "
+                f"{'None' if p1.P_inf is None else 'set'} and "
+                f"{type(self.kernel2).__name__}.P_inf is "
+                f"{'None' if p2.P_inf is None else 'set'}. The composite "
+                f"diffusion of a product kernel is B1 (x) P2 + P1 (x) B2, "
+                f"which needs both. Use the factors' own parameters, or "
+                f"give the factor a P_inf."
+            )
+            raise NotImplementedError(msg)
+
+        # Identities carry the factor dtypes: an untyped ``jnp.eye`` is
+        # float64 under x64 and would promote float32 kernels.
+        eye1 = jnp.eye(d1, dtype=p1.F.dtype)
+        eye2 = jnp.eye(d2, dtype=p2.F.dtype)
+
+        F = jnp.kron(p1.F, eye2) + jnp.kron(eye1, p2.F)
         H = jnp.kron(p1.H, p2.H)
-        Q_c = jnp.kron(p1.Q_c, p2.Q_c)
-        # As for ``SumSDE``: no factorised stationary covariance means the
-        # product has none, and the base ``discretise`` falls back to MFD.
-        P_inf = (
-            None
-            if p1.P_inf is None or p2.P_inf is None
-            else jnp.kron(p1.P_inf, p2.P_inf)
+        P_inf = jnp.kron(p1.P_inf, p2.P_inf)
+
+        # B = B1 (x) P2 + P1 (x) B2, kept in the (L, Q_c) pair by putting
+        # each factor's P_inf in the *spectral density* rather than taking
+        # its square root:
+        #
+        #     B1 (x) P2 = (L1 (x) I) (Q_c1 (x) P2) (L1 (x) I)^T
+        #     P1 (x) B2 = (I (x) L2) (P1 (x) Q_c2) (I (x) L2)^T
+        #
+        # by the mixed-product property. Exact for any PSD P_inf --
+        # including singular or zero ones, where a Cholesky would need
+        # jitter and stop satisfying the Lyapunov equation this is here to
+        # enforce -- and reverse-mode differentiable, which a jittered
+        # ``safe_cholesky`` (data-dependent ``lax.while_loop``) is not.
+        # The noise dimension widens from s1*s2 to s1*d2 + d1*s2.
+        L = jnp.concatenate(
+            [jnp.kron(p1.L, eye2), jnp.kron(eye1, p2.L)],
+            axis=1,
+        )
+        Q_c = jsl.block_diag(
+            jnp.kron(p1.Q_c, p2.P_inf),
+            jnp.kron(p1.P_inf, p2.Q_c),
         )
 
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
@@ -164,22 +238,17 @@ class ProductSDE(SDEKernel):
         # separately instead of forming the (d1 d2)-square triple product.
         if p1.P_inf is None or p2.P_inf is None:
             # Deferring to the base MFD path here would be *wrong*, not
-            # merely slower. ``sde_params`` reports the composite diffusion
-            # as L Q_c L^T = B_1 (x) B_2, but the diffusion consistent with
-            # the Kronecker-sum drift is
+            # merely slower: the composite diffusion
             #
             #     B = B_1 (x) P_2  +  P_1 (x) B_2
             #
-            # (substitute P_1 (x) P_2 into the Lyapunov equation for
-            # F_1 (+) F_2 to see it). The two differ in general; for a
-            # Matern (x) Cosine product the reported one is identically
-            # zero, because CosineSDE has Q_c = 0. MFD would then return
-            # the right transition matrix with process noise for a
-            # different SDE.
-            #
-            # The correct diffusion needs both factor stationary
-            # covariances -- exactly what is missing -- so this is
-            # rejected rather than silently approximated.
+            # needs both factor stationary covariances -- exactly what is
+            # missing -- so MFD has nothing correct to consume. Checked
+            # against the factors directly rather than via
+            # ``self.sde_params()`` (which now raises for the same reason)
+            # so the message names the offending factor, and so the
+            # happy path never builds the full-size drift it would
+            # otherwise have to discard.
             msg = (
                 f"ProductSDE cannot be discretised when a factor has no "
                 f"stationary covariance: "

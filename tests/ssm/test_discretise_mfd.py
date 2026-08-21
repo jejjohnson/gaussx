@@ -334,11 +334,15 @@ def test_sum_composition_propagates_missing_p_inf():
 def test_product_composition_rejects_missing_p_inf():
     """A product with a P_inf-less factor is rejected, not approximated.
 
-    ``ProductSDE.sde_params`` reports the composite diffusion as
-    ``B1 (x) B2``, but the diffusion consistent with the Kronecker-sum
-    drift is ``B1 (x) P2 + P1 (x) B2``. Falling back to MFD would pair the
-    correct transition matrix with process noise for a different SDE, so
-    the missing-``P_inf`` case must fail loudly instead.
+    The diffusion consistent with the Kronecker-sum drift is
+    ``B1 (x) P2 + P1 (x) B2``, which needs *both* factor stationary
+    covariances. With one missing there is nothing correct for MFD to
+    consume — falling back would pair the right transition matrix with
+    process noise for a different SDE — so both ``sde_params`` and
+    ``discretise`` fail loudly instead.
+
+    (Before gh-219 was fixed, ``sde_params`` answered here with
+    ``B1 (x) B2``, and only ``discretise`` refused.)
     """
     from gaussx import ProductSDE
 
@@ -346,8 +350,9 @@ def test_product_composition_rejects_missing_p_inf():
     matern = MaternSDE(variance=jnp.asarray(1.0), lengthscale=jnp.asarray(1.0), order=1)
 
     composed = ProductSDE(kernel1=matern, kernel2=learned)
-    assert composed.sde_params().P_inf is None
 
+    with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
+        composed.sde_params()
     with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
         composed.discretise(jnp.asarray(0.3))
 
@@ -357,31 +362,6 @@ def test_product_composition_rejects_missing_p_inf():
     A_both, Q_both = both.discretise(jnp.asarray(0.3))
     assert bool(jnp.all(jnp.isfinite(A_both)))
     assert bool(jnp.all(jnp.isfinite(Q_both)))
-
-
-def test_product_reported_diffusion_is_not_the_composite_one():
-    """Documents *why* the case above is rejected rather than approximated."""
-    from gaussx import CosineSDE, ProductSDE
-
-    k1 = MaternSDE(variance=jnp.asarray(1.0), lengthscale=jnp.asarray(1.0), order=1)
-    k2 = CosineSDE(variance=jnp.asarray(1.0), frequency=jnp.asarray(_OMEGA))
-    p1, p2 = k1.sde_params(), k2.sde_params()
-    params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
-
-    reported = params.L @ params.Q_c @ params.L.T  # B1 (x) B2
-    correct = jnp.kron(p1.L @ p1.Q_c @ p1.L.T, p2.P_inf) + jnp.kron(
-        p1.P_inf, p2.L @ p2.Q_c @ p2.L.T
-    )
-
-    # CosineSDE has Q_c = 0, so the reported composite diffusion vanishes
-    # entirely while the true one does not.
-    assert float(jnp.abs(reported).max()) == 0.0
-    assert float(jnp.abs(correct).max()) > 1.0
-
-    # Only the correct one is consistent with the composite P_inf.
-    lyapunov = params.F @ params.P_inf + params.P_inf @ params.F.T
-    assert float(jnp.abs(lyapunov + correct).max()) < 1e-10
-    assert float(jnp.abs(lyapunov + reported).max()) > 1.0
 
 
 def test_autocovariance_rejects_missing_p_inf():
