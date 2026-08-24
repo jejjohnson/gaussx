@@ -511,6 +511,17 @@ for _cls in _TRI_DEFAULTS:
     lx.is_upper_triangular.register(_cls)(lambda _operator: False)
 
 
+# ``lineax.linearise`` is the identity for an operator that is already
+# linear, but lineax registers it only for its own classes — so every
+# matrix-free solver (``lineax.CG``, and through it `CGSolver`) raised
+# ``NotImplementedError`` on gaussx operators. Registering it is what makes
+# the iterative route usable where no closed-form structural path exists,
+# such as a `SumOfKroneckers` with three or more terms.
+
+for _cls in _ALL_TRIDIAG_DEFAULTS:
+    lx.linearise.register(_cls)(lambda operator: operator)
+
+
 # LowerBlockTriDiag / UpperBlockTriDiag: PSD/NSD defaults (block triangular,
 # not generally PSD).
 

@@ -135,7 +135,7 @@ instance, has no block-tridiagonal path and falls back there.
 | `BlockDiag` | per block | sum of logdets | per block | per block | per block | per block |
 | `Kronecker` | Roth's lemma | scaled sum | per factor | per factor | per factor | per factor |
 | `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | eigen-based | `KroneckerSumSqrt` | lazy |
-| `SumOfKroneckers` | dense | dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
+| `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
 | Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | unwrap | unwrap + recurse | unwrap | unwrap + recurse |

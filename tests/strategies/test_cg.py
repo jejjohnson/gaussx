@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
+from gaussx._operators import Kronecker
 from gaussx._strategies import CGSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -68,3 +69,24 @@ def test_filter_jit_solve(getkey):
 
     expected = jnp.linalg.solve(mat, v)
     assert tree_allclose(f(op, v), expected, rtol=1e-4)
+
+
+def test_solve_structured_operator():
+    """CG drives a gaussx operator's matrix-free ``mv``.
+
+    ``lineax.CG`` calls ``lineax.linearise``, which lineax registers only
+    for its own operator classes — so this raised ``NotImplementedError``
+    on every gaussx operator until the registration in
+    ``gaussx._operators``. It is the route for structured covariances with
+    no closed-form solve, e.g. a `SumOfKroneckers` of three or more terms.
+    """
+    factor = lx.MatrixLinearOperator(
+        random_pd_matrix(jr.key(0), 3),
+        (lx.symmetric_tag, lx.positive_semidefinite_tag),
+    )
+    op = Kronecker(factor, factor, tags=lx.positive_semidefinite_tag)
+    v = jr.normal(jr.key(1), (9,))
+    expected = jnp.linalg.solve(op.as_matrix(), v)
+    assert tree_allclose(
+        CGSolver(rtol=1e-10, atol=1e-10).solve(op, v), expected, rtol=1e-5
+    )

@@ -19,7 +19,7 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
     | | Math | Eigendecomposition |
     |---|---|---|
     | `KroneckerSum(A, B)` | $A \otimes I + I \otimes B$ | Closed form — eigenvalues $\lambda_i + \mu_j$, eigenvectors $V_A \otimes V_B$ |
-    | `SumOfKroneckers(K_1, K_2, …)` | $\sum_k A_k \otimes B_k$ | None in general; `eigendecompose` handles the two-term symmetric case by densifying a $(n_c n_d)^2$ block |
+    | `SumOfKroneckers(K_1, K_2, …)` | $\sum_k A_k \otimes B_k$ | None in general. `solve` / `logdet` reduce the *two-term* case with one term positive definite — $B \otimes C + \sigma^2 I$ and $B_1 \otimes C_1 + B_2 \otimes C_2$ — to one eigendecomposition per factor, $O(n_c^3 + n_d^3)$; `eigendecompose` covers the same two-term symmetric case more generally by densifying a $(n_c n_d)^2$ block |
 
     `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
     still imports and subclasses the new one — so `isinstance` checks keep
