@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.23](https://github.com/jejjohnson/gaussx/compare/v0.0.22...v0.0.23) (2026-08-25)
+
+
+### Features
+
+* **operators:** structural solve/logdet dispatch for SumOfKroneckers ([#228](https://github.com/jejjohnson/gaussx/issues/228)) ([b7855b6](https://github.com/jejjohnson/gaussx/commit/b7855b6a57e86192b6ddff85313736770809f8eb))
+
 ## [0.0.22](https://github.com/jejjohnson/gaussx/compare/v0.0.21...v0.0.22) (2026-08-21)
 
 
