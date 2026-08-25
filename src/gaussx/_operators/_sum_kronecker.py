@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 import functools as ft
 from operator import add as operator_add
+from typing import NamedTuple
 
 import equinox as eqx
 import jax
@@ -34,8 +35,19 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
     chains `SumOperator` builds. The factors of the non-anchor term must
     advertise symmetry, and the anchor's must be diagonal, a multiple of the
     identity, or tagged positive-semidefinite; anything else keeps the dense
-    fallback. Diagonal anchor factors are taken on trust to be positive, as
-    everywhere else a Cholesky is implied.
+    fallback.
+
+    !!! warning "The anchor must be positive *definite*"
+
+        Whitening inverts the anchor term. ``positive_semidefinite_tag`` --
+        the strongest statement lineax can make -- permits a singular
+        operator, and whitening by one of those returns ``NaN`` where the
+        dense fallback would have answered. When both terms qualify, the one
+        whose inversion needs no factorization is preferred, so a scalar or
+        diagonal shift always wins over a tagged dense factor; a
+        multiple-of-the-identity anchor is folded in as a shift and is never
+        inverted at all. Beyond that the definiteness is the caller's to
+        guarantee, exactly as it is for `gaussx.cholesky`.
 
     Three or more terms have no closed form and keep the dense fallback.
     Drive the structured `mv` instead with
@@ -380,32 +392,51 @@ def _whitener_kind(
 ) -> type[_Whitener] | None:
     """Static classification of an anchor factor, or ``None`` if unusable.
 
-    Diagonal factors are accepted on the documented precondition that their
-    entries are positive — the same contract `cholesky` carries. Anything
-    else has to advertise symmetry *and* positive-semidefiniteness through
-    its lineax tags; untagged operators fall through to the dense path
-    rather than risk a ``NaN`` whitening.
+    The tag queries run against the operator *as given*: a factor may carry
+    its symmetry and positive-semidefiniteness on a native
+    ``TaggedLinearOperator`` wrapper, and unwrapping first would throw away
+    the only structural evidence there is. Only the ``isinstance`` checks
+    look through the wrapper. Untagged operators fall through to the dense
+    path rather than risk a ``NaN`` whitening.
+
+    Whitening needs the anchor factor to be positive *definite*, and lineax
+    has no tag for that — `_select_anchor` therefore prefers the kinds
+    returned earlier here, which need no factorization to invert.
     """
-    operator = _unwrap_tagged(operator)
-    if isinstance(operator, lx.IdentityLinearOperator):
+    inner = _unwrap_tagged(operator)
+    if isinstance(inner, lx.IdentityLinearOperator):
         return _IdentityWhitener
-    if isinstance(operator, lx.DiagonalLinearOperator):
+    if (
+        isinstance(inner, lx.DiagonalLinearOperator)
+        or _scaled_identity(operator) is not None
+    ):
         return _DiagonalWhitener
     if lx.is_symmetric(operator) and lx.is_positive_semidefinite(operator):
         return _CholeskyWhitener
     return None
 
 
+def _anchor_diagonal(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, " n"]:
+    """The diagonal of a diagonal-or-scaled-identity anchor factor."""
+    scalar = _scaled_identity(operator)
+    if scalar is not None:
+        dtype = operator.in_structure().dtype
+        return jnp.full((operator.in_size(),), scalar, dtype=dtype)
+    return lx.diagonal(_unwrap_tagged(operator))
+
+
 def _build_whitener(
     kind: type[_Whitener], operator: lx.AbstractLinearOperator
 ) -> _Whitener:
-    operator = _unwrap_tagged(operator)
     if kind is _IdentityWhitener:
         return _IdentityWhitener()
     if kind is _DiagonalWhitener:
-        return _DiagonalWhitener(jnp.sqrt(lx.diagonal(operator)))
+        return _DiagonalWhitener(jnp.sqrt(_anchor_diagonal(operator)))
     from gaussx._primitives._cholesky import cholesky
 
+    # ``operator`` unwrapped, so `cholesky` sees the tags and can dispatch.
     return _CholeskyWhitener(cholesky(operator).as_matrix())
 
 
@@ -477,28 +508,64 @@ def _kronecker_terms(
     return tuple(terms)
 
 
-def _select_anchor(
-    terms: tuple[_KroneckerTerm, ...],
-) -> tuple[int, type[_Whitener], type[_Whitener]] | None:
-    """Pick the positive-definite term to whiten by — a static decision.
+# Whitener kinds in order of preference: the whitening has to *invert* the
+# anchor, and only the first two are invertible on evidence available at
+# trace time — an identity needs no inversion, a diagonal only a reciprocal.
+# ``_CholeskyWhitener`` rests on ``positive_semidefinite_tag``, which permits
+# a singular operator; whitening by one of those yields NaN where the dense
+# fallback would have answered.
+_ANCHOR_PREFERENCE = (_IdentityWhitener, _DiagonalWhitener, _CholeskyWhitener)
 
-    Returns ``(anchor_index, kind_a, kind_b)``, or ``None`` when no exact
-    two-term reduction applies. The second term is tried first: a noise or
-    jitter shift is conventionally written last.
+
+class _AnchorPlan(NamedTuple):
+    """How to reduce by one of the two terms — decided at trace time.
+
+    Attributes:
+        index: Which term is the anchor.
+        kinds: Whitener kind per axis, or ``None`` to fold the anchor in as
+            a scalar shift instead of whitening by it.
+    """
+
+    index: int
+    kinds: tuple[type[_Whitener], type[_Whitener]] | None
+
+    def rank(self) -> int:
+        """Lower is safer — see `_ANCHOR_PREFERENCE`."""
+        if self.kinds is None:
+            return 0
+        return 1 + max(_ANCHOR_PREFERENCE.index(kind) for kind in self.kinds)
+
+
+def _select_anchor(terms: tuple[_KroneckerTerm, ...]) -> _AnchorPlan | None:
+    """Pick the term to reduce by, and how — a static decision.
+
+    Returns ``None`` when no exact two-term reduction applies. Where both
+    terms qualify the safer plan wins, so a scalar or diagonal shift is
+    never passed over for a tagged dense factor; ties go to the second
+    term, since a noise or jitter shift is conventionally written last.
     """
     if len(terms) != 2:
         return None
+    plans: list[_AnchorPlan] = []
     for anchor_index in (1, 0):
         main = terms[1 - anchor_index]
         anchor = terms[anchor_index]
         # ``eigh`` on the whitened main factors needs them symmetric.
         if not (lx.is_symmetric(main[0]) and lx.is_symmetric(main[1])):
             continue
+        if all(_scaled_identity(factor) is not None for factor in anchor):
+            # The whole anchor is ``c·I``: fold it into the eigenvalues
+            # rather than inverting it, which keeps a negative ``c`` exact.
+            plans.append(_AnchorPlan(anchor_index, None))
+            continue
         kind_a = _whitener_kind(anchor[0])
         kind_b = _whitener_kind(anchor[1])
         if kind_a is not None and kind_b is not None:
-            return anchor_index, kind_a, kind_b
-    return None
+            plans.append(_AnchorPlan(anchor_index, (kind_a, kind_b)))
+    if not plans:
+        return None
+    # ``min`` is stable, so equally safe plans keep the term-1-first order.
+    return min(plans, key=_AnchorPlan.rank)
 
 
 def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
@@ -540,24 +607,23 @@ def _sum_of_kroneckers_eigen(
     terms = _kronecker_terms(operator)
     if terms is None:
         return None
-    selection = _select_anchor(terms)
-    if selection is None:
+    plan = _select_anchor(terms)
+    if plan is None:
         return None
-    anchor_index, kind_a, kind_b = selection
-    main = terms[1 - anchor_index]
-    anchor = terms[anchor_index]
+    main = terms[1 - plan.index]
+    anchor = terms[plan.index]
 
-    scalar_a = _scaled_identity(anchor[0])
-    scalar_b = _scaled_identity(anchor[1])
     A1 = main[0].as_matrix()
     B1 = main[1].as_matrix()
-    if scalar_a is not None and scalar_b is not None:
-        # Anchor is c·I: no whitening, and the shift folds into the
-        # eigenvalues — which keeps the path exact for a negative shift too.
+    if plan.kinds is None:
         wa = _IdentityWhitener()
         wb = wa
+        scalar_a = _scaled_identity(anchor[0])
+        scalar_b = _scaled_identity(anchor[1])
+        assert scalar_a is not None and scalar_b is not None
         shift = scalar_a * scalar_b
     else:
+        kind_a, kind_b = plan.kinds
         wa = _build_whitener(kind_a, anchor[0])
         wb = _build_whitener(kind_b, anchor[1])
         A1 = wa.conjugate(A1)

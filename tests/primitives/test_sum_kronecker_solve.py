@@ -288,3 +288,41 @@ class TestAutoSolverClassification:
         )
         strategy = AutoSolver(size_threshold=1)._get_strategy(operator)
         assert isinstance(strategy, CGSolver)
+
+
+class TestAnchorEligibility:
+    """Which factor may be whitened by, and which of two candidates wins."""
+
+    def test_tags_on_a_wrapper_are_honoured(self):
+        """Symmetry/PSD may live on a native ``TaggedLinearOperator``.
+
+        Classifying after unwrapping would discard the only structural
+        evidence the caller gave and drop the whole sum to the dense path.
+        """
+        wrapped = lx.TaggedLinearOperator(
+            lx.MatrixLinearOperator(_psd_matrix(jr.key(0), N_B)),
+            (lx.symmetric_tag, lx.positive_semidefinite_tag),
+        )
+        anchor = Kronecker(_psd_operator(jr.key(1), N_A), wrapped)
+        operator = SumOfKroneckers(_psd_kronecker(jr.key(2)), anchor)
+        assert _is_eigen_reducible(operator)
+        _assert_matches_dense(operator, _rhs(jr.key(3)))
+
+    def test_prefers_the_anchor_it_need_not_factorize(self):
+        """A PSD *tag* permits a singular factor; a scalar shift cannot be.
+
+        Whitening by the singular term would return ``NaN`` — the dense
+        fallback answers this system fine — so the identity term has to win
+        the anchor selection even though the other term is tried first.
+        """
+        singular = lx.MatrixLinearOperator(
+            jnp.diag(jnp.array([0.0, 1.0, 1.0])),
+            (lx.symmetric_tag, lx.positive_semidefinite_tag),
+        )
+        operator = SumOfKroneckers(
+            Kronecker(singular, _psd_operator(jr.key(0), N_B)),
+            Kronecker(_identity(N_A), 0.7 * _identity(N_B)),
+        )
+        solution = solve(operator, _rhs(jr.key(1)))
+        assert jnp.all(jnp.isfinite(solution))
+        _assert_matches_dense(operator, _rhs(jr.key(1)))
