@@ -30,12 +30,15 @@ class CosineSDE(SDEKernel):
 
     def sde_params(self) -> SDEParams:
         """Return SDE parameters for the cosine kernel."""
+        # Constant blocks follow the hyperparameter dtype; untyped
+        # ``jnp.zeros``/``jnp.eye`` are float64 under x64 (gh-224).
+        dtype = jnp.result_type(self.variance, self.frequency)
         w = self.frequency
         F = jnp.array([[0.0, -w], [w, 0.0]])
-        L = jnp.zeros((2, 1))
-        H = jnp.array([[1.0, 0.0]])
-        Q_c = jnp.zeros((1, 1))
-        P_inf = self.variance * jnp.eye(2)
+        L = jnp.zeros((2, 1), dtype=dtype)
+        H = jnp.array([[1.0, 0.0]], dtype=dtype)
+        Q_c = jnp.zeros((1, 1), dtype=dtype)
+        P_inf = self.variance * jnp.eye(2, dtype=dtype)
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
     def discretise(
@@ -47,7 +50,7 @@ class CosineSDE(SDEKernel):
         cos_wdt = jnp.cos(w * dt)
         sin_wdt = jnp.sin(w * dt)
         A = jnp.array([[cos_wdt, -sin_wdt], [sin_wdt, cos_wdt]])
-        Q = jnp.zeros((2, 2))
+        Q = jnp.zeros((2, 2), dtype=A.dtype)
         return A, Q
 
 
@@ -75,18 +78,21 @@ class PeriodicSDE(SDEKernel):
 
     def sde_params(self) -> SDEParams:
         """Return SDE parameters for the periodic kernel."""
+        dtype = jnp.result_type(self.variance, self.lengthscale, self.period)
         J = self.n_harmonics
         d = 2 * J
         w0 = 2.0 * jnp.pi / self.period
 
         inv_ell_sq = 1.0 / self.lengthscale**2
-        js = jnp.arange(1, J + 1)
+        # ``js`` feeds the Bessel series; an integer arange would promote it
+        # to float64 under x64 (gh-224).
+        js = jnp.arange(1, J + 1, dtype=dtype)
         log_ij = self._log_bessel_i(js, inv_ell_sq)
         log_q = jnp.log(2.0) + log_ij - inv_ell_sq
         q_j = self.variance * jnp.exp(log_q)
 
-        F = jnp.zeros((d, d))
-        P_inf = jnp.zeros((d, d))
+        F = jnp.zeros((d, d), dtype=dtype)
+        P_inf = jnp.zeros((d, d), dtype=dtype)
         for j_idx in range(J):
             freq = (j_idx + 1) * w0
             block_start = 2 * j_idx
@@ -95,12 +101,12 @@ class PeriodicSDE(SDEKernel):
             P_inf = P_inf.at[block_start, block_start].set(q_j[j_idx])
             P_inf = P_inf.at[block_start + 1, block_start + 1].set(q_j[j_idx])
 
-        L = jnp.zeros((d, 1))
-        H = jnp.zeros((1, d))
+        L = jnp.zeros((d, 1), dtype=dtype)
+        H = jnp.zeros((1, d), dtype=dtype)
         for j_idx in range(J):
             H = H.at[0, 2 * j_idx].set(1.0)
 
-        Q_c = jnp.zeros((1, 1))
+        Q_c = jnp.zeros((1, 1), dtype=dtype)
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
     def discretise(
@@ -112,7 +118,7 @@ class PeriodicSDE(SDEKernel):
         d = 2 * J
         w0 = 2.0 * jnp.pi / self.period
 
-        A = jnp.zeros((d, d))
+        A = jnp.zeros((d, d), dtype=jnp.result_type(w0, dt))
         for j_idx in range(J):
             freq = (j_idx + 1) * w0
             cos_val = jnp.cos(freq * dt)
@@ -123,7 +129,7 @@ class PeriodicSDE(SDEKernel):
             A = A.at[block_start + 1, block_start].set(sin_val)
             A = A.at[block_start + 1, block_start + 1].set(cos_val)
 
-        Q = jnp.zeros((d, d))
+        Q = jnp.zeros((d, d), dtype=A.dtype)
         return A, Q
 
     @staticmethod

@@ -42,25 +42,30 @@ class MaternSDE(SDEKernel):
             raise ValueError(msg)
 
     def _matern12(self) -> SDEParams:
+        # Constant blocks follow the hyperparameter dtype; an untyped
+        # ``jnp.array`` of Python floats is float64 under x64 (gh-224).
+        dtype = jnp.result_type(self.variance, self.lengthscale)
         lam = 1.0 / self.lengthscale
         F = jnp.array([[-lam]])
-        L = jnp.array([[1.0]])
-        H = jnp.array([[1.0]])
+        L = jnp.array([[1.0]], dtype=dtype)
+        H = jnp.array([[1.0]], dtype=dtype)
         Q_c = jnp.array([[2.0 * lam * self.variance]])
         P_inf = jnp.array([[self.variance]])
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
     def _matern32(self) -> SDEParams:
+        dtype = jnp.result_type(self.variance, self.lengthscale)
         lam = jnp.sqrt(3.0) / self.lengthscale
         F = jnp.array([[0.0, 1.0], [-(lam**2), -2.0 * lam]])
-        L = jnp.array([[0.0], [1.0]])
-        H = jnp.array([[1.0, 0.0]])
+        L = jnp.array([[0.0], [1.0]], dtype=dtype)
+        H = jnp.array([[1.0, 0.0]], dtype=dtype)
         q = 4.0 * lam**3 * self.variance
         Q_c = jnp.array([[q]])
         P_inf = jnp.array([[self.variance, 0.0], [0.0, lam**2 * self.variance]])
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
     def _matern52(self) -> SDEParams:
+        dtype = jnp.result_type(self.variance, self.lengthscale)
         lam = jnp.sqrt(5.0) / self.lengthscale
         F = jnp.array(
             [
@@ -69,8 +74,8 @@ class MaternSDE(SDEKernel):
                 [-(lam**3), -3.0 * lam**2, -3.0 * lam],
             ]
         )
-        L = jnp.array([[0.0], [0.0], [1.0]])
-        H = jnp.array([[1.0, 0.0, 0.0]])
+        L = jnp.array([[0.0], [0.0], [1.0]], dtype=dtype)
+        H = jnp.array([[1.0, 0.0, 0.0]], dtype=dtype)
         kappa = 5.0 / 3.0 * self.variance / self.lengthscale**2
         q = 16.0 / 3.0 * lam**5 * self.variance
         Q_c = jnp.array([[q]])

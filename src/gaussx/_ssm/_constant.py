@@ -26,10 +26,13 @@ class ConstantSDE(SDEKernel):
 
     def sde_params(self) -> SDEParams:
         """Return SDE parameters for the constant kernel."""
-        F = jnp.zeros((1, 1))
-        L = jnp.zeros((1, 1))
-        H = jnp.array([[1.0]])
-        Q_c = jnp.zeros((1, 1))
+        # Constant blocks follow the hyperparameter dtype; untyped
+        # ``jnp.zeros``/``jnp.array`` are float64 under x64 (gh-224).
+        dtype = jnp.result_type(self.variance)
+        F = jnp.zeros((1, 1), dtype=dtype)
+        L = jnp.zeros((1, 1), dtype=dtype)
+        H = jnp.array([[1.0]], dtype=dtype)
+        Q_c = jnp.zeros((1, 1), dtype=dtype)
         P_inf = jnp.array([[self.variance]])
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
@@ -38,6 +41,7 @@ class ConstantSDE(SDEKernel):
         dt: Float[Array, ""],
     ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
         """Closed-form: A = I, Q = 0 (no dynamics)."""
-        A = jnp.eye(1)
-        Q = jnp.zeros((1, 1))
+        dtype = jnp.result_type(self.variance)
+        A = jnp.eye(1, dtype=dtype)
+        Q = jnp.zeros((1, 1), dtype=dtype)
         return A, Q

@@ -454,11 +454,9 @@ class TestProductSDEParamsRobustness:
         """The identity blocks must follow the factors, not JAX's default.
 
         An untyped ``jnp.eye`` is float64 under x64 and would promote the
-        composite past what its factors carry. Asserted relative to the
-        factors rather than against float32 outright: the leaf kernels
-        already report a float64 ``L``/``Q_c`` from float32 inputs, which
-        is a separate defect in ``_matern.py`` / ``_periodic.py`` and not
-        this composition's to fix.
+        composite past what its factors carry. Since gh-224 the leaf
+        kernels report all-float32 params from float32 hyperparameters,
+        so the composite must be float32 throughout.
         """
         f32 = jnp.float32
         k1 = MaternSDE(
@@ -469,16 +467,13 @@ class TestProductSDEParamsRobustness:
         k2 = CosineSDE(
             variance=jnp.array(1.0, dtype=f32), frequency=jnp.array(1.4, dtype=f32)
         )
-        p1, p2 = k1.sde_params(), k2.sde_params()
         params = ProductSDE(kernel1=k1, kernel2=k2).sde_params()
 
-        assert params.F.dtype == jnp.result_type(p1.F, p2.F)
-        assert params.L.dtype == jnp.result_type(p1.L, p2.L)
-        assert params.P_inf.dtype == jnp.result_type(p1.P_inf, p2.P_inf)
-        assert params.Q_c.dtype == jnp.result_type(p1.Q_c, p2.P_inf, p1.P_inf, p2.Q_c)
-        # F is built purely from the drifts and the identities, so it is
-        # the one that pins the identities' dtype directly.
         assert params.F.dtype == f32
+        assert params.L.dtype == f32
+        assert params.H.dtype == f32
+        assert params.Q_c.dtype == f32
+        assert params.P_inf.dtype == f32
 
     def test_sde_params_is_reverse_mode_differentiable(self):
         """``safe_cholesky``'s ``lax.while_loop`` has no reverse-mode rule."""
@@ -492,3 +487,46 @@ class TestProductSDEParamsRobustness:
         grad = jax.grad(loss)(jnp.array(1.3))
         assert jnp.isfinite(grad)
         assert jnp.abs(grad) > 0.0
+
+
+def _leaf_kernels_f32():
+    """One float32-hyperparameter instance of every leaf SDE kernel."""
+    f32 = jnp.float32
+    v = jnp.array(1.0, dtype=f32)
+    ell = jnp.array(1.0, dtype=f32)
+    return [
+        pytest.param(
+            MaternSDE(variance=v, lengthscale=ell, order=order), id=f"matern{order}"
+        )
+        for order in (0, 1, 2)
+    ] + [
+        pytest.param(
+            CosineSDE(variance=v, frequency=jnp.array(1.4, dtype=f32)), id="cosine"
+        ),
+        pytest.param(
+            PeriodicSDE(variance=v, lengthscale=ell, period=jnp.array(2.0, dtype=f32)),
+            id="periodic",
+        ),
+        pytest.param(ConstantSDE(variance=v), id="constant"),
+    ]
+
+
+class TestLeafKernelDtypes:
+    """Float32 hyperparameters must survive x64 mode end to end (gh-224).
+
+    The suite runs with ``jax_enable_x64`` on (see ``tests/conftest.py``),
+    so any untyped ``jnp.array``/``jnp.zeros``/``jnp.eye`` in a kernel
+    would surface here as a float64 field.
+    """
+
+    @pytest.mark.parametrize("kernel", _leaf_kernels_f32())
+    def test_sde_params_keep_float32(self, kernel):
+        params = kernel.sde_params()
+        for field in ("F", "L", "H", "Q_c", "P_inf"):
+            assert getattr(params, field).dtype == jnp.float32, field
+
+    @pytest.mark.parametrize("kernel", _leaf_kernels_f32())
+    def test_discretise_keeps_float32(self, kernel):
+        A, Q = kernel.discretise(jnp.array(0.1, dtype=jnp.float32))
+        assert A.dtype == jnp.float32
+        assert Q.dtype == jnp.float32

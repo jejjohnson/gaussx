@@ -34,8 +34,12 @@ def safe_cholesky(
     grows by ``growth_factor`` each retry, up to ``max_jitter``. Jittering in
     general destroys structure, so retries operate on the dense matrix form.
 
-    Uses ``jax.lax.while_loop`` internally so the function is fully
-    JIT-compatible.
+    The retry loop is a ``jax.lax.fori_loop`` with static bounds
+    (``max_retries`` is a Python int), so the function is both
+    JIT-compatible and reverse-mode differentiable — ``lax.while_loop``
+    would forbid the latter. Each iteration is a ``lax.cond`` that becomes
+    a no-op once the factor is clean, so a matrix that succeeds on attempt
+    *k* still pays for exactly *k* factorisations.
 
     Args:
         operator: A lineax linear operator whose Cholesky factor is
@@ -60,20 +64,21 @@ def safe_cholesky(
     n = A.shape[0]
     eye = jnp.eye(n, dtype=A.dtype)
 
-    # State: (L, jitter, retry_count, still_bad)
-    init_state = (L0, initial_jitter, 0, has_nan0)
+    # State: (L, jitter, still_bad). The jitter must be a concrete array so
+    # both cond branches carry identical avals.
+    init_state = (L0, jnp.asarray(initial_jitter, dtype=A.dtype), has_nan0)
 
-    def _cond(state):
-        _, _, count, still_bad = state
-        return still_bad & (count < max_retries)
-
-    def _body(state):
-        _, eps, count, _ = state
+    def _retry(state):
+        _, eps, _ = state
         jittered = lx.MatrixLinearOperator(A + eps * eye, lx.positive_semidefinite_tag)
         L = _chol_matrix(jittered)
         has_nan = jnp.any(jnp.isnan(L))
         next_eps = jnp.minimum(eps * growth_factor, max_jitter)
-        return (L, next_eps, count + 1, has_nan)
+        return (L, next_eps, has_nan)
 
-    L_final, _, _, _ = jax.lax.while_loop(_cond, _body, init_state)
+    def _body(_, state):
+        _, _, still_bad = state
+        return jax.lax.cond(still_bad, _retry, lambda s: s, state)
+
+    L_final, _, _ = jax.lax.fori_loop(0, max_retries, _body, init_state)
     return L_final

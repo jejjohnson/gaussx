@@ -46,3 +46,45 @@ class TestSafeCholesky:
         L = jax.jit(safe_cholesky)(op)
         assert not jnp.any(jnp.isnan(L))
         assert jnp.allclose(L @ L.T, K, atol=1e-5)
+
+    def test_reverse_mode_differentiable(self):
+        """`grad` works through the retry loop (gh-229).
+
+        The adaptive-jitter loop used ``lax.while_loop``, which has no
+        reverse-mode rule and made every objective reaching
+        ``safe_cholesky`` fail under ``grad``. On the no-retry path the
+        gradient must match differentiating a plain Cholesky. Key pinned:
+        the test checks a correctness property, any PD matrix would do.
+        """
+
+        def loss(K):
+            op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+            return jnp.sum(safe_cholesky(op))
+
+        def loss_plain(K):
+            return jnp.sum(jnp.linalg.cholesky(K))
+
+        N = 6
+        A = jax.random.normal(jax.random.key(0), (N, N))
+        K = A @ A.T + jnp.eye(N)
+
+        grad = jax.grad(loss)(K)
+        assert jnp.all(jnp.isfinite(grad))
+        # jnp.linalg.cholesky symmetrizes its cotangent; the structured
+        # route reports the raw one. Both are valid conventions for a
+        # symmetric input, so compare after symmetrizing.
+        sym_grad = 0.5 * (grad + grad.T)
+        assert jnp.allclose(sym_grad, jax.grad(loss_plain)(K), atol=1e-8)
+
+    def test_reverse_mode_differentiable_under_jit(self):
+        """`jit(grad(...))` composes — the training-loop configuration."""
+
+        def loss(K):
+            op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+            return jnp.sum(safe_cholesky(op))
+
+        N = 6
+        A = jax.random.normal(jax.random.key(1), (N, N))
+        K = A @ A.T + jnp.eye(N)
+        grad = jax.jit(jax.grad(loss))(K)
+        assert jnp.all(jnp.isfinite(grad))
