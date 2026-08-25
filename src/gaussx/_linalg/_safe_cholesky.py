@@ -47,7 +47,9 @@ def safe_cholesky(
         initial_jitter: Starting jitter magnitude added to the diagonal.
         max_jitter: Upper bound on jitter (clamped after growth).
         max_retries: Maximum number of jittered retries after the initial
-            attempt.
+            attempt. Must be a static Python int — it sets the loop's trip
+            count, so it cannot be a traced value (e.g. a jitted function
+            argument).
         growth_factor: Multiplicative factor applied to jitter each retry.
 
     Returns:
@@ -56,6 +58,11 @@ def safe_cholesky(
         intentional: JAX cannot raise exceptions inside ``jit``-traced
         code, so callers should check for NaNs when robustness matters.
     """
+    # A traced max_retries would silently turn the fori_loop into a
+    # dynamic-bound loop, which reverse-mode AD forbids — fail loudly
+    # instead (int() on a tracer raises ConcretizationTypeError).
+    max_retries = int(max_retries)
+
     # Structured first attempt — preserves operator structure where possible.
     L0 = _chol_matrix(operator)
     has_nan0 = jnp.any(jnp.isnan(L0))

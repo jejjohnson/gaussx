@@ -7,9 +7,10 @@ matrix-RHS solve helpers.
 ## Robust factorization & hygiene
 
 `safe_cholesky` retries with geometrically growing diagonal jitter inside a
-`jax.lax.while_loop` (JIT-compatible) when a matrix is not numerically
-positive-definite; `symmetrize` removes the floating-point asymmetry that
-accumulates in covariance updates.
+statically-bounded `jax.lax.fori_loop` (JIT-compatible and reverse-mode
+differentiable) when a matrix is not numerically positive-definite;
+`symmetrize` removes the floating-point asymmetry that accumulates in
+covariance updates.
 
 ::: gaussx
     options:
