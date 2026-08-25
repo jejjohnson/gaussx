@@ -22,6 +22,10 @@ from gaussx._operators._kronecker_sum import (
     _eigh_factor,
 )
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._sum_kronecker import (
+    SumOfKroneckers,
+    _sum_of_kroneckers_eigen,
+)
 
 
 def solve(
@@ -50,6 +54,8 @@ def solve(
         return _solve_kronecker(operator, vector, solver)
     if isinstance(operator, LowRankUpdate):
         return _solve_low_rank(operator, vector, solver)
+    if isinstance(operator, SumOfKroneckers):
+        return _solve_sum_of_kroneckers(operator, vector, solver)
     if isinstance(operator, KroneckerSum):
         return _solve_kronecker_sum(operator, vector)
     if isinstance(operator, KroneckerSumSqrt):
@@ -72,6 +78,12 @@ def solve(
         # (A B) x = b  =>  x = B^{-1} (A^{-1} b)
         y = solve(operator.operator1, vector, solver=solver)
         return solve(operator.operator2, y, solver=solver)
+    if isinstance(operator, lx.AddLinearOperator):
+        # ``SumOperator`` builds native lineax sums rather than a
+        # `SumOfKroneckers`, so the same reduction has to be reachable here.
+        factorization = _sum_of_kroneckers_eigen(operator)
+        if factorization is not None:
+            return factorization.solve(vector)
     return _solve_fallback(operator, vector, solver)
 
 
@@ -156,6 +168,26 @@ def _solve_low_rank(
     Linv_U, C = _low_rank_capacitance(operator, solver)
     Cinv_VtLinvb = jnp.linalg.solve(C, V.T @ Linv_b)
     return Linv_b - Linv_U @ Cinv_VtLinvb
+
+
+def _solve_sum_of_kroneckers(
+    operator: SumOfKroneckers,
+    vector: Float[Array, " n"],
+    solver: lx.AbstractLinearSolver | None,
+) -> Float[Array, " n"]:
+    r"""Solve ``(Σ_k A_k ⊗ B_k) x = b`` by simultaneous diagonalization.
+
+    Exact for two terms with one of them positive definite — the
+    ``B ⊗ C + σ² I`` and ``B₁ ⊗ C₁ + B₂ ⊗ C₂`` shapes of multi-output GP
+    train covariances — at ``O(n_a³ + n_b³)`` rather than the
+    ``O((n_a n_b)³)`` of the dense fallback. Three or more terms have no
+    closed form and keep the fallback; drive `SumOfKroneckers.mv` with
+    ``solver=lineax.CG(...)`` to avoid materializing there.
+    """
+    factorization = _sum_of_kroneckers_eigen(operator)
+    if factorization is None:
+        return _solve_fallback(operator, vector, solver)
+    return factorization.solve(vector)
 
 
 def _solve_kronecker_sum(
@@ -270,6 +302,13 @@ def _solve_tagged(
     Untagged inner operators stay wrapped so the lineax fallback solver
     can still exploit the tags (e.g. PSD -> Cholesky).
     """
+    if isinstance(operator.operator, SumOfKroneckers | lx.AddLinearOperator):
+        # ``SumOperator(..., tags=...)`` wraps the sum; unwrapping
+        # unconditionally would cost the fallback its PSD tag, so only take
+        # the structured path when the exact reduction actually applies.
+        factorization = _sum_of_kroneckers_eigen(operator.operator)
+        if factorization is not None:
+            return factorization.solve(vector)
     structured = (
         lx.IdentityLinearOperator,
         lx.DiagonalLinearOperator,

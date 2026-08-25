@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import abc
+import functools as ft
+from operator import add as operator_add
+from typing import NamedTuple
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -21,10 +26,37 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
 
     Matvec is computed as the sum of the Kronecker matvecs.
 
-    For solve and logdet, call `eigendecompose` which uses a
-    joint eigendecomposition of the second Kronecker pair (requires
-    ``A_2, B_2`` to be symmetric).  The eigendecomposition forms a
-    dense ``(n_c n_d) x (n_c n_d)`` matrix internally, so it is
+    `gaussx.solve` and `gaussx.logdet` dispatch structurally on **two**
+    terms with one of them positive definite — ``B ⊗ C + σ² I`` and the
+    general ``B₁ ⊗ C₁ + B₂ ⊗ C₂`` — by whitening with the positive-definite
+    term and eigendecomposing each factor of the other. That costs
+    ``O(n_c³ + n_d³)`` rather than the ``O((n_c n_d)³)`` of a dense solve,
+    and the same reduction is reachable through the ``AddLinearOperator``
+    chains `SumOperator` builds. The factors of the non-anchor term must
+    advertise symmetry, and the anchor's must be diagonal, a multiple of the
+    identity, or tagged positive-semidefinite; anything else keeps the dense
+    fallback.
+
+    !!! warning "The anchor must be positive *definite*"
+
+        Whitening inverts the anchor term. ``positive_semidefinite_tag`` --
+        the strongest statement lineax can make -- permits a singular
+        operator, and whitening by one of those returns ``NaN`` where the
+        dense fallback would have answered. When both terms qualify, the one
+        whose inversion needs no factorization is preferred, so a scalar or
+        diagonal shift always wins over a tagged dense factor; a
+        multiple-of-the-identity anchor is folded in as a shift and is never
+        inverted at all. Beyond that the definiteness is the caller's to
+        guarantee, exactly as it is for `gaussx.cholesky`.
+
+    Three or more terms have no closed form and keep the dense fallback.
+    Drive the structured `mv` instead with
+    ``solve(op, b, solver=lineax.CG(...))`` and `gaussx.SLQLogdet`.
+
+    `eigendecompose` is the separate, more general route: a joint
+    eigendecomposition of the second Kronecker pair (requires
+    ``A_2, B_2`` to be symmetric).  It forms a dense
+    ``(n_c n_d) x (n_c n_d)`` matrix internally, so it is
     intended for moderate factor sizes (typical for multi-output GPs
     where the task dimension is small).
 
@@ -173,6 +205,435 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
 
         Q = jnp.kron(Q_C, Q_D) @ V
         return evals, Q
+
+
+# ---------------------------------------------------------------------------
+# Structural solve / logdet: two-term simultaneous diagonalization
+# ---------------------------------------------------------------------------
+
+_KroneckerTerm = tuple[lx.AbstractLinearOperator, lx.AbstractLinearOperator]
+
+
+class _Whitener(eqx.Module):
+    r"""One axis of the anchor term's whitener ``L``, with ``S = L Lᵀ``.
+
+    Solving and taking a logdet both need ``L^{-1}``, ``L^{-T}`` and
+    ``log|det(S)|`` for each of the two Kronecker axes. Which subclass is
+    used is fixed at trace time by `_whitener_kind`, so the identity and
+    diagonal shortcuts cost nothing at runtime.
+    """
+
+    @abc.abstractmethod
+    def inv(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        r"""Apply ``L^{-1}`` on the left."""
+
+    @abc.abstractmethod
+    def inv_t(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        r"""Apply ``L^{-T}`` on the left."""
+
+    @abc.abstractmethod
+    def logdet(self) -> Float[Array, ""]:
+        r"""``log|det(S)| = log|det(L Lᵀ)|``."""
+
+    def conjugate(self, matrix: Float[Array, "n n"]) -> Float[Array, "n n"]:
+        r"""Whiten a symmetric factor: ``L^{-1} M L^{-T}``."""
+        return self.inv(self.inv(matrix).T).T
+
+
+class _IdentityWhitener(_Whitener):
+    """``L = I`` — every application is a no-op."""
+
+    def inv(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return matrix
+
+    def inv_t(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return matrix
+
+    def logdet(self) -> Float[Array, ""]:
+        return jnp.zeros(())
+
+
+class _DiagonalWhitener(_Whitener):
+    """``L = diag(scale)`` — applications are elementwise.
+
+    Attributes:
+        scale: Square roots of the anchor factor's diagonal.
+    """
+
+    scale: Float[Array, " n"]
+
+    def inv(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return matrix / self.scale[:, None]
+
+    def inv_t(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return matrix / self.scale[:, None]
+
+    def logdet(self) -> Float[Array, ""]:
+        return 2.0 * jnp.sum(jnp.log(jnp.abs(self.scale)))
+
+
+class _CholeskyWhitener(_Whitener):
+    """Dense lower-triangular ``L`` — applications are triangular solves.
+
+    Attributes:
+        chol: Lower-triangular Cholesky factor of the anchor factor.
+    """
+
+    chol: Float[Array, "n n"]
+
+    def inv(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return jax.scipy.linalg.solve_triangular(self.chol, matrix, lower=True)
+
+    def inv_t(self, matrix: Float[Array, "n k"]) -> Float[Array, "n k"]:
+        return jax.scipy.linalg.solve_triangular(self.chol, matrix, lower=True, trans=1)
+
+    def logdet(self) -> Float[Array, ""]:
+        return 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(self.chol))))
+
+
+class _SumOfKroneckersEigen(eqx.Module):
+    r"""Simultaneous diagonalization of ``A₁ ⊗ B₁ + A₂ ⊗ B₂``.
+
+    Built by `_sum_of_kroneckers_eigen`, which picks the positive-definite
+    term as the *anchor* ``A₂ ⊗ B₂`` and whitens the other one by it:
+
+    $$
+    K = (L_a \otimes L_b)\,(U \otimes V)\,\Lambda\,(U \otimes V)^\top\,
+        (L_a \otimes L_b)^\top ,
+    \qquad A_2 = L_a L_a^\top,\; B_2 = L_b L_b^\top
+    $$
+
+    with ``Λ = diag(λ_a ⊗ λ_b + 1)`` from the per-factor eigendecompositions
+    of ``L_a^{-1} A₁ L_a^{-T}`` and ``L_b^{-1} B₁ L_b^{-T}``. When the anchor
+    is a multiple of the identity the whiteners drop out and the shift folds
+    straight into the eigenvalues instead.
+
+    Both operations cost two eigendecompositions of the *factors* — total
+    ``O(n_a³ + n_b³ + n_a n_b (n_a + n_b))`` — instead of the ``O((n_a n_b)³)``
+    of the dense fallback.
+
+    Attributes:
+        wa: Whitener for the first (``n_a``) axis.
+        wb: Whitener for the second (``n_b``) axis.
+        U: Eigenvectors of the whitened first factor, shape ``(n_a, n_a)``.
+        V: Eigenvectors of the whitened second factor, shape ``(n_b, n_b)``.
+        evals: Eigenvalues of the whitened operator, shape ``(n_a, n_b)``.
+    """
+
+    wa: _Whitener
+    wb: _Whitener
+    U: Float[Array, "n_a n_a"]
+    V: Float[Array, "n_b n_b"]
+    evals: Float[Array, "n_a n_b"]
+
+    def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        r"""Solve ``K x = b`` in the factorized basis.
+
+        Args:
+            vector: Right-hand side ``b`` of size ``n_a * n_b``.
+
+        Returns:
+            The solution ``x``.
+        """
+        n_a, n_b = self.evals.shape
+        Y = rearrange(vector, "(a b) -> a b", a=n_a, b=n_b)
+        # Z = L_a^{-1} Y L_b^{-T}
+        Z = self.wb.inv(self.wa.inv(Y).T).T
+        # Rotate into the eigenbasis, divide, rotate back.
+        C = (self.U.T @ Z @ self.V) / self.evals
+        Z = self.U @ C @ self.V.T
+        # X = L_a^{-T} Z L_b^{-1}
+        X = self.wb.inv_t(self.wa.inv_t(Z).T).T
+        return rearrange(X, "a b -> (a b)")
+
+    def logdet(self) -> Float[Array, ""]:
+        r"""``log|det(K)|`` from the factor eigenvalues and the anchor."""
+        n_a, n_b = self.evals.shape
+        return (
+            jnp.sum(jnp.log(jnp.abs(self.evals)))
+            + n_b * self.wa.logdet()
+            + n_a * self.wb.logdet()
+        )
+
+
+def _unwrap_tagged(
+    operator: lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator:
+    while isinstance(operator, lx.TaggedLinearOperator):
+        operator = operator.operator
+    return operator
+
+
+def _scaled_identity(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, ""] | None:
+    """Return ``c`` when ``operator`` is *statically* ``c · I``, else ``None``.
+
+    The recognition is by operator type, not by inspecting entries, so the
+    answer is available at trace time; only the returned scalar is traced.
+    """
+    operator = _unwrap_tagged(operator)
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return jnp.ones(())
+    if isinstance(operator, lx.MulLinearOperator):
+        inner = _scaled_identity(operator.operator)
+        return None if inner is None else inner * operator.scalar
+    if isinstance(operator, lx.DivLinearOperator):
+        inner = _scaled_identity(operator.operator)
+        return None if inner is None else inner / operator.scalar
+    if isinstance(operator, lx.NegLinearOperator):
+        inner = _scaled_identity(operator.operator)
+        return None if inner is None else -inner
+    return None
+
+
+def _whitener_kind(
+    operator: lx.AbstractLinearOperator,
+) -> type[_Whitener] | None:
+    """Static classification of an anchor factor, or ``None`` if unusable.
+
+    The tag queries run against the operator *as given*: a factor may carry
+    its symmetry and positive-semidefiniteness on a native
+    ``TaggedLinearOperator`` wrapper, and unwrapping first would throw away
+    the only structural evidence there is. Only the ``isinstance`` checks
+    look through the wrapper. Untagged operators fall through to the dense
+    path rather than risk a ``NaN`` whitening.
+
+    Whitening needs the anchor factor to be positive *definite*, and lineax
+    has no tag for that — `_select_anchor` therefore prefers the kinds
+    returned earlier here, which need no factorization to invert.
+    """
+    inner = _unwrap_tagged(operator)
+    if isinstance(inner, lx.IdentityLinearOperator):
+        return _IdentityWhitener
+    if (
+        isinstance(inner, lx.DiagonalLinearOperator)
+        or _scaled_identity(operator) is not None
+    ):
+        return _DiagonalWhitener
+    if lx.is_symmetric(operator) and lx.is_positive_semidefinite(operator):
+        return _CholeskyWhitener
+    return None
+
+
+def _anchor_diagonal(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, " n"]:
+    """The diagonal of a diagonal-or-scaled-identity anchor factor."""
+    scalar = _scaled_identity(operator)
+    if scalar is not None:
+        dtype = operator.in_structure().dtype
+        return jnp.full((operator.in_size(),), scalar, dtype=dtype)
+    return lx.diagonal(_unwrap_tagged(operator))
+
+
+def _build_whitener(
+    kind: type[_Whitener], operator: lx.AbstractLinearOperator
+) -> _Whitener:
+    if kind is _IdentityWhitener:
+        return _IdentityWhitener()
+    if kind is _DiagonalWhitener:
+        return _DiagonalWhitener(jnp.sqrt(_anchor_diagonal(operator)))
+    from gaussx._primitives._cholesky import cholesky
+
+    # ``operator`` unwrapped, so `cholesky` sees the tags and can dispatch.
+    return _CholeskyWhitener(cholesky(operator).as_matrix())
+
+
+def _add_leaves(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[lx.AbstractLinearOperator, ...]:
+    """Flatten a chain of lineax ``AddLinearOperator`` compositions."""
+    operator = _unwrap_tagged(operator)
+    if isinstance(operator, lx.AddLinearOperator):
+        return (*_add_leaves(operator.operator1), *_add_leaves(operator.operator2))
+    return (operator,)
+
+
+def _kronecker_terms(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[_KroneckerTerm, ...] | None:
+    r"""Normalize ``operator`` to a tuple of two-factor Kronecker terms.
+
+    Accepts a `SumOfKroneckers`, a `Kronecker`, or an ``AddLinearOperator``
+    chain — the shape `SumOperator` produces — whose leaves are `Kronecker` /
+    `SumOfKroneckers` operators plus any number of scalar-identity shifts.
+    The identity shifts are summed and returned as a single ``I ⊗ cI`` term.
+
+    Returns ``None`` when the operator is not of that form, or when the
+    Kronecker factors are not square with sizes shared across terms — the
+    caller then keeps its existing fallback.
+
+    Args:
+        operator: Any lineax operator.
+
+    Returns:
+        The ``((A₁, B₁), (A₂, B₂), …)`` factor pairs, or ``None``.
+    """
+    krons: list[Kronecker] = []
+    shifts: list[Float[Array, ""]] = []
+    for leaf in _add_leaves(operator):
+        if isinstance(leaf, SumOfKroneckers):
+            krons.extend(leaf.operators)
+            continue
+        if isinstance(leaf, Kronecker):
+            krons.append(leaf)
+            continue
+        scalar = _scaled_identity(leaf)
+        if scalar is None:
+            return None
+        shifts.append(scalar)
+    if not krons or any(len(kron.operators) != 2 for kron in krons):
+        return None
+
+    terms: list[_KroneckerTerm] = [
+        (kron.operators[0], kron.operators[1]) for kron in krons
+    ]
+    n_a = terms[0][0].in_size()
+    n_b = terms[0][1].in_size()
+    for factor_a, factor_b in terms:
+        square = (
+            factor_a.in_size() == factor_a.out_size()
+            and factor_b.in_size() == factor_b.out_size()
+        )
+        if not square or factor_a.in_size() != n_a or factor_b.in_size() != n_b:
+            return None
+
+    if shifts:
+        dtype = terms[0][0].in_structure().dtype
+        total = ft.reduce(operator_add, shifts)
+        identity_a = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n_a,), dtype))
+        identity_b = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n_b,), dtype))
+        terms.append((identity_a, total * identity_b))
+    return tuple(terms)
+
+
+# Whitener kinds in order of preference: the whitening has to *invert* the
+# anchor, and only the first two are invertible on evidence available at
+# trace time — an identity needs no inversion, a diagonal only a reciprocal.
+# ``_CholeskyWhitener`` rests on ``positive_semidefinite_tag``, which permits
+# a singular operator; whitening by one of those yields NaN where the dense
+# fallback would have answered.
+_ANCHOR_PREFERENCE = (_IdentityWhitener, _DiagonalWhitener, _CholeskyWhitener)
+
+
+class _AnchorPlan(NamedTuple):
+    """How to reduce by one of the two terms — decided at trace time.
+
+    Attributes:
+        index: Which term is the anchor.
+        kinds: Whitener kind per axis, or ``None`` to fold the anchor in as
+            a scalar shift instead of whitening by it.
+    """
+
+    index: int
+    kinds: tuple[type[_Whitener], type[_Whitener]] | None
+
+    def rank(self) -> int:
+        """Lower is safer — see `_ANCHOR_PREFERENCE`."""
+        if self.kinds is None:
+            return 0
+        return 1 + max(_ANCHOR_PREFERENCE.index(kind) for kind in self.kinds)
+
+
+def _select_anchor(terms: tuple[_KroneckerTerm, ...]) -> _AnchorPlan | None:
+    """Pick the term to reduce by, and how — a static decision.
+
+    Returns ``None`` when no exact two-term reduction applies. Where both
+    terms qualify the safer plan wins, so a scalar or diagonal shift is
+    never passed over for a tagged dense factor; ties go to the second
+    term, since a noise or jitter shift is conventionally written last.
+    """
+    if len(terms) != 2:
+        return None
+    plans: list[_AnchorPlan] = []
+    for anchor_index in (1, 0):
+        main = terms[1 - anchor_index]
+        anchor = terms[anchor_index]
+        # ``eigh`` on the whitened main factors needs them symmetric.
+        if not (lx.is_symmetric(main[0]) and lx.is_symmetric(main[1])):
+            continue
+        if all(_scaled_identity(factor) is not None for factor in anchor):
+            # The whole anchor is ``c·I``: fold it into the eigenvalues
+            # rather than inverting it, which keeps a negative ``c`` exact.
+            plans.append(_AnchorPlan(anchor_index, None))
+            continue
+        kind_a = _whitener_kind(anchor[0])
+        kind_b = _whitener_kind(anchor[1])
+        if kind_a is not None and kind_b is not None:
+            plans.append(_AnchorPlan(anchor_index, (kind_a, kind_b)))
+    if not plans:
+        return None
+    # ``min`` is stable, so equally safe plans keep the term-1-first order.
+    return min(plans, key=_AnchorPlan.rank)
+
+
+def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether `_sum_of_kroneckers_eigen` has an exact path for ``operator``.
+
+    A purely structural query — operator types and lineax tags only, no
+    array work — so it is safe to call from solver-strategy selection.
+
+    Args:
+        operator: Any lineax operator.
+
+    Returns:
+        ``True`` if the exact two-term reduction applies.
+    """
+    terms = _kronecker_terms(operator)
+    return terms is not None and _select_anchor(terms) is not None
+
+
+def _sum_of_kroneckers_eigen(
+    operator: lx.AbstractLinearOperator,
+) -> _SumOfKroneckersEigen | None:
+    r"""Factorize a two-term sum of Kronecker products, if one applies.
+
+    Recognizes ``A₁ ⊗ B₁ + A₂ ⊗ B₂`` — written as a `SumOfKroneckers`, or as
+    the ``AddLinearOperator`` chain `SumOperator` builds — with one term
+    positive definite, and returns the simultaneous diagonalization that
+    `gaussx.solve` and `gaussx.logdet` dispatch on. Returns ``None`` for
+    anything else, including three or more Kronecker terms, which have no
+    closed form; the iterative alternatives for that case are
+    ``solve(..., solver=lineax.CG(...))`` and `gaussx.SLQLogdet`, both of
+    which drive the structured `SumOfKroneckers.mv`.
+
+    Args:
+        operator: Any lineax operator.
+
+    Returns:
+        The factorization, or ``None`` when no exact path applies.
+    """
+    terms = _kronecker_terms(operator)
+    if terms is None:
+        return None
+    plan = _select_anchor(terms)
+    if plan is None:
+        return None
+    main = terms[1 - plan.index]
+    anchor = terms[plan.index]
+
+    A1 = main[0].as_matrix()
+    B1 = main[1].as_matrix()
+    if plan.kinds is None:
+        wa = _IdentityWhitener()
+        wb = wa
+        scalar_a = _scaled_identity(anchor[0])
+        scalar_b = _scaled_identity(anchor[1])
+        assert scalar_a is not None and scalar_b is not None
+        shift = scalar_a * scalar_b
+    else:
+        kind_a, kind_b = plan.kinds
+        wa = _build_whitener(kind_a, anchor[0])
+        wb = _build_whitener(kind_b, anchor[1])
+        A1 = wa.conjugate(A1)
+        B1 = wb.conjugate(B1)
+        shift = jnp.ones(())
+
+    evals_a, U = jnp.linalg.eigh(A1)
+    evals_b, V = jnp.linalg.eigh(B1)
+    evals = evals_a[:, None] * evals_b[None, :] + shift
+    return _SumOfKroneckersEigen(wa=wa, wb=wb, U=U, V=V, evals=evals)
 
 
 def sumkronecker_sample(

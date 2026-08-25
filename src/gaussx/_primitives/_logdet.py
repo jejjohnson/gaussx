@@ -18,6 +18,10 @@ from gaussx._operators._block_tridiag import (
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._sum_kronecker import (
+    SumOfKroneckers,
+    _sum_of_kroneckers_eigen,
+)
 
 
 def cholesky_logdet(L: Float[Array, "N N"]) -> Float[Array, ""]:
@@ -51,6 +55,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return _logdet_kronecker(operator)
     if isinstance(operator, LowRankUpdate):
         return _logdet_low_rank(operator)
+    if isinstance(operator, SumOfKroneckers):
+        return _logdet_sum_of_kroneckers(operator)
     if isinstance(operator, KroneckerSum):
         return _logdet_kronecker_sum(operator)
     if isinstance(operator, BlockTriDiag):
@@ -73,6 +79,10 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         and operator.operator2.in_size() == operator.operator2.out_size()
     ):
         return logdet(operator.operator1) + logdet(operator.operator2)
+    if isinstance(operator, lx.AddLinearOperator):
+        factorization = _sum_of_kroneckers_eigen(operator)
+        if factorization is not None:
+            return factorization.logdet()
     return _logdet_dense(operator)
 
 
@@ -113,6 +123,21 @@ def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
     _, ld_C = jnp.linalg.slogdet(C)
     ld_d = jnp.sum(jnp.log(jnp.abs(operator.d)))
     return ld_base + ld_C + ld_d
+
+
+def _logdet_sum_of_kroneckers(operator: SumOfKroneckers) -> Float[Array, ""]:
+    r"""``logdet(Σ_k A_k ⊗ B_k)`` from the simultaneous diagonalization.
+
+    For two terms with one positive definite this is
+    ``Σ_ij log|λ_a[i] λ_b[j] + 1|`` plus the anchor's own scaled logdets —
+    the same reduction `solve` uses, so the two agree by construction.
+    Three or more terms keep the dense fallback; `SLQLogdet` estimates that
+    case matrix-free.
+    """
+    factorization = _sum_of_kroneckers_eigen(operator)
+    if factorization is None:
+        return _logdet_dense(operator)
+    return factorization.logdet()
 
 
 def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
