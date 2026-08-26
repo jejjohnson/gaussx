@@ -136,13 +136,17 @@ class TestPivotedCholeskyViaMatfree:
         rd = root_decomposition(op, method="pivoted_cholesky", rank=4)
         assert tree_allclose(rd.root @ rd.root.T, op.as_matrix(), atol=1e-6)
 
-    def test_rank_deficient_request_is_nan_free(self, getkey):
-        b = jr.normal(getkey(), (10, 3))
+    # Keys pinned (randomness is incidental — any rank-3 draw would do):
+    # 27 is a regression key for gh-236, where the unguarded matfree pivot
+    # division produced inf (not NaN) surplus columns; 0 is a clean draw.
+    @pytest.mark.parametrize("seed", [0, 27])
+    def test_rank_deficient_request_stays_finite(self, seed):
+        b = jr.normal(jr.key(seed), (10, 3))
         op = lx.MatrixLinearOperator(
             b @ b.T, (lx.symmetric_tag, lx.positive_semidefinite_tag)
         )
         rd = root_decomposition(op, method="pivoted_cholesky", rank=6)
-        assert not bool(jnp.any(jnp.isnan(rd.root)))
+        assert bool(jnp.all(jnp.isfinite(rd.root)))
         assert tree_allclose(rd.root @ rd.root.T, op.as_matrix(), atol=1e-6)
 
     def test_jit(self, getkey):

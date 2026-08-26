@@ -9,7 +9,6 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
-import matfree.low_rank
 from jaxtyping import Array, Float
 
 from gaussx._linalg._symmetrize import symmetrize
@@ -245,18 +244,30 @@ def _pivoted_cholesky_root(
     mat: Float[Array, "N N"],
     rank: int,
 ) -> Float[Array, "N k"]:
-    """Greedy pivoted-Cholesky root via ``matfree.low_rank``.
+    """Greedy pivoted-Cholesky root with a numerical-rank guard.
 
-    Delegates to the same routine the partial-Cholesky preconditioner
-    uses. When the requested rank exceeds the matrix rank, matfree
-    emits NaN in the surplus columns; ``nan_to_num`` zeroes them,
-    matching the rank-deficiency-safe semantics of the previous
-    hand-rolled implementation.
+    matfree's ``cholesky_partial_pivot`` divides by the pivot without a
+    positivity guard, so once the numerical rank is exhausted the
+    residual pivot is rounding noise: an exactly nonpositive value
+    yields NaN columns (which ``nan_to_num`` used to zero), but a tiny
+    positive one yields huge or infinite columns that ``nan_to_num``
+    passed through — the gh-236 failure. Guard each step instead: when
+    the best remaining pivot falls below a pstrf-style tolerance, the
+    surplus columns are exactly zero.
     """
-    chol_fn = matfree.low_rank.cholesky_partial_pivot(
-        lambda i, j: mat[i, j],
-        nrows=mat.shape[0],
-        rank=rank,
-    )
-    factor, _info = chol_fn()
-    return jnp.nan_to_num(factor)
+    diag = jnp.diag(mat)
+    # LAPACK ?pstrf stopping criterion: n * eps * max diagonal entry.
+    tol = mat.shape[0] * jnp.finfo(mat.dtype).eps * jnp.max(jnp.abs(diag))
+
+    def body(i, L):
+        residual = diag - jnp.sum(L * L, axis=1)
+        k = jnp.argmax(residual)
+        pivot = residual[k]
+        ok = pivot > tol
+        # Double-where keeps the sqrt's gradient finite when guarded.
+        denom = jnp.sqrt(jnp.where(ok, pivot, 1.0))
+        col = (mat[:, k] - L @ L[k, :]) / denom
+        return L.at[:, i].set(jnp.where(ok, col, 0.0))
+
+    L0 = jnp.zeros((mat.shape[0], rank), dtype=mat.dtype)
+    return jax.lax.fori_loop(0, rank, body, L0)
