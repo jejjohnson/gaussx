@@ -1020,8 +1020,9 @@ def eki_step(
             shape ``(J, M)``.
         observation: The observation $y$, shape ``(M,)``.
         obs_noise: Observation error covariance $R$, shape ``(M, M)``. Scaled
-            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator`, never
-            materialized here, so a structured $R$ keeps its structured solve.
+            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator` for the gain
+            computation. Note: `etkf_transform` materializes ``obs_noise`` via
+            ``as_matrix()`` when ``deterministic=True``.
         dt: Observation-side tempering step $\Delta t > 0$. Positivity is not
             checked -- it may be traced.
         step: State-side operator $\Lambda$, shape ``(N, N)``. ``None`` is the
