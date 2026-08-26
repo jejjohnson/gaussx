@@ -7,6 +7,8 @@ from gaussx._inference._blr import (
     hutchinson_hessian_diag,
 )
 from gaussx._inference._ensemble import (
+    discrepancy_step_size,
+    eki_step,
     enkf_analysis,
     ensemble_covariance,
     ensemble_cross_covariance,
@@ -20,6 +22,7 @@ from gaussx._inference._ensemble import (
     inflate_rtps,
     localization_matrix,
     localized_kalman_gain,
+    tikhonov_augment,
 )
 from gaussx._inference._inference import (
     cavity_distribution,
@@ -46,6 +49,8 @@ __all__ = [
     "blr_full_update",
     "cavity_distribution",
     "damped_natural_update",
+    "discrepancy_step_size",
+    "eki_step",
     "enkf_analysis",
     "ensemble_covariance",
     "ensemble_cross_covariance",
@@ -67,5 +72,6 @@ __all__ = [
     "newton_update",
     "process_noise_covariance",
     "riemannian_psd_correction",
+    "tikhonov_augment",
     "trace_correction",
 ]

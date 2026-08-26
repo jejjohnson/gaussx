@@ -66,6 +66,8 @@ from gaussx._inference import (
     blr_full_update as blr_full_update,
     cavity_distribution as cavity_distribution,
     damped_natural_update as damped_natural_update,
+    discrepancy_step_size as discrepancy_step_size,
+    eki_step as eki_step,
     enkf_analysis as enkf_analysis,
     ensemble_covariance as ensemble_covariance,
     ensemble_cross_covariance as ensemble_cross_covariance,
@@ -86,6 +88,7 @@ from gaussx._inference import (
     log_marginal_likelihood as log_marginal_likelihood,
     newton_update as newton_update,
     riemannian_psd_correction as riemannian_psd_correction,
+    tikhonov_augment as tikhonov_augment,
     trace_correction as trace_correction,
 )
 from gaussx._kernels import (

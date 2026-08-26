@@ -62,6 +62,37 @@ the latent joint less Gaussian and do worse.
       show_root_toc_entry: false
       members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, enkf_analysis, etkf_transform]
 
+## Ensemble Kalman inversion
+
+`eki_step` is the same Kalman update as `enkf_analysis` with two knobs added,
+and reduces to it exactly at `dt=1`. It is the *inverse problem* reading of the
+ensemble filter: one fixed observation, no time axis, and a schedule of tempered
+steps instead of a sequence of assimilation windows.
+
+`dt` is the observation-side tempering step, replacing `R` by `R / dt`. Over a
+schedule with `sum(dt) = 1` the composition is exactly one Bayesian update in
+the linear-Gaussian population limit -- the precisions add -- so the sum
+condition is what makes a schedule a tempering path rather than a heuristic.
+`step` is the state-side operator in the gradient-flow view: it multiplies each
+member's increment, so a `BlockDiag` of scaled identities gives a different rate
+per state block. It changes the trajectory, not the fixed point.
+
+The two helpers cover the standard variations. `tikhonov_augment` puts a prior
+`N(m0, C0)` into the step by observation augmentation (TEKI) -- a helper rather
+than a flag, so `C0` stays an operator and the step itself knows nothing about
+priors. `discrepancy_step_size` is the tuning-parameter-free data misfit
+controller of Iglesias & Yang (2021): a pure function of the ensemble misfits,
+so it belongs here rather than in whatever drives the iteration.
+
+The iteration loop, the stopping rule, and the forward model itself are all out
+of scope: these are array-in / array-out steps.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [eki_step, tikhonov_augment, discrepancy_step_size]
+
 ## Localization & inflation
 
 The standard fixes for small-ensemble rank deficiency: Schur-product
