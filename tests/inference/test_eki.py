@@ -268,6 +268,76 @@ def test_structured_obs_noise_dispatches(getkey, name):
     assert jnp.allclose(got, expected, atol=1e-8, rtol=0.0)
 
 
+def _count_materialisations(monkeypatch, *operator_types):
+    """Spy on ``as_matrix`` for the given operator classes; returns the counter.
+
+    `DenseFallbackWarning` does not cover this: `lineax.AbstractLinearOperator`
+    ``as_matrix()`` assembles an (M, M) silently, so a route that quietly
+    materialises a structured ``R`` looks identical to one that dispatches on
+    it. Only counting the calls pins the difference.
+    """
+    calls = []
+    for operator_type in operator_types:
+        original = operator_type.as_matrix
+
+        def spy(self, _original=original, _name=operator_type.__name__):
+            calls.append(_name)
+            return _original(self)
+
+        monkeypatch.setattr(operator_type, "as_matrix", spy)
+    return calls
+
+
+def test_deterministic_never_materialises_obs_noise(getkey, monkeypatch):
+    """``deterministic=True`` dispatches on a structured ``R`` end to end.
+
+    `etkf_transform` needs only ``R^-1 Y^T`` and ``R^-1 d``, so the whole
+    deterministic route is solves against the operator. Materialising it would
+    allocate the (M, M) the structured operator exists to avoid.
+    """
+    obs_noise = Kronecker(
+        lx.DiagonalLinearOperator(jnp.linspace(0.5, 2.0, 3)),
+        lx.DiagonalLinearOperator(jnp.linspace(0.4, 1.2, 3)),
+    )
+    particles = jr.normal(getkey(), (6, 4))
+    obs_particles = jr.normal(getkey(), (6, 9))
+    observation = jr.normal(getkey(), (9,))
+
+    calls = _count_materialisations(monkeypatch, Kronecker)
+    got = eki_step(
+        particles,
+        obs_particles,
+        observation,
+        obs_noise,
+        dt=0.4,
+        deterministic=True,
+        dense_innovation=False,
+    )
+    assert calls == [], f"obs_noise was materialised {len(calls)} time(s)"
+    assert got.shape == (6, 4)
+
+
+def test_etkf_transform_never_materialises_obs_noise(getkey, monkeypatch):
+    """The same guarantee at the level `eki_step` inherits it from."""
+    obs_noise = Kronecker(
+        lx.DiagonalLinearOperator(jnp.linspace(0.5, 2.0, 3)),
+        lx.DiagonalLinearOperator(jnp.linspace(0.4, 1.2, 3)),
+    )
+    obs_particles = jr.normal(getkey(), (6, 9))
+    observation = jr.normal(getkey(), (9,))
+
+    dense = lx.MatrixLinearOperator(obs_noise.as_matrix(), lx.positive_semidefinite_tag)
+    expected = etkf_transform(obs_particles, observation, dense)
+
+    calls = _count_materialisations(monkeypatch, Kronecker)
+    got = etkf_transform(obs_particles, observation, obs_noise)
+    assert calls == [], f"obs_noise was materialised {len(calls)} time(s)"
+
+    # Structural dispatch is the same solve, so the transform is unchanged.
+    for got_part, expected_part in zip(got, expected, strict=True):
+        assert jnp.allclose(got_part, expected_part, atol=1e-10, rtol=0.0)
+
+
 def test_kronecker_prior_cov_dispatches(getkey):
     """A `gaussx.Kronecker` ``C0`` survives `tikhonov_augment` into the solve."""
     prior_cov = Kronecker(

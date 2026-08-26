@@ -11,6 +11,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from gaussx._einx import einsum
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
@@ -21,6 +22,7 @@ from gaussx._operators._lazy_algebra import ScaledOperator
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
+from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -91,7 +93,7 @@ def ensemble_cross_covariance(
     dev_theta = particles_theta - jnp.mean(particles_theta, axis=0, keepdims=True)
     dev_G = particles_G - jnp.mean(particles_G, axis=0, keepdims=True)
     divisor = J - 1 if bessel else J
-    return (dev_theta.T @ dev_G) / divisor
+    return einsum(dev_theta, dev_G, "j n, j m -> n m") / divisor
 
 
 def _check_ensemble_size(J: int, bessel: bool) -> None:
@@ -769,7 +771,7 @@ def enkf_analysis(
     )  # (N, M)
 
     innovation = perturbed - obs_particles  # (J, M)
-    return particles + innovation @ gain.T  # (J, M) @ (M, N) -> (J, N)
+    return particles + einsum(innovation, gain, "j m, n m -> j n")
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +893,13 @@ def etkf_transform(
     an eigenvector of ``W`` with eigenvalue ``1``, which makes the transform
     exactly mean-preserving (``sum_j X'^a_j = 0``).
 
+    ``R`` enters only through ``R^{-1} Y^T`` and ``R^{-1} d``, both taken with
+    `gaussx.solve`, so a structured ``obs_noise`` keeps its structured solve and
+    no ``(M, M)`` is ever assembled. Everything after that is ``(J, J)``
+    ensemble-space algebra, which is dense by construction and cheap when
+    ``J << M``. A positive *semi*-definite ``R`` is not supported: the solve is
+    against ``R`` itself.
+
     Args:
         obs_particles: Forecast ensemble in observation space, shape ``(J, M)``.
         y: Observation vector, shape ``(M,)``.
@@ -908,16 +917,21 @@ def etkf_transform(
     obs_mean = jnp.mean(obs_particles, axis=0)
     obs_pert = obs_particles - obs_mean[None, :]  # (J, M), zero-mean rows
 
-    r_matrix = obs_noise.as_matrix()
-    # R^{-1} applied to the (M, .) right-hand sides.
-    rinv_pert = jnp.linalg.solve(r_matrix, obs_pert.T)  # (M, J)
-    rinv_d = jnp.linalg.solve(r_matrix, y - obs_mean)  # (M,)
+    # R^{-1} against each member's row, and against the innovation. Via
+    # `solve` / `solve_rows` rather than `obs_noise.as_matrix()`: the only
+    # things needed from R are these solves, so materialising an (M, M) to get
+    # them would throw away the structured solve the operator exists to
+    # provide -- and allocate the dense array a large M was chosen to avoid.
+    rinv_pert = solve_rows(obs_noise, obs_pert)  # (J, M), row j = R^{-1} Y_j
+    rinv_d = solve(obs_noise, y - obs_mean)  # (M,)
 
-    precision = (n_ens - 1) / inflation * jnp.eye(n_ens) + obs_pert @ rinv_pert
+    # Y R^{-1} Y^T in ensemble space; symmetric because R is.
+    gram = einsum(obs_pert, rinv_pert, "i m, j m -> i j")  # (J, J)
+    precision = (n_ens - 1) / inflation * jnp.eye(n_ens) + gram
     precision = symmetrize(precision)
     analysis_cov = jnp.linalg.inv(precision)  # tilde A, (J, J)
 
-    w_mean = analysis_cov @ (obs_pert @ rinv_d)  # (J,)
+    w_mean = analysis_cov @ einsum(obs_pert, rinv_d, "j m, m -> j")  # (J,)
     transform = _symmetric_sqrt((n_ens - 1) * analysis_cov)
     return w_mean, transform
 
@@ -1020,9 +1034,11 @@ def eki_step(
             shape ``(J, M)``.
         observation: The observation $y$, shape ``(M,)``.
         obs_noise: Observation error covariance $R$, shape ``(M, M)``. Scaled
-            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator` for the gain
-            computation. Note: `etkf_transform` materializes ``obs_noise`` via
-            ``as_matrix()`` when ``deterministic=True``.
+            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator` and never
+            materialized, so a structured $R$ keeps its structured solve on
+            both routes -- `gaussx.solve` unwraps the scale by dividing the
+            inner solve. The exception is the dense innovation route, which
+            assembles an $(M, M)$ by construction; see ``dense_innovation``.
         dt: Observation-side tempering step $\Delta t > 0$. Positivity is not
             checked -- it may be traced.
         step: State-side operator $\Lambda$, shape ``(N, N)``. ``None`` is the
@@ -1140,10 +1156,12 @@ def eki_step(
         obs_mean = jnp.mean(obs_particles, axis=0)  # (M,)
         anomalies = particles - jnp.mean(particles, axis=0, keepdims=True)  # (J, N)
         _, transform = etkf_transform(obs_particles, observation, tempered_noise)
-        mean_increment = gain @ (observation - obs_mean)  # (N,)
+        mean_increment = einsum(gain, observation - obs_mean, "n m, m -> n")
         # The increment, not the transformed anomalies: Lambda acts on
         # differences, so Lambda = I leaves `transform @ anomalies` exactly.
-        anomaly_increment = transform @ anomalies - anomalies  # (J, N)
+        anomaly_increment = (
+            einsum(transform, anomalies, "i j, j n -> i n") - anomalies
+        )  # (J, N)
         if step is not None:
             mean_increment = step.mv(mean_increment)
             anomaly_increment = jax.vmap(step.mv)(anomaly_increment)
@@ -1169,7 +1187,8 @@ def eki_step(
                 f"{None if perturbed is None else perturbed.shape}."
             )
 
-    increment = (perturbed - obs_particles) @ gain.T  # (J, M) @ (M, N) -> (J, N)
+    innovation = perturbed - obs_particles  # (J, M)
+    increment = einsum(innovation, gain, "j m, n m -> j n")  # (J, N)
     if step is not None:
         increment = jax.vmap(step.mv)(increment)
     return particles + increment
@@ -1380,7 +1399,7 @@ def discrepancy_step_size(
 
     residuals = observation[None, :] - obs_particles  # (J, M)
     weighted = solve_rows(obs_noise, residuals)  # (J, M), R^{-1} r_j
-    misfit = 0.5 * jnp.sum(residuals * weighted, axis=-1)  # (J,), Phi_j
+    misfit = 0.5 * einsum(residuals, weighted, "j m, j m -> j")  # (J,), Phi_j
 
     mean_misfit = jnp.mean(misfit)
     var_misfit = jnp.var(misfit, ddof=1 if bessel else 0)
