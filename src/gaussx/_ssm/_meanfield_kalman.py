@@ -18,11 +18,10 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._einx import rearrange
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._ssm._kalman import FilterState, kalman_filter, rts_smoother
 from gaussx._ssm._parallel_kalman import (
@@ -66,9 +65,14 @@ def _split_diag_blocks(
 
 
 def _embed_block_diag(covs: Float[Array, "L T d d"]) -> Float[Array, "T D D"]:
-    """Assemble per-block covariance stacks into ``(T, D, D)`` block-diagonals."""
-    per_step = rearrange(covs, "l t d1 d2 -> t l d1 d2")
-    return jax.vmap(lambda blocks: jax.scipy.linalg.block_diag(*blocks))(per_step)
+    """Assemble per-block covariance stacks into ``(T, D, D)`` block-diagonals.
+
+    Contracting against ``eye(L)`` places block ``l`` on the diagonal and
+    exact zeros everywhere off-block.
+    """
+    eye = jnp.eye(covs.shape[0], dtype=covs.dtype)
+    grid = einsum(eye, covs, "l1 l2, l1 t d1 d2 -> t l1 d1 l2 d2")
+    return rearrange(grid, "t l1 d1 l2 d2 -> t (l1 d1) (l2 d2)")
 
 
 def meanfield_kalman_filter(
@@ -248,7 +252,12 @@ def meanfield_rts_smoother(
     L = D // d
 
     A_blocks = _split_diag_blocks(transition, L, d, d)
-    Q_blocks = _split_diag_blocks(process_noise, L, d, d)
+    # The standard RTS recurrence never reads ``process_noise`` (both base
+    # smoothers ``del`` it), so skip the block split — it would only force
+    # dense materialisation of a structured Q — and pass a shape-compatible
+    # placeholder instead.
+    del process_noise
+    Q_blocks = jnp.zeros_like(A_blocks)
 
     block_states = FilterState(
         filtered_means=rearrange(filter_state.filtered_means, "t (l d) -> l t d", l=L),

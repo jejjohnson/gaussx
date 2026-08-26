@@ -252,6 +252,17 @@ def test_jit_and_grad():
     g = jax.grad(loglik)(A)
     assert jnp.all(jnp.isfinite(g))
 
+    # Consume the covariances as a jit *output* so the block-diagonal
+    # embedding cannot be dead-code-eliminated from the compiled path.
+    @jax.jit
+    def covs(A_):
+        return meanfield_kalman_filter(A_, H, Q, R, y, m0, P0, block_size=d)
+
+    state = covs(A)
+    assert state.filtered_covs.shape == (T, L * d, L * d)
+    assert jnp.all(jnp.isfinite(state.filtered_covs))
+    assert jnp.all(jnp.isfinite(state.predicted_covs))
+
 
 def test_invalid_block_size_raises():
     """Indivisible state or observation dimensions are rejected."""
