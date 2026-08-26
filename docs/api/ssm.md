@@ -193,11 +193,28 @@ and raises `NotImplementedError` otherwise. `rts_smoother` needs no mask of
 its own — it consumes filtered/predicted moments, which are already
 mask-aware.
 
+### Mean-field (block-diagonal) filtering
+
+When the state decomposes into $L$ independent blocks of size $d$ (e.g. a
+multi-output temporal GP with one SDE per output), `meanfield_kalman_filter`
+and `meanfield_rts_smoother` run $L$ parallel $d$-state filters under
+`jax.vmap` — $O(T\,L\,d^3)$ total instead of the full filter's
+$O(T\,L^3 d^3)$. The trade-off is the mean-field approximation: inputs and
+posterior covariance are projected onto their diagonal blocks, so posterior
+*cross-block* covariance is dropped (the returned $(T, D, D)$ covariances are
+exactly zero off-block, and the log-likelihood is the sum of per-block
+log-likelihoods). The approximation is exact when the true cross-block
+dynamics are zero, which makes the decoupled case a useful consistency check
+against `kalman_filter`. A `BlockDiag` operator whose sub-operators match the
+blocking is split structurally, without materialising the full $(D, D)$
+matrix; `parallel=True` routes each block through the associative-scan
+filter/smoother.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, InfiniteHorizonState, dare, DAREResult, pairwise_marginals]
+      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, meanfield_kalman_filter, meanfield_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, InfiniteHorizonState, dare, DAREResult, pairwise_marginals]
 
 ## SpInGP
 
