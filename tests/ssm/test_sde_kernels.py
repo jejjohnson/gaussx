@@ -2,6 +2,7 @@
 
 import itertools
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -618,9 +619,36 @@ class TestIntegratedWienerSDE:
     def test_initial_covariance_defaults_to_diffuse(self):
         kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
         P_0 = kern.initial_covariance()
+        kappa = P_0[0, 0]
 
         assert P_0.shape == (2, 2)
-        assert jnp.allclose(P_0, 1e6 * jnp.eye(2))
+        assert jnp.allclose(P_0, kappa * jnp.eye(2))
+        # Diffuse: vague by many orders of magnitude against a noise
+        # variance of order one, which is what "diffuse" has to mean
+        # for a prior that cannot see the data scale.
+        assert kappa > 1e6
+
+    def test_default_diffuse_prior_survives_float32(self):
+        """A vaguer default would cancel the first update to zero variance.
+
+        The Kalman update forms ``P - K S K^T``, so once ``P_0 / R``
+        exceeds the dtype's precision the subtraction gives exactly
+        zero: the filter reports a *noiseless* first observation and
+        stays overconfident. In float32 a ``1e6`` default does that for
+        any ``R`` below about 0.1 — here ``R = 0.05^2``.
+        """
+        f32 = jnp.float32
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.5, dtype=f32))
+        kappa = kern.initial_covariance()[0, 0]
+        R = jnp.array(0.05**2, dtype=f32)
+
+        gain = kappa / (kappa + R)
+        posterior = kappa - gain * (kappa + R) * gain
+        exact = kappa * R / (kappa + R)
+
+        assert gain < 1.0
+        assert posterior > 0.0
+        assert jnp.abs(posterior - exact) < 0.1 * exact
 
     def test_initial_covariance_is_caller_supplied(self):
         """The initial covariance is a modelling choice, not a derived one."""
@@ -628,6 +656,52 @@ class TestIntegratedWienerSDE:
         kern = IntegratedWienerSDE(diffusion=jnp.array(0.5), P_0=P_0)
 
         assert jnp.allclose(kern.initial_covariance(), P_0)
+
+    def test_negative_step_is_rejected(self):
+        """The closed form has no guard of its own, unlike ``expm``.
+
+        At ``order=1`` a negative step returns a negative-definite
+        ``Q`` — not a covariance — which would propagate silently into
+        filtering. ``discretise_mfd`` rejects the same input.
+        """
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
+
+        with pytest.raises(eqx.EquinoxRuntimeError, match="requires dt >= 0"):
+            kern.discretise(jnp.array(-0.3))
+
+    def test_zero_step_gradient_is_finite(self):
+        """``diff(times, prepend=times[0])`` puts a ``dt = 0`` in every sequence.
+
+        A traced exponent would differentiate ``dt ** 0`` through the
+        generic power rule and give ``0 * inf = NaN``, poisoning the
+        gradient of any objective differentiated through the timestamps.
+        """
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.6))
+
+        grad_A = jax.grad(lambda t: kern.discretise(t)[0].sum())(jnp.array(0.0))
+        grad_Q = jax.grad(lambda t: kern.discretise(t)[1].sum())(jnp.array(0.0))
+
+        # dA/ddt at 0 is the drift's superdiagonal; dQ/ddt at 0 is q,
+        # from the single linear-in-dt entry.
+        assert jnp.allclose(grad_A, 1.0)
+        assert jnp.allclose(grad_Q, 0.6)
+
+    @pytest.mark.parametrize("order", [13, 20])
+    def test_high_orders_keep_valid_coefficients(self, order):
+        """Factorials must not overflow into negative coefficients.
+
+        ``(p-i)! (p-j)! (2p+1-i-j)`` exceeds int64 from order 13 up, so
+        an integer denominator would wrap and hand back a ``Q`` that is
+        not PSD even for positive ``diffusion`` and ``dt``.
+        """
+        kern = IntegratedWienerSDE(diffusion=jnp.array(1.0), order=order)
+        A, Q = kern.discretise(jnp.array(0.5))
+
+        assert jnp.all(jnp.isfinite(A)) and jnp.all(jnp.isfinite(Q))
+        assert jnp.all(jnp.diag(Q) > 0.0)
+        # Round-off only: the matrix spans many orders of magnitude at
+        # these orders, so PSD is asserted to float64 round-off.
+        assert jnp.linalg.eigvalsh(Q).min() > -1e-14
 
     def test_autocovariance_is_rejected(self):
         """``K(tau)`` is meaningless for a non-stationary process."""

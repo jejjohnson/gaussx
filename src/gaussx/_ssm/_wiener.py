@@ -6,16 +6,31 @@ import math
 
 import equinox as eqx
 import jax.numpy as jnp
-import numpy as np
 from jaxtyping import Array, Float
 
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 
 
-# Variance of the default diffuse initial covariance, in units of the
-# state. Large enough that the first few observations, not the prior,
-# fix the level and slope; small enough to stay well inside float32.
-_DEFAULT_DIFFUSE_VARIANCE = 1e6
+def _default_diffuse_variance(dtype) -> float:
+    r"""Variance of the default diffuse initial covariance.
+
+    A diffuse prior is pulled two ways. It must be vague relative to the
+    observation noise $R$ — the prior's pull on the first estimate is
+    $R / (P_0 + R)$ — but the Kalman update forms $P - K S K^\top$, and
+    once $P_0 / R$ exceeds the dtype's precision that subtraction
+    cancels to *exactly* zero: the filter then reports the first
+    observation as noiseless and stays overconfident thereafter. In
+    float32 the usual ``1e6`` does exactly that for any $R \lesssim
+    0.1$.
+
+    So the default splits the difference in log space at
+    $1/\sqrt{\varepsilon}$ — about ``2.9e3`` in float32 and ``6.7e7``
+    in float64 — spending half the mantissa on vagueness and keeping
+    half for the update. It is a *default*, not a recommendation: with
+    a known data scale, and especially with large $R$, pass an explicit
+    ``P_0``.
+    """
+    return float(1.0 / jnp.sqrt(jnp.finfo(dtype).eps))
 
 
 class IntegratedWienerSDE(SDEKernel):
@@ -54,12 +69,15 @@ class IntegratedWienerSDE(SDEKernel):
         diffusion: Diffusion intensity $q$, the spectral density of the
             white noise driving the top derivative.
         order: Number of integrations $p$. ``0`` is a Brownian random
-            walk, ``1`` (the default) the local linear trend, ``2`` the
-            cubic-spline-equivalent prior.
+            walk; ``1`` (the default) is the local linear trend, which
+            is also the cubic-spline-equivalent prior — it is $f''$ that
+            is white noise there, and the smoothed posterior mean is the
+            cubic smoothing spline. Each further order raises the spline
+            by two degrees, so ``2`` is the quintic-spline prior.
         P_0: Initial state covariance, shape ``(order + 1, order + 1)``.
             A modelling choice rather than something the kernel can
             derive; ``None`` (the default) means a diffuse
-            ``1e6 * I``.
+            ``_default_diffuse_variance(dtype) * I``.
     """
 
     diffusion: Float[Array, ""]
@@ -94,15 +112,23 @@ class IntegratedWienerSDE(SDEKernel):
     def initial_covariance(self) -> Float[Array, "d d"]:
         r"""Return the initial state covariance $P_0$.
 
-        Defaults to a diffuse ``1e6 * I`` when the ``P_0`` field is
-        ``None``. Pass a ``P_0`` to encode what is actually known about
-        the level and its derivatives at the first time point — e.g.
+        Defaults to a diffuse ``kappa * I`` when the ``P_0`` field is
+        ``None``, with ``kappa`` set from the dtype's precision by
+        `_default_diffuse_variance` — a vaguer prior than that is not
+        merely wasteful but actively wrong, since the Kalman update
+        cancels it to a zero-variance first estimate.
+
+        Pass a ``P_0`` to encode what is actually known about the level
+        and its derivatives at the first time point — e.g.
         ``diag(kappa, s^2)`` for a vague level and a slope of scale
-        ``s``.
+        ``s``. Do so in particular when the observation noise is large:
+        the default is diffuse relative to a noise variance of order
+        one, not relative to every scale.
         """
         dtype = jnp.result_type(self.diffusion)
         if self.P_0 is None:
-            return _DEFAULT_DIFFUSE_VARIANCE * jnp.eye(self.state_dim, dtype=dtype)
+            kappa = _default_diffuse_variance(dtype)
+            return kappa * jnp.eye(self.state_dim, dtype=dtype)
         return jnp.asarray(self.P_0, dtype=dtype)
 
     def discretise(
@@ -137,7 +163,13 @@ class IntegratedWienerSDE(SDEKernel):
         implementation would otherwise take.
 
         Args:
-            dt: Time step (scalar, non-negative).
+            dt: Time step. Must be non-negative — a negative step would
+                return a ``Q`` that is not a covariance (at ``order=1``
+                it is negative definite), rather than the harmless
+                reverse-time transition the sign might suggest. Checked
+                with `equinox.error_if`, matching
+                `gaussx.discretise_mfd`, so under ``jit`` the error
+                fires at evaluation rather than trace time.
 
         Returns:
             Tuple ``(A, Q)``, both shape ``(order + 1, order + 1)``.
@@ -146,28 +178,62 @@ class IntegratedWienerSDE(SDEKernel):
         p = self.order
         d = self.state_dim
 
-        # Exponent and coefficient tables depend only on the static
-        # order, so they are built once in NumPy at trace time.
-        i = np.arange(d)[:, None]
-        j = np.arange(d)[None, :]
-        factorial = np.vectorize(math.factorial)
-
-        upper = j >= i
-        # The lower triangle is zeroed through the *coefficient*, and its
-        # exponent clipped at zero, so no entry raises dt to a negative
-        # power: dt ** -1 is inf at dt = 0, and a zero coefficient times
-        # inf is NaN rather than the zero intended.
-        a_exponent = jnp.asarray(np.maximum(j - i, 0), dtype=dtype)
-        a_coeff = jnp.asarray(
-            np.where(upper, 1.0 / factorial(np.maximum(j - i, 0)), 0.0),
-            dtype=dtype,
+        # The closed form below is a polynomial in dt with no guard of
+        # its own, unlike the ``expm`` routes; a negative step would run
+        # it happily and hand back an indefinite Q.
+        dt = eqx.error_if(
+            dt, dt < 0, "IntegratedWienerSDE.discretise requires dt >= 0."
         )
-        A = a_coeff * dt**a_exponent
 
-        q_exponent = jnp.asarray(2 * p + 1 - i - j, dtype=dtype)
-        q_coeff = jnp.asarray(
-            1.0 / (factorial(p - i) * factorial(p - j) * (2 * p + 1 - i - j)),
-            dtype=dtype,
+        # Powers are taken with *static* Python exponents so JAX lowers
+        # them to ``integer_pow``, whose derivative is exact at zero. A
+        # traced exponent would go through the generic ``y * x**(y-1)``
+        # rule instead, and dt = 0 -- which the natural
+        # ``diff(times, prepend=times[0])`` produces at the first step --
+        # would differentiate to 0 * inf = NaN.
+        def power(exponent: int) -> Float[Array, ""]:
+            if exponent == 0:
+                return jnp.ones_like(dt)
+            return dt**exponent
+
+        # Coefficients are Python arithmetic, exact until they become
+        # floats: math.factorial returns an unbounded int, so the
+        # denominators do not overflow the way an int64 array would from
+        # order 13 up.
+        def coefficient(value: float) -> Float[Array, ""]:
+            return jnp.asarray(value, dtype=dtype)
+
+        zero = jnp.zeros((), dtype=dtype)
+        A = jnp.stack(
+            [
+                jnp.stack(
+                    [
+                        coefficient(1.0 / math.factorial(j - i)) * power(j - i)
+                        if j >= i
+                        else zero
+                        for j in range(d)
+                    ]
+                )
+                for i in range(d)
+            ]
         )
-        Q = self.diffusion * q_coeff * dt**q_exponent
-        return A, Q
+        Q = self.diffusion * jnp.stack(
+            [
+                jnp.stack(
+                    [
+                        coefficient(
+                            1.0
+                            / (
+                                math.factorial(p - i)
+                                * math.factorial(p - j)
+                                * (2 * p + 1 - i - j)
+                            )
+                        )
+                        * power(2 * p + 1 - i - j)
+                        for j in range(d)
+                    ]
+                )
+                for i in range(d)
+            ]
+        )
+        return A.astype(dtype), Q.astype(dtype)
