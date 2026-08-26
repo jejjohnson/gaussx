@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.25](https://github.com/jejjohnson/gaussx/compare/v0.0.24...v0.0.25) (2026-08-26)
+
+
+### Features
+
+* **inference:** ensemble Kalman inversion step (gh-230) ([#239](https://github.com/jejjohnson/gaussx/issues/239)) ([5348f18](https://github.com/jejjohnson/gaussx/commit/5348f18b66199d2ef04f08501f8d76405579c1dc))
+* **ssm:** mean-field block-diagonal Kalman filter and smoother (gh-29) ([#240](https://github.com/jejjohnson/gaussx/issues/240)) ([15d82f3](https://github.com/jejjohnson/gaussx/commit/15d82f37e63040f9bb784795e05f6faa4e77d588))
+
 ## [0.0.24](https://github.com/jejjohnson/gaussx/compare/v0.0.23...v0.0.24) (2026-08-26)
 
 
