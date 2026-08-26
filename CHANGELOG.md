@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.24](https://github.com/jejjohnson/gaussx/compare/v0.0.23...v0.0.24) (2026-08-26)
+
+
+### Bug Fixes
+
+* **root:** guard pivoted-Cholesky against rank-deficient inf columns (gh-236) ([#238](https://github.com/jejjohnson/gaussx/issues/238)) ([71ff499](https://github.com/jejjohnson/gaussx/commit/71ff49975d95bcd8578c8bc28e95f5fac770ec27))
+* safe_cholesky reverse-mode AD + SDE kernel dtype promotion (gh-229, gh-224) ([#232](https://github.com/jejjohnson/gaussx/issues/232)) ([7dc00a1](https://github.com/jejjohnson/gaussx/commit/7dc00a1c80bc4105175ac033223e7cc3f2304fa2))
+
 ## [0.0.23](https://github.com/jejjohnson/gaussx/compare/v0.0.22...v0.0.23) (2026-08-25)
 
 
