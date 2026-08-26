@@ -122,7 +122,7 @@ Cross-cutting patterns combining multiple layers:
 | **Variational bounds** | `variational_elbo_gaussian`, `variational_elbo_mc`, `collapsed_elbo`, `gauss_kl` |
 | **Pathwise sampling** | `matheron_update` |
 | **Multi-output (OILMM)** | `oilmm_project`, `oilmm_back_project` |
-| **SDE kernels** | `MaternSDE`, `PeriodicSDE`, `QuasiPeriodicSDE`, `CosineSDE`, `ConstantSDE`, `SumSDE`, `ProductSDE` |
+| **SDE kernels** | `MaternSDE`, `PeriodicSDE`, `QuasiPeriodicSDE`, `CosineSDE`, `ConstantSDE`, `IntegratedWienerSDE`, `SumSDE`, `ProductSDE` |
 | **Steady-state Kalman** | `infinite_horizon_filter`, `infinite_horizon_smoother`, `dare` |
 | **Interpolation** | `conditional_interpolate` |
 

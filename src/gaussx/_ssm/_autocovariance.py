@@ -27,6 +27,15 @@ def sde_autocovariance(
     Returns:
         Autocovariance values ``K(tau)``, shape ``(*batch,)``.
     """
+    if not kernel.stationary:
+        msg = (
+            f"{type(kernel).__name__} is not stationary, so it has no "
+            f"autocovariance K(tau): its covariance depends on both times "
+            f"rather than on their difference. Evaluate the covariance "
+            f"through the discretised recursion instead."
+        )
+        raise ValueError(msg)
+
     params = kernel.sde_params()
     if params.P_inf is None:
         msg = (

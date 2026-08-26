@@ -1,13 +1,18 @@
 """Tests for SDE kernel implementations."""
 
+import itertools
+
 import jax
 import jax.numpy as jnp
+import jax.random as jr
+import jax.scipy.linalg as jsl
 import lineax as lx
 import pytest
 
 from gaussx import (
     ConstantSDE,
     CosineSDE,
+    IntegratedWienerSDE,
     Kronecker,
     MaternSDE,
     PeriodicSDE,
@@ -16,7 +21,10 @@ from gaussx import (
     SDEParams,
     SumSDE,
     discrete_lyapunov_solve,
+    discretise_mfd,
+    kalman_filter,
     process_noise_covariance,
+    sde_autocovariance,
     symmetrize,
 )
 
@@ -530,3 +538,227 @@ class TestLeafKernelDtypes:
         A, Q = kernel.discretise(jnp.array(0.1, dtype=jnp.float32))
         assert A.dtype == jnp.float32
         assert Q.dtype == jnp.float32
+
+
+class TestIntegratedWienerSDE:
+    """The non-stationary local-linear-trend prior (gh-234)."""
+
+    @pytest.mark.parametrize("order", [0, 1, 2, 3])
+    def test_state_dim_and_params(self, order):
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.7), order=order)
+        params = kern.sde_params()
+        d = order + 1
+
+        assert kern.state_dim == d
+        assert params.F.shape == (d, d)
+        assert params.L.shape == (d, 1)
+        assert params.H.shape == (1, d)
+        assert params.Q_c.shape == (1, 1)
+        # No stationary covariance exists — that is the whole point.
+        assert params.P_inf is None
+        assert kern.stationary is False
+        # Drift is the nilpotent shift: f' feeds f, and the top
+        # derivative is driven by the noise alone.
+        assert jnp.allclose(params.F, jnp.eye(d, k=1))
+        assert jnp.allclose(jnp.linalg.matrix_power(params.F, d), 0.0)
+
+    def test_local_linear_trend_closed_form(self):
+        """``order=1`` is the textbook local linear trend pair."""
+        q, dt = 0.7, jnp.array(0.37)
+        A, Q = IntegratedWienerSDE(diffusion=jnp.array(q)).discretise(dt)
+
+        assert jnp.allclose(A, jnp.array([[1.0, dt], [0.0, 1.0]]))
+        assert jnp.allclose(
+            Q,
+            q * jnp.array([[dt**3 / 3, dt**2 / 2], [dt**2 / 2, dt]]),
+        )
+
+    @pytest.mark.parametrize("order", [0, 1, 2, 3])
+    def test_closed_form_matches_matrix_fraction(self, order):
+        """The closed form is exact, so MFD must agree to round-off."""
+        kern = IntegratedWienerSDE(diffusion=jnp.array(1.3), order=order)
+        params = kern.sde_params()
+        dt = jnp.array(0.37)
+
+        A, Q = kern.discretise(dt)
+        A_mfd, Q_mfd = discretise_mfd(params.F, params.L @ params.Q_c @ params.L.T, dt)
+
+        assert jnp.allclose(A, A_mfd, atol=1e-12)
+        assert jnp.allclose(Q, Q_mfd, atol=1e-12)
+
+    def test_recursion_reproduces_exact_covariance(self):
+        """Marginals of the discretised recursion match the IWP covariance.
+
+        For ``order=1`` started at ``f(0) = f'(0) = 0`` with no
+        uncertainty, ``Var f(t) = q t^3 / 3``, ``Var f'(t) = q t``, and
+        ``Cov(f(t), f'(t)) = q t^2 / 2`` — the covariance grows without
+        bound, unlike any stationary kernel in the zoo.
+        """
+        q = 0.6
+        kern = IntegratedWienerSDE(diffusion=jnp.array(q))
+        times = jnp.array([0.0, 0.4, 1.1, 2.3, 3.0])
+
+        cov = jnp.zeros((2, 2))
+        for start, end in itertools.pairwise(times):
+            A, Q = kern.discretise(end - start)
+            cov = A @ cov @ A.T + Q
+            t = end
+            expected = q * jnp.array([[t**3 / 3, t**2 / 2], [t**2 / 2, t]])
+            assert jnp.allclose(cov, expected, atol=1e-10)
+
+    def test_zero_step_is_the_identity(self):
+        """``dt = 0`` must not raise a masked entry to a negative power."""
+        A, Q = IntegratedWienerSDE(diffusion=jnp.array(0.5), order=2).discretise(
+            jnp.array(0.0)
+        )
+        assert jnp.allclose(A, jnp.eye(3))
+        assert jnp.allclose(Q, 0.0)
+        assert jnp.all(jnp.isfinite(A)) and jnp.all(jnp.isfinite(Q))
+
+    def test_initial_covariance_defaults_to_diffuse(self):
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
+        P_0 = kern.initial_covariance()
+
+        assert P_0.shape == (2, 2)
+        assert jnp.allclose(P_0, 1e6 * jnp.eye(2))
+
+    def test_initial_covariance_is_caller_supplied(self):
+        """The initial covariance is a modelling choice, not a derived one."""
+        P_0 = jnp.diag(jnp.array([1e4, 0.25]))
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.5), P_0=P_0)
+
+        assert jnp.allclose(kern.initial_covariance(), P_0)
+
+    def test_autocovariance_is_rejected(self):
+        """``K(tau)`` is meaningless for a non-stationary process."""
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
+
+        with pytest.raises(ValueError, match="not stationary"):
+            sde_autocovariance(kern, jnp.array([0.1, 0.5]))
+
+    def test_jit_and_grad(self):
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.6))
+
+        @jax.jit
+        def get_AQ(dt):
+            return kern.discretise(dt)
+
+        A, Q = get_AQ(jnp.array(0.5))
+        assert jnp.all(jnp.isfinite(A)) and jnp.all(jnp.isfinite(Q))
+
+        def loss(diffusion):
+            _A, Q = IntegratedWienerSDE(diffusion=diffusion).discretise(jnp.array(0.5))
+            return jnp.sum(Q)
+
+        grad = jax.grad(loss)(jnp.array(0.6))
+        # Q is linear in q, so the gradient is the sum of its coefficients.
+        assert jnp.allclose(grad, 0.5**3 / 3 + 0.5**2 + 0.5)
+
+    def test_keeps_float32(self):
+        """Float32 hyperparameters must survive x64 mode (gh-224)."""
+        f32 = jnp.float32
+        kern = IntegratedWienerSDE(diffusion=jnp.array(0.6, dtype=f32))
+
+        params = kern.sde_params()
+        for field in ("F", "L", "H", "Q_c"):
+            assert getattr(params, field).dtype == f32, field
+
+        A, Q = kern.discretise(jnp.array(0.1, dtype=f32))
+        assert A.dtype == f32
+        assert Q.dtype == f32
+        assert kern.initial_covariance().dtype == f32
+
+    def test_filters_a_linear_trend(self):
+        """End to end: the prior it exists for, through the Kalman filter."""
+        times = jnp.linspace(0.0, 20.0, 40)
+        noise_std = 0.05
+        observations = (
+            0.5
+            + 0.3 * times
+            + noise_std * jr.normal(jr.key(0), times.shape)  # key pinned: the
+            # test is about the filter, not about a particular draw.
+        )
+
+        kern = IntegratedWienerSDE(diffusion=jnp.array(1e-4))
+        A_seq, Q_seq = kern.discretise_sequence(jnp.diff(times, prepend=times[0]))
+        state = kalman_filter(
+            transition=A_seq,
+            obs_model=kern.sde_params().H,
+            process_noise=Q_seq,
+            obs_noise=jnp.array([[noise_std**2]]),
+            observations=observations[:, None],
+            init_mean=jnp.zeros(2),
+            init_cov=kern.initial_covariance(),
+        )
+
+        level, slope = state.filtered_means[-1]
+        assert jnp.allclose(slope, 0.3, atol=0.02)
+        assert jnp.allclose(level, observations[-1], atol=0.1)
+
+
+class TestSumWithNonStationaryComponent:
+    """A trend plus a stationary component — the mixed case (gh-234)."""
+
+    def _kernel(self):
+        trend = IntegratedWienerSDE(diffusion=jnp.array(0.2))
+        matern = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(2.0), order=1)
+        return trend, matern, SumSDE(kernels=(trend, matern))
+
+    def test_sum_is_non_stationary_without_p_inf(self):
+        _, _, kern = self._kernel()
+
+        assert kern.stationary is False
+        assert kern.sde_params().P_inf is None
+
+    def test_initial_covariance_is_block_diagonal(self):
+        trend, matern, kern = self._kernel()
+        P_0 = kern.initial_covariance()
+
+        assert P_0.shape == (4, 4)
+        assert jnp.allclose(P_0[:2, :2], trend.initial_covariance())
+        assert jnp.allclose(P_0[2:, 2:], matern.sde_params().P_inf)
+        assert jnp.allclose(P_0[:2, 2:], 0.0)
+
+    def test_discretises_through_the_matrix_fraction_fallback(self):
+        """No ``P_inf``, so the sum takes the MFD route — block by block."""
+        trend, matern, kern = self._kernel()
+        dt = jnp.array(0.3)
+
+        A, Q = kern.discretise(dt)
+        A_trend, Q_trend = trend.discretise(dt)
+        A_matern, Q_matern = matern.discretise(dt)
+
+        assert jnp.allclose(A, jsl.block_diag(A_trend, A_matern), atol=1e-9)
+        assert jnp.allclose(Q, jsl.block_diag(Q_trend, Q_matern), atol=1e-9)
+
+    def test_product_with_a_trend_factor_is_rejected(self):
+        """A Kronecker product needs both factors' ``P_inf``."""
+        trend, matern, _ = self._kernel()
+        kern = ProductSDE(kernel1=matern, kernel2=trend)
+
+        with pytest.raises(NotImplementedError, match="B1 \\(x\\) P2"):
+            kern.sde_params()
+
+
+class TestStationaryKernelContract:
+    """The additive half of gh-234: existing kernels keep working."""
+
+    @pytest.mark.parametrize("kernel", _leaf_kernels_f32())
+    def test_stationary_kernels_start_from_p_inf(self, kernel):
+        assert kernel.stationary is True
+        assert jnp.allclose(kernel.initial_covariance(), kernel.sde_params().P_inf)
+
+    def test_missing_p_inf_reports_what_to_override(self):
+        """``P_inf=None`` on a stationary kernel leaves nothing to start from."""
+
+        class _NoPInfSDE(MaternSDE):
+            def sde_params(self):
+                params = super().sde_params()
+                return SDEParams(
+                    F=params.F, L=params.L, H=params.H, Q_c=params.Q_c, P_inf=None
+                )
+
+        kern = _NoPInfSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=1)
+
+        with pytest.raises(ValueError, match="initial_covariance"):
+            kern.initial_covariance()

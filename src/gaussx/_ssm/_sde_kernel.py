@@ -15,7 +15,7 @@ from gaussx._ssm._discretise import discretise_mfd, process_noise_covariance
 
 
 class SDEParams(NamedTuple):
-    """Continuous-time SDE parameters for a stationary kernel.
+    """Continuous-time SDE parameters for a linear SDE.
 
     Defines the linear time-invariant SDE:
 
@@ -30,8 +30,12 @@ class SDEParams(NamedTuple):
         Q_c: Spectral density, shape ``(s, s)``.
         P_inf: Stationary covariance, shape ``(d, d)``, or ``None`` when
             the kernel has no closed-form stationary covariance — as for a
-            learned drift matrix. `SDEKernel.discretise` then falls back to
-            `gaussx.discretise_mfd`, which needs no ``P_inf``.
+            learned drift matrix, or a non-stationary kernel such as
+            `gaussx.IntegratedWienerSDE`, which has no stationary
+            covariance at all. `SDEKernel.discretise` then falls back to
+            `gaussx.discretise_mfd`, which needs no ``P_inf``, and the
+            filter is started from `SDEKernel.initial_covariance`
+            instead.
     """
 
     F: Float[Array, "d d"]
@@ -56,10 +60,52 @@ class SDEKernel(eqx.Module):
         """Dimension of the latent state vector."""
         ...
 
+    @property
+    def stationary(self) -> bool:
+        """Whether the process has a stationary distribution.
+
+        ``True`` for every kernel in the zoo, which is why that is the
+        default; a non-stationary kernel such as
+        `gaussx.IntegratedWienerSDE` overrides it. Consumers should
+        branch on this rather than on ``sde_params().P_inf is None``:
+        the two are different questions, since a stationary kernel may
+        report ``P_inf=None`` when it has no *closed form* for it (a
+        learned drift, say).
+        """
+        return True
+
     @abc.abstractmethod
     def sde_params(self) -> SDEParams:
         """Return continuous-time SDE parameters."""
         ...
+
+    def initial_covariance(self) -> Float[Array, "d d"]:
+        r"""Return the covariance of the state at the first time point.
+
+        For a stationary kernel the process is assumed started in its
+        stationary distribution, so this is $P_\infty$ — the default
+        implementation returns it and existing kernels need no change.
+        A non-stationary kernel has no such limit to start from and must
+        override this with an explicit choice.
+
+        Returns:
+            Initial state covariance, shape ``(d, d)``.
+
+        Raises:
+            ValueError: If ``sde_params().P_inf`` is ``None``, so there
+                is no stationary covariance to fall back on.
+        """
+        P_inf = self.sde_params().P_inf
+        if P_inf is None:
+            msg = (
+                f"{type(self).__name__} has no initial covariance: it "
+                f"reports P_inf=None, and the default initial covariance "
+                f"is the stationary one. Override initial_covariance() "
+                f"with an explicit choice (a diffuse prior, typically), "
+                f"or give the kernel a P_inf."
+            )
+            raise ValueError(msg)
+        return P_inf
 
     def discretise(
         self,

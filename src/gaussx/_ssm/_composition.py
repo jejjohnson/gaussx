@@ -27,6 +27,21 @@ class SumSDE(SDEKernel):
     def state_dim(self) -> int:
         return sum(k.state_dim for k in self.kernels)
 
+    @property
+    def stationary(self) -> bool:
+        """Stationary only if every component is."""
+        return all(k.stationary for k in self.kernels)
+
+    def initial_covariance(self) -> Float[Array, "d d"]:
+        """Return the block-diagonal initial covariance.
+
+        The components are independent, so their initial covariances
+        stack block-diagonally — which lets a sum mix stationary and
+        non-stationary components (a local linear trend plus a Matern
+        seasonal, say), each started from its own.
+        """
+        return jsl.block_diag(*[k.initial_covariance() for k in self.kernels])
+
     def sde_params(self) -> SDEParams:
         """Return block-diagonal SDE parameters."""
         params_list = [k.sde_params() for k in self.kernels]
@@ -76,6 +91,11 @@ class ProductSDE(SDEKernel):
     @property
     def state_dim(self) -> int:
         return self.kernel1.state_dim * self.kernel2.state_dim
+
+    @property
+    def stationary(self) -> bool:
+        """Stationary only if both factors are."""
+        return self.kernel1.stationary and self.kernel2.stationary
 
     def sde_params(self) -> SDEParams:
         r"""Return Kronecker-structured SDE parameters.
