@@ -6,9 +6,26 @@ import math
 
 import equinox as eqx
 import jax.numpy as jnp
+import numpy as np
 from jaxtyping import Array, Float
 
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
+
+
+def _inexact_dtype(*args) -> jnp.dtype:
+    """Promotion of the hyperparameter dtypes, never to an integer.
+
+    Every matrix this kernel builds is a *fraction* of a power of the
+    step, so an integer promotion is not merely unusual but wrong: it
+    truncates the coefficients to zero, and ``jnp.finfo`` — which the
+    diffuse default needs — rejects the dtype outright. An integer
+    ``diffusion`` or ``dt`` therefore promotes to the default float
+    dtype rather than being carried through.
+    """
+    dtype = jnp.result_type(*args)
+    if jnp.issubdtype(dtype, jnp.inexact):
+        return dtype
+    return jnp.result_type(float)
 
 
 def _default_diffuse_variance(dtype) -> float:
@@ -84,6 +101,21 @@ class IntegratedWienerSDE(SDEKernel):
     order: int = eqx.field(static=True, default=1)
     P_0: Float[Array, "d d"] | None = None
 
+    def __check_init__(self) -> None:
+        """Reject a negative order at construction.
+
+        The state dimension is ``order + 1``, so a negative order gives
+        an empty state and fails later, deep inside whichever method is
+        called first, with an index error about an axis of size zero.
+        """
+        if self.order < 0:
+            msg = (
+                f"IntegratedWienerSDE order must be non-negative "
+                f"(the state is [f, ..., f^(order)], of dimension "
+                f"order + 1), got {self.order}."
+            )
+            raise ValueError(msg)
+
     @property
     def state_dim(self) -> int:
         return self.order + 1
@@ -101,7 +133,7 @@ class IntegratedWienerSDE(SDEKernel):
         """
         # Constant blocks follow the hyperparameter dtype; untyped
         # ``jnp.zeros``/``jnp.eye`` are float64 under x64 (gh-224).
-        dtype = jnp.result_type(self.diffusion)
+        dtype = _inexact_dtype(self.diffusion)
         d = self.state_dim
         F = jnp.eye(d, k=1, dtype=dtype)
         L = jnp.zeros((d, 1), dtype=dtype).at[d - 1, 0].set(1.0)
@@ -125,7 +157,7 @@ class IntegratedWienerSDE(SDEKernel):
         the default is diffuse relative to a noise variance of order
         one, not relative to every scale.
         """
-        dtype = jnp.result_type(self.diffusion)
+        dtype = _inexact_dtype(self.diffusion)
         if self.P_0 is None:
             kappa = _default_diffuse_variance(dtype)
             return kappa * jnp.eye(self.state_dim, dtype=dtype)
@@ -162,6 +194,14 @@ class IntegratedWienerSDE(SDEKernel):
         the `gaussx.discretise_mfd` fallback the ``P_inf=None`` base
         implementation would otherwise take.
 
+        Note:
+            The coefficients carry $1/(p-i)!$, which outruns float64
+            from roughly ``order=90`` up and underflows to zero there
+            (XLA flushes the subnormals in between). Nothing is
+            silently wrong — the entries are zero rather than garbage —
+            but a prior that integrates white noise ninety times is not
+            a numerically meaningful object in any dtype.
+
         Args:
             dt: Time step. Must be non-negative — a negative step would
                 return a ``Q`` that is not a covariance (at ``order=1``
@@ -174,7 +214,7 @@ class IntegratedWienerSDE(SDEKernel):
         Returns:
             Tuple ``(A, Q)``, both shape ``(order + 1, order + 1)``.
         """
-        dtype = jnp.result_type(self.diffusion, dt)
+        dtype = _inexact_dtype(self.diffusion, dt)
         p = self.order
         d = self.state_dim
 
@@ -196,44 +236,43 @@ class IntegratedWienerSDE(SDEKernel):
                 return jnp.ones_like(dt)
             return dt**exponent
 
-        # Coefficients are Python arithmetic, exact until they become
-        # floats: math.factorial returns an unbounded int, so the
-        # denominators do not overflow the way an int64 array would from
-        # order 13 up.
-        def coefficient(value: float) -> Float[Array, ""]:
-            return jnp.asarray(value, dtype=dtype)
+        # Only 2p+2 distinct powers appear across both matrices, so they
+        # are formed once and gathered by a static index table. That is
+        # O(d) traced operations rather than one per entry: at order 40
+        # the per-entry version took over five seconds to trace.
+        powers = jnp.stack([power(k) for k in range(2 * p + 2)]).astype(dtype)
 
-        zero = jnp.zeros((), dtype=dtype)
-        A = jnp.stack(
+        i = np.arange(d)[:, None]
+        j = np.arange(d)[None, :]
+        upper = j >= i
+        # Zeroed through the *coefficient* rather than by masking a
+        # negative power, so no entry raises dt to a negative exponent.
+        a_index = np.maximum(j - i, 0)
+        q_index = 2 * p + 1 - i - j
+
+        # ``1 / n`` keeps both operands Python ints, which are unbounded
+        # and divide to a correctly rounded float. ``1.0 / n`` would
+        # convert first and raise OverflowError from order 98 up, where
+        # the denominator exceeds the float range even though its
+        # reciprocal is perfectly representable (down to a subnormal,
+        # and to zero beyond that).
+        factorial = [math.factorial(n) for n in range(d)]
+        a_coeff = np.array(
             [
-                jnp.stack(
-                    [
-                        coefficient(1.0 / math.factorial(j - i)) * power(j - i)
-                        if j >= i
-                        else zero
-                        for j in range(d)
-                    ]
-                )
+                [1 / factorial[j - i] if j >= i else 0.0 for j in range(d)]
                 for i in range(d)
             ]
         )
-        Q = self.diffusion * jnp.stack(
+        q_coeff = np.array(
             [
-                jnp.stack(
-                    [
-                        coefficient(
-                            1.0
-                            / (
-                                math.factorial(p - i)
-                                * math.factorial(p - j)
-                                * (2 * p + 1 - i - j)
-                            )
-                        )
-                        * power(2 * p + 1 - i - j)
-                        for j in range(d)
-                    ]
-                )
+                [
+                    1 / (factorial[p - i] * factorial[p - j] * (2 * p + 1 - i - j))
+                    for j in range(d)
+                ]
                 for i in range(d)
             ]
         )
+
+        A = jnp.asarray(a_coeff * upper, dtype=dtype) * powers[a_index]
+        Q = self.diffusion * jnp.asarray(q_coeff, dtype=dtype) * powers[q_index]
         return A.astype(dtype), Q.astype(dtype)

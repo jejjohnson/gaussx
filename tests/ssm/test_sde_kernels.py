@@ -703,6 +703,46 @@ class TestIntegratedWienerSDE:
         # these orders, so PSD is asserted to float64 round-off.
         assert jnp.linalg.eigvalsh(Q).min() > -1e-14
 
+    def test_integer_hyperparameters_promote(self):
+        """An integer ``diffusion`` or ``dt`` must not truncate the fractions.
+
+        Every entry is a fraction of a power of the step, so an integer
+        promotion would floor the coefficients to zero — ``Q`` came back
+        as ``[[0, 0], [0, 1]]`` — and ``jnp.finfo`` rejects the dtype
+        the diffuse default needs.
+        """
+        kern = IntegratedWienerSDE(diffusion=jnp.array(1))
+        A, Q = kern.discretise(jnp.array(1))
+
+        assert jnp.issubdtype(Q.dtype, jnp.inexact)
+        assert jnp.allclose(A, jnp.array([[1.0, 1.0], [0.0, 1.0]]))
+        assert jnp.allclose(Q, jnp.array([[1 / 3, 1 / 2], [1 / 2, 1.0]]))
+        assert jnp.issubdtype(kern.initial_covariance().dtype, jnp.inexact)
+        assert jnp.issubdtype(kern.sde_params().F.dtype, jnp.inexact)
+
+    def test_negative_order_is_rejected_at_construction(self):
+        """``order=-1`` gives an empty state and an unhelpful late failure."""
+        with pytest.raises(ValueError, match="must be non-negative"):
+            IntegratedWienerSDE(diffusion=jnp.array(1.0), order=-1)
+
+    @pytest.mark.slow
+    def test_extreme_order_does_not_overflow_python_floats(self):
+        """``1.0 / n`` would raise OverflowError from order 98 up.
+
+        The denominator ``(p-i)! (p-j)! (2p+1-i-j)`` exceeds the float
+        range there, even though its reciprocal is representable. Integer
+        division keeps both operands unbounded Python ints and rounds
+        once, at the end. Marked slow: the big-integer coefficient table
+        is ~10 s to build at this order.
+        """
+        kern = IntegratedWienerSDE(diffusion=jnp.array(1.0), order=98)
+        A, Q = kern.discretise(jnp.array(10.0))
+
+        assert jnp.all(jnp.isfinite(A)) and jnp.all(jnp.isfinite(Q))
+        # The far corner underflows (see the discretise docstring); the
+        # point of the test is that it neither raises nor returns NaN.
+        assert Q[-1, -1] > 0.0
+
     def test_autocovariance_is_rejected(self):
         """``K(tau)`` is meaningless for a non-stationary process."""
         kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
