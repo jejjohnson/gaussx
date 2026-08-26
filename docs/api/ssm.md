@@ -18,7 +18,30 @@ site machinery for non-conjugate likelihoods.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [SDEKernel, SDEParams, ConstantSDE, MaternSDE, PeriodicSDE, QuasiPeriodicSDE, CosineSDE, ProductSDE, SumSDE, sde_autocovariance]
+      members: [SDEKernel, SDEParams, ConstantSDE, MaternSDE, PeriodicSDE, QuasiPeriodicSDE, CosineSDE, IntegratedWienerSDE, ProductSDE, SumSDE, sde_autocovariance]
+
+### Stationary and non-stationary kernels
+
+Most of the zoo is stationary: the process is assumed started in its
+stationary distribution, so `SDEKernel.initial_covariance` returns
+$P_\infty$ and `sde_autocovariance` can report $K(\tau)$.
+
+`IntegratedWienerSDE` is not. Its drift is nilpotent, the marginal
+variance grows without bound, and the covariance depends on both times
+rather than on their difference — so there is no $P_\infty$ and no
+$K(\tau)$. It reports `stationary = False` and `sde_params().P_inf =
+None`, and the filter is started instead from an explicit
+`initial_covariance` (diffuse by default). That is the local linear
+trend prior at `order=1`: smooth, and linear unless the data push back,
+with no lengthscale to choose.
+
+Consumers should branch on `SDEKernel.stationary` rather than on whether
+`P_inf` is `None` — the two are different questions, since a stationary
+kernel may have no *closed form* for $P_\infty$ (a learned drift, say).
+A `SumSDE` may mix the two: it is stationary only if all its components
+are, and stacks their initial covariances block-diagonally. A
+`ProductSDE` needs both factors' $P_\infty$ and rejects a
+non-stationary one.
 
 ### Discretisation
 
@@ -29,8 +52,10 @@ exists.
 The default, `SDEKernel.discretise`, uses the *stationary* route
 $Q = P_\infty - A P_\infty A^\top$ ([`process_noise_covariance`](#gaussx.process_noise_covariance),
 documented under *Process noise* below). It is
-exact and cheap, and every kernel in the zoo above supplies the
-$P_\infty$ it needs.
+exact and cheap, and every stationary kernel in the zoo above supplies
+the $P_\infty$ it needs. `IntegratedWienerSDE` overrides `discretise`
+with an exact closed form instead — its nilpotent drift makes the
+exponential terminate — so it needs neither route.
 
 `discretise_mfd` is the fallback for when that covariance is not
 available — most importantly when $F$ is a **learned parameter** rather

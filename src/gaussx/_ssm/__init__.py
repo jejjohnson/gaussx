@@ -54,6 +54,7 @@ from gaussx._ssm._ssm_natural import (
     ssm_to_expectations,
     ssm_to_naturals,
 )
+from gaussx._ssm._wiener import IntegratedWienerSDE
 
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     "FilterState",
     "GaussianSites",
     "InfiniteHorizonState",
+    "IntegratedWienerSDE",
     "MaternSDE",
     "PeriodicSDE",
     "ProductSDE",

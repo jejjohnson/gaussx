@@ -239,6 +239,7 @@ from gaussx._ssm import (
     FilterState as FilterState,
     GaussianSites as GaussianSites,
     InfiniteHorizonState as InfiniteHorizonState,
+    IntegratedWienerSDE as IntegratedWienerSDE,
     MaternSDE as MaternSDE,
     PeriodicSDE as PeriodicSDE,
     ProductSDE as ProductSDE,
