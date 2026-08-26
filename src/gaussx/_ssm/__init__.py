@@ -27,6 +27,10 @@ from gaussx._ssm._kalman import (
     rts_smoother,
 )
 from gaussx._ssm._matern import MaternSDE
+from gaussx._ssm._meanfield_kalman import (
+    meanfield_kalman_filter,
+    meanfield_rts_smoother,
+)
 from gaussx._ssm._nonlinear_kalman import (
     masked_moment_inputs,
     nonlinear_kalman_filter,
@@ -84,6 +88,8 @@ __all__ = [
     "kalman_filter",
     "kalman_gain",
     "masked_moment_inputs",
+    "meanfield_kalman_filter",
+    "meanfield_rts_smoother",
     "naturals_to_ssm",
     "nonlinear_kalman_filter",
     "nonlinear_kalman_predict",

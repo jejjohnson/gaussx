@@ -261,6 +261,8 @@ from gaussx._ssm import (
     kalman_filter as kalman_filter,
     kalman_gain as kalman_gain,
     masked_moment_inputs as masked_moment_inputs,
+    meanfield_kalman_filter as meanfield_kalman_filter,
+    meanfield_rts_smoother as meanfield_rts_smoother,
     naturals_to_ssm as naturals_to_ssm,
     nonlinear_kalman_filter as nonlinear_kalman_filter,
     nonlinear_kalman_predict as nonlinear_kalman_predict,
