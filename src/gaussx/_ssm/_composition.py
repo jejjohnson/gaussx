@@ -172,9 +172,7 @@ class ProductSDE(SDEKernel):
         # by the mixed-product property. Exact for any PSD P_inf --
         # including singular or zero ones, where a Cholesky would need
         # jitter and stop satisfying the Lyapunov equation this is here to
-        # enforce -- and reverse-mode differentiable, which a jittered
-        # ``safe_cholesky`` (data-dependent ``lax.while_loop``) is not.
-        # The noise dimension widens from s1*s2 to s1*d2 + d1*s2.
+        # enforce. The noise dimension widens from s1*s2 to s1*d2 + d1*s2.
         L = jnp.concatenate(
             [jnp.kron(p1.L, eye2), jnp.kron(eye1, p2.L)],
             axis=1,
