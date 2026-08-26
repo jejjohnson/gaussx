@@ -84,7 +84,12 @@ class IntegratedWienerSDE(SDEKernel):
 
     Attributes:
         diffusion: Diffusion intensity $q$, the spectral density of the
-            white noise driving the top derivative.
+            white noise driving the top derivative. Must be
+            non-negative — $Q$ is linear in it, so a negative value
+            returns something that is not a covariance. Like every
+            hyperparameter in the kernel zoo this is assumed rather
+            than checked; constrain it with a positive transform when
+            it is learned.
         order: Number of integrations $p$. ``0`` is a Brownian random
             walk; ``1`` (the default) is the local linear trend, which
             is also the cubic-spline-equivalent prior — it is $f''$ that
