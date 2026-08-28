@@ -1,0 +1,2477 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.">
+      
+      
+        <meta name="author" content="J. Emmanuel Johnson">
+      
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../architecture/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
+    
+    
+      
+        <title>Vision - gaussx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#vision" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="gaussx" class="md-header__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            gaussx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Vision
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Vision
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../design/unified-solvers/" class="md-tabs__link">
+          
+  
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../notebooks/basics/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="gaussx" class="md-nav__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    gaussx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-thirty-second-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The thirty-second version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-keeps-mattering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this keeps mattering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-part-that-is-genuinely-annoying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The part that is genuinely annoying
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#but-surely-someone-has-done-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        But surely someone has done this?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-this-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who this is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#five-principles-we-will-not-apologise-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Five principles we will not apologise for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-gaussx-refuses-to-be" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What gaussx refuses to be
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The family
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why "GaussX"?
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/unified-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/operator_zoo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/woodbury_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Woodbury Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kronecker_eigen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kronecker Eigendecomposition
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kernel_regression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/gp_2d_grid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP on a 2D Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/sparse_variational_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Variational GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/structured_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/solver_comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/differentiating_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiating Through Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/sugar_ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sugar Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/exponential_family/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kalman_filter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/solver_strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/bayesian_updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Updates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/uncertainty_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/numpyro_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: GP Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/numpyro_precision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: Precision BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/conditional_distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conditional Distributions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/parallel_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/expectation_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expectation Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/ensemble_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ensemble Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/natural_gradient_vi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Natural Gradient VI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kernel_approximations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel Approximations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/love_crossval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LOVE Cross-Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/whitened_svgp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whitened SVGP & BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/uncertain_gp_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP with Uncertain Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/implicit_kernel/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Matrix-Free GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/primitives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/operators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operators & Tags
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solvers & Preconditioners
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/linalg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear-Algebra Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distributions & Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Processes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/kernels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernels & Approximations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quadrature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quadrature & Moment Matching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/ssm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    State-Space Models & Kalman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Inference & Ensembles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-thirty-second-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The thirty-second version
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-keeps-mattering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why this keeps mattering
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-part-that-is-genuinely-annoying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The part that is genuinely annoying
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#but-surely-someone-has-done-this" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        But surely someone has done this?
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#who-this-is-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who this is for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#five-principles-we-will-not-apologise-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Five principles we will not apologise for
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-gaussx-refuses-to-be" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What gaussx refuses to be
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The family
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-gaussx" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why "GaussX"?
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="vision">Vision<a class="headerlink" href="#vision" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>gaussx</strong> is a JAX/Equinox library for structured linear operators, Gaussian
+distributions, and exponential-family primitives.</p>
+<p>Or, less politely: your covariance matrix has structure, your code is throwing
+it away, and we would like a word.</p>
+</blockquote>
+<h2 id="the-thirty-second-version">The thirty-second version<a class="headerlink" href="#the-thirty-second-version" title="Permanent link">&para;</a></h2>
+<p>Somewhere in your program there is a matrix. It is not a random pile of numbers
+--- it is a Kronecker product, or block diagonal, or low-rank plus a diagonal,
+or Toeplitz, or the precision matrix of a Markov chain. It <em>knows</em> something
+about itself.</p>
+<p>And then you call <code>jnp.linalg.solve</code> on it, and all of that knowledge is
+thrown in the bin, and your laptop spends four minutes doing arithmetic that a
+pocket calculator could have done in one.</p>
+<p>This is, we regret to say, barbaric.</p>
+<div class="highlight"><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">gaussx</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">K</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">Kronecker</span><span class="p">(</span><span class="n">A</span><span class="p">,</span> <span class="n">B</span><span class="p">)</span>   <span class="c1"># 10,000 x 10,000, made of two 100 x 100 factors</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="n">x</span>  <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">solve</span><span class="p">(</span><span class="n">K</span><span class="p">,</span> <span class="n">y</span><span class="p">)</span>      <span class="c1"># 100 x 100 twice, not 10,000 x 10,000 once</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">ld</span> <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">logdet</span><span class="p">(</span><span class="n">K</span><span class="p">)</span>        <span class="c1"># a weighted sum of two small logdets</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="n">L</span>  <span class="o">=</span> <span class="n">gaussx</span><span class="o">.</span><span class="n">cholesky</span><span class="p">(</span><span class="n">K</span><span class="p">)</span>      <span class="c1"># a Kronecker of two small Cholesky factors</span>
+</code></pre></div>
+<p>Same three lines you already write. Same math you already know. Around half a
+million times less arithmetic (<span class="arithmatex">\(10^{12}\)</span> flops down to <span class="arithmatex">\(2 \times 10^6\)</span>). You are
+welcome.</p>
+<table>
+<thead>
+<tr>
+<th>If your matrix is...</th>
+<th>Dense LAPACK</th>
+<th>gaussx</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Kronecker <span class="arithmatex">\(A \otimes B\)</span>, factors <span class="arithmatex">\(n_1, n_2\)</span></td>
+<td><span class="arithmatex">\(O((n_1 n_2)^3)\)</span></td>
+<td><span class="arithmatex">\(O(n_1^3 + n_2^3)\)</span></td>
+</tr>
+<tr>
+<td>Block diagonal, <span class="arithmatex">\(k\)</span> blocks of size <span class="arithmatex">\(m\)</span></td>
+<td><span class="arithmatex">\(O((km)^3)\)</span></td>
+<td><span class="arithmatex">\(O(k m^3)\)</span></td>
+</tr>
+<tr>
+<td>Low-rank + diagonal, rank <span class="arithmatex">\(k\)</span></td>
+<td><span class="arithmatex">\(O(n^3)\)</span></td>
+<td><span class="arithmatex">\(O(n k^2)\)</span> via Woodbury</td>
+</tr>
+<tr>
+<td>Block-tridiagonal (state-space), <span class="arithmatex">\(N\)</span> steps</td>
+<td><span class="arithmatex">\(O((Nd)^3)\)</span></td>
+<td><span class="arithmatex">\(O(N d^3)\)</span></td>
+</tr>
+<tr>
+<td>Toeplitz</td>
+<td><span class="arithmatex">\(O(n^3)\)</span></td>
+<td><span class="arithmatex">\(O(n \log n)\)</span> matvecs via FFT</td>
+</tr>
+<tr>
+<td>Genuinely unstructured and enormous</td>
+<td>it will not finish</td>
+<td>matrix-free CG + stochastic logdet</td>
+</tr>
+</tbody>
+</table>
+<p>Those are not marketing numbers. They are the exponents. Exponents do not
+negotiate.</p>
+<h2 id="why-this-keeps-mattering">Why this keeps mattering<a class="headerlink" href="#why-this-keeps-mattering" title="Permanent link">&para;</a></h2>
+<p>Linear algebra is the load-bearing wall of scientific computing, and almost
+everyone treats it as wallpaper. Nearly every algorithm you care about
+eventually bottlenecks on the same tiny handful of operations:</p>
+<ul>
+<li><strong>Linear regression</strong> solves <span class="arithmatex">\((X^\top X)\beta = X^\top y\)</span></li>
+<li><strong>Gaussian processes</strong> need <span class="arithmatex">\((K + \sigma^2 I)^{-1} y\)</span> and <span class="arithmatex">\(\log|K + \sigma^2 I|\)</span> for <em>every</em> likelihood evaluation</li>
+<li><strong>Kalman filters</strong> compute the gain <span class="arithmatex">\(K = P H^\top (H P H^\top + R)^{-1}\)</span> at <em>every</em> time step</li>
+<li><strong>Variational inference</strong> wants <span class="arithmatex">\(\log|\Sigma|\)</span> and samples from <span class="arithmatex">\(\mathcal{N}(\mu, \Sigma)\)</span> --- both need a square root</li>
+<li><strong>Natural gradients</strong> invert the Fisher information, <span class="arithmatex">\(F^{-1}\nabla\mathcal{L}\)</span>, at <em>every</em> update</li>
+<li><strong>Ensemble methods</strong> build empirical covariances that are low-rank by construction</li>
+<li><strong>Spatial statistics on grids</strong> produce <span class="arithmatex">\(K_x \otimes K_y\)</span>, where <span class="arithmatex">\(O(N^3)\)</span> collapses to <span class="arithmatex">\(O(n_x^3 + n_y^3)\)</span></li>
+<li><strong>PDE solvers</strong> invert elliptic operators and precondition iterative methods</li>
+<li><strong>Optimal transport</strong> runs Sinkhorn iterations that are just matvecs wearing a hat</li>
+</ul>
+<p>Five verbs --- <code>solve</code>, <code>logdet</code>, <code>cholesky</code>, <code>trace</code>, <code>sqrt</code> --- carry entire
+research fields on their back. They deserve to be written once, by someone
+paying attention.</p>
+<h2 id="the-part-that-is-genuinely-annoying">The part that is genuinely annoying<a class="headerlink" href="#the-part-that-is-genuinely-annoying" title="Permanent link">&para;</a></h2>
+<p>Here is what actually happens in the wild. The Woodbury identity gets
+hand-coded in the GP library. Then again in the filtering library. Then again,
+subtly differently and with one sign wrong, in the Bayesian optimization
+library. Every implementation is <em>correct</em>, and every implementation is
+<em>alone</em>.</p>
+<p>So the bug fix in repo #1 never reaches repo #3. The clever preconditioner in
+repo #2 dies with the PhD student who wrote it. And every newcomer must climb a
+wall of bespoke matrix code before touching the science they actually came for.</p>
+<p>We find this waste offensive. Not "inefficient" --- <strong>offensive</strong>. gaussx
+exists to end it: write the structured operators and the dispatch once,
+carefully, and let everyone downstream inherit the good version.</p>
+<h2 id="but-surely-someone-has-done-this">But surely someone has done this?<a class="headerlink" href="#but-surely-someone-has-done-this" title="Permanent link">&para;</a></h2>
+<p>Partly. Everyone has done a <em>piece</em> of it, and we say that with real affection
+--- gaussx is built on two of them.</p>
+<table>
+<thead>
+<tr>
+<th>Library</th>
+<th>What it does beautifully</th>
+<th>Where it stops</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><a href="https://github.com/patrick-kidger/lineax">lineax</a></strong></td>
+<td>Superb solvers (CG, Cholesky, LU, GMRES, ...), a clean operator abstraction, properly JAX-native</td>
+<td>No Kronecker / block-diagonal / low-rank operators; no <code>logdet</code>, <code>trace</code>, or <code>sqrt</code></td>
+</tr>
+<tr>
+<td><strong><a href="https://github.com/wilson-labs/cola">CoLA</a></strong></td>
+<td>A rich operator zoo and real matrix functions</td>
+<td>Multi-backend by design, so not Equinox-native; thinner solver coverage</td>
+</tr>
+<tr>
+<td><strong><a href="https://www.tensorflow.org/probability">TFP on JAX</a></strong></td>
+<td>Battle-tested <code>LinearOperator</code>s with batching</td>
+<td>Arrives towing an entire TensorFlow</td>
+</tr>
+</tbody>
+</table>
+<p>So: lineax has the solvers but not the shapes. CoLA has the shapes but not the
+home. TFP has both and a suitcase.</p>
+<p><strong>gaussx is the missing middle</strong> --- lineax's solvers, a broader operator zoo, a
+Gaussian distribution layer on top, and every last line of it native to
+JAX and Equinox. One <code>pip install</code>. No suitcase.</p>
+<h2 id="who-this-is-for">Who this is for<a class="headerlink" href="#who-this-is-for" title="Permanent link">&para;</a></h2>
+<p><strong>The GP researcher.</strong> <em>"My spatiotemporal kernel is Kronecker-structured. I
+want <code>logdet</code> and <code>solve</code> to notice that by themselves, forever, without me
+re-deriving the eigendecomposition trick at 1am."</em></p>
+<p><strong>The data-assimilation person.</strong> <em>"Ensemble covariance is low-rank. Kalman gain
+is Woodbury. I want to write <code>low_rank_plus_diag(noise, U)</code> and receive a real
+structured operator, not a 40,000 x 40,000 dense array and a memory error."</em></p>
+<p><strong>The Bayesian ML researcher.</strong> <em>"Natural gradients. I need natural
+<span class="arithmatex">\(\leftrightarrow\)</span> expectation conversions and Fisher information for Gaussians,
+over structured precision operators, differentiable end to end."</em></p>
+<p><strong>The library author.</strong> <em>"I am building the next GP / filtering / optimization
+package and I refuse to hand-roll <code>solve</code>, <code>logdet</code>, and <code>cholesky</code> with a
+per-type dispatch table one more time."</em></p>
+<p><strong>The newcomer.</strong> <em>"I would like <code>gaussx.solve(K, y)</code> to simply work."</em> It does.
+That is the whole idea.</p>
+<h2 id="five-principles-we-will-not-apologise-for">Five principles we will not apologise for<a class="headerlink" href="#five-principles-we-will-not-apologise-for" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Principle</th>
+<th>In practice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>Extend, don't replace</strong></td>
+<td>We build on lineax's <code>AbstractLinearOperator</code> and its solvers. Rewriting excellent code to put your own name on it is vanity, not engineering.</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>Structure drives dispatch</strong></td>
+<td>Operators carry structural tags (PSD, symmetric, Kronecker, low-rank, ...). Primitives read the type and the tags and pick the fast path. Plain <code>isinstance</code> checks. No metaclasses, no registry, no mystery.</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>Math-first layers</strong></td>
+<td><code>solve(A, b)</code>, <code>logdet(A)</code>, <code>cholesky(A)</code>. You should be able to read the source with the paper open and see the same equation.</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>One distribution, many strategies</strong></td>
+<td><code>MultivariateNormal</code> takes <em>any</em> covariance operator and <em>any</em> solver strategy. The distribution owns the math; the strategy owns the numerics; neither is allowed to meddle.</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>Readable tensor code</strong></td>
+<td>Every reshape and contraction goes through <a href="https://github.com/fferflo/einx">einx</a>, so a Kronecker matvec reads like Roth's column lemma instead of like index golf.</td>
+</tr>
+</tbody>
+</table>
+<p>Principle 5 is the one people call fussy. It is not fussy. It is the difference
+between code you can review and code you merely hope about.</p>
+<h2 id="what-gaussx-refuses-to-be">What gaussx refuses to be<a class="headerlink" href="#what-gaussx-refuses-to-be" title="Permanent link">&para;</a></h2>
+<p>A library that does everything does nothing especially well. We have chosen our
+scope, and we intend to defend it.</p>
+<table>
+<thead>
+<tr>
+<th>Not this</th>
+<th>Go here instead</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A GP modelling library (kernels with priors, model shells, inference loops)</td>
+<td><a href="https://github.com/jejjohnson/pyrox">pyrox-gp</a></td>
+</tr>
+<tr>
+<td>Probabilistic programming (MCMC, SVI, samplers)</td>
+<td><a href="https://github.com/pyro-ppl/numpyro">NumPyro</a></td>
+</tr>
+<tr>
+<td>General-purpose optimization</td>
+<td><a href="https://github.com/google-deepmind/optax">optax</a> / <a href="https://github.com/patrick-kidger/optimistix">optimistix</a></td>
+</tr>
+<tr>
+<td>PDE discretization, grids, boundary conditions</td>
+<td><a href="https://github.com/jejjohnson/finitevolX">finitevolX</a> / <a href="https://github.com/jejjohnson/spectraldiffx">spectraldiffx</a></td>
+</tr>
+<tr>
+<td>Ensemble filtering applications</td>
+<td><a href="https://github.com/jejjohnson/filterax">filterax</a></td>
+</tr>
+<tr>
+<td>Bayesian optimizers as <code>optax</code> transforms</td>
+<td><a href="https://github.com/jejjohnson/optax_bayes">optax_bayes</a></td>
+</tr>
+<tr>
+<td>Multi-backend support (PyTorch, NumPy, ...)</td>
+<td>JAX only, on purpose, forever</td>
+</tr>
+</tbody>
+</table>
+<p>gaussx is structured operators and the primitives over them. That is the whole
+job. Everything else is somebody else's excellent library, and we would rather
+link to it than imitate it.</p>
+<h2 id="the-family">The family<a class="headerlink" href="#the-family" title="Permanent link">&para;</a></h2>
+<p>gaussx is the linear-algebra floor that the rest of the stack stands on.</p>
+<pre class="mermaid"><code>flowchart TD
+    subgraph FOUND["Foundations"]
+        LX["lineax&lt;br/&gt;&lt;small&gt;solvers, operators, tags&lt;/small&gt;"]
+        MF["matfree&lt;br/&gt;&lt;small&gt;Lanczos, SLQ, Hutchinson&lt;/small&gt;"]
+        EQX["equinox + jaxtyping + einx"]
+    end
+
+    GX["&lt;b&gt;gaussx&lt;/b&gt;&lt;br/&gt;&lt;small&gt;structured operators · primitives · Gaussians&lt;/small&gt;"]
+
+    subgraph DOWN["Downstream"]
+        PYROX["pyrox-gp&lt;br/&gt;&lt;small&gt;GP models on NumPyro&lt;/small&gt;"]
+        FVX["finitevolX&lt;br/&gt;&lt;small&gt;finite-volume PDE ops&lt;/small&gt;"]
+    end
+
+    subgraph PLAN["Downstream (planned)"]
+        SDX["spectraldiffx&lt;br/&gt;&lt;small&gt;pseudospectral PDE ops&lt;/small&gt;"]
+        FLTR["filterax&lt;br/&gt;&lt;small&gt;ensemble filtering&lt;/small&gt;"]
+        OB["optax_bayes&lt;br/&gt;&lt;small&gt;natural-gradient optimizers&lt;/small&gt;"]
+    end
+
+    LX --&gt; GX
+    MF --&gt; GX
+    EQX --&gt; GX
+    GX --&gt; PYROX
+    GX --&gt; FVX
+    GX -.-&gt; SDX
+    GX -.-&gt; FLTR
+    GX -.-&gt; OB
+
+    click LX "https://github.com/patrick-kidger/lineax" _blank
+    click MF "https://github.com/pnkraemer/matfree" _blank
+    click PYROX "https://github.com/jejjohnson/pyrox" _blank
+    click FVX "https://github.com/jejjohnson/finitevolX" _blank
+    click SDX "https://github.com/jejjohnson/spectraldiffx" _blank
+    click FLTR "https://github.com/jejjohnson/filterax" _blank
+    click OB "https://github.com/jejjohnson/optax_bayes" _blank</code></pre>
+<p>The interesting one is the PDE column. Under the SPDE view, an elliptic
+differential operator and a Gaussian precision operator are <em>the same object</em>
+--- so <a href="https://github.com/jejjohnson/finitevolX">finitevolX</a> already takes its
+tridiagonal solves and Nyström preconditioner straight from gaussx, and
+<a href="https://github.com/jejjohnson/spectraldiffx">spectraldiffx</a> is queued to take
+the capacitance (Woodbury) correction from the very same code that runs a GP
+marginal likelihood. Fix the CG loop once; every library downstream gets
+better. See
+<a href="../design/unified-solvers/">Unified Solvers</a> for how that boundary is drawn,
+and the <a href="../architecture/">Architecture</a> page for the full stack.</p>
+<hr />
+<h2 id="why-gaussx">Why "GaussX"?<a class="headerlink" href="#why-gaussx" title="Permanent link">&para;</a></h2>
+<p><strong>Gauss</strong> + <strong>JAX</strong>. And no, that is not merely branding.</p>
+<p>Carl Friedrich Gauss is arguably the most consequential figure in the history of
+computational mathematics, and his fingerprints are on nearly every algorithm in
+this library. <strong>Gaussian elimination</strong>, ancestor of every matrix factorization.
+The <strong>method of least squares</strong>, which he invented in 1801 to find a lost
+asteroid --- a genuinely outrageous flex. The <strong>Gaussian distribution</strong>. The
+<strong>Gauss-Markov theorem</strong>, which explains <em>why</em> least squares is optimal. The
+<strong>Cholesky decomposition</strong> is Gaussian elimination in formal dress. Even the
+<strong>FFT</strong> traces back to a trick Gauss wrote down in 1805, a century and a half
+before Cooley and Tukey published it.</p>
+<p>The Gaussian distribution earns its place too. It is the <strong>maximum-entropy</strong>
+distribution for a given mean and variance --- the least presumptuous thing you
+can assume. It is the <strong>fixed point of the Central Limit Theorem</strong> --- where
+sums end up regardless of where they started. It is the <strong>conjugate prior</strong> that
+makes linear-Gaussian Bayesian inference exact rather than approximate. And it
+is fully described by exactly two things: a mean vector, and a covariance
+matrix.</p>
+<p>That covariance matrix --- its structure, its factorization, its determinant,
+its inverse --- is precisely and entirely what gaussx computes. Every primitive
+in the library (<code>solve</code>, <code>logdet</code>, <code>cholesky</code>, <code>trace</code>, <code>sqrt</code>, <code>inv</code>) exists
+because somebody, somewhere, needs to do something to a Gaussian covariance. GP
+regression needs <code>solve</code> and <code>logdet</code>. Kalman filtering needs <code>cholesky</code>.
+Variational inference needs <code>sqrt</code>. Natural gradients need <code>inv</code>. The structured
+operators exist because real covariances are never the shapeless dense blobs the
+textbook drew.</p>
+<p>One mathematician, two centuries, five verbs, and a matrix that knows what it
+is.</p>
+<p>Voilà.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
