@@ -20,6 +20,7 @@ from gaussx._distributions._project import project
 __all__ = [
     "LGSSM",
     "LGSSMFactory",
+    "MarkovGaussian",
     "MaskedLGSSM",
     "MultivariateNormal",
     "MultivariateNormalPrecision",
@@ -35,7 +36,7 @@ __all__ = [
 ]
 
 
-# MultivariateNormal / MultivariateNormalPrecision / the LGSSM family
+# MultivariateNormal / MultivariateNormalPrecision / MarkovGaussian / the LGSSM family
 # require the optional ``numpyro`` dependency. Exposing them via PEP 562
 # ``__getattr__`` means:
 #
@@ -51,6 +52,10 @@ def __getattr__(name: str) -> Any:
         from gaussx._distributions import _lgssm
 
         return getattr(_lgssm, name)
+    if name == "MarkovGaussian":
+        from gaussx._distributions._markov_gaussian import MarkovGaussian
+
+        return MarkovGaussian
     if name == "MultivariateNormal":
         from gaussx._distributions._mvn import MultivariateNormal
 

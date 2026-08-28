@@ -61,6 +61,25 @@ class TestSpInGPPosterior:
         _, post_prec = spingp_posterior(prior_prec, H, R, y)
         assert jnp.allclose(post_prec.diagonal, prior_prec.diagonal, atol=1e-6)
 
+    def test_prior_mean(self, getkey):
+        """A nonzero prior mean enters as Lambda_prior @ mu_prior."""
+        N, d, d_obs = 4, 2, 1
+        prior_prec = _make_prior_precision(getkey(), N, d)
+        H = jnp.array([[1.0, 0.0]])
+        R = lx.MatrixLinearOperator(0.1 * jnp.eye(d_obs))
+        y = jax.random.normal(getkey(), (N, d_obs))
+        mu_prior = jax.random.normal(getkey(), (N * d,))
+
+        zero_mean, post_prec = spingp_posterior(prior_prec, H, R, y)
+        default, _ = spingp_posterior(prior_prec, H, R, y, prior_mean=None)
+        shifted, _ = spingp_posterior(prior_prec, H, R, y, prior_mean=mu_prior)
+
+        assert jnp.allclose(default, zero_mean)
+        correction = jnp.linalg.solve(
+            post_prec.as_matrix(), prior_prec.as_matrix() @ mu_prior
+        )
+        assert jnp.allclose(shifted, zero_mean + correction, atol=1e-8)
+
     def test_per_timestep_emission(self, getkey):
         """Should work with per-timestep emission matrices."""
         N, d, d_obs = 4, 2, 1

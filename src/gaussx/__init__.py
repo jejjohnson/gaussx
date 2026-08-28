@@ -250,6 +250,7 @@ from gaussx._ssm import (
     SDEKernel as SDEKernel,
     SDEParams as SDEParams,
     SumSDE as SumSDE,
+    UDLDecomposition as UDLDecomposition,
     cavity_from_marginal as cavity_from_marginal,
     cvi_update_sites as cvi_update_sites,
     dare as dare,
@@ -282,6 +283,9 @@ from gaussx._ssm import (
     spingp_posterior as spingp_posterior,
     ssm_to_expectations as ssm_to_expectations,
     ssm_to_naturals as ssm_to_naturals,
+    udl_decomposition as udl_decomposition,
+    udl_from_ssm_params as udl_from_ssm_params,
+    udl_to_ssm_params as udl_to_ssm_params,
 )
 from gaussx._strategies import (
     AbstractLogdetStrategy as AbstractLogdetStrategy,
@@ -332,6 +336,9 @@ try:
         LGSSM as LGSSM,
         LGSSMFactory as LGSSMFactory,
         MaskedLGSSM as MaskedLGSSM,
+    )
+    from gaussx._distributions._markov_gaussian import (
+        MarkovGaussian as MarkovGaussian,
     )
     from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
     from gaussx._distributions._mvn_prec import (

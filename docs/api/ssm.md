@@ -227,6 +227,40 @@ through the SSM representation.
       show_root_toc_entry: false
       members: [spingp_log_likelihood, spingp_posterior]
 
+## Precision-form chains
+
+The joint prior or posterior of a Gauss-Markov chain has a
+block-tridiagonal precision $\Lambda$. The **UDL factorisation**
+$\Lambda = U \tilde{D} U^{\top}$ — unit upper block-bidiagonal $U$,
+block-diagonal $\tilde{D}$ — is computed last block first by
+Schur complementation,
+
+$$
+\tilde{D}_T = D_T, \qquad
+\tilde{D}_k = D_k - A_k^{\top} \tilde{D}_{k+1}^{-1} A_k, \qquad
+U_k^{\top} = \tilde{D}_{k+1}^{-1} A_k,
+$$
+
+in $O(T d^3)$. Unlike the banded Cholesky factor behind
+[`cholesky`](primitives.md), its blocks have a physical reading: they *are*
+the state-space model with that precision, $A^{\mathrm{ssm}}_k = -U_k^{\top}$
+and $Q_k^{-1} = \tilde{D}_k$. One pass therefore turns a precision-form
+posterior — the output of `spingp_posterior`, or a CVI / natural-gradient
+site update — into a chain that the Kalman machinery can sample, predict
+and interpolate from, without materialising the $(Td) \times (Td)$
+covariance.
+
+[`MarkovGaussian`](distributions.md#gaussx.MarkovGaussian) is the
+distribution that carries both views: its canonical parameterisation is the
+generative tuple $(A_k, b_k, Q_k, \mu_0, P_0)$, and `to_precision_form` /
+`from_precision_form` round-trip through the UDL factors exactly.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [UDLDecomposition, udl_decomposition, udl_to_ssm_params, udl_from_ssm_params]
+
 ## Sites & natural parameters
 
 Conjugate-computation VI (CVI) site updates and the conversions between SSM

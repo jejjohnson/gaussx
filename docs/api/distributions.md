@@ -49,6 +49,24 @@ needed on either side. All three require `numpyro` to be installed.
       show_root_toc_entry: false
       members: [LGSSM, MaskedLGSSM, LGSSMFactory]
 
+`MarkovGaussian` is the density over the *states* of a Gauss-Markov chain
+rather than its observations: $x_0 \sim \mathcal{N}(\mu_0, P_0)$,
+$x_{k+1} = A_k x_k + b_k + \varepsilon_k$, with `event_shape` $(T, d)$.
+`sample` and `log_prob` use the chain factorisation at $O(T d^3)$ and never
+form the joint covariance, so it serves as a prior over a latent trajectory
+or as a structured variational guide. Its precision is block-tridiagonal;
+`to_precision_form` / `from_precision_form` convert to and from the
+$(\mu, \Lambda)$ layout that [`spingp_posterior`](ssm.md) returns, through
+the [UDL factorisation](ssm.md#precision-form-chains), so a precision-form
+posterior becomes a sampleable chain in one $O(T d^3)$ pass. Requires
+`numpyro`.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [MarkovGaussian]
+
 ## Gaussian sugar ops
 
 $$
