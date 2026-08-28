@@ -58,6 +58,12 @@ from gaussx._ssm._ssm_natural import (
     ssm_to_expectations,
     ssm_to_naturals,
 )
+from gaussx._ssm._udl import (
+    UDLDecomposition,
+    udl_decomposition,
+    udl_from_ssm_params,
+    udl_to_ssm_params,
+)
 from gaussx._ssm._wiener import IntegratedWienerSDE
 
 
@@ -77,6 +83,7 @@ __all__ = [
     "SDEKernel",
     "SDEParams",
     "SumSDE",
+    "UDLDecomposition",
     "cavity_from_marginal",
     "cvi_update_sites",
     "dare",
@@ -109,4 +116,7 @@ __all__ = [
     "spingp_posterior",
     "ssm_to_expectations",
     "ssm_to_naturals",
+    "udl_decomposition",
+    "udl_from_ssm_params",
+    "udl_to_ssm_params",
 ]
