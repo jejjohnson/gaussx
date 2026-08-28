@@ -46,6 +46,35 @@ for partial (Krylov) decompositions.
       show_root_toc_entry: false
       members: [inv, sqrt, eig, eigvals, svd, frobenius_norm, submatrix]
 
+## Matrix-free square-root products
+
+$A^{\pm 1/2}b$ for an operator too large to factorise, via the
+Hale–Higham–Trefethen contour-integral quadrature: a weighted sum of ~15
+shifted solves $(A + \sigma_j I)^{-1}b$, each routed back through `solve`.
+Accuracy depends on the condition number only logarithmically, and
+`estimate_spectral_bounds` supplies the contour parameters when they are not
+known ahead of time.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [sqrt_matmul, sqrt_inv_matmul, estimate_spectral_bounds]
+
+## Joint inverse-quadratic and log-determinant
+
+`inv_quad_logdet` returns $\mathrm{tr}(R^\top A^{-1}R)$ and $\log|A|$ from a
+single modified-batched-CG pass — the two halves of a Gaussian log-density at
+roughly the matvec budget of one. Supplying a preconditioner $P \approx A$
+switches on the Artemev et al. variance reduction, estimating only the
+near-identity residual $\log(P^{-1}A)$ stochastically.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [inv_quad_logdet]
+
 ## Root decompositions
 
 Tall-factor approximations $RR^\top \approx A$ (and $R^- (R^-)^\top \approx
