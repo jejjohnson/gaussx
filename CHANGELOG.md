@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.26](https://github.com/jejjohnson/gaussx/compare/v0.0.25...v0.0.26) (2026-08-28)
+
+
+### Features
+
+* **ssm,distributions:** add UDL factorisation and MarkovGaussian chain distribution (gh-65, gh-76) ([#242](https://github.com/jejjohnson/gaussx/issues/242)) ([58e90a6](https://github.com/jejjohnson/gaussx/commit/58e90a68aa240bed1e0117d88fcd5b2813dadcb9))
+
 ## [0.0.25](https://github.com/jejjohnson/gaussx/compare/v0.0.24...v0.0.25) (2026-08-26)
 
 
