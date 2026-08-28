@@ -180,6 +180,7 @@ def spingp_posterior(
     obs_noise: lx.AbstractLinearOperator,
     observations: Float[Array, "N d_obs"],
     *,
+    prior_mean: Float[Array, " Nd"] | None = None,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " Nd"], BlockTriDiag]:
     r"""Posterior mean and precision via SpInGP.
@@ -188,7 +189,10 @@ def spingp_posterior(
     prior precision and solving for the posterior mean:
 
         \Lambda_{post} = \Lambda_{prior} + H^T R^{-1} H
-        \mu_{post} = \Lambda_{post}^{-1} H^T R^{-1} y
+        \mu_{post} = \Lambda_{post}^{-1} (H^T R^{-1} y + \Lambda_{prior} \mu_{prior})
+
+    With ``prior_mean=None`` the prior is taken to be zero-mean and the
+    second term vanishes.
 
     Args:
         prior_precision: Prior precision as ``BlockTriDiag``.
@@ -196,6 +200,10 @@ def spingp_posterior(
             shared or ``(N, d_obs, d)`` per time step.
         obs_noise: Observation noise covariance R operator.
         observations: Observations y, shape ``(N, d_obs)``.
+        prior_mean: Optional prior mean ``mu_prior``, shape ``(N * d,)``
+            — e.g. the ``mean`` half of
+            `gaussx.MarkovGaussian.to_precision_form`. Defaults to
+            zero.
         solver: Optional solver strategy for posterior precision
             operations. When ``None``, uses structural dispatch.
 
@@ -211,8 +219,10 @@ def spingp_posterior(
     lik_prec = _build_likelihood_precision(emission_model, obs_noise, N, d)
     post_prec = prior_precision.add(lik_prec)
 
-    # Data vector: eta = H^T R^{-1} y
+    # Data vector: eta = H^T R^{-1} y (+ Lambda_prior mu_prior)
     eta = _build_data_vector(emission_model, obs_noise, observations)
+    if prior_mean is not None:
+        eta = eta + prior_precision.mv(prior_mean)
 
     # Posterior mean: Lambda_post^{-1} eta
     post_mean = dispatch_solve(post_prec, eta, solver)

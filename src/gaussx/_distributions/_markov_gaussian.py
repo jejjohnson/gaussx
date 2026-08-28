@@ -231,9 +231,11 @@ class MarkovGaussian(dist.Distribution):
     def to_precision_form(self) -> tuple[Float[Array, " Td"], BlockTriDiag]:
         r"""The chain as ``(mean, precision)``.
 
-        This is the layout `spingp_posterior` returns, so the two
-        compose directly. The natural location parameter, if needed, is
-        $\eta = \Lambda \mu$, i.e. ``precision.mv(mean)``.
+        This is the layout `spingp_posterior` consumes and returns: pass
+        ``mean`` as its ``prior_mean`` (it assumes a zero-mean prior
+        otherwise) and hand its output to `from_precision_form`. The
+        natural location parameter, if needed, is $\eta = \Lambda \mu$,
+        i.e. ``precision.mv(mean)``.
 
         Returns:
             Tuple ``(mean, precision)``: the flattened marginal means of

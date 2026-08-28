@@ -20,7 +20,6 @@ from gaussx._einx import rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._ssm._kalman import kalman_filter, rts_smoother
 from gaussx._ssm._spingp import spingp_posterior
-from gaussx._ssm._udl import udl_decomposition
 from gaussx._testing import assert_sample_moments
 
 
@@ -161,9 +160,8 @@ class TestPrecisionForm:
 
         The Kalman filter's ``T`` states are x_1..x_T (it predicts before
         the first update), so the matching prior chain starts at
-        x_1 ~ N(A m0, A P0 A^T + Q). ``spingp_posterior`` assumes a
-        zero-mean prior; the prior-mean term is added through the UDL
-        solve.
+        x_1 ~ N(A m0, A P0 A^T + Q), and its nonzero mean goes in through
+        ``prior_mean``.
         """
         T, d, m = 8, 2, 1
         A = jnp.array([[0.9, 0.1], [0.0, 0.8]])
@@ -181,11 +179,9 @@ class TestPrecisionForm:
             A @ P0 @ A.T + Q,
         )
         prior_mean, prior_prec = prior.to_precision_form()
-        zero_mean_post, post_prec = spingp_posterior(
-            prior_prec, H, lx.MatrixLinearOperator(R), y
+        post_mean, post_prec = spingp_posterior(
+            prior_prec, H, lx.MatrixLinearOperator(R), y, prior_mean=prior_mean
         )
-        eta = post_prec.mv(zero_mean_post) + prior_prec.mv(prior_mean)
-        post_mean = udl_decomposition(post_prec).solve(eta)
         posterior = MarkovGaussian.from_precision_form(post_mean, post_prec)
         means, covs = posterior.marginals()
 
