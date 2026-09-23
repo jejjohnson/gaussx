@@ -85,6 +85,23 @@ covariance update.
       show_root_toc_entry: false
       members: [gaussian_log_prob, gaussian_entropy, quadratic_form, kl_standard_normal, dist_kl_divergence, conditional, joseph_update, add_jitter, project]
 
+## Structured sampling
+
+`sample_mvn` draws $x = \mu + L\varepsilon$ with $LL^\top = K$, picking the
+factor $L$ from the structure of the covariance operator: element-wise for a
+diagonal, per factor for a Kronecker product, per block for a block-diagonal,
+FFT circulant embedding for a Toeplitz, and $L_B z_1 + U\sqrt{D}z_2$ for a
+low-rank update, so a $10^4 \times 10^4$ Kronecker covariance never reaches a
+dense Cholesky. The one-off helpers `toeplitz_sample`, `kronecker_sum_sample`
+and `sumkronecker_sample` remain available for callers that want them
+directly; `sample_mvn` is the one entry point that dispatches to all of them.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [sample_mvn]
+
 ## Exponential family
 
 The Gaussian in natural form: $\eta_1 = \Lambda\mu$, $\eta_2 = -\tfrac12
