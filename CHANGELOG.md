@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.27](https://github.com/jejjohnson/gaussx/compare/v0.0.26...v0.0.27) (2026-09-23)
+
+
+### Bug Fixes
+
+* **operators:** exact gradients through the SumOfKroneckers solve; cavity precision_floor ([#246](https://github.com/jejjohnson/gaussx/issues/246)) ([77f3382](https://github.com/jejjohnson/gaussx/commit/77f3382e6a0c72cb63687558e333a58a4c495daa))
+
 ## [0.0.26](https://github.com/jejjohnson/gaussx/compare/v0.0.25...v0.0.26) (2026-08-28)
 
 
