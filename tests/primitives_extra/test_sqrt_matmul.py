@@ -11,7 +11,12 @@ import pytest
 from scipy.special import ellipj as scipy_ellipj, ellipk as scipy_ellipk
 
 import gaussx
-from gaussx._operators import LowRankUpdate, low_rank_plus_diag
+from gaussx._operators import (
+    BlockDiag,
+    LowRankUpdate,
+    low_rank_plus_diag,
+    low_rank_plus_identity,
+)
 from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk, _shift_operator
 from gaussx._testing import random_pd_operator
 
@@ -118,6 +123,47 @@ def test_wrapped_diagonals_take_the_structural_path(wrap) -> None:
     result = gaussx.sqrt_inv_matmul(operator, rhs, num_quadrature=30)
     relative = jnp.abs(result[:, 0] - exact**-0.5) * exact**0.5
     assert jnp.max(relative) < 1e-8
+
+
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda op: lx.TaggedLinearOperator(op, lx.positive_semidefinite_tag),
+        lambda op: 2.0 * op,
+    ],
+    ids=["tagged", "scaled"],
+)
+def test_wrapped_block_diagonals_use_their_exact_spectrum(wrap) -> None:
+    # 60 dimensions, kappa = 1e6: a 20-step Lanczos bracket misses the bottom
+    # of the spectrum even after widening, so this must reach eigvals exactly.
+    blocks = BlockDiag(
+        lx.DiagonalLinearOperator(jnp.geomspace(1e-6, 1.0, 30)),
+        lx.DiagonalLinearOperator(jnp.linspace(1.0, 2.0, 30)),
+    )
+    operator = wrap(blocks)
+    exact = jnp.linalg.eigvalsh(operator.as_matrix())
+
+    lam_min, lam_max = gaussx.estimate_spectral_bounds(operator)
+
+    assert jnp.allclose(lam_min, exact[0])
+    assert jnp.allclose(lam_max, exact[-1])
+
+
+def test_lanczos_stops_at_breakdown_for_low_rank_plus_identity() -> None:
+    # I + UU^T with rank(U) = 3 exhausts its Krylov space after four steps;
+    # running on normalises rounding noise into Ritz values outside the
+    # spectrum, which used to push lam_min to zero and ruin the contour.
+    n = 50
+    operator = low_rank_plus_identity(jr.normal(jr.key(18), (n, 3)))
+    exact = jnp.linalg.eigvalsh(operator.as_matrix())
+
+    lam_min, lam_max = gaussx.estimate_spectral_bounds(operator, safety=1.0)
+    assert jnp.allclose(lam_min, exact[0], rtol=1e-8)
+    assert jnp.allclose(lam_max, exact[-1], rtol=1e-8)
+
+    rhs = jr.normal(jr.key(19), (n, 2))
+    result = gaussx.sqrt_inv_matmul(operator, rhs)
+    assert jnp.allclose(result, _dense_power(operator, -0.5) @ rhs, atol=1e-8)
 
 
 def test_partial_lanczos_bounds_are_an_inner_bracket_before_widening() -> None:
@@ -273,6 +319,38 @@ def test_low_rank_update_keeps_its_structure_under_a_shift() -> None:
     rhs = jr.normal(jr.key(16), (n, 2))
     result = gaussx.sqrt_inv_matmul(operator, rhs)
     assert jnp.allclose(result, _dense_power(operator, -0.5) @ rhs, atol=1e-6)
+
+
+def test_block_diag_and_scaled_low_rank_keep_their_structure_under_a_shift() -> None:
+    n = 20
+    blocks = BlockDiag(
+        lx.DiagonalLinearOperator(jnp.linspace(0.5, 2.0, n)),
+        lx.TaggedLinearOperator(
+            lx.DiagonalLinearOperator(jnp.linspace(1.0, 3.0, n)),
+            lx.positive_semidefinite_tag,
+        ),
+    )
+    shifted_blocks = _shift_operator(blocks, jnp.asarray(0.7))
+    assert isinstance(shifted_blocks, BlockDiag)
+    assert all(
+        isinstance(block, lx.DiagonalLinearOperator)
+        for block in shifted_blocks.operators
+    )
+    assert jnp.allclose(
+        shifted_blocks.as_matrix(), blocks.as_matrix() + 0.7 * jnp.eye(2 * n)
+    )
+
+    # cA + sI = c (A + (s/c) I): the low-rank structure survives the scalar.
+    low_rank = low_rank_plus_diag(
+        jnp.linspace(0.5, 2.0, n), jr.normal(jr.key(20), (n, 3))
+    )
+    scaled = lx.TaggedLinearOperator(2.0 * low_rank, lx.positive_semidefinite_tag)
+    shifted = _shift_operator(scaled, jnp.asarray(0.7))
+    assert isinstance(shifted, lx.MulLinearOperator)
+    assert isinstance(shifted.operator, LowRankUpdate)
+    assert jnp.allclose(
+        shifted.as_matrix(), scaled.as_matrix() + 0.7 * jnp.eye(n), atol=1e-12
+    )
 
 
 def test_tagged_diagonal_base_stays_diagonal_under_a_shift() -> None:

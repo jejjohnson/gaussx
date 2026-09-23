@@ -11,10 +11,14 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._primitives._eig import eigvals
 from gaussx._primitives._solve import solve
@@ -46,13 +50,14 @@ def estimate_spectral_bounds(
 ) -> tuple[Float[Array, ""], Float[Array, ""]]:
     r"""Estimate $(\lambda_{\min}, \lambda_{\max})$ of a symmetric operator.
 
-    Routes through `gaussx.eigvals`, so structured operators (diagonal,
-    Kronecker, block-diagonal, Kronecker-sum) return their exact spectra and
-    everything else runs a partial Lanczos decomposition. Diagonals and
-    identities are read off directly even when tagged or scaled, since
-    `gaussx.eigvals` only recognises a bare diagonal -- and an identity's
-    Krylov space is exhausted after one step, so Lanczos has nothing to offer
-    it.
+    Structured operators (diagonal, identity, Kronecker, block-diagonal,
+    Kronecker-sum) return their exact spectra, including when wrapped in
+    `lineax.TaggedLinearOperator` or scaled by a scalar -- `gaussx.eigvals`
+    only recognises the bare classes. Everything else runs a partial Lanczos
+    decomposition with full reorthogonalisation, which stops at the first
+    breakdown: an operator such as ``cI + UUᵀ`` exhausts its Krylov space
+    after ``rank(U) + 1`` steps, and continuing past that point only
+    normalises rounding noise into spurious Ritz values.
 
     Ritz values interlace the true spectrum, so a partial Lanczos run brackets
     it from the *inside* — and the smallest eigenvalue is the slowest one to
@@ -78,23 +83,99 @@ def estimate_spectral_bounds(
         raise ValueError("spectral bounds require a square operator")
     if safety < 1.0:
         raise ValueError("safety must be at least 1")
+    lam_min, lam_max = _spectral_bracket(operator, max_lanczos_iter, safety, key)
+    floor = jnp.finfo(jnp.result_type(lam_min)).tiny
+    lam_min = jnp.maximum(lam_min, floor)
+    return lam_min, jnp.maximum(lam_max, lam_min)
+
+
+def _spectral_bracket(
+    operator: lx.AbstractLinearOperator,
+    max_lanczos_iter: int,
+    safety: float,
+    key: jax.Array | None,
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
+    """Unfloored ``(lam_min, lam_max)``; see `estimate_spectral_bounds`."""
     diagonal = _diagonal_of(operator)
     if diagonal is not None:
-        floor = jnp.finfo(diagonal.dtype).tiny
-        lam_min = jnp.maximum(jnp.min(diagonal), floor)
-        return lam_min, jnp.maximum(jnp.max(diagonal), lam_min)
+        return jnp.min(diagonal), jnp.max(diagonal)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _spectral_bracket(operator.operator, max_lanczos_iter, safety, key)
+    if isinstance(operator, lx.MulLinearOperator | lx.DivLinearOperator):
+        low, high = _spectral_bracket(operator.operator, max_lanczos_iter, safety, key)
+        factor = operator.scalar
+        if isinstance(operator, lx.DivLinearOperator):
+            factor = 1.0 / factor
+        return (
+            jnp.minimum(low * factor, high * factor),
+            jnp.maximum(low * factor, high * factor),
+        )
+    if isinstance(operator, BlockDiag | Kronecker | KroneckerSum):
+        values = jnp.real(eigvals(operator))
+        return jnp.min(values), jnp.max(values)
 
     n = operator.in_size()
     order = min(max_lanczos_iter, n)
-    values = jnp.real(eigvals(operator, rank=order, key=key))
-    # A full-length spectrum is exact -- either structurally or because
-    # Lanczos ran for as many steps as the operator has dimensions.
-    widen = 1.0 if values.shape[0] >= n else safety
+    low, high = _lanczos_extremes(operator, order, key)
+    # Lanczos run for as many steps as the operator has dimensions is exact.
+    widen = 1.0 if order >= n else safety
+    return low / widen, high * widen
 
-    floor = jnp.finfo(values.dtype).tiny
-    lam_min = jnp.maximum(jnp.min(values) / widen, floor)
-    lam_max = jnp.maximum(jnp.max(values) * widen, lam_min)
-    return lam_min, lam_max
+
+def _lanczos_extremes(
+    operator: lx.AbstractLinearOperator,
+    order: int,
+    key: jax.Array | None,
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
+    """Extreme Ritz values of ``order`` Lanczos steps, stopping at breakdown.
+
+    Steps after a breakdown are masked out of the tridiagonal: their diagonal
+    is set to the first Rayleigh quotient, which lies inside the spectrum and
+    so cannot widen the bracket, and their couplings are zeroed.
+    """
+    n = operator.in_size()
+    dtype = operator.in_structure().dtype
+    if key is None:
+        key = jr.PRNGKey(0)
+    start = jr.normal(key, (n,), dtype=dtype)
+    start = start / jnp.linalg.norm(start)
+    eps = jnp.finfo(dtype).eps
+
+    def step(carry, index):
+        basis, vector, previous, beta_previous, alive = carry
+        residual = operator.mv(vector) - beta_previous * previous
+        alpha = jnp.dot(vector, residual)
+        residual = residual - alpha * vector
+        # Full reorthogonalisation; rows not yet written are zero.
+        residual = residual - basis.T @ (basis @ residual)
+        beta = jnp.linalg.norm(residual)
+        # An exhausted Krylov space leaves nothing but rounding in the residual.
+        tolerance = jnp.sqrt(eps) * (jnp.abs(alpha) + beta_previous)
+        alive_next = alive & (beta > tolerance)
+        following = jnp.where(
+            alive_next, residual / jnp.where(alive_next, beta, 1.0), 0.0
+        )
+        basis = basis.at[index + 1].set(following, mode="drop")
+        carry = (basis, following, vector, beta, alive_next)
+        return carry, (alpha, beta, alive, alive_next)
+
+    basis = jnp.zeros((order, n), dtype=dtype).at[0].set(start)
+    init = (
+        basis,
+        start,
+        jnp.zeros_like(start),
+        jnp.zeros((), dtype=dtype),
+        jnp.asarray(True),
+    )
+    _, (alphas, betas, alive, alive_next) = jax.lax.scan(step, init, jnp.arange(order))
+
+    diagonal = jnp.where(alive, alphas, alphas[0])
+    off_diagonal = jnp.where(alive_next[:-1], betas[:-1], 0.0)
+    tridiagonal = (
+        jnp.diag(diagonal) + jnp.diag(off_diagonal, 1) + jnp.diag(off_diagonal, -1)
+    )
+    values = jnp.linalg.eigvalsh(tridiagonal)
+    return values[0], values[-1]
 
 
 def sqrt_inv_matmul(
@@ -283,9 +364,11 @@ def _shift_operator(
 ) -> lx.AbstractLinearOperator:
     """Build ``A + shift I``, keeping structure where it exists.
 
-    Diagonals and identities -- tagged, scaled or bare -- stay diagonal, and
+    Diagonals and identities -- tagged, scaled or bare -- stay diagonal; tags
+    and scalars are peeled off (``cA + sI = c(A + (s/c)I)``) so the structure
+    underneath is shifted instead; a `gaussx.BlockDiag` shifts each block; and
     a `gaussx.LowRankUpdate` shifts its base so the Woodbury solve still
-    applies. Otherwise the sum would fall through to a dense factorisation per
+    applies. Anything else would fall through to a dense factorisation per
     quadrature node.
 
     ``lineax`` does not propagate the positive-semidefinite tag across
@@ -297,6 +380,21 @@ def _shift_operator(
     if diagonal is not None:
         # A diagonal needs no tags to take the structural solve path.
         return lx.DiagonalLinearOperator(diagonal + shift)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _shift_operator(operator.operator, shift)
+    # ``A`` is positive definite, so the scalar is positive and the inner shift
+    # stays non-negative.
+    if isinstance(operator, lx.MulLinearOperator):
+        inner = _shift_operator(operator.operator, shift / operator.scalar)
+        return inner * operator.scalar
+    if isinstance(operator, lx.DivLinearOperator):
+        inner = _shift_operator(operator.operator, shift * operator.scalar)
+        return inner / operator.scalar
+    if isinstance(operator, BlockDiag):
+        return BlockDiag(
+            *(_shift_operator(block, shift) for block in operator.operators),
+            tags=operator.tags,
+        )
     if isinstance(operator, LowRankUpdate):
         return LowRankUpdate(
             _shift_operator(operator.base, shift),

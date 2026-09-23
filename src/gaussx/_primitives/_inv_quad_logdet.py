@@ -10,8 +10,7 @@ needs for the log-determinant.
 
 from __future__ import annotations
 
-import functools as ft
-
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -96,7 +95,7 @@ def inv_quad_logdet(
         strategy = BBMMSolver()
 
     if isinstance(strategy, BBMMSolver):
-        columns, logdet_value = _shared_work(operator, rhs, strategy, preconditioner)
+        columns, logdet_value = _shared_work((operator, rhs), strategy, preconditioner)
     else:
         columns, logdet_value = _separate_work(operator, rhs, strategy, preconditioner)
 
@@ -104,29 +103,42 @@ def inv_quad_logdet(
     return inv_quad, logdet_value
 
 
-@ft.partial(jax.custom_vjp, nondiff_argnums=(2,))
+# `equinox.filter_custom_vjp` rather than `jax.custom_vjp`: the operator may
+# carry non-array leaves -- the function of a `lineax.FunctionLinearOperator`,
+# static tags -- which `jax.custom_vjp` rejects as arguments.
+@eqx.filter_custom_vjp
 def _shared_work(
-    operator: lx.AbstractLinearOperator,
-    rhs: Float[Array, "N C"],
+    differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
     strategy: BBMMSolver,
     preconditioner: lx.AbstractLinearOperator | None,
 ) -> tuple[Float[Array, " C"], Float[Array, ""]]:
     """Per-column inverse-quadratics and the log-determinant, in one CG pass."""
+    operator, rhs = differentiable
     outputs, _ = _shared_work_core(operator, rhs, strategy, preconditioner)
     return outputs
 
 
+@_shared_work.def_fwd
 def _shared_work_fwd(
-    operator: lx.AbstractLinearOperator,
-    rhs: Float[Array, "N C"],
+    perturbed,
+    differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
     strategy: BBMMSolver,
     preconditioner: lx.AbstractLinearOperator | None,
 ):
-    outputs, cache = _shared_work_core(operator, rhs, strategy, preconditioner)
-    return outputs, (operator, preconditioner, *cache)
+    del perturbed
+    operator, rhs = differentiable
+    return _shared_work_core(operator, rhs, strategy, preconditioner)
 
 
-def _shared_work_bwd(strategy: BBMMSolver, residuals, cotangents):
+@_shared_work.def_bwd
+def _shared_work_bwd(
+    residuals,
+    cotangents,
+    perturbed,
+    differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
+    strategy: BBMMSolver,
+    preconditioner: lx.AbstractLinearOperator | None,
+):
     r"""Differentiate the quantities, not the recurrence that estimated them.
 
     Unrolling the mBCG scan is a poor way to get a gradient: as CG converges,
@@ -153,9 +165,15 @@ def _shared_work_bwd(strategy: BBMMSolver, residuals, cotangents):
     The preconditioner receives a zero cotangent: it is a variance-reduction
     device, and the quantities being differentiated do not depend on it.
     """
-    del strategy
-    operator, preconditioner, solutions, probe_solutions, probe_rights = residuals
+    del strategy, preconditioner
+    operator, _ = differentiable
+    solutions, probe_solutions, probe_rights = residuals
+    # ``None`` marks an output that is not being differentiated.
     ct_columns, ct_logdet = cotangents
+    if ct_columns is None:
+        ct_columns = jnp.zeros(solutions.shape[1], dtype=solutions.dtype)
+    if ct_logdet is None:
+        ct_logdet = jnp.zeros((), dtype=solutions.dtype)
     num_probes = probe_rights.shape[1]
 
     ct_rhs = 2.0 * ct_columns[None, :] * solutions
@@ -172,11 +190,13 @@ def _shared_work_bwd(strategy: BBMMSolver, residuals, cotangents):
     rights = jnp.concatenate([solutions, probe_rights, probe_solutions], axis=1)
     ct_operator = _operator_cotangent(operator, lefts, rights)
 
-    ct_preconditioner = jax.tree.map(jnp.zeros_like, preconditioner)
-    return ct_operator, ct_rhs, ct_preconditioner
-
-
-_shared_work.defvjp(_shared_work_fwd, _shared_work_bwd)
+    # Only leaves that are actually being differentiated get a cotangent.
+    return jax.tree.map(
+        lambda gradient, wanted: gradient if wanted else None,
+        (ct_operator, ct_rhs),
+        perturbed,
+        is_leaf=lambda leaf: leaf is None,
+    )
 
 
 def _operator_cotangent(
@@ -194,7 +214,15 @@ def _operator_cotangent(
     def apply(op: lx.AbstractLinearOperator) -> Float[Array, "N K"]:
         return jax.vmap(op.mv, in_axes=1, out_axes=1)(rights)
 
-    _, pullback = jax.vjp(apply, operator)
+    # `equinox.filter_vjp` passes non-array leaves (a matvec closure, static
+    # tags) through untouched and gives them a ``None`` cotangent. A scalar the
+    # operator closes over can reach the backward pass as a Python float, so
+    # promote those to arrays first; the caller drops unperturbed cotangents.
+    operator = jax.tree.map(
+        lambda leaf: jnp.asarray(leaf) if isinstance(leaf, float) else leaf,
+        operator,
+    )
+    _, pullback = eqx.filter_vjp(apply, operator)
     (cotangent,) = pullback(lefts)
     return cotangent
 
@@ -374,13 +402,16 @@ def _mbcg(
     A column is *frozen* once its (preconditioned) residual falls below its
     entry of ``floors`` times the initial residual, or once the curvature
     ``dᵀAd`` stops being positive: its step size is then zeroed so the
-    iterate, the residual and the recorded coefficients all stand still.
+    iterate, the residual and the recorded coefficients all stand still. The
+    freeze is permanent, and the loop exits as soon as every column is frozen,
+    so an easy system does not pay for ``max_iter`` batched matvecs. Steps
+    that never ran are recorded as inactive.
 
     Args:
         operator: The PSD operator ``A``.
         block: Right-hand sides, shape ``(N, T)``.
         apply_inverse: Callable applying ``P^{-1}`` column-wise, or ``None``.
-        max_iter: Number of CG steps.
+        max_iter: Maximum number of CG steps.
         floors: Per-column *relative* squared residual floors, shape ``(T,)``.
 
     Returns:
@@ -400,11 +431,11 @@ def _mbcg(
     rz = jnp.sum(residual * preconditioned, axis=0)
     thresholds = floors * rz
 
-    def step(carry, _):
-        solution, residual, preconditioned, direction, rz = carry
+    def step(carry):
+        index, solution, residual, preconditioned, direction, rz, alive, record = carry
         curvature = matmul(direction)
         denominator = jnp.sum(direction * curvature, axis=0)
-        active = (rz > thresholds) & (denominator > 0.0)
+        active = alive & (rz > thresholds) & (denominator > 0.0)
         alpha = jnp.where(active, rz / jnp.where(active, denominator, 1.0), 0.0)
         solution = solution + alpha * direction
         residual = residual - alpha * curvature
@@ -412,18 +443,45 @@ def _mbcg(
         rz_next = jnp.sum(residual * preconditioned, axis=0)
         beta = jnp.where(active, rz_next / jnp.where(active, rz, 1.0), 0.0)
         direction = preconditioned + beta * direction
-        carry = (solution, residual, preconditioned, direction, rz_next)
-        return carry, (alpha, beta, active)
+        alphas, betas, actives = record
+        record = (
+            alphas.at[index].set(alpha),
+            betas.at[index].set(beta),
+            actives.at[index].set(active),
+        )
+        return (
+            index + 1,
+            solution,
+            residual,
+            preconditioned,
+            direction,
+            rz_next,
+            active,
+            record,
+        )
 
+    def unfinished(carry) -> Array:
+        index, *_, alive, _ = carry
+        return (index < max_iter) & jnp.any(alive)
+
+    num_columns = block.shape[1]
+    record = (
+        jnp.zeros((max_iter, num_columns), dtype=block.dtype),
+        jnp.zeros((max_iter, num_columns), dtype=block.dtype),
+        jnp.zeros((max_iter, num_columns), dtype=bool),
+    )
     init = (
+        jnp.asarray(0),
         jnp.zeros_like(block),
         residual,
         preconditioned,
         preconditioned,
         rz,
+        jnp.ones((num_columns,), dtype=bool),
+        record,
     )
-    (solutions, *_), (alphas, betas, active) = jax.lax.scan(
-        step, init, xs=None, length=max_iter
+    _, solutions, *_, (alphas, betas, active) = jax.lax.while_loop(
+        unfinished, step, init
     )
     return solutions, preconditioned, alphas, betas, active
 

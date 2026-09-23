@@ -10,7 +10,7 @@ import pytest
 
 import gaussx
 from gaussx._operators import LowRankUpdate
-from gaussx._primitives._inv_quad_logdet import _lanczos_coefficients
+from gaussx._primitives._inv_quad_logdet import _lanczos_coefficients, _mbcg
 from gaussx._testing import random_pd_operator
 
 
@@ -184,6 +184,32 @@ def test_a_probe_that_breaks_down_stays_frozen() -> None:
     assert jnp.allclose(off_diagonal[0], 0.0)
 
 
+def test_mbcg_stops_once_every_column_has_frozen() -> None:
+    # 2I converges in one step; a fixed-length loop would still run all
+    # max_iter batched matvecs.
+    calls = []
+
+    def matvec(vector):
+        jax.debug.callback(lambda _: calls.append(None), vector[0])
+        return 2.0 * vector
+
+    operator = lx.FunctionLinearOperator(
+        matvec,
+        jax.ShapeDtypeStruct((10,), jnp.float64),
+        lx.positive_semidefinite_tag,
+    )
+    block = jr.normal(jr.key(23), (10, 3))
+
+    solutions, _, _, _, active = _mbcg(
+        operator, block, None, max_iter=1000, floors=jnp.full((3,), 1e-24)
+    )
+
+    assert jnp.allclose(solutions, block / 2.0)
+    assert active[0].all() and not active[1:].any()
+    # One step that converges and one that finds nothing left to do, per column.
+    assert len(calls) == 2 * 3
+
+
 # ---------------------------------------------------------------------------
 # Preconditioned variance reduction
 # ---------------------------------------------------------------------------
@@ -331,6 +357,32 @@ def test_non_bbmm_strategy_applies_the_preconditioner_identity() -> None:
 # ---------------------------------------------------------------------------
 # Transformations
 # ---------------------------------------------------------------------------
+
+
+def test_function_operator_is_supported_and_differentiable() -> None:
+    # jax.custom_vjp rejects the matvec closure a FunctionLinearOperator
+    # carries; the shared-work VJP has to accept arbitrary operator pytrees.
+    n = 12
+    rhs = jr.normal(jr.key(24), (n, 2))
+
+    def loss(scale):
+        operator = lx.FunctionLinearOperator(
+            lambda vector: scale * vector,
+            jax.ShapeDtypeStruct((n,), jnp.float64),
+            lx.positive_semidefinite_tag,
+        )
+        inv_quad, logdet = gaussx.inv_quad_logdet(
+            operator, rhs, strategy=gaussx.BBMMSolver(num_probes=4)
+        )
+        return inv_quad + logdet
+
+    scale = 3.0
+    value, gradient = jax.value_and_grad(loss)(scale)
+
+    # For sI both terms are exact: sign probes make Hutchinson exact on tr(I/s).
+    squared = jnp.sum(rhs**2)
+    assert jnp.allclose(value, squared / scale + n * jnp.log(scale))
+    assert jnp.allclose(gradient, -squared / scale**2 + n / scale)
 
 
 def test_jit_matches_eager() -> None:
