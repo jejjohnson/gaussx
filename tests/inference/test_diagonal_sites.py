@@ -67,6 +67,28 @@ def test_cavity_rejects_mixed_argument_types(getkey):
         )
 
 
+def test_cavity_precision_floor_engages():
+    """Over-absorbed sites clip to the floor; healthy sites are untouched."""
+    post_mean = jnp.array([0.3, -1.0, 2.0])
+    post_var = jnp.array([1.0, 0.5, 2.0])
+    site_nat1 = jnp.array([0.1, 0.2, -0.4])
+    # Site 0 carries more precision than the posterior (1 / 1.0): the raw
+    # cavity precision is negative.
+    site_nat2 = jnp.array([1.5, 0.5, 0.1])
+    floor = 1e-3
+
+    raw_mean, raw_var = cavity_distribution(post_mean, post_var, site_nat1, site_nat2)
+    mean, var = cavity_distribution(
+        post_mean, post_var, site_nat1, site_nat2, precision_floor=floor
+    )
+
+    assert raw_var[0] < 0
+    assert tree_allclose(var[0], jnp.asarray(1.0 / floor))
+    assert tree_allclose(mean[0], (post_mean[0] / post_var[0] - site_nat1[0]) / floor)
+    assert tree_allclose(mean[1:], raw_mean[1:], atol=1e-12)
+    assert tree_allclose(var[1:], raw_var[1:], atol=1e-12)
+
+
 def test_newton_diagonal_matches_dense_path(getkey):
     """For a log-concave site the floor is inactive and the paths agree."""
     n = 5
