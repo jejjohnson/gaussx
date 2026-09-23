@@ -245,6 +245,44 @@ class TestTransformsAndConsumers:
         reference = jax.jit(jax.grad(lambda s: dense_logdet(build(s))))(1.3)
         assert tree_allclose(structured, reference, atol=1e-10)
 
+    @pytest.mark.parametrize("anchor_kind", ["shift", "diagonal"])
+    def test_solve_gradient_matches_dense_with_degenerate_factors(self, anchor_kind):
+        """Solve gradients stay exact on repeated / clustered eigenvalues.
+
+        The multi-output GP shape: a rank-one coregionalization ``w wᵀ``
+        (``N_A - 1`` repeated zero eigenvalues) against a smooth RBF Gram
+        (a tail of eigenvalues clustered near zero). Differentiating through
+        the factor ``eigh`` here gave gradients off by orders of magnitude.
+        """
+        x = jnp.linspace(0.0, 1.0, 12)
+        y = jr.normal(jr.key(0), (N_A * x.size,))
+        noise = jnp.array([0.05, 0.1, 0.2])
+
+        def build(w, lengthscale, noise):
+            gram = jnp.exp(-0.5 * (x[:, None] - x[None, :]) ** 2 / lengthscale**2)
+            main = Kronecker(
+                lx.MatrixLinearOperator(jnp.outer(w, w), lx.positive_semidefinite_tag),
+                lx.MatrixLinearOperator(gram, lx.positive_semidefinite_tag),
+            )
+            identity_b = lx.IdentityLinearOperator(
+                jax.ShapeDtypeStruct((x.size,), jnp.float64)
+            )
+            if anchor_kind == "shift":
+                anchor = Kronecker(_identity(N_A), noise[0] * identity_b)
+            else:
+                anchor = Kronecker(lx.DiagonalLinearOperator(noise), identity_b)
+            return SumOfKroneckers(main, anchor)
+
+        def quad(solve_fn, w, lengthscale, noise, rhs):
+            return rhs @ solve_fn(build(w, lengthscale, noise), rhs)
+
+        args = (jnp.array([1.0, 0.5, -0.3]), 0.4, noise, y)
+        assert _is_eigen_reducible(build(*args[:3]))
+        grad = jax.grad(quad, argnums=(1, 2, 3, 4))
+        structured = jax.jit(grad, static_argnums=0)(solve, *args)
+        reference = grad(dense_solve, *args)
+        assert tree_allclose(structured, reference, rtol=1e-6, atol=1e-8)
+
     def test_solve_under_jit_and_vmap(self):
         operator = SumOfKroneckers(
             _psd_kronecker(jr.key(0)),
