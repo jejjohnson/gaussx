@@ -113,6 +113,32 @@ def test_lanczos_quadrature_reproduces_a_single_probe() -> None:
     assert jnp.allclose(logdet, expected, rtol=1e-4)
 
 
+def test_lanczos_order_may_exceed_the_operator_size() -> None:
+    # Without reorthogonalisation, Lanczos past n adds ghost Ritz values whose
+    # Gauss weights split between copies, so e1^T log(T) e1 stays accurate --
+    # and the extra steps recover what lost orthogonality cost. Measured at
+    # kappa = 1e8: 3e-2 relative error with the order clamped to n, 3e-11
+    # with 10n.
+    n = 12
+    rotation, _ = jnp.linalg.qr(jr.normal(jr.key(21), (n, n)))
+    values = jnp.geomspace(1e-8, 1.0, n)
+    matrix = (rotation * values) @ rotation.T
+    operator = lx.MatrixLinearOperator(
+        0.5 * (matrix + matrix.T), lx.positive_semidefinite_tag
+    )
+    strategy = gaussx.BBMMSolver(
+        cg_max_iter=10 * n, cg_tolerance=1e-12, lanczos_iter=10 * n, num_probes=1
+    )
+
+    probe = 2.0 * jr.bernoulli(jr.PRNGKey(0), 0.5, (n, 1)) - 1.0
+    log_operator = (rotation * jnp.log(values)) @ rotation.T
+    expected = probe[:, 0] @ log_operator @ probe[:, 0]
+
+    _, logdet = gaussx.inv_quad_logdet(operator, jnp.ones((n, 1)), strategy=strategy)
+
+    assert jnp.allclose(logdet, expected, rtol=1e-8)
+
+
 def test_logdet_tracks_the_dense_value() -> None:
     operator = random_pd_operator(jr.key(8), 40)
     rhs = jr.normal(jr.key(9), (40, 1))
@@ -254,8 +280,11 @@ def test_dense_strategy_is_exact() -> None:
         gaussx.ComposedSolver(
             solve_strategy=gaussx.CGSolver(), logdet_strategy=gaussx.DenseSolver()
         ),
+        gaussx.ComposedSolver(
+            solve_strategy=gaussx.CGSolver(), logdet_strategy=gaussx.DenseLogdet()
+        ),
     ],
-    ids=["dense", "auto", "composed"],
+    ids=["dense", "auto", "composed", "composed-dense-logdet"],
 )
 def test_exact_strategy_ignores_the_preconditioner(strategy) -> None:
     # Whitening an exact log-determinant would only add contour-quadrature

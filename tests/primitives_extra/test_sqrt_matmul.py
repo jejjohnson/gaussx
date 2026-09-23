@@ -11,7 +11,7 @@ import pytest
 from scipy.special import ellipj as scipy_ellipj, ellipk as scipy_ellipk
 
 import gaussx
-from gaussx._operators import LowRankUpdate
+from gaussx._operators import LowRankUpdate, low_rank_plus_diag
 from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk, _shift_operator
 from gaussx._testing import random_pd_operator
 
@@ -30,6 +30,27 @@ def _dense_power(operator: lx.AbstractLinearOperator, power: float):
 @pytest.mark.parametrize("modulus", [0.0, 0.3, 0.9, 0.999, 1.0 - 1e-6])
 def test_ellipk_matches_scipy(modulus: float) -> None:
     assert jnp.allclose(_ellipk(jnp.asarray(modulus)), scipy_ellipk(modulus))
+
+
+def test_ellipk_uses_the_complement_in_float32() -> None:
+    # 1 - 1e-8 rounds to exactly 1 in float32; the complement keeps K finite.
+    complement = 1e-8
+    value = _ellipk(jnp.float32(1.0 - complement), complement=jnp.float32(complement))
+
+    assert value.dtype == jnp.float32
+    assert jnp.allclose(value, scipy_ellipk(1.0 - complement), rtol=1e-5)
+
+
+def test_float32_roots_survive_a_large_condition_number() -> None:
+    diagonal = jnp.geomspace(1e-8, 1.0, 20, dtype=jnp.float32)
+    rhs = jnp.ones((20, 1), dtype=jnp.float32)
+
+    result = gaussx.sqrt_inv_matmul(
+        lx.DiagonalLinearOperator(diagonal), rhs, spectral_bounds=(1e-8, 1.0)
+    )
+
+    relative = jnp.abs(result[:, 0] - diagonal**-0.5) * diagonal**0.5
+    assert jnp.max(relative) < 1e-3
 
 
 @pytest.mark.parametrize("modulus", [0.0, 0.3, 0.9, 0.999, 1.0 - 1e-6])
@@ -222,6 +243,23 @@ def test_low_rank_update_keeps_its_structure_under_a_shift() -> None:
     rhs = jr.normal(jr.key(16), (n, 2))
     result = gaussx.sqrt_inv_matmul(operator, rhs)
     assert jnp.allclose(result, _dense_power(operator, -0.5) @ rhs, atol=1e-6)
+
+
+def test_tagged_diagonal_base_stays_diagonal_under_a_shift() -> None:
+    # low_rank_plus_diag wraps its base in a PSD tag; the shift must see
+    # through it or every Woodbury solve factorises a dense base.
+    n = 30
+    operator = low_rank_plus_diag(
+        jnp.linspace(0.5, 2.0, n), jr.normal(jr.key(17), (n, 3))
+    )
+
+    shifted = _shift_operator(operator, jnp.asarray(0.7))
+
+    assert isinstance(shifted, LowRankUpdate)
+    assert isinstance(shifted.base, lx.DiagonalLinearOperator)
+    assert jnp.allclose(
+        shifted.as_matrix(), operator.as_matrix() + 0.7 * jnp.eye(n), atol=1e-12
+    )
 
 
 @pytest.mark.parametrize(

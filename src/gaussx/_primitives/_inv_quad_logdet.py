@@ -27,6 +27,7 @@ from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrat
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
+from gaussx._strategies._slq_logdet import DenseLogdet
 
 
 def inv_quad_logdet(
@@ -236,6 +237,11 @@ def _shared_work_core(
     )
 
     columns = jnp.sum(rhs * solutions[:, :num_rhs], axis=0)
+    # Deliberately *not* clamped to ``n``. mBCG does not reorthogonalise, so
+    # steps past ``n`` add ghost copies of converged Ritz values -- but the
+    # Gauss rule splits their weight between the copies, and those extra
+    # steps are what recover the accuracy lost to orthogonality (Greenbaum
+    # 1989). Truncating at ``n`` costs digits on ill-conditioned operators.
     order = min(strategy.lanczos_iter, max_iter)
     diagonal, off_diagonal = _lanczos_coefficients(
         alphas[:, num_rhs:], betas[:, num_rhs:], active[:, num_rhs:], order
@@ -274,7 +280,7 @@ def _has_exact_logdet(
     operator: lx.AbstractLinearOperator,
 ) -> bool:
     """Whether ``strategy`` computes ``log|A|`` deterministically and exactly."""
-    if isinstance(strategy, DenseSolver):
+    if isinstance(strategy, DenseSolver | DenseLogdet):
         return True
     if isinstance(strategy, AutoSolver):
         return _has_exact_logdet(strategy._get_strategy(operator), operator)

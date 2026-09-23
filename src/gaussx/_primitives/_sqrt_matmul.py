@@ -242,13 +242,16 @@ def _quadrature_nodes(
     lam_min = jax.lax.stop_gradient(lam_min)
     lam_max = jax.lax.stop_gradient(lam_max)
 
+    # ``ratio`` is the complementary parameter ``1 - modulus``. It is passed
+    # alongside the modulus rather than recovered as ``1 - modulus``, which
+    # rounds to zero in float32 once the condition number passes ~1e7.
     ratio = jnp.clip(lam_min / lam_max, _MIN_SPECTRAL_RATIO, 1.0)
     modulus = 1.0 - ratio
-    quarter_period = _ellipk(modulus)
+    quarter_period = _ellipk(modulus, complement=ratio)
 
     index = jnp.arange(1, num_quadrature + 1, dtype=lam_min.dtype)
     nodes = (index - 0.5) * quarter_period / num_quadrature
-    sn, cn, dn = _ellipj(nodes, modulus)
+    sn, cn, dn = _ellipj(nodes, modulus, complement=ratio)
 
     shifts = lam_min * (sn / cn) ** 2
     scale = 2.0 * quarter_period * jnp.sqrt(lam_min) / (jnp.pi * num_quadrature)
@@ -277,7 +280,8 @@ def _shift_operator(
 ) -> lx.AbstractLinearOperator:
     """Build ``A + shift I``, keeping structure where it exists.
 
-    Diagonals and scaled identities stay diagonal, and a `gaussx.LowRankUpdate`
+    Diagonals (tagged or not) and scaled identities stay diagonal, and a
+    `gaussx.LowRankUpdate`
     shifts its base so the Woodbury solve still applies -- otherwise the sum
     would fall through to a dense factorisation per quadrature node.
 
@@ -288,6 +292,12 @@ def _shift_operator(
     """
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.DiagonalLinearOperator(lx.diagonal(operator) + shift)
+    if isinstance(operator, lx.TaggedLinearOperator) and isinstance(
+        operator.operator, lx.DiagonalLinearOperator
+    ):
+        # e.g. the PSD-tagged base of `gaussx.low_rank_plus_diag`; a diagonal
+        # needs no tags to take the structural solve path.
+        return _shift_operator(operator.operator, shift)
     scale = _identity_scale(operator)
     if scale is not None:
         ones = jnp.ones(operator.in_size(), dtype=jnp.result_type(scale, shift))
@@ -323,16 +333,23 @@ def _identity_scale(operator: lx.AbstractLinearOperator) -> Array | None:
     return None
 
 
-def _ellipk(modulus: Float[Array, ""]) -> Float[Array, ""]:
+def _ellipk(
+    modulus: Float[Array, ""],
+    *,
+    complement: Float[Array, ""] | None = None,
+) -> Float[Array, ""]:
     r"""Complete elliptic integral of the first kind $K(m)$.
 
     Uses the arithmetic-geometric mean, $K(m) = \pi / (2\,\mathrm{agm}(1,
     \sqrt{1-m}))$, so the whole evaluation is a fixed-length JAX-traceable
     loop. ``modulus`` is the *parameter* $m = k^2$, matching the
-    ``scipy.special.ellipk`` convention.
+    ``scipy.special.ellipk`` convention. Pass ``complement`` $= 1 - m$ when it
+    is known more accurately than ``1 - modulus`` can be rounded.
     """
+    if complement is None:
+        complement = 1.0 - modulus
     a = jnp.ones_like(modulus)
-    b = jnp.sqrt(1.0 - modulus)
+    b = jnp.sqrt(complement)
     for _ in range(_AGM_ITERATIONS):
         a, b = 0.5 * (a + b), jnp.sqrt(a * b)
     return 0.5 * jnp.pi / a
@@ -341,6 +358,8 @@ def _ellipk(modulus: Float[Array, ""]) -> Float[Array, ""]:
 def _ellipj(
     argument: Float[Array, " J"],
     modulus: Float[Array, ""],
+    *,
+    complement: Float[Array, ""] | None = None,
 ) -> tuple[Float[Array, " J"], Float[Array, " J"], Float[Array, " J"]]:
     r"""Jacobi elliptic functions $(\mathrm{sn}, \mathrm{cn}, \mathrm{dn})$.
 
@@ -348,10 +367,13 @@ def _ellipj(
     arithmetic-geometric mean forward to collapse the modulus to zero, where
     the functions reduce to $\sin$ and $\cos$, then descend the recorded
     sequence back to the requested modulus. ``modulus`` is the parameter
-    $m = k^2$, matching ``scipy.special.ellipj``.
+    $m = k^2$, matching ``scipy.special.ellipj``; ``complement`` is $1 - m$,
+    as for `_ellipk`.
     """
+    if complement is None:
+        complement = 1.0 - modulus
     a = jnp.ones_like(modulus)
-    b = jnp.sqrt(1.0 - modulus)
+    b = jnp.sqrt(complement)
     c = jnp.sqrt(modulus)
     means, complements = [a], [c]
     for _ in range(_AGM_ITERATIONS):
@@ -368,5 +390,6 @@ def _ellipj(
 
     sn = jnp.sin(phase)
     cn = jnp.cos(phase)
-    dn = jnp.sqrt(jnp.clip(1.0 - modulus * sn**2, 0.0, None))
+    # 1 - m sn^2 = cn^2 + (1 - m) sn^2, which avoids cancelling near m = 1.
+    dn = jnp.sqrt(cn**2 + complement * sn**2)
     return sn, cn, dn
