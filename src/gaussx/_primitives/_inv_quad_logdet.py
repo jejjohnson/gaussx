@@ -22,8 +22,11 @@ from gaussx._einx import rearrange
 from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
 from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._auto import AutoSolver
+from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
 from gaussx._strategies._bbmm import BBMMSolver
+from gaussx._strategies._composed import ComposedSolver
+from gaussx._strategies._dense import DenseSolver
 
 
 def inv_quad_logdet(
@@ -70,7 +73,9 @@ def inv_quad_logdet(
             vector of $r_c^{\top} A^{-1} r_c$.
         preconditioner: Optional operator $P \approx A$ with a cheap
             log-determinant, used for variance reduction as above. This is the
-            approximation to $A$ itself, not an approximate inverse.
+            approximation to $A$ itself, not an approximate inverse. Ignored
+            when the strategy's log-determinant is already exact (e.g.
+            `gaussx.DenseSolver`), since there is no variance to reduce.
 
     Returns:
         Tuple ``(inv_quad, logdet)``. ``inv_quad`` is a scalar when
@@ -256,10 +261,26 @@ def _separate_work(
         lambda column: strategy.solve(operator, column), in_axes=1, out_axes=1
     )(rhs)
     columns = jnp.sum(rhs * solutions, axis=0)
-    if preconditioner is None:
+    # An exact log-determinant has no variance to reduce, and whitening would
+    # only swap it for one that carries contour-quadrature error.
+    if preconditioner is None or _has_exact_logdet(strategy, operator):
         return columns, strategy.logdet(operator)
     whitened = _whitened_operator(operator, preconditioner)
     return columns, _logdet(preconditioner) + strategy.logdet(whitened)
+
+
+def _has_exact_logdet(
+    strategy: AbstractLogdetStrategy,
+    operator: lx.AbstractLinearOperator,
+) -> bool:
+    """Whether ``strategy`` computes ``log|A|`` deterministically and exactly."""
+    if isinstance(strategy, DenseSolver):
+        return True
+    if isinstance(strategy, AutoSolver):
+        return _has_exact_logdet(strategy._get_strategy(operator), operator)
+    if isinstance(strategy, ComposedSolver):
+        return _has_exact_logdet(strategy.logdet_strategy, operator)
+    return False
 
 
 def _probe_vectors(
@@ -412,29 +433,35 @@ def _lanczos_coefficients(
     The standard correspondence is $T_{jj} = 1/\alpha_j +
     \beta_{j-1}/\alpha_{j-1}$ and $T_{j,j+1} = \sqrt{\beta_j}/\alpha_j$.
 
-    Frozen steps get $\beta = 0$, which zeroes the off-diagonal and splits a
-    trailing block off the tridiagonal; $e_1^{\top} \log(T) e_1$ therefore
-    cannot see what that block contains. We still give it the *distinct*
-    diagonal entries $1, 2, 3, \dots$ rather than a repeated value, because
-    the VJP of `jax.numpy.linalg.eigh` divides by eigenvalue gaps and a
-    degenerate trailing block would fill `jax.grad` with NaNs even though the
-    forward value is unaffected.
+    Once a probe freezes, every coupling into the frozen steps is zeroed --
+    including $\beta_k$ of the last *active* step $k$, which was computed
+    before the freeze and would otherwise connect the valid Lanczos prefix to
+    step $k + 1$. That splits a trailing block off the tridiagonal, so
+    $e_1^{\top} \log(T) e_1$ cannot see what that block contains. We still
+    give it the *distinct* diagonal entries $1, 2, 3, \dots$ rather than a
+    repeated value, because the VJP of `jax.numpy.linalg.eigh` divides by
+    eigenvalue gaps and a degenerate trailing block would fill `jax.grad` with
+    NaNs even though the forward value is unaffected.
     """
     alphas = rearrange(alphas[:order], "k p -> p k")
     betas = rearrange(betas[:order], "k p -> p k")
+    # Only the prefix before the first freeze is a Lanczos run; a column that
+    # broke down can report active again once its direction resets, so make
+    # the freeze sticky.
     active = rearrange(active[:order], "k p -> p k")
+    active = jnp.cumprod(active.astype(jnp.int32), axis=1).astype(bool)
 
     steps = jnp.arange(1, alphas.shape[1] + 1, dtype=alphas.dtype)
     alphas = jnp.where(active, alphas, 1.0 / steps[None, :])
-    betas = jnp.where(active, betas, 0.0)
+    # ``beta_j`` couples step ``j`` to step ``j + 1``, so it survives only if
+    # both ends are live; with a sticky freeze, the later end decides.
+    links = jnp.where(active[:, 1:], betas[:, :-1], 0.0)
 
     diagonal = 1.0 / alphas
-    diagonal = diagonal.at[:, 1:].add(betas[:, :-1] / alphas[:, :-1])
+    diagonal = diagonal.at[:, 1:].add(links / alphas[:, :-1])
 
-    positive = betas[:, :-1] > 0.0
-    root_beta = jnp.where(
-        positive, jnp.sqrt(jnp.where(positive, betas[:, :-1], 1.0)), 0.0
-    )
+    positive = links > 0.0
+    root_beta = jnp.where(positive, jnp.sqrt(jnp.where(positive, links, 1.0)), 0.0)
     off_diagonal = root_beta / alphas[:, :-1]
     return diagonal, off_diagonal
 

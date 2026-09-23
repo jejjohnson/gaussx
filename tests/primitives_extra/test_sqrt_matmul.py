@@ -11,7 +11,8 @@ import pytest
 from scipy.special import ellipj as scipy_ellipj, ellipk as scipy_ellipk
 
 import gaussx
-from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk
+from gaussx._operators import LowRankUpdate
+from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk, _shift_operator
 from gaussx._testing import random_pd_operator
 
 
@@ -55,6 +56,17 @@ def test_spectral_bounds_are_exact_for_diagonal() -> None:
 
     assert jnp.allclose(lam_min, 0.5)
     assert jnp.allclose(lam_max, 4.0)
+
+
+@pytest.mark.parametrize("scale", [1.0, 3.0])
+def test_spectral_bounds_are_exact_for_a_scaled_identity(scale: float) -> None:
+    # Lanczos on cI exhausts its Krylov space after one step; the bounds must
+    # come back exact rather than from a padded partial run.
+    identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((8,), jnp.float64))
+    lam_min, lam_max = gaussx.estimate_spectral_bounds(scale * identity)
+
+    assert jnp.allclose(lam_min, scale)
+    assert jnp.allclose(lam_max, scale)
 
 
 def test_partial_lanczos_bounds_are_an_inner_bracket_before_widening() -> None:
@@ -176,6 +188,40 @@ def test_diagonal_operator_takes_the_structural_solve_path() -> None:
     result = gaussx.sqrt_inv_matmul(lx.DiagonalLinearOperator(diagonal), rhs)
 
     assert jnp.allclose(result[:, 0], diagonal**-0.5, atol=1e-10)
+
+
+@pytest.mark.parametrize("scale", [1.0, 3.0])
+def test_scaled_identity_roots_are_exact(scale: float) -> None:
+    identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((8,), jnp.float64))
+    rhs = jr.normal(jr.key(14), (8, 2))
+
+    inverse_root = gaussx.sqrt_inv_matmul(scale * identity, rhs)
+    root = gaussx.sqrt_matmul(scale * identity, rhs)
+
+    assert jnp.allclose(inverse_root, rhs / jnp.sqrt(scale), atol=1e-12)
+    assert jnp.allclose(root, rhs * jnp.sqrt(scale), atol=1e-12)
+
+
+def test_low_rank_update_keeps_its_structure_under_a_shift() -> None:
+    # A shifted diagonal-plus-low-rank operator must stay a LowRankUpdate so
+    # each quadrature node takes the Woodbury path instead of a dense solve.
+    n, rank = 30, 4
+    factor = jr.normal(jr.key(15), (n, rank))
+    operator = LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.linspace(0.5, 2.0, n)), factor
+    )
+
+    shifted = _shift_operator(operator, jnp.asarray(0.7))
+
+    assert isinstance(shifted, LowRankUpdate)
+    assert isinstance(shifted.base, lx.DiagonalLinearOperator)
+    assert jnp.allclose(
+        shifted.as_matrix(), operator.as_matrix() + 0.7 * jnp.eye(n), atol=1e-12
+    )
+
+    rhs = jr.normal(jr.key(16), (n, 2))
+    result = gaussx.sqrt_inv_matmul(operator, rhs)
+    assert jnp.allclose(result, _dense_power(operator, -0.5) @ rhs, atol=1e-6)
 
 
 @pytest.mark.parametrize(

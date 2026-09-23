@@ -15,6 +15,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._primitives._eig import eigvals
 from gaussx._primitives._solve import solve
 
@@ -47,7 +48,9 @@ def estimate_spectral_bounds(
 
     Routes through `gaussx.eigvals`, so structured operators (diagonal,
     Kronecker, block-diagonal, Kronecker-sum) return their exact spectra and
-    everything else runs a partial Lanczos decomposition.
+    everything else runs a partial Lanczos decomposition. A (scaled) identity
+    is answered directly: its Krylov space is exhausted after one step, so
+    Lanczos has nothing to offer it.
 
     Ritz values interlace the true spectrum, so a partial Lanczos run brackets
     it from the *inside* — and the smallest eigenvalue is the slowest one to
@@ -73,6 +76,11 @@ def estimate_spectral_bounds(
         raise ValueError("spectral bounds require a square operator")
     if safety < 1.0:
         raise ValueError("safety must be at least 1")
+    scale = _identity_scale(operator)
+    if scale is not None:
+        value = jnp.maximum(jnp.asarray(scale), jnp.finfo(jnp.result_type(scale)).tiny)
+        return value, value
+
     n = operator.in_size()
     order = min(max_lanczos_iter, n)
     values = jnp.real(eigvals(operator, rank=order, key=key))
@@ -267,19 +275,52 @@ def _shift_operator(
     operator: lx.AbstractLinearOperator,
     shift: Float[Array, ""],
 ) -> lx.AbstractLinearOperator:
-    """Build ``A + shift I``, keeping diagonal structure where it exists.
+    """Build ``A + shift I``, keeping structure where it exists.
+
+    Diagonals and scaled identities stay diagonal, and a `gaussx.LowRankUpdate`
+    shifts its base so the Woodbury solve still applies -- otherwise the sum
+    would fall through to a dense factorisation per quadrature node.
 
     ``lineax`` does not propagate the positive-semidefinite tag across
     `lineax.AddLinearOperator`, so the sum is re-tagged: every shift is
     non-negative and ``A`` is assumed positive definite, which is what lets
     the fallback solver pick a Cholesky factorisation.
     """
-    if isinstance(operator, lx.DiagonalLinearOperator | lx.IdentityLinearOperator):
+    if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.DiagonalLinearOperator(lx.diagonal(operator) + shift)
+    scale = _identity_scale(operator)
+    if scale is not None:
+        ones = jnp.ones(operator.in_size(), dtype=jnp.result_type(scale, shift))
+        return lx.DiagonalLinearOperator(ones * (scale + shift))
+    if isinstance(operator, LowRankUpdate):
+        return LowRankUpdate(
+            _shift_operator(operator.base, shift),
+            operator.U,
+            operator.d,
+            operator.V,
+            tags=operator.tags,
+            orthonormal=operator.orthonormal,
+        )
     identity = lx.IdentityLinearOperator(operator.in_structure())
     return lx.TaggedLinearOperator(
         operator + shift * identity, lx.positive_semidefinite_tag
     )
+
+
+def _identity_scale(operator: lx.AbstractLinearOperator) -> Array | None:
+    """Return ``c`` when ``operator`` is ``c I`` (possibly tagged), else ``None``."""
+    if isinstance(operator, lx.IdentityLinearOperator):
+        return jnp.ones((), dtype=operator.in_structure().dtype)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _identity_scale(operator.operator)
+    if isinstance(operator, lx.MulLinearOperator | lx.DivLinearOperator):
+        inner = _identity_scale(operator.operator)
+        if inner is None:
+            return None
+        if isinstance(operator, lx.MulLinearOperator):
+            return inner * operator.scalar
+        return inner / operator.scalar
+    return None
 
 
 def _ellipk(modulus: Float[Array, ""]) -> Float[Array, ""]:

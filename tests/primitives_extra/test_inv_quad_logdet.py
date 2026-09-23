@@ -10,6 +10,7 @@ import pytest
 
 import gaussx
 from gaussx._operators import LowRankUpdate
+from gaussx._primitives._inv_quad_logdet import _lanczos_coefficients
 from gaussx._testing import random_pd_operator
 
 
@@ -130,6 +131,33 @@ def test_logdet_tracks_the_dense_value() -> None:
     assert jnp.abs(logdet - expected) < 0.1 * jnp.abs(expected)
 
 
+def test_a_frozen_probe_is_disconnected_from_its_lanczos_prefix() -> None:
+    # Step 1 is the last active step, so its beta was computed before the
+    # freeze; it must not couple the valid 2x2 prefix to the frozen steps.
+    alphas = jnp.array([[0.5], [0.25], [0.9], [0.9]])
+    betas = jnp.array([[0.3], [0.2], [0.7], [0.7]])
+    active = jnp.array([[True], [True], [False], [False]])
+
+    diagonal, off_diagonal = _lanczos_coefficients(alphas, betas, active, order=4)
+
+    assert jnp.allclose(off_diagonal[0], jnp.array([jnp.sqrt(0.3) / 0.5, 0.0, 0.0]))
+    assert jnp.allclose(diagonal[0, :2], jnp.array([2.0, 4.0 + 0.3 / 0.5]))
+    # The trailing block keeps distinct entries so eigh's VJP stays finite.
+    assert diagonal[0, 2] != diagonal[0, 3]
+
+
+def test_a_probe_that_breaks_down_stays_frozen() -> None:
+    # A breakdown-frozen column can report active again once its direction
+    # resets; everything after the first freeze is not part of the run.
+    alphas = jnp.array([[0.5], [0.9], [0.4]])
+    betas = jnp.array([[0.3], [0.7], [0.1]])
+    active = jnp.array([[True], [False], [True]])
+
+    _, off_diagonal = _lanczos_coefficients(alphas, betas, active, order=3)
+
+    assert jnp.allclose(off_diagonal[0], 0.0)
+
+
 # ---------------------------------------------------------------------------
 # Preconditioned variance reduction
 # ---------------------------------------------------------------------------
@@ -216,6 +244,31 @@ def test_dense_strategy_is_exact() -> None:
 
     assert jnp.allclose(inv_quad, jnp.sum(_dense_inv_quad(operator, rhs)), rtol=1e-8)
     assert jnp.allclose(logdet, jnp.linalg.slogdet(operator.as_matrix())[1], rtol=1e-8)
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        gaussx.DenseSolver(),
+        gaussx.AutoSolver(),
+        gaussx.ComposedSolver(
+            solve_strategy=gaussx.CGSolver(), logdet_strategy=gaussx.DenseSolver()
+        ),
+    ],
+    ids=["dense", "auto", "composed"],
+)
+def test_exact_strategy_ignores_the_preconditioner(strategy) -> None:
+    # Whitening an exact log-determinant would only add contour-quadrature
+    # error, so the preconditioner must not change the result.
+    operator, preconditioner = _kernel_system(30, rank=10)
+    rhs = jr.normal(jr.key(17), (30, 1))
+
+    _, logdet = gaussx.inv_quad_logdet(
+        operator, rhs, strategy=strategy, preconditioner=preconditioner
+    )
+
+    expected = jnp.linalg.slogdet(operator.as_matrix())[1]
+    assert jnp.allclose(logdet, expected, rtol=1e-10)
 
 
 def test_cg_strategy_matches_dense_inv_quad() -> None:
