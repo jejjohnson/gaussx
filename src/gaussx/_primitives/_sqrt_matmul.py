@@ -48,9 +48,11 @@ def estimate_spectral_bounds(
 
     Routes through `gaussx.eigvals`, so structured operators (diagonal,
     Kronecker, block-diagonal, Kronecker-sum) return their exact spectra and
-    everything else runs a partial Lanczos decomposition. A (scaled) identity
-    is answered directly: its Krylov space is exhausted after one step, so
-    Lanczos has nothing to offer it.
+    everything else runs a partial Lanczos decomposition. Diagonals and
+    identities are read off directly even when tagged or scaled, since
+    `gaussx.eigvals` only recognises a bare diagonal -- and an identity's
+    Krylov space is exhausted after one step, so Lanczos has nothing to offer
+    it.
 
     Ritz values interlace the true spectrum, so a partial Lanczos run brackets
     it from the *inside* — and the smallest eigenvalue is the slowest one to
@@ -76,10 +78,11 @@ def estimate_spectral_bounds(
         raise ValueError("spectral bounds require a square operator")
     if safety < 1.0:
         raise ValueError("safety must be at least 1")
-    scale = _identity_scale(operator)
-    if scale is not None:
-        value = jnp.maximum(jnp.asarray(scale), jnp.finfo(jnp.result_type(scale)).tiny)
-        return value, value
+    diagonal = _diagonal_of(operator)
+    if diagonal is not None:
+        floor = jnp.finfo(diagonal.dtype).tiny
+        lam_min = jnp.maximum(jnp.min(diagonal), floor)
+        return lam_min, jnp.maximum(jnp.max(diagonal), lam_min)
 
     n = operator.in_size()
     order = min(max_lanczos_iter, n)
@@ -280,28 +283,20 @@ def _shift_operator(
 ) -> lx.AbstractLinearOperator:
     """Build ``A + shift I``, keeping structure where it exists.
 
-    Diagonals (tagged or not) and scaled identities stay diagonal, and a
-    `gaussx.LowRankUpdate`
-    shifts its base so the Woodbury solve still applies -- otherwise the sum
-    would fall through to a dense factorisation per quadrature node.
+    Diagonals and identities -- tagged, scaled or bare -- stay diagonal, and
+    a `gaussx.LowRankUpdate` shifts its base so the Woodbury solve still
+    applies. Otherwise the sum would fall through to a dense factorisation per
+    quadrature node.
 
     ``lineax`` does not propagate the positive-semidefinite tag across
     `lineax.AddLinearOperator`, so the sum is re-tagged: every shift is
     non-negative and ``A`` is assumed positive definite, which is what lets
     the fallback solver pick a Cholesky factorisation.
     """
-    if isinstance(operator, lx.DiagonalLinearOperator):
-        return lx.DiagonalLinearOperator(lx.diagonal(operator) + shift)
-    if isinstance(operator, lx.TaggedLinearOperator) and isinstance(
-        operator.operator, lx.DiagonalLinearOperator
-    ):
-        # e.g. the PSD-tagged base of `gaussx.low_rank_plus_diag`; a diagonal
-        # needs no tags to take the structural solve path.
-        return _shift_operator(operator.operator, shift)
-    scale = _identity_scale(operator)
-    if scale is not None:
-        ones = jnp.ones(operator.in_size(), dtype=jnp.result_type(scale, shift))
-        return lx.DiagonalLinearOperator(ones * (scale + shift))
+    diagonal = _diagonal_of(operator)
+    if diagonal is not None:
+        # A diagonal needs no tags to take the structural solve path.
+        return lx.DiagonalLinearOperator(diagonal + shift)
     if isinstance(operator, LowRankUpdate):
         return LowRankUpdate(
             _shift_operator(operator.base, shift),
@@ -317,14 +312,21 @@ def _shift_operator(
     )
 
 
-def _identity_scale(operator: lx.AbstractLinearOperator) -> Array | None:
-    """Return ``c`` when ``operator`` is ``c I`` (possibly tagged), else ``None``."""
+def _diagonal_of(operator: lx.AbstractLinearOperator) -> Array | None:
+    """The diagonal of a (tagged, scaled) diagonal or identity, else ``None``.
+
+    Covers e.g. the PSD-tagged base of `gaussx.low_rank_plus_diag` and
+    expressions such as ``2.0 * lineax.DiagonalLinearOperator(d)``.
+    """
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return lx.diagonal(operator)
     if isinstance(operator, lx.IdentityLinearOperator):
-        return jnp.ones((), dtype=operator.in_structure().dtype)
+        structure = operator.in_structure()
+        return jnp.ones(structure.shape, dtype=structure.dtype)
     if isinstance(operator, lx.TaggedLinearOperator):
-        return _identity_scale(operator.operator)
+        return _diagonal_of(operator.operator)
     if isinstance(operator, lx.MulLinearOperator | lx.DivLinearOperator):
-        inner = _identity_scale(operator.operator)
+        inner = _diagonal_of(operator.operator)
         if inner is None:
             return None
         if isinstance(operator, lx.MulLinearOperator):

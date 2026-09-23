@@ -90,6 +90,36 @@ def test_spectral_bounds_are_exact_for_a_scaled_identity(scale: float) -> None:
     assert jnp.allclose(lam_max, scale)
 
 
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        lambda op: lx.TaggedLinearOperator(op, lx.positive_semidefinite_tag),
+        lambda op: 2.0 * op,
+        lambda op: op / 2.0,
+    ],
+    ids=["tagged", "scaled", "divided"],
+)
+def test_wrapped_diagonals_take_the_structural_path(wrap) -> None:
+    # 40 entries spanning kappa = 1e8: a 20-step Lanczos run would only bracket
+    # this from the inside, and the safety factor would not cover the gap.
+    diagonal = jnp.geomspace(1e-8, 1.0, 40)
+    operator = wrap(lx.DiagonalLinearOperator(diagonal))
+    exact = jnp.diag(operator.as_matrix())
+
+    lam_min, lam_max = gaussx.estimate_spectral_bounds(operator)
+    assert jnp.allclose(lam_min, jnp.min(exact))
+    assert jnp.allclose(lam_max, jnp.max(exact))
+
+    assert isinstance(
+        _shift_operator(operator, jnp.asarray(0.5)), lx.DiagonalLinearOperator
+    )
+
+    rhs = jnp.ones((40, 1))
+    result = gaussx.sqrt_inv_matmul(operator, rhs, num_quadrature=30)
+    relative = jnp.abs(result[:, 0] - exact**-0.5) * exact**0.5
+    assert jnp.max(relative) < 1e-8
+
+
 def test_partial_lanczos_bounds_are_an_inner_bracket_before_widening() -> None:
     operator = random_pd_operator(jr.key(0), 30)
     eigenvalues = jnp.linalg.eigvalsh(operator.as_matrix())
