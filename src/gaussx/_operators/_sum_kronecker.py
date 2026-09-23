@@ -636,6 +636,64 @@ def _sum_of_kroneckers_eigen(
     return _SumOfKroneckersEigen(wa=wa, wb=wb, U=U, V=V, evals=evals)
 
 
+def _sum_of_kroneckers_solve(
+    operator: lx.AbstractLinearOperator,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"] | None:
+    r"""Solve ``K x = b`` by simultaneous diagonalization, if one applies.
+
+    The `gaussx.solve` entry point for the exact two-term reduction. Returns
+    ``None`` when `_sum_of_kroneckers_eigen` has no exact path, so the
+    caller keeps its fallback.
+
+    Differentiation goes through `_eigen_solve`'s implicit rule rather than
+    through ``eigh``; see there for why.
+
+    Args:
+        operator: Any lineax operator.
+        vector: Right-hand side ``b``.
+
+    Returns:
+        The solution ``x``, or ``None`` when no exact path applies.
+    """
+    if not _is_eigen_reducible(operator):
+        return None
+    return _eigen_solve(operator, vector)
+
+
+@eqx.filter_custom_jvp
+def _eigen_solve(
+    operator: lx.AbstractLinearOperator,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
+    factorization = _sum_of_kroneckers_eigen(operator)
+    assert factorization is not None
+    return factorization.solve(vector)
+
+
+@_eigen_solve.def_jvp
+def _eigen_solve_jvp(primals, tangents):
+    r"""Implicit JVP ``dx = K^{-1} (db - dK x)``.
+
+    Autodiff through the factor ``eigh`` calls is wrong in practice: the
+    eigenvector derivative carries ``1 / (λ_i - λ_j)``, which blows up on the
+    repeated or clustered eigenvalues that multi-output GP factors have as a
+    rule — a rank-deficient coregionalization ``B = W Wᵀ``, or a smooth
+    kernel's Gram with its tail of near-zero eigenvalues. The solution
+    itself is invariant to how a degenerate eigenbasis is chosen, so the
+    derivative written in terms of the operator alone is exact, and costs
+    one more structured solve plus the tangent operator's matvec.
+    """
+    operator, vector = primals
+    t_operator, t_vector = tangents
+    x = _eigen_solve(operator, vector)
+    rhs = jnp.zeros_like(vector) if t_vector is None else t_vector
+    if jax.tree_util.tree_leaves(t_operator):
+        _, dKx = eqx.filter_jvp(lambda op: op.mv(x), (operator,), (t_operator,))
+        rhs = rhs - dKx
+    return x, _eigen_solve(operator, rhs)
+
+
 def sumkronecker_sample(
     op: SumOfKroneckers,
     *,

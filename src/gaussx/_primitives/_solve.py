@@ -24,7 +24,7 @@ from gaussx._operators._kronecker_sum import (
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
-    _sum_of_kroneckers_eigen,
+    _sum_of_kroneckers_solve,
 )
 
 
@@ -81,9 +81,9 @@ def solve(
     if isinstance(operator, lx.AddLinearOperator):
         # ``SumOperator`` builds native lineax sums rather than a
         # `SumOfKroneckers`, so the same reduction has to be reachable here.
-        factorization = _sum_of_kroneckers_eigen(operator)
-        if factorization is not None:
-            return factorization.solve(vector)
+        x = _sum_of_kroneckers_solve(operator, vector)
+        if x is not None:
+            return x
     return _solve_fallback(operator, vector, solver)
 
 
@@ -184,10 +184,10 @@ def _solve_sum_of_kroneckers(
     closed form and keep the fallback; drive `SumOfKroneckers.mv` with
     ``solver=lineax.CG(...)`` to avoid materializing there.
     """
-    factorization = _sum_of_kroneckers_eigen(operator)
-    if factorization is None:
+    x = _sum_of_kroneckers_solve(operator, vector)
+    if x is None:
         return _solve_fallback(operator, vector, solver)
-    return factorization.solve(vector)
+    return x
 
 
 def _solve_kronecker_sum(
@@ -306,9 +306,9 @@ def _solve_tagged(
         # ``SumOperator(..., tags=...)`` wraps the sum; unwrapping
         # unconditionally would cost the fallback its PSD tag, so only take
         # the structured path when the exact reduction actually applies.
-        factorization = _sum_of_kroneckers_eigen(operator.operator)
-        if factorization is not None:
-            return factorization.solve(vector)
+        x = _sum_of_kroneckers_solve(operator.operator, vector)
+        if x is not None:
+            return x
     structured = (
         lx.IdentityLinearOperator,
         lx.DiagonalLinearOperator,

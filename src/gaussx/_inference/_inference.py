@@ -129,6 +129,8 @@ def cavity_distribution(
     site_nat1: Float[Array, " N"],
     site_nat2: lx.AbstractLinearOperator | Float[Array, " N"],
     power: float = 1.0,
+    *,
+    precision_floor: float | None = None,
 ) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator | Float[Array, " N"]]:
     r"""Compute EP cavity distribution by removing a site.
 
@@ -168,6 +170,13 @@ def cavity_distribution(
         site_nat2: Site natural parameter (precision) as an operator, or
             ``(N,)`` per-site precisions for the diagonal path.
         power: Power EP fraction (default 1.0 for standard EP).
+        precision_floor: Optional lower bound on the cavity precision,
+            applied only on the diagonal path. A site that has absorbed
+            more precision than the posterior holds leaves a negative
+            cavity precision, which EP loops guard against by clipping;
+            ``None`` (the default) returns the raw cavity. The operator
+            path ignores it, since flooring a matrix would require an
+            eigendecomposition — the same split as `newton_update`.
 
     Returns:
         Tuple ``(cav_mean, cav_cov)``. ``cav_cov`` is an operator for the
@@ -180,6 +189,8 @@ def cavity_distribution(
     """
     if isinstance(post_cov, jax.Array) and isinstance(site_nat2, jax.Array):
         cav_prec = 1.0 / post_cov - power * site_nat2
+        if precision_floor is not None:
+            cav_prec = jnp.maximum(cav_prec, precision_floor)
         cav_var = 1.0 / cav_prec
         cav_mean = cav_var * (post_mean / post_cov - power * site_nat1)
         return cav_mean, cav_var
