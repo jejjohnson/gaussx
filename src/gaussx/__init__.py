@@ -17,7 +17,10 @@ from gaussx._distributions._gaussian import (
 from gaussx._distributions._joseph import joseph_update as joseph_update
 from gaussx._distributions._kl import dist_kl_divergence as dist_kl_divergence
 from gaussx._distributions._project import project as project
-from gaussx._distributions._sample import sample_mvn as sample_mvn
+from gaussx._distributions._sample import (
+    sample_joint_conditional as sample_joint_conditional,
+    sample_mvn as sample_mvn,
+)
 from gaussx._expfam import (
     GaussianExpFam as GaussianExpFam,
     expectation_to_meanvar as expectation_to_meanvar,
