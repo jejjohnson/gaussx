@@ -109,6 +109,15 @@ def test_default_jitter_handles_duplicated_inducing_points() -> None:
     assert jnp.all(jnp.isfinite(pre.A))
 
 
+def test_default_jitter_is_positive_for_a_zero_kernel() -> None:
+    # A linear kernel at all-zero inducing points: max|diag| = 0, so a jitter
+    # scaled by it alone would leave the Cholesky of the zero matrix.
+    pre = gaussx.falkon_preconditioner(jnp.zeros((4, 4)), 1e-3)
+
+    assert jnp.all(jnp.isfinite(pre.T))
+    assert jnp.all(jnp.isfinite(pre.A))
+
+
 def test_accepts_an_operator() -> None:
     K_mm = random_pd_matrix(jr.key(5), 6)
     from_array = gaussx.falkon_preconditioner(K_mm, 0.1)
