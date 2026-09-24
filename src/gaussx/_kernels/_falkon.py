@@ -250,7 +250,9 @@ def falkon_predict(
 
     Evaluates $K(X_*, Z)\, \alpha$ through an `ImplicitCrossKernelOperator`,
     so the ``(Nt, M)`` test kernel is streamed in ``batch_size`` rows and
-    never held in memory at once.
+    never held in memory at once. The batch is capped at ``Nt``: the
+    operator pads the last batch to full size, so an uncapped default would
+    evaluate a ``1024 x M`` block to predict a single point.
 
     Args:
         kernel_fn: Kernel ``k(x, z) -> scalar``, or ``k(params, x, z)`` when
@@ -259,7 +261,7 @@ def falkon_predict(
         X_inducing: Inducing points $Z$, shape ``(M, D)``.
         alpha: Nyström weights, e.g. from `falkon_solve`, shape ``(M,)``.
         X_test: Test points, shape ``(Nt, D)``.
-        batch_size: Test rows evaluated per scan step.
+        batch_size: Test rows evaluated per scan step, at most ``Nt``.
         params: Optional kernel hyperparameters.
 
     Returns:
@@ -274,8 +276,12 @@ def falkon_predict(
             f"alpha must have shape ({X_inducing.shape[0]},), one weight per "
             f"inducing point, got {alpha.shape}."
         )
+    num_test = X_test.shape[0]
+    if num_test == 0:
+        dtype = jnp.result_type(X_test, X_inducing, alpha)
+        return jnp.zeros((0,), dtype=dtype)
     cross = ImplicitCrossKernelOperator(
-        kernel_fn, X_test, X_inducing, batch_size, params=params
+        kernel_fn, X_test, X_inducing, min(batch_size, num_test), params=params
     )
     return cross.mv(alpha)
 

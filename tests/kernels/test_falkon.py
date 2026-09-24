@@ -353,6 +353,9 @@ def test_predict_with_kernel_parameters() -> None:
     assert jnp.allclose(predictions, expected, rtol=1e-10)
 
 
+# End to end: 2000 x 100, 30 matrix-free CG iterations (~2.5 s).
+@pytest.mark.slow
+@pytest.mark.integration
 def test_end_to_end_regression_recovers_the_signal() -> None:
     # Fit sin(3x) from 2000 noisy points with 100 inducing points, entirely
     # matrix-free, and check held-out accuracy against the noiseless signal.
@@ -380,6 +383,39 @@ def test_predict_is_jittable() -> None:
     jitted = jax.jit(lambda a: gaussx.falkon_predict(_rbf, Z, a, X_test))(alpha)
 
     assert jnp.allclose(eager, jitted)
+
+
+def test_predict_caps_the_batch_at_the_test_set_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The cross-kernel operator pads its last batch to batch_size, so an
+    # uncapped default would evaluate a 1024 x M block for one test point.
+    import gaussx._kernels._falkon as falkon_module
+
+    batch_sizes = []
+    original = falkon_module.ImplicitCrossKernelOperator
+
+    def spy(kernel_fn, X_data, X_inducing, batch_size, **kwargs):
+        batch_sizes.append(batch_size)
+        return original(kernel_fn, X_data, X_inducing, batch_size, **kwargs)
+
+    monkeypatch.setattr(falkon_module, "ImplicitCrossKernelOperator", spy)
+    Z = jr.normal(jr.key(19), (6, 2))
+    alpha = jr.normal(jr.key(20), (6,))
+    x_star = jnp.array([[0.3, -0.1]])
+
+    prediction = gaussx.falkon_predict(_rbf, Z, alpha, x_star)
+
+    assert batch_sizes == [1]
+    assert jnp.allclose(prediction, _gram(x_star, Z) @ alpha)
+
+
+def test_predict_on_an_empty_test_set() -> None:
+    Z = jr.normal(jr.key(21), (6, 2))
+
+    prediction = gaussx.falkon_predict(_rbf, Z, jnp.ones(6), jnp.zeros((0, 2)))
+
+    assert prediction.shape == (0,)
 
 
 def test_predict_rejects_mismatched_weights() -> None:
