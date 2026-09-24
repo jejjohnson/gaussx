@@ -568,8 +568,22 @@ def sample_joint_conditional(
         solve_observed = lambda vector: dispatch_solve(covariance_oo, vector, solver)
 
     def gain(deviations: Float[Array, "S K"]) -> Float[Array, "S T"]:
-        """Apply ``K_to K_oo⁻¹`` to each row."""
-        return jax.vmap(cross.mv)(jax.vmap(solve_observed)(deviations))
+        """Apply ``K_to K_oo⁺`` to each row.
+
+        The structured solve is used whenever it succeeds. A singular -- only
+        semi-definite -- ``K_oo`` makes it return non-finite values, and then
+        the batch is redone with the pseudo-inverse: for a valid joint
+        covariance both the deviations and the rows of ``K_to`` lie in the
+        range of ``K_oo``, where the pseudo-inverse is exact. ``lax.cond``
+        evaluates only the branch it takes.
+        """
+        solved = jax.vmap(solve_observed)(deviations)
+        solved = jax.lax.cond(
+            jnp.all(jnp.isfinite(solved)),
+            lambda: solved,
+            lambda: _pseudo_inverse_solve(covariance_oo, deviations),
+        )
+        return jax.vmap(cross.mv)(solved)
 
     observed_key, schur_key = jr.split(key)
     deviations_o = sample_mvn(
@@ -585,9 +599,20 @@ def sample_joint_conditional(
     joint = (samples_t, samples_o) if observed_index == 1 else (samples_o, samples_t)
     result: dict[str, Any] = {"joint": joint}
     if observed_value is not None:
-        shift = gain((observed_value - mean_o)[None, :])
-        result["conditional"] = mean_t + shift + residual
+        # Matheron's update of the returned joint draws, literally: with a
+        # finite-tolerance solver the gain is not additive across right-hand
+        # sides, so shifting from the mean instead would drift from it.
+        result["conditional"] = samples_t + gain(observed_value - samples_o)
     return result
+
+
+def _pseudo_inverse_solve(
+    covariance: lx.AbstractLinearOperator,
+    rows: Float[Array, "S K"],
+) -> Float[Array, "S K"]:
+    """``K⁺ r`` for each row, through the Hermitian pseudo-inverse of ``K``."""
+    inverse = jnp.linalg.pinv(covariance.as_matrix(), hermitian=True)
+    return einsum(rows, inverse, "s k, j k -> s j")
 
 
 def _covariance_blocks(

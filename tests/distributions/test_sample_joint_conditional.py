@@ -95,6 +95,67 @@ def test_conditional_draws_are_matheron_updates_of_the_joint_draws() -> None:
     assert jnp.allclose(draws["conditional"], updated, atol=1e-10)
 
 
+def test_conditional_draws_are_matheron_updates_with_an_iterative_solver() -> None:
+    # A truncated CG solve is not additive across right-hand sides, so the
+    # conditional draws must come from the joint draws themselves. A 40-dim
+    # observed block and a loose tolerance keep the solve far from exact.
+    size_t, size_o = 3, 40
+    joint = random_pd_operator(jr.key(14), size_t + size_o).as_matrix()
+    blocks = {
+        "aa": lx.MatrixLinearOperator(joint[:size_t, :size_t]),
+        "ab": lx.MatrixLinearOperator(joint[:size_t, size_t:]),
+        "bb": lx.MatrixLinearOperator(
+            joint[size_t:, size_t:], lx.positive_semidefinite_tag
+        ),
+    }
+    value = jnp.linspace(-1.0, 1.0, size_o)
+    solver = gaussx.CGSolver(rtol=1e-2, atol=1e-2)
+
+    draws = gaussx.sample_joint_conditional(
+        (jnp.zeros(size_t), jnp.zeros(size_o)),
+        blocks,
+        key=jr.key(15),
+        observed_value=value,
+        num_samples=8,
+        solver=solver,
+    )
+    samples_a, samples_b = draws["joint"]
+
+    updated = gaussx.matheron_update(
+        samples_a, samples_b, value, blocks["ab"], blocks["bb"], solver=solver
+    )
+    assert jnp.allclose(draws["conditional"], updated, atol=1e-12)
+
+
+def test_a_singular_observed_block_does_not_poison_the_draws() -> None:
+    # K_oo = diag(0, 1, 2) is only semi-definite; a structured diagonal solve
+    # divides 0 / 0. The target block is correlated with the non-degenerate
+    # observations only, so the joint covariance is valid.
+    k_oo = jnp.diag(jnp.array([0.0, 1.0, 2.0]))
+    cross = jnp.array([[0.0, 0.3, 0.1], [0.0, -0.2, 0.4]])
+    k_tt = jnp.array([[2.0, 0.3], [0.3, 1.5]])
+    joint = jnp.block([[k_tt, cross], [cross.T, k_oo]])
+    blocks = {
+        "aa": lx.MatrixLinearOperator(k_tt),
+        "ab": lx.MatrixLinearOperator(cross),
+        "bb": lx.DiagonalLinearOperator(jnp.diag(k_oo)),
+    }
+
+    draws = gaussx.sample_joint_conditional(
+        (jnp.zeros(2), jnp.zeros(3)),
+        blocks,
+        key=jr.key(15),
+        observed_value=jnp.array([0.0, 0.5, -0.5]),
+        num_samples=_NUM_SAMPLES,
+    )
+
+    samples_a, samples_b = draws["joint"]
+    stacked = jnp.concatenate([samples_a, samples_b], axis=1)
+    assert jnp.all(jnp.isfinite(stacked))
+    assert jnp.all(jnp.isfinite(draws["conditional"]))
+    assert_sample_moments(stacked, jnp.zeros(5), joint)
+
+
 def test_structured_observed_block_is_not_densified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
