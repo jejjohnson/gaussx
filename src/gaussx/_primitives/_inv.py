@@ -9,6 +9,7 @@ import jax.scipy.linalg
 import lineax as lx
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
+from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import LowRankUpdate, _arrays_match
 
@@ -41,6 +42,8 @@ def inv(
         return operator
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _inv_diagonal(operator)
+    if isinstance(operator, DiagonalisedOperator):
+        return _inv_diagonalised(operator)
     if isinstance(operator, BlockDiag):
         return _inv_block_diag(operator)
     if isinstance(operator, Kronecker):
@@ -73,6 +76,15 @@ def _inv_diagonal(
 ) -> lx.DiagonalLinearOperator:
     diag = lx.diagonal(operator)
     return lx.DiagonalLinearOperator(1.0 / diag)
+
+
+def _inv_diagonalised(operator: DiagonalisedOperator) -> DiagonalisedOperator:
+    """Same basis with ``1/λ`` (zero eigenvalues map to zero: pseudo-inverse)."""
+    lam = operator.eigenvalues
+    zero = lam == 0
+    return operator.with_eigenvalues(
+        jnp.where(zero, 0.0, 1.0 / jnp.where(zero, 1.0, lam))
+    )
 
 
 def _inv_block_diag(operator: BlockDiag) -> BlockDiag:

@@ -11,6 +11,7 @@ import matfree.funm
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
+from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sum_kronecker import SumOfKroneckers
@@ -51,6 +52,9 @@ def sqrt(
         return _sqrt_diagonal(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return sqrt(operator.operator, lanczos_order=lanczos_order)
+    if isinstance(operator, DiagonalisedOperator):
+        # S = V⁻¹ √Λ V satisfies S @ S = A for any diagonalisable A.
+        return operator.with_eigenvalues(jnp.sqrt(operator.eigenvalues))
     if isinstance(operator, BlockDiag):
         return _sqrt_block_diag(operator)
     if isinstance(operator, Kronecker):

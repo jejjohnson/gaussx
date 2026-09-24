@@ -15,6 +15,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalised
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -49,6 +50,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return jnp.array(0.0)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _logdet_diagonal(operator)
+    if isinstance(operator, DiagonalisedOperator):
+        return _logdet_diagonalised(operator)
     if isinstance(operator, BlockDiag):
         return _logdet_block_diag(operator)
     if isinstance(operator, Kronecker):
@@ -148,10 +151,18 @@ def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     the same routine the KroneckerSum solve and eigendecomposition
     paths use, so the symmetry assumption is identical everywhere.
     """
+    diagonalised = as_diagonalised(operator)
+    if diagonalised is not None:
+        return _logdet_diagonalised(diagonalised)
     evals_a, _ = _eigh_factor(operator.A)
     evals_b, _ = _eigh_factor(operator.B)
     eig_mat = evals_a[None, :] + evals_b[:, None]
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
+
+
+def _logdet_diagonalised(operator: DiagonalisedOperator) -> Float[Array, ""]:
+    """``log|det A| = Σ log|λ|`` (``slogdet`` convention; ``−inf`` if singular)."""
+    return jnp.sum(jnp.log(jnp.abs(operator.eigenvalues)))
 
 
 def _logdet_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:

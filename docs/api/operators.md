@@ -66,6 +66,39 @@ operators get $O(n \log n)$ matvecs and sampling via FFT circulant embedding.
       show_root_toc_entry: false
       members: [BlockTriDiag, LowerBlockTriDiag, UpperBlockTriDiag, Toeplitz, ToeplitzCholesky]
 
+## Fast-diagonalisable operators
+
+`DiagonalisedOperator` is an operator diagonal in a fast transform basis,
+$A = V^{-1}\Lambda V$, given by a forward/inverse transform pair (FFT,
+orthonormal DCT/DST, spherical harmonics, or a dense eigenvector matrix) and
+the eigenvalue array $\Lambda$. `solve`, `logdet`, `inv`, `sqrt` and `trace`
+are elementwise in $\Lambda$, and shifts/scalings such as $A - \lambda I$
+stay diagonalised, so a spectral Helmholtz solve is never materialised.
+`Circulant` / `circulant_from_symbol` are the FFT special case (periodic
+stencils, stationary covariances on periodic grids), and a `KroneckerSum` whose
+factors are all diagonalised solves through the composed per-axis transforms.
+Use `DiagonalisedOperator.from_eigen_factorization` for dense non-symmetric
+diagonalisable factors such as Chebyshev collocation blocks.
+
+```python
+import jax.numpy as jnp
+import lineax as lx
+import gaussx
+
+n = 128
+k = 2 * jnp.pi * jnp.fft.fftfreq(n)
+symbol = (2 * jnp.cos(k) - 2)[:, None] + (2 * jnp.cos(k) - 2)[None, :]
+laplacian = gaussx.circulant_from_symbol(symbol)          # periodic 5-point ∇²
+helmholtz = laplacian - 1.0 * lx.IdentityLinearOperator(laplacian.in_structure())
+psi = gaussx.solve(helmholtz, f)                          # two FFTs, no matrix
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [DiagonalisedOperator, Circulant, circulant_from_symbol, as_diagonalised]
+
 ## Kernel operators
 
 Kernel matrices as operators, plus grid-interpolated (KISS-GP style) and masked

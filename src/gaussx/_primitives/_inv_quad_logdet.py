@@ -10,6 +10,8 @@ needs for the log-determinant.
 
 from __future__ import annotations
 
+import functools as ft
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -18,6 +20,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
+from gaussx._operators._diagonalised import as_diagonalised
 from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
 from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
@@ -91,6 +94,13 @@ def inv_quad_logdet(
         raise ValueError(
             f"rhs has {rhs.shape[0]} rows but operator has size {operator.in_size()}"
         )
+    if strategy is None and as_diagonalised(operator) is not None:
+        # Exact and cheap: one transform-pair solve per column plus Σ log|λ|.
+        columns = jnp.sum(
+            rhs * jax.vmap(ft.partial(_solve, operator), 1, 1)(rhs), axis=0
+        )
+        inv_quad = jnp.sum(columns) if reduce_inv_quad else columns
+        return inv_quad, _logdet(operator)
     if strategy is None:
         strategy = BBMMSolver()
 
