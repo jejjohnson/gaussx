@@ -97,6 +97,7 @@ from gaussx._inference import (
 )
 from gaussx._kernels import (
     EigenProPreconditioner as EigenProPreconditioner,
+    FalkonPreconditioner as FalkonPreconditioner,
     center_kernel as center_kernel,
     centering_operator as centering_operator,
     create_grid as create_grid,
@@ -104,6 +105,7 @@ from gaussx._kernels import (
     eigenpro_correction as eigenpro_correction,
     eigenpro_preconditioner as eigenpro_preconditioner,
     eigenpro_step_size as eigenpro_step_size,
+    falkon_preconditioner as falkon_preconditioner,
     grid_data as grid_data,
     hsic as hsic,
     mmd_squared as mmd_squared,
