@@ -167,20 +167,6 @@ def test_negative_low_rank_weights_fall_back_to_dense() -> None:
     assert_sample_moments(samples, mean, covariance.as_matrix())
 
 
-def test_traced_negative_low_rank_weights_raise() -> None:
-    u = jnp.array([[0.5], [0.3], [0.2]])
-    base = lx.DiagonalLinearOperator(jnp.array([2.0, 2.0, 2.0]))
-
-    @jax.jit
-    def draw(weights):
-        covariance = gaussx.LowRankUpdate(base, u, weights)
-        return gaussx.sample_mvn(jnp.zeros(3), covariance, key=jr.key(19))
-
-    assert jnp.all(jnp.isfinite(draw(jnp.array([1.0]))))
-    with pytest.raises(Exception, match="non-negative"):
-        draw(jnp.array([-1.0]))
-
-
 @pytest.mark.parametrize(
     ("name", "covariance"),
     [
@@ -295,17 +281,6 @@ def test_more_awkward_covariances_are_sampled_exactly(
     assert_sample_moments(samples, mean, covariance.as_matrix())
 
 
-def test_traced_non_positive_scalar_raises() -> None:
-    @jax.jit
-    def draw(scale):
-        covariance = scale * lx.DiagonalLinearOperator(jnp.ones(2))
-        return gaussx.sample_mvn(jnp.zeros(2), covariance, key=jr.key(35))
-
-    assert jnp.all(jnp.isfinite(draw(2.0)))
-    with pytest.raises(Exception, match="c > 0"):
-        draw(-2.0)
-
-
 @pytest.mark.parametrize("structure", ["kronecker", "kronecker_sum"])
 def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -> None:
     # t I has one eigenvalue repeated three times; differentiating through
@@ -379,19 +354,6 @@ def test_kronecker_sum_with_traced_factors() -> None:
     assert_sample_moments(samples, jnp.zeros(6), expected)
 
 
-def test_traced_negative_diagonal_base_raises() -> None:
-    u = jnp.array([[0.5], [0.3]])
-
-    @jax.jit
-    def draw(diagonal):
-        covariance = gaussx.LowRankUpdate(lx.DiagonalLinearOperator(diagonal), u)
-        return gaussx.sample_mvn(jnp.zeros(2), covariance, key=jr.key(32))
-
-    assert jnp.all(jnp.isfinite(draw(jnp.array([1.0, 2.0]))))
-    with pytest.raises(Exception, match="diagonal base"):
-        draw(jnp.array([-1.0, 2.0]))
-
-
 def test_a_wider_mean_dtype_is_kept() -> None:
     covariance = lx.DiagonalLinearOperator(jnp.ones(2, dtype=jnp.float32))
     mean = jnp.array([1e8 + 0.25, -3.0], dtype=jnp.float64)
@@ -402,6 +364,118 @@ def test_a_wider_mean_dtype_is_kept() -> None:
     # float32 would round 1e8 + 0.25 to 1e8; unit-variance noise cannot hide it.
     assert jnp.all(jnp.abs(samples[:, 0] - mean[0]) < 10.0)
     assert samples[0, 0] != jnp.float32(samples[0, 0])
+
+
+@pytest.mark.parametrize(
+    ("name", "build", "argument"),
+    [
+        # 2I - uu^T: a valid downdate, but it has no U√D factor.
+        (
+            "negative_weight",
+            lambda w: gaussx.LowRankUpdate(
+                lx.DiagonalLinearOperator(jnp.full((3,), 2.0)),
+                jnp.array([[0.5], [0.3], [0.2]]),
+                w,
+            ),
+            jnp.array([-1.0]),
+        ),
+        # diag(-1, 2) + [2, 0][2, 0]^T = diag(3, 2); the base alone is not PSD.
+        (
+            "indefinite_diagonal_base",
+            lambda d: gaussx.LowRankUpdate(
+                lx.DiagonalLinearOperator(d),
+                jnp.array([[2.0], [0.0]]),
+                jnp.array([1.0]),
+            ),
+            jnp.array([-1.0, 2.0]),
+        ),
+        # (-2)(-I) = 2I: valid, but not through sqrt(c).
+        (
+            "negative_scalar",
+            lambda c: c * lx.DiagonalLinearOperator(-jnp.ones(3)),
+            jnp.asarray(-2.0),
+        ),
+    ],
+)
+def test_traced_values_that_rule_out_a_structured_route_fall_back_exactly(
+    name: str, build, argument
+) -> None:
+    # The structured route's precondition is only known at run time here, so
+    # the dense square root must take over rather than raise or return NaN.
+    del name
+
+    @jax.jit
+    def draw(argument):
+        covariance = build(argument)
+        return gaussx.sample_mvn(
+            jnp.zeros(covariance.in_size()),
+            covariance,
+            key=jr.key(45),
+            num_samples=_NUM_SAMPLES,
+        )
+
+    samples = draw(argument)
+    expected = build(argument).as_matrix()
+    assert jnp.all(jnp.isfinite(samples))
+    assert_sample_moments(samples, jnp.zeros(expected.shape[0]), expected)
+
+
+def test_an_empty_batch_keeps_the_represented_dtype() -> None:
+    # float32 base, float64 U: the matrix is float64, but in_structure says
+    # float32. Empty and non-empty draws must agree on the dtype.
+    covariance = gaussx.LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.ones(3, dtype=jnp.float32)),
+        jnp.array([[0.5], [0.3], [0.2]], dtype=jnp.float64),
+    )
+    mean = jnp.zeros(3, dtype=jnp.float32)
+
+    empty = gaussx.sample_mvn(mean[None][:0], covariance, key=jr.key(46))
+    full = gaussx.sample_mvn(mean, covariance, key=jr.key(46))
+
+    assert empty.dtype == full.dtype == jnp.float64
+
+
+@pytest.mark.parametrize(
+    ("name", "loss"),
+    [
+        # [1, 0.5] is PD, but its 2x circulant embedding has spectrum [2, 1, 0].
+        (
+            "toeplitz_with_a_singular_embedding",
+            lambda t: gaussx.Toeplitz(jnp.array([1.0, t])),
+        ),
+        # A zero low-rank weight: B + 0·uuᵀ is still PD, but √0 is not smooth.
+        (
+            "low_rank_with_a_zero_weight",
+            lambda t: low_rank_plus_diag(
+                jnp.array([1.0, 2.0, 1.5]),
+                jnp.array([[0.5, 0.1], [0.3, -0.2], [0.2, 0.4]]),
+                jnp.stack([t - 0.5, jnp.asarray(1.0)]),
+            ),
+        ),
+    ],
+)
+def test_pathwise_gradients_are_finite_at_boundary_values(name: str, loss) -> None:
+    # At the boundary the structured route is ruled out and the dense root
+    # takes over, so the gradient must equal the dense route's gradient for
+    # the same key. (A finite difference would straddle the two routes, which
+    # map the noise differently.)
+    del name
+
+    def objective(t, dense):
+        covariance = loss(t)
+        if dense:
+            covariance = lx.MatrixLinearOperator(covariance.as_matrix())
+        samples = gaussx.sample_mvn(
+            jnp.zeros(covariance.in_size()), covariance, key=jr.key(47), num_samples=8
+        )
+        return jnp.sum(samples**2)
+
+    t = 0.5
+    gradient = jax.grad(objective)(t, False)
+    reference = jax.grad(objective)(t, True)
+
+    assert jnp.isfinite(gradient)
+    assert jnp.allclose(gradient, reference, rtol=1e-8)
 
 
 def test_jit_matches_eager() -> None:

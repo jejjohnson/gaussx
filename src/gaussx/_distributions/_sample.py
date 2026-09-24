@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import math
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -24,7 +23,6 @@ from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
     _arrays_match,
-    _is_nonnegative,
     _safe_query,
 )
 from gaussx._operators._toeplitz import Toeplitz, _circulant_embedding, toeplitz_sample
@@ -71,18 +69,23 @@ def sample_mvn(
     square root, `gaussx.sumkronecker_sample`, is a truncated Lanczos
     approximation, so it stays an explicit opt-in rather than a default.
 
-    A `gaussx.Toeplitz` uses the smallest circulant embedding (2, 4, 8 or 16
-    times ``N``) that passes the Wood--Chan condition, and the dense fallback
-    when none does. With a traced column the choice cannot be made up front,
-    so it uses a 2x embedding, which raises if the condition fails.
+    Some structured routes hold only for some values, and each takes the
+    dense square root otherwise -- so every covariance the operator can
+    represent is sampled exactly, and pathwise gradients stay finite:
 
-    A `gaussx.LowRankUpdate` $B + UDV^{\top}$ takes the low-rank branch only
-    when $V = U$ is established (the same array, or equal values), the base
-    $B$ is a covariance in its own right -- tagged positive semi-definite, or
-    diagonal -- and $D \ge 0$. Anything known to fail those, such as a
-    Woodbury downdate, falls back to the dense square root. Weights or a
-    diagonal base that are only known at run time (under `jax.jit`) take the
-    low-rank branch and raise if any entry is negative.
+    - a scalar multiple $cK$ needs $c > 0$;
+    - a `gaussx.Toeplitz` needs a circulant embedding (2, 4, 8 or 16 times
+      ``N``) whose spectrum is strictly positive -- a zero eigenvalue there
+      would put ``sqrt(0)`` in the pathwise derivative;
+    - a `gaussx.LowRankUpdate` $B + UDV^{\top}$ needs $V = U$ established
+      (the same array, or equal values), a base $B$ that is a covariance in
+      its own right (tagged positive semi-definite, or a strictly positive
+      diagonal), and $D > 0$ -- a zero weight would again put ``sqrt(0)``
+      in the derivative.
+
+    When those values are only known at run time (under `jax.jit`), the
+    choice is a `jax.lax.cond`, which runs only the branch it takes; under
+    `jax.vmap` it evaluates both.
 
     Args:
         mean: Mean $\mu$ with shape ``(*batch, N)``. Each batch element gets
@@ -116,7 +119,10 @@ def sample_mvn(
     num_draws = num_samples * math.prod(batch_shape)
     if num_draws == 0:
         # An empty batch: nothing to draw, but the output keeps its shape.
-        dtype = jnp.result_type(mean, covariance.in_structure().dtype)
+        # The represented dtype, which `in_structure` can understate (a
+        # LowRankUpdate reports its base's). Abstract, so nothing is formed.
+        matrix_dtype = jax.eval_shape(covariance.as_matrix).dtype
+        dtype = jnp.result_type(mean, matrix_dtype)
         return jnp.zeros((num_samples, *mean.shape), dtype=dtype)
     draws = _zero_mean_draws(covariance, key, num_draws)
 
@@ -135,20 +141,17 @@ def _zero_mean_draws(
     """``num_draws`` exact samples from ``N(0, covariance)``, stacked row-wise."""
     if isinstance(covariance, lx.TaggedLinearOperator):
         return _zero_mean_draws(covariance.operator, key, num_draws)
-    if isinstance(
-        covariance, lx.MulLinearOperator | lx.DivLinearOperator
-    ) and not _known_nonpositive(covariance.scalar):
+    if isinstance(covariance, lx.MulLinearOperator | lx.DivLinearOperator):
+        scalar = covariance.scalar
+
+        def scaled() -> Float[Array, "S N"]:
+            inner = _zero_mean_draws(covariance.operator, key, num_draws)
+            if isinstance(covariance, lx.MulLinearOperator):
+                return jnp.sqrt(scalar) * inner
+            return inner / jnp.sqrt(scalar)
+
         # cK is only sampleable through K when c > 0; (-1)(-I) = I is not.
-        scalar = eqx.error_if(
-            covariance.scalar,
-            covariance.scalar <= 0,
-            "sample_mvn: a scaled covariance cK needs c > 0 to be sampled "
-            "through K; build the covariance as a dense operator instead.",
-        )
-        inner = _zero_mean_draws(covariance.operator, key, num_draws)
-        if isinstance(covariance, lx.MulLinearOperator):
-            return jnp.sqrt(scalar) * inner
-        return inner / jnp.sqrt(scalar)
+        return _structured_or_dense(scalar > 0, scaled, covariance, key, num_draws)
     if isinstance(covariance, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
         return _factor_draws(cholesky(covariance), covariance, key, num_draws)
     if isinstance(covariance, BlockDiag) and _all_square(covariance.operators):
@@ -167,18 +170,40 @@ def _zero_mean_draws(
     if isinstance(covariance, BlockTriDiag):
         return _block_tridiag_draws(covariance, key, num_draws)
     if isinstance(covariance, Toeplitz):
-        factor = _toeplitz_embedding_factor(covariance.column)
-        if factor is not None:
-            return toeplitz_sample(
-                covariance.column,
-                key=key,
-                num_samples=num_draws,
-                embedding_factor=factor,
-            )
-    if isinstance(covariance, LowRankUpdate) and _has_sampleable_update(covariance):
-        return _low_rank_draws(covariance, key, num_draws)
+        return _toeplitz_draws(covariance, key, num_draws)
+    if isinstance(covariance, LowRankUpdate) and _arrays_match(
+        covariance.U, covariance.V
+    ):
+        return _structured_or_dense(
+            _low_rank_is_sampleable(covariance),
+            lambda: _low_rank_draws(covariance, key, num_draws),
+            covariance,
+            key,
+            num_draws,
+        )
 
     return _dense_draws(covariance, key, num_draws)
+
+
+def _structured_or_dense(
+    valid,
+    structured,
+    covariance: lx.AbstractLinearOperator,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """``structured()`` when ``valid`` holds, else the dense square root.
+
+    ``valid`` may be a Python bool or a JAX boolean. Concrete, only one route
+    is traced; traced, the choice is a ``lax.cond``.
+    """
+    try:
+        known = bool(valid)
+    except jax.errors.TracerBoolConversionError:
+        return jax.lax.cond(
+            valid, structured, lambda: _dense_draws(covariance, key, num_draws)
+        )
+    return structured() if known else _dense_draws(covariance, key, num_draws)
 
 
 def _dense_draws(
@@ -357,58 +382,56 @@ def _block_tridiag_draws(
 _EMBEDDING_FACTORS = (2, 4, 8, 16)
 
 
-def _toeplitz_embedding_factor(column: Float[Array, " n"]) -> int | None:
-    """Smallest embedding passing Wood--Chan, ``2`` if traced, else ``None``."""
-    column = jnp.asarray(column)
-    dtype = jnp.result_type(column.dtype, jnp.float32)
-    column = column.astype(dtype)
+def _toeplitz_draws(
+    covariance: Toeplitz,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """Circulant-embedding draws, or the dense root when no embedding works.
+
+    An embedding works when its spectrum is strictly positive: a negative
+    eigenvalue fails Wood--Chan, and a zero one leaves the draw correct but
+    its pathwise derivative infinite. A concrete column takes the smallest
+    embedding that works; a traced one checks the 2x embedding at run time.
+    """
+    column = jnp.asarray(covariance.column)
+    column = column.astype(jnp.result_type(column.dtype, jnp.float32))
     for factor in _EMBEDDING_FACTORS:
         spectrum = jnp.fft.rfft(
             _circulant_embedding(column, embedding_factor=factor)
         ).real
-        # Same round-off allowance as `toeplitz_sample`'s own check.
+        # Round-off headroom as in `toeplitz_sample`, but on the positive side.
         scale = jnp.maximum(1.0, jnp.max(jnp.abs(spectrum)))
-        tolerance = 100 * jnp.finfo(dtype).eps * scale
+        positive = jnp.all(spectrum > 100 * jnp.finfo(column.dtype).eps * scale)
+
+        def circulant(factor: int = factor) -> Float[Array, "S N"]:
+            return toeplitz_sample(
+                column, key=key, num_samples=num_draws, embedding_factor=factor
+            )
+
         try:
-            if bool(jnp.all(spectrum >= -tolerance)):
-                return factor
+            if bool(positive):
+                return circulant()
         except jax.errors.TracerBoolConversionError:
-            return _EMBEDDING_FACTORS[0]
-    return None
+            return _structured_or_dense(positive, circulant, covariance, key, num_draws)
+    return _dense_draws(covariance, key, num_draws)
 
 
-def _has_sampleable_update(covariance: LowRankUpdate) -> bool:
-    """Whether ``B + U D Vᵀ`` can be sampled as ``L_B z₁ + U √D z₂``.
+def _low_rank_is_sampleable(covariance: LowRankUpdate):
+    """Whether ``B + U D Uᵀ`` samples as ``L_B z₁ + U √D z₂`` with finite gradients.
 
-    Needs ``V = U`` -- established, not inferred from a symmetric tag, since
-    ``V = 2U`` is symmetric too -- a base that is a covariance itself, and
-    weights not *known* to be negative. Traced weights and traced diagonal
-    bases are checked at run time in `_low_rank_draws`.
+    ``V = U`` is checked by the caller. Needs strictly positive weights and a
+    base that is a covariance itself: tagged positive semi-definite, or a
+    strictly positive diagonal. Returns a Python bool when that is known and
+    a JAX boolean when only the values' signs are left to check.
     """
-    if not _arrays_match(covariance.U, covariance.V):
-        return False
-    if _known_negative(covariance.d):
-        return False
+    valid = jnp.all(covariance.d > 0)
     diagonal = _base_diagonal(covariance.base)
     if diagonal is not None:
-        return not _known_negative(diagonal)
-    return _safe_query(lx.is_positive_semidefinite, covariance.base)
-
-
-def _known_negative(values: Array) -> bool:
-    """True only when some entry is concretely negative."""
-    try:
-        return not bool(jnp.all(values >= 0))
-    except jax.errors.TracerBoolConversionError:
+        return valid & jnp.all(diagonal > 0)
+    if not _safe_query(lx.is_positive_semidefinite, covariance.base):
         return False
-
-
-def _known_nonpositive(values: Array) -> bool:
-    """True only when some entry is concretely zero or negative."""
-    try:
-        return not bool(jnp.all(values > 0))
-    except jax.errors.TracerBoolConversionError:
-        return False
+    return valid
 
 
 def _base_diagonal(base: lx.AbstractLinearOperator) -> Array | None:
@@ -432,22 +455,8 @@ def _low_rank_draws(
     """
     base_key, update_key = jr.split(key)
     base = _zero_mean_draws(covariance.base, base_key, num_draws)
-    diagonal = _base_diagonal(covariance.base)
-    if diagonal is not None and not _is_nonnegative(diagonal):
-        base = eqx.error_if(
-            base,
-            jnp.any(diagonal < 0),
-            "sample_mvn: the diagonal base of a LowRankUpdate must be "
-            "non-negative for low-rank sampling; build the covariance as a "
-            "dense operator instead.",
-        )
-    weights = eqx.error_if(
-        covariance.d,
-        jnp.any(covariance.d < 0),
-        "sample_mvn: LowRankUpdate weights must be non-negative for low-rank "
-        "sampling; build the covariance as a dense operator instead.",
-    )
     noise = jr.normal(
         update_key, (num_draws, covariance.rank), dtype=covariance.U.dtype
     )
-    return base + einsum(noise * jnp.sqrt(weights), covariance.U, "s k, n k -> s n")
+    scaled = noise * jnp.sqrt(covariance.d)
+    return base + einsum(scaled, covariance.U, "s k, n k -> s n")
