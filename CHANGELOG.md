@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.28](https://github.com/jejjohnson/gaussx/compare/v0.0.27...v0.0.28) (2026-09-24)
+
+
+### Features
+
+* **distributions:** structure-aware sample_mvn dispatch (gh-78) ([#249](https://github.com/jejjohnson/gaussx/issues/249)) ([ca4fedd](https://github.com/jejjohnson/gaussx/commit/ca4fedd83ecad9b09ec44e4505d9761946d97908))
+* **primitives:** contour-integral matrix square roots and joint inv-quad/logdet (gh-39, gh-43) ([#244](https://github.com/jejjohnson/gaussx/issues/244)) ([b6f5003](https://github.com/jejjohnson/gaussx/commit/b6f5003161849870b27714cecbaefe2451d40c4a))
+
 ## [0.0.27](https://github.com/jejjohnson/gaussx/compare/v0.0.26...v0.0.27) (2026-09-23)
 
 
