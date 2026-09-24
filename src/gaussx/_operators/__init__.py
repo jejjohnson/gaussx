@@ -11,6 +11,12 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._capacitance import CapacitanceSolver
+from gaussx._operators._diagonalised import (
+    Circulant,
+    DiagonalisedOperator,
+    as_diagonalised,
+    circulant_from_symbol,
+)
 from gaussx._operators._implicit_cross_kernel import (
     ImplicitCrossKernelOperator,
     _TransposedCrossKernelOperator,
@@ -261,6 +267,26 @@ def _(operator: MaskedOperator) -> bool:
 # Toeplitz tag registrations
 
 
+@lx.is_symmetric.register(DiagonalisedOperator)
+def _(operator: DiagonalisedOperator) -> bool:
+    return lx.symmetric_tag in operator.tags
+
+
+@lx.is_diagonal.register(DiagonalisedOperator)
+def _(operator: DiagonalisedOperator) -> bool:
+    return False
+
+
+@lx.is_positive_semidefinite.register(DiagonalisedOperator)
+def _(operator: DiagonalisedOperator) -> bool:
+    return lx.positive_semidefinite_tag in operator.tags
+
+
+@lx.is_negative_semidefinite.register(DiagonalisedOperator)
+def _(operator: DiagonalisedOperator) -> bool:
+    return lx.negative_semidefinite_tag in operator.tags
+
+
 @lx.is_symmetric.register(Toeplitz)
 def _(operator: Toeplitz) -> bool:
     return True
@@ -465,6 +491,7 @@ def _(operator: _TransposedCrossKernelOperator) -> bool:
 
 _ALL_TRIDIAG_DEFAULTS = (
     BlockDiag,
+    DiagonalisedOperator,
     Kronecker,
     LowRankUpdate,
     KroneckerSumSqrt,
@@ -484,6 +511,7 @@ _ALL_TRIDIAG_DEFAULTS = (
 
 _TRI_DEFAULTS = (
     BlockDiag,
+    DiagonalisedOperator,
     Kronecker,
     LowRankUpdate,
     KroneckerSum,
@@ -540,6 +568,8 @@ __all__ = [
     "BlockDiag",
     "BlockTriDiag",
     "CapacitanceSolver",
+    "Circulant",
+    "DiagonalisedOperator",
     "ImplicitCrossKernelOperator",
     "ImplicitKernelOperator",
     "InterpolatedOperator",
@@ -559,6 +589,8 @@ __all__ = [
     "Toeplitz",
     "ToeplitzCholesky",
     "UpperBlockTriDiag",
+    "as_diagonalised",
+    "circulant_from_symbol",
     "implicit_cross_kernel",
     "kronecker_sum_sample",
     "low_rank_plus_diag",

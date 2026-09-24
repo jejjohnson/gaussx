@@ -15,6 +15,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalised
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import (
     KroneckerSum,
@@ -48,6 +49,8 @@ def solve(
         return vector
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _solve_diagonal(operator, vector)
+    if isinstance(operator, DiagonalisedOperator):
+        return _solve_diagonalised(operator, vector)
     if isinstance(operator, BlockDiag):
         return _solve_block_diag(operator, vector, solver)
     if isinstance(operator, Kronecker):
@@ -85,6 +88,24 @@ def solve(
         if x is not None:
             return x
     return _solve_fallback(operator, vector, solver)
+
+
+def _solve_diagonalised(
+    operator: DiagonalisedOperator,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
+    """``x = V⁻¹ (V b / Λ)``; exactly-zero eigenvalues get a zero coefficient.
+
+    For a normal operator (unitary ``V``) that is the Moore-Penrose
+    pseudo-inverse, i.e. the minimum-norm solution with the null-space
+    component of ``b`` projected out — the usual gauge for periodic or
+    pure-Neumann Poisson problems.
+    """
+    lam = operator.eigenvalues_flat()
+    zero = lam == 0
+    inv = jnp.where(zero, 0.0, 1.0 / jnp.where(zero, 1.0, lam))
+    x = operator.inverse_flat(operator.forward_flat(vector) * inv)
+    return jnp.real(x) if operator.real_output else x
 
 
 def _solve_diagonal(
@@ -195,9 +216,14 @@ def _solve_kronecker_sum(
     vector: Float[Array, " n"],
     solver: lx.AbstractLinearSolver | None,
 ) -> Float[Array, " n"]:
-    """Solve (A (+) B) x = b via per-factor symmetric eigendecomposition.
+    """Solve (A (+) B) x = b via per-factor eigendecomposition.
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
+
+    When every factor is a `DiagonalisedOperator` (recursively), the solve
+    goes through the composed transforms with no eigendecomposition at all —
+    this covers non-symmetric factors via
+    `DiagonalisedOperator.from_eigen_factorization`.
 
     The formula uses ``Q^T`` as the inverse rotation, which is only valid
     for symmetric factors, so the structured path is taken only when both
@@ -210,6 +236,9 @@ def _solve_kronecker_sum(
     """
     from gaussx._einx import rearrange
 
+    diagonalised = as_diagonalised(operator)
+    if diagonalised is not None:
+        return _solve_diagonalised(diagonalised, vector)
     if not (lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)):
         return _solve_fallback(operator, vector, solver)
 
@@ -324,6 +353,7 @@ def _solve_tagged(
         LowRankUpdate,
         KroneckerSum,
         KroneckerSumSqrt,
+        DiagonalisedOperator,
         BlockTriDiag,
         LowerBlockTriDiag,
         UpperBlockTriDiag,

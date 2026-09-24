@@ -13,6 +13,7 @@ from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -54,6 +55,9 @@ def trace(
         return jnp.asarray(float(operator.in_size()))
     if isinstance(operator, lx.DiagonalLinearOperator):
         return jnp.sum(lx.diagonal(operator))
+    if isinstance(operator, DiagonalisedOperator):
+        total = jnp.sum(operator.eigenvalues)
+        return jnp.real(total) if operator.real_output else total
     if isinstance(operator, BlockDiag):
         return _trace_block_diag(operator)
     if isinstance(operator, Kronecker):
