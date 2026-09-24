@@ -181,30 +181,46 @@ def falkon_solve(
     if max_iter < 1:
         raise ValueError(f"max_iter must be at least 1, got {max_iter}.")
 
+    # One dtype for every operand -- y, both factors, the regularization and
+    # the cross kernel -- so the CG operator's input and output structures
+    # agree however the caller's dtypes are mixed.
+    dtype = jnp.result_type(
+        y,
+        preconditioner.T,
+        preconditioner.A,
+        regularization,
+        K_nm.in_structure().dtype,
+        K_nm.out_structure().dtype,
+        jnp.float32,
+    )
+    T = preconditioner.T.astype(dtype)
+    A = preconditioner.A.astype(dtype)
+    ridge = jnp.asarray(regularization, dtype=dtype) * n
     K_mn = K_nm.transpose()
-    ridge = regularization * n
-    T, A = preconditioner.T, preconditioner.A
+
+    def gram(w: Float[Array, " M"]) -> Float[Array, " M"]:
+        return K_mn.mv(K_nm.mv(w)).astype(dtype)
 
     def preconditioned_system(beta: Float[Array, " M"]) -> Float[Array, " M"]:
         v = _solve_upper(A, beta)
         w = _solve_upper(T, v)
-        c = _solve_upper(T, K_mn.mv(K_nm.mv(w)), trans=1) + ridge * v
+        c = _solve_upper(T, gram(w), trans=1) + ridge * v
         return _solve_upper(A, c, trans=1)
 
-    dtype = jnp.result_type(y.dtype, T.dtype)
     operator = lx.FunctionLinearOperator(
         preconditioned_system,
         jax.ShapeDtypeStruct((m,), dtype),
         lx.positive_semidefinite_tag,
     )
-    rhs = preconditioner.precondition_transpose(K_mn.mv(y.astype(dtype)))
+    projected = K_mn.mv(y.astype(dtype)).astype(dtype)
+    rhs = _solve_upper(A, _solve_upper(T, projected, trans=1), trans=1)
     solution = lx.linear_solve(
         operator,
         rhs,
         lx.CG(rtol=tol, atol=0.0, max_steps=max_iter),
         throw=False,
     )
-    return preconditioner.precondition(solution.value)
+    return _solve_upper(T, _solve_upper(A, solution.value))
 
 
 def _solve_upper(factor: Float[Array, "M M"], rhs: Array, trans: int = 0) -> Array:

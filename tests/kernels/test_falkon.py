@@ -253,6 +253,42 @@ def test_solve_is_jittable() -> None:
     assert jnp.allclose(eager, jitted, rtol=1e-10, atol=1e-12)
 
 
+@pytest.mark.parametrize(
+    ("data_dtype", "regularization_dtype"),
+    [(jnp.float32, jnp.float64), (jnp.float64, jnp.float32)],
+)
+def test_solve_promotes_mixed_dtypes(data_dtype, regularization_dtype) -> None:
+    # A float64 regularization with float32 data used to make the CG
+    # operator's input float32 and its output float64, which lineax rejects.
+    n, m = 100, 20
+    X = jr.normal(jr.key(20), (n, 2)).astype(data_dtype)
+    Z = X[:m]
+    lam = jnp.asarray(1e-3, dtype=regularization_dtype)
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+
+    alpha = gaussx.falkon_solve(
+        lx.MatrixLinearOperator(_gram(X, Z)), jnp.sin(X[:, 0]), pre, lam
+    )
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
+def test_solve_promotes_a_wider_cross_kernel() -> None:
+    # float32 preconditioner and targets, float64 K_nm: the cross-kernel
+    # products are float64 and must not leak a wider dtype into the CG output.
+    n, m = 100, 20
+    X = jr.normal(jr.key(21), (n, 2))
+    Z = X[:m]
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z).astype(jnp.float32), 1e-3)
+    y = jnp.sin(X[:, 0]).astype(jnp.float32)
+
+    alpha = gaussx.falkon_solve(lx.MatrixLinearOperator(_gram(X, Z)), y, pre, 1e-3)
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
 def test_solve_rejects_mismatched_shapes() -> None:
     _, _, K_nm, K_mm = _krr_problem(50, 10)
     pre = gaussx.falkon_preconditioner(K_mm, 1e-3)
