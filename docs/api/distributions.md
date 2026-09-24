@@ -91,10 +91,13 @@ covariance update.
 factor $L$ from the structure of the covariance operator: element-wise for a
 diagonal, per factor for a Kronecker product, per block for a block-diagonal,
 FFT circulant embedding for a Toeplitz, and $L_B z_1 + U\sqrt{D}z_2$ for a
-low-rank update, so a $10^4 \times 10^4$ Kronecker covariance never reaches a
-dense Cholesky. The one-off helpers `toeplitz_sample`, `kronecker_sum_sample`
-and `sumkronecker_sample` remain available for callers that want them
-directly; `sample_mvn` is the one entry point that dispatches to all of them.
+low-rank update, so a $10^4 \times 10^4$ Kronecker covariance is never
+factorised densely. Every branch is exact. A `SumOfKroneckers` therefore takes
+the dense symmetric square root: its matrix-free sampler,
+`sumkronecker_sample`, is a truncated Lanczos approximation and stays an
+explicit opt-in. The one-off helpers `toeplitz_sample` and
+`kronecker_sum_sample` also remain available for callers that want them
+directly.
 
 ::: gaussx
     options:
