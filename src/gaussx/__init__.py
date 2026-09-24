@@ -115,6 +115,7 @@ from gaussx._kernels import (
     rff_operator as rff_operator,
 )
 from gaussx._linalg import (
+    EigenFactorization as EigenFactorization,
     batched_kernel_matvec as batched_kernel_matvec,
     batched_kernel_rmatvec as batched_kernel_rmatvec,
     conditional_variance as conditional_variance,
@@ -122,6 +123,7 @@ from gaussx._linalg import (
     diag_conditional_variance as diag_conditional_variance,
     diag_inv as diag_inv,
     discrete_lyapunov_solve as discrete_lyapunov_solve,
+    kronecker_sum_solve as kronecker_sum_solve,
     safe_cholesky as safe_cholesky,
     sandwich as sandwich,
     schur_complement as schur_complement,
