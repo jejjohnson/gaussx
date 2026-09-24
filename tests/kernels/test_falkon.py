@@ -458,6 +458,15 @@ def test_predict_gradient_is_finite_with_a_ragged_last_batch() -> None:
     )
 
 
+@pytest.mark.parametrize("batch_size", [0, -1, 1.5, True])
+def test_predict_rejects_a_bad_batch_size(batch_size) -> None:
+    Z = jnp.zeros((5, 2))
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        gaussx.falkon_predict(
+            _rbf, Z, jnp.ones(5), jnp.ones((3, 2)), batch_size=batch_size
+        )
+
+
 def test_predict_rejects_mismatched_weights() -> None:
     Z = jnp.zeros((5, 2))
     with pytest.raises(ValueError, match="one weight per inducing point"):

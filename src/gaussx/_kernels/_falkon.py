@@ -268,7 +268,8 @@ def falkon_predict(
         Predictions at ``X_test``, shape ``(Nt,)``.
 
     Raises:
-        ValueError: If ``alpha`` does not have one weight per inducing point.
+        ValueError: If ``alpha`` does not have one weight per inducing point,
+            or ``batch_size`` is not a positive integer.
     """
     alpha = jnp.asarray(alpha)
     if alpha.shape != (X_inducing.shape[0],):
@@ -276,6 +277,12 @@ def falkon_predict(
             f"alpha must have shape ({X_inducing.shape[0]},), one weight per "
             f"inducing point, got {alpha.shape}."
         )
+    if (
+        isinstance(batch_size, bool)
+        or not isinstance(batch_size, int)
+        or batch_size < 1
+    ):
+        raise ValueError(f"batch_size must be a positive integer, got {batch_size}.")
     num_test = X_test.shape[0]
     if num_test == 0:
         # The dtype a non-empty call returns: one kernel value times alpha.
