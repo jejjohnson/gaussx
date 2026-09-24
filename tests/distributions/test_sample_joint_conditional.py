@@ -150,6 +150,34 @@ def test_targets_that_coincide_with_observations_are_pinned() -> None:
     assert jnp.allclose(draws["conditional"][:, 0], value[0], atol=1e-4)
 
 
+def test_gradients_stay_finite_for_an_isotropic_schur_complement() -> None:
+    # Uncorrelated blocks leave S = sigma^2 I: every eigenvalue repeated, where
+    # differentiating through eigh's eigenvectors returns NaN.
+    k_bb = random_pd_operator(jr.key(12), _M)
+
+    def loss(sigma):
+        blocks = {
+            "aa": lx.MatrixLinearOperator(sigma**2 * jnp.eye(_N)),
+            "ab": lx.MatrixLinearOperator(jnp.zeros((_N, _M))),
+            "bb": k_bb,
+        }
+        draws = gaussx.sample_joint_conditional(
+            (jnp.zeros(_N), jnp.zeros(_M)),
+            blocks,
+            key=jr.key(13),
+            observed_value=jnp.zeros(_M),
+            num_samples=8,
+        )
+        return jnp.sum(draws["conditional"])
+
+    sigma = 1.5
+    gradient = jax.grad(loss)(sigma)
+
+    # Draws are sigma * z, so the gradient is sum(z) = loss / sigma.
+    assert jnp.isfinite(gradient)
+    assert jnp.allclose(gradient, loss(sigma) / sigma)
+
+
 def test_conditional_key_is_absent_without_an_observed_value() -> None:
     _, blocks, mean = _partition()
 
