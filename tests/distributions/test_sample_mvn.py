@@ -141,6 +141,16 @@ def test_batched_draws_have_the_requested_moments() -> None:
         assert_sample_moments(samples[:, index], mean[index], covariance.as_matrix())
 
 
+@pytest.mark.parametrize("name", ["toeplitz", "dense", "kronecker"])
+def test_an_empty_batch_returns_an_empty_draw(name: str) -> None:
+    covariance = _COVARIANCES[name]
+    mean = jnp.zeros((0, covariance.in_size()))
+
+    samples = gaussx.sample_mvn(mean, covariance, key=jr.key(44), num_samples=3)
+
+    assert samples.shape == (3, 0, covariance.in_size())
+
+
 def test_negative_low_rank_weights_fall_back_to_dense() -> None:
     # A Woodbury downdate D - uuᵀ is still positive definite here, but it has
     # no U√D factor; the draw must come from the dense Cholesky instead.
@@ -254,6 +264,14 @@ def test_awkward_but_valid_covariances_are_sampled_exactly(
             gaussx.Kronecker(
                 lx.MatrixLinearOperator(jnp.ones((1, 2))),
                 lx.MatrixLinearOperator(jnp.ones((2, 1))),
+            ),
+        ),
+        # Square overall from rectangular blocks: diag(1, 0, 2).
+        (
+            "rectangular_blocks",
+            gaussx.BlockDiag(
+                lx.MatrixLinearOperator(jnp.array([[1.0, 0.0]])),
+                lx.MatrixLinearOperator(jnp.array([[0.0], [2.0]])),
             ),
         ),
         # Singular: each diagonal block is [[1, 1], [1, 1]], no coupling.
