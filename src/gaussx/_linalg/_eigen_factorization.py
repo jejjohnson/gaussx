@@ -167,9 +167,9 @@ def kronecker_sum_solve(
     With ``A_k`` acting on axis ``k`` of the unknown tensor ``X`` (shape
     ``(n_0, …, n_{d−1})``, possibly followed by trailing batch axes), solves
 
-    .. math::
-
-        \sum_k X \times_k A_k \;-\; \sigma X \;=\; R,
+    $$
+    \sum_k X \times_k A_k \;-\; \sigma X \;=\; R,
+    $$
 
     i.e. ``(A_0 ⊕ A_1 ⊕ … ⊕ A_{d−1} − σ I) vec(X) = vec(R)``. In 2D this is
     the Sylvester equation ``A_0 X + X A_1ᵀ − σX = R``. With
