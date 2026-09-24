@@ -291,6 +291,23 @@ def test_solve_promotes_a_wider_cross_kernel() -> None:
     assert jnp.all(jnp.isfinite(alpha))
 
 
+def test_solve_promotes_around_a_narrower_implicit_cross_kernel() -> None:
+    # A float32 implicit K_nm with a float64 regularization: the operator's
+    # transpose scan accumulates in float32 and used to reject the float64
+    # vector the promoted solve handed it.
+    n, m = 100, 20
+    X = jr.normal(jr.key(22), (n, 2)).astype(jnp.float32)
+    Z = X[:m]
+    lam = jnp.asarray(1e-3, dtype=jnp.float64)
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+    K_nm = gaussx.ImplicitCrossKernelOperator(_rbf, X, Z, 25)
+
+    alpha = gaussx.falkon_solve(K_nm, jnp.sin(X[:, 0]), pre, lam)
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
 def test_solve_rejects_mismatched_shapes() -> None:
     _, _, K_nm, K_mm = _krr_problem(50, 10)
     pre = gaussx.falkon_preconditioner(K_mm, 1e-3)

@@ -198,8 +198,17 @@ def falkon_solve(
     ridge = jnp.asarray(regularization, dtype=dtype) * n
     K_mn = K_nm.transpose()
 
+    # Each cross-kernel product runs in the operator's declared input dtype:
+    # an implicit operator's scan carries that dtype and rejects a wider
+    # vector. Only the results are promoted.
+    def forward(w: Float[Array, " M"]) -> Float[Array, " N"]:
+        return K_nm.mv(w.astype(K_nm.in_structure().dtype)).astype(dtype)
+
+    def adjoint(u: Float[Array, " N"]) -> Float[Array, " M"]:
+        return K_mn.mv(u.astype(K_mn.in_structure().dtype)).astype(dtype)
+
     def gram(w: Float[Array, " M"]) -> Float[Array, " M"]:
-        return K_mn.mv(K_nm.mv(w)).astype(dtype)
+        return adjoint(forward(w))
 
     def preconditioned_system(beta: Float[Array, " M"]) -> Float[Array, " M"]:
         v = _solve_upper(A, beta)
@@ -212,7 +221,7 @@ def falkon_solve(
         jax.ShapeDtypeStruct((m,), dtype),
         lx.positive_semidefinite_tag,
     )
-    projected = K_mn.mv(y.astype(dtype)).astype(dtype)
+    projected = adjoint(y.astype(dtype))
     rhs = _solve_upper(A, _solve_upper(T, projected, trans=1), trans=1)
     solution = lx.linear_solve(
         operator,
