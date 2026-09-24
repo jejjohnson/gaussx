@@ -319,3 +319,155 @@ def test_solve_rejects_mismatched_shapes() -> None:
         gaussx.falkon_solve(operator, jnp.ones((50, 2)), pre, 1e-3)
     with pytest.raises(ValueError, match="max_iter"):
         gaussx.falkon_solve(operator, jnp.ones(50), pre, 1e-3, max_iter=0)
+
+
+# ---------------------------------------------------------------------------
+# Prediction
+# ---------------------------------------------------------------------------
+
+
+def test_predict_matches_explicit_kernel_evaluation() -> None:
+    Z = jr.normal(jr.key(8), (15, 2))
+    X_test = jr.normal(jr.key(9), (40, 2))
+    alpha = jr.normal(jr.key(10), (15,))
+
+    predictions = gaussx.falkon_predict(_rbf, Z, alpha, X_test, batch_size=16)
+
+    assert predictions.shape == (40,)
+    assert jnp.allclose(predictions, _gram(X_test, Z) @ alpha, rtol=1e-10)
+
+
+def test_predict_with_kernel_parameters() -> None:
+    Z = jr.normal(jr.key(11), (10, 2))
+    X_test = jr.normal(jr.key(12), (7, 2))
+    alpha = jr.normal(jr.key(13), (10,))
+
+    def scaled_rbf(params, x, z):
+        return jnp.exp(-0.5 * jnp.sum((x - z) ** 2) / params["length"] ** 2)
+
+    predictions = gaussx.falkon_predict(
+        scaled_rbf, Z, alpha, X_test, params={"length": 2.0}
+    )
+
+    expected = _gram(X_test / 2.0, Z / 2.0) @ alpha
+    assert jnp.allclose(predictions, expected, rtol=1e-10)
+
+
+# End to end: 2000 x 100, 30 matrix-free CG iterations (~2.5 s).
+@pytest.mark.slow
+@pytest.mark.integration
+def test_end_to_end_regression_recovers_the_signal() -> None:
+    # Fit sin(3x) from 2000 noisy points with 100 inducing points, entirely
+    # matrix-free, and check held-out accuracy against the noiseless signal.
+    n, m, lam = 2000, 100, 1e-5
+    X = jr.uniform(jr.key(14), (n, 1), minval=-2.0, maxval=2.0)
+    y = jnp.sin(3.0 * X[:, 0]) + 0.1 * jr.normal(jr.key(15), (n,))
+    Z = X[:m]
+    X_test = jnp.linspace(-1.8, 1.8, 50)[:, None]
+
+    precond = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+    K_nm = gaussx.ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=256)
+    alpha = gaussx.falkon_solve(K_nm, y, precond, lam, max_iter=30)
+    predictions = gaussx.falkon_predict(_rbf, Z, alpha, X_test)
+
+    rmse = jnp.sqrt(jnp.mean((predictions - jnp.sin(3.0 * X_test[:, 0])) ** 2))
+    assert rmse < 0.05
+
+
+def test_predict_is_jittable() -> None:
+    Z = jr.normal(jr.key(16), (8, 2))
+    X_test = jr.normal(jr.key(17), (5, 2))
+    alpha = jr.normal(jr.key(18), (8,))
+
+    eager = gaussx.falkon_predict(_rbf, Z, alpha, X_test)
+    jitted = jax.jit(lambda a: gaussx.falkon_predict(_rbf, Z, a, X_test))(alpha)
+
+    assert jnp.allclose(eager, jitted)
+
+
+def test_predict_caps_the_batch_at_the_test_set_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The cross-kernel operator pads its last batch to batch_size, so an
+    # uncapped default would evaluate a 1024 x M block for one test point.
+    import gaussx._kernels._falkon as falkon_module
+
+    batch_sizes = []
+    original = falkon_module.ImplicitCrossKernelOperator
+
+    def spy(kernel_fn, X_data, X_inducing, batch_size, **kwargs):
+        batch_sizes.append(batch_size)
+        return original(kernel_fn, X_data, X_inducing, batch_size, **kwargs)
+
+    monkeypatch.setattr(falkon_module, "ImplicitCrossKernelOperator", spy)
+    Z = jr.normal(jr.key(19), (6, 2))
+    alpha = jr.normal(jr.key(20), (6,))
+    x_star = jnp.array([[0.3, -0.1]])
+
+    prediction = gaussx.falkon_predict(_rbf, Z, alpha, x_star)
+
+    assert batch_sizes == [1]
+    assert jnp.allclose(prediction, _gram(x_star, Z) @ alpha)
+
+
+def test_predict_on_an_empty_test_set() -> None:
+    Z = jr.normal(jr.key(21), (6, 2))
+
+    prediction = gaussx.falkon_predict(_rbf, Z, jnp.ones(6), jnp.zeros((0, 2)))
+
+    assert prediction.shape == (0,)
+
+
+def test_predict_on_an_empty_test_set_keeps_the_kernel_dtype() -> None:
+    # A float64 amplitude widens float32 points; an empty prediction must come
+    # back in the same dtype a non-empty one does.
+    def scaled_rbf(amplitude, x, z):
+        return amplitude * _rbf(x, z)
+
+    Z = jnp.ones((3, 2), dtype=jnp.float32)
+    alpha = jnp.ones(3, dtype=jnp.float32)
+    amplitude = jnp.asarray(2.0, dtype=jnp.float64)
+
+    full = gaussx.falkon_predict(scaled_rbf, Z, alpha, Z, params=amplitude)
+    empty = gaussx.falkon_predict(
+        scaled_rbf, Z, alpha, jnp.zeros((0, 2), jnp.float32), params=amplitude
+    )
+
+    assert full.dtype == jnp.float64
+    assert empty.dtype == full.dtype
+
+
+def _cosine(x, z):
+    return jnp.dot(x, z) / (jnp.linalg.norm(x) * jnp.linalg.norm(z))
+
+
+def test_predict_gradient_is_finite_with_a_ragged_last_batch() -> None:
+    # Cosine similarity is undefined at zero. Three points in batches of two
+    # used to pad one zero row, whose NaN leaked into the gradient.
+    Z = jr.normal(jr.key(22), (4, 2))
+    X = jr.normal(jr.key(23), (3, 2))
+    alpha = jr.normal(jr.key(24), (4,))
+
+    def loss(weights):
+        return jnp.sum(gaussx.falkon_predict(_cosine, Z, weights, X, batch_size=2))
+
+    expected = jax.vmap(lambda x: jax.vmap(lambda z: _cosine(x, z))(Z))(X)
+    assert jnp.allclose(jax.grad(loss)(alpha), jnp.sum(expected, axis=0))
+    assert jnp.allclose(
+        gaussx.falkon_predict(_cosine, Z, alpha, X, batch_size=2), expected @ alpha
+    )
+
+
+@pytest.mark.parametrize("batch_size", [0, -1, 1.5, True])
+def test_predict_rejects_a_bad_batch_size(batch_size) -> None:
+    Z = jnp.zeros((5, 2))
+    with pytest.raises(ValueError, match="batch_size must be a positive integer"):
+        gaussx.falkon_predict(
+            _rbf, Z, jnp.ones(5), jnp.ones((3, 2)), batch_size=batch_size
+        )
+
+
+def test_predict_rejects_mismatched_weights() -> None:
+    Z = jnp.zeros((5, 2))
+    with pytest.raises(ValueError, match="one weight per inducing point"):
+        gaussx.falkon_predict(_rbf, Z, jnp.ones(4), jnp.zeros((3, 2)))
