@@ -418,6 +418,46 @@ def test_predict_on_an_empty_test_set() -> None:
     assert prediction.shape == (0,)
 
 
+def test_predict_on_an_empty_test_set_keeps_the_kernel_dtype() -> None:
+    # A float64 amplitude widens float32 points; an empty prediction must come
+    # back in the same dtype a non-empty one does.
+    def scaled_rbf(amplitude, x, z):
+        return amplitude * _rbf(x, z)
+
+    Z = jnp.ones((3, 2), dtype=jnp.float32)
+    alpha = jnp.ones(3, dtype=jnp.float32)
+    amplitude = jnp.asarray(2.0, dtype=jnp.float64)
+
+    full = gaussx.falkon_predict(scaled_rbf, Z, alpha, Z, params=amplitude)
+    empty = gaussx.falkon_predict(
+        scaled_rbf, Z, alpha, jnp.zeros((0, 2), jnp.float32), params=amplitude
+    )
+
+    assert full.dtype == jnp.float64
+    assert empty.dtype == full.dtype
+
+
+def _cosine(x, z):
+    return jnp.dot(x, z) / (jnp.linalg.norm(x) * jnp.linalg.norm(z))
+
+
+def test_predict_gradient_is_finite_with_a_ragged_last_batch() -> None:
+    # Cosine similarity is undefined at zero. Three points in batches of two
+    # used to pad one zero row, whose NaN leaked into the gradient.
+    Z = jr.normal(jr.key(22), (4, 2))
+    X = jr.normal(jr.key(23), (3, 2))
+    alpha = jr.normal(jr.key(24), (4,))
+
+    def loss(weights):
+        return jnp.sum(gaussx.falkon_predict(_cosine, Z, weights, X, batch_size=2))
+
+    expected = jax.vmap(lambda x: jax.vmap(lambda z: _cosine(x, z))(Z))(X)
+    assert jnp.allclose(jax.grad(loss)(alpha), jnp.sum(expected, axis=0))
+    assert jnp.allclose(
+        gaussx.falkon_predict(_cosine, Z, alpha, X, batch_size=2), expected @ alpha
+    )
+
+
 def test_predict_rejects_mismatched_weights() -> None:
     Z = jnp.zeros((5, 2))
     with pytest.raises(ValueError, match="one weight per inducing point"):

@@ -278,12 +278,30 @@ def falkon_predict(
         )
     num_test = X_test.shape[0]
     if num_test == 0:
-        dtype = jnp.result_type(X_test, X_inducing, alpha)
-        return jnp.zeros((0,), dtype=dtype)
-    cross = ImplicitCrossKernelOperator(
-        kernel_fn, X_test, X_inducing, min(batch_size, num_test), params=params
-    )
-    return cross.mv(alpha)
+        # The dtype a non-empty call returns: one kernel value times alpha.
+        point = jax.ShapeDtypeStruct(X_test.shape[1:], X_test.dtype)
+        inducing = jax.ShapeDtypeStruct(X_inducing.shape[1:], X_inducing.dtype)
+        kernel_value = jax.eval_shape(
+            (lambda x, z: kernel_fn(x, z))
+            if params is None
+            else (lambda x, z: kernel_fn(params, x, z)),
+            point,
+            inducing,
+        )
+        return jnp.zeros((0,), dtype=jnp.result_type(kernel_value.dtype, alpha))
+    # The operator zero-pads a ragged last batch, and a kernel undefined at
+    # zero (e.g. cosine similarity) would put NaNs into the gradient through
+    # those discarded rows. Evaluate the remainder as its own exact batch.
+    batch = min(batch_size, num_test)
+    split = num_test - num_test % batch
+    parts = []
+    for start, stop, size in ((0, split, batch), (split, num_test, num_test - split)):
+        if stop > start:
+            cross = ImplicitCrossKernelOperator(
+                kernel_fn, X_test[start:stop], X_inducing, size, params=params
+            )
+            parts.append(cross.mv(alpha))
+    return parts[0] if len(parts) == 1 else jnp.concatenate(parts)
 
 
 def _solve_upper(factor: Float[Array, "M M"], rhs: Array, trans: int = 0) -> Array:
