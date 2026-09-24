@@ -104,6 +104,60 @@ def test_partial_cholesky_disabled_returns_none(getkey):
     assert pre.as_operator(op) is None
 
 
+def test_partial_cholesky_matches_the_woodbury_inverse_at_full_rank():
+    # At full rank L Lᵀ = A exactly, so the preconditioner is (sI + A)⁻¹.
+    mat = random_pd_matrix(jr.key(0), 8)
+    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+    pre = PartialCholeskyPreconditioner(rank=8, shift=0.7).as_operator(op)
+
+    expected = jnp.linalg.inv(0.7 * jnp.eye(8) + mat)
+    assert tree_allclose(pre.as_matrix(), expected, rtol=1e-8, atol=1e-10)
+
+
+@pytest.mark.parametrize("jitter", [0.0, 1e-12])
+def test_partial_cholesky_rank_beyond_numerical_rank_is_finite(jitter: float):
+    # gh-237: a rank-3 operator factored at rank 8. With no jitter the surplus
+    # pivots are exactly zero (0/0 -> NaN); with a tiny one they are rounding
+    # noise (tiny/tiny -> huge columns). The guard zeroes both, so the factor
+    # captures the operator exactly and the preconditioner is (sI + K)⁻¹.
+    n, r = 12, 3
+    w = jr.normal(jr.key(1), (n, r))
+    kernel = w @ w.T + jitter * jnp.eye(n)
+    op = lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag)
+
+    pre = PartialCholeskyPreconditioner(rank=8, shift=1.0).as_operator(op)
+
+    applied = pre.as_matrix()
+    assert jnp.all(jnp.isfinite(applied))
+    expected = jnp.linalg.inv(jnp.eye(n) + kernel)
+    assert tree_allclose(applied, expected, rtol=1e-8, atol=1e-8)
+
+
+def test_partial_cholesky_of_a_noiseless_kernel_preconditions_its_noisy_solve():
+    # The issue's workflow: factor the noiseless K, shift by sigma^2, and use
+    # the result to precondition CG on K + sigma^2 I.
+    n, r, noise = 12, 3, 0.5
+    w = jr.normal(jr.key(2), (n, r))
+    kernel = w @ w.T
+    system = lx.MatrixLinearOperator(
+        kernel + noise * jnp.eye(n), lx.positive_semidefinite_tag
+    )
+    factor_of_kernel = PartialCholeskyPreconditioner(rank=8, shift=noise).as_operator(
+        lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag)
+    )
+    b = jr.normal(jr.key(3), (n,))
+
+    x = linear_solve(
+        system,
+        b,
+        solver=CGSolver(rtol=1e-10, atol=1e-10),
+        preconditioner=OperatorPreconditioner(factor_of_kernel),
+    )
+
+    assert jnp.all(jnp.isfinite(x))
+    assert tree_allclose(x, jnp.linalg.solve(kernel + noise * jnp.eye(n), b), rtol=1e-8)
+
+
 def test_operator_preconditioner_callable(getkey):
     mat, op = _psd_operator(getkey(), 15)
     b = jr.normal(getkey(), (15,))

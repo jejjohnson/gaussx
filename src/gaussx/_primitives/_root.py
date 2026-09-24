@@ -244,7 +244,20 @@ def _pivoted_cholesky_root(
     mat: Float[Array, "N N"],
     rank: int,
 ) -> Float[Array, "N k"]:
-    """Greedy pivoted-Cholesky root with a numerical-rank guard.
+    """Pivoted-Cholesky root of a dense matrix via `guarded_pivoted_cholesky`."""
+    return guarded_pivoted_cholesky(jnp.diag(mat), lambda k: mat[:, k], rank)
+
+
+def guarded_pivoted_cholesky(
+    diagonal: Float[Array, " N"],
+    column,
+    rank: int,
+) -> Float[Array, "N k"]:
+    """Greedy pivoted partial Cholesky with a numerical-rank guard.
+
+    Needs only the diagonal and a ``column(k)`` callable returning column
+    ``k`` of the matrix, so it serves a dense matrix and a matrix-free
+    operator (one matvec per pivot) alike.
 
     matfree's ``cholesky_partial_pivot`` divides by the pivot without a
     positivity guard, so once the numerical rank is exhausted the
@@ -254,20 +267,28 @@ def _pivoted_cholesky_root(
     passed through — the gh-236 failure. Guard each step instead: when
     the best remaining pivot falls below a pstrf-style tolerance, the
     surplus columns are exactly zero.
+
+    Args:
+        diagonal: Diagonal of the PSD matrix, shape ``(N,)``.
+        column: Callable returning column ``k`` of the matrix, shape ``(N,)``.
+        rank: Number of pivots.
+
+    Returns:
+        Factor ``L`` of shape ``(N, rank)`` with ``L Lᵀ`` approximating the
+        matrix; columns past its numerical rank are exactly zero.
     """
-    diag = jnp.diag(mat)
     # LAPACK ?pstrf stopping criterion: n * eps * max diagonal entry.
-    tol = mat.shape[0] * jnp.finfo(mat.dtype).eps * jnp.max(jnp.abs(diag))
+    tol = diagonal.shape[0] * jnp.finfo(diagonal.dtype).eps * jnp.max(jnp.abs(diagonal))
 
     def body(i, L):
-        residual = diag - jnp.sum(L * L, axis=1)
+        residual = diagonal - jnp.sum(L * L, axis=1)
         k = jnp.argmax(residual)
         pivot = residual[k]
         ok = pivot > tol
         # Double-where keeps the sqrt's gradient finite when guarded.
         denom = jnp.sqrt(jnp.where(ok, pivot, 1.0))
-        col = (mat[:, k] - L @ L[k, :]) / denom
+        col = (column(k) - L @ L[k, :]) / denom
         return L.at[:, i].set(jnp.where(ok, col, 0.0))
 
-    L0 = jnp.zeros((mat.shape[0], rank), dtype=mat.dtype)
+    L0 = jnp.zeros((diagonal.shape[0], rank), dtype=diagonal.dtype)
     return jax.lax.fori_loop(0, rank, body, L0)

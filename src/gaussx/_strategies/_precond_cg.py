@@ -15,9 +15,9 @@ from gaussx._strategies._slq_logdet import SLQLogdet
 class PreconditionedCGSolver(AbstractSolverStrategy):
     """CG solver with pivoted partial Cholesky preconditioner.
 
-    Uses matfree's ``low_rank.cholesky_partial_pivot`` to build a
-    rank-k preconditioner, then solves ``(sI + LL^T)^{-1} v`` via
-    the Woodbury identity inside lineax CG.
+    Uses `gaussx.PartialCholeskyPreconditioner`'s guarded pivoted
+    partial Cholesky to build a rank-k preconditioner, then solves
+    ``(sI + LL^T)^{-1} v`` via the Woodbury identity inside lineax CG.
 
     For operators of the form ``K + sigma^2 I``, preconditioning
     dramatically reduces the number of CG iterations.
