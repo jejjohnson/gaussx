@@ -153,3 +153,169 @@ def test_factors_share_one_promoted_dtype() -> None:
 def test_rejects_a_non_square_k_mm() -> None:
     with pytest.raises(ValueError, match="square"):
         gaussx.falkon_preconditioner(jnp.ones((3, 4)), 0.1)
+
+
+# ---------------------------------------------------------------------------
+# Solve
+# ---------------------------------------------------------------------------
+
+
+def _direct_nystrom_krr(K_nm, K_mm, y, lam):
+    """Reference α from the dense normal equations."""
+    n = y.shape[0]
+    return jnp.linalg.solve(K_nm.T @ K_nm + lam * n * K_mm, K_nm.T @ y)
+
+
+def _targets(X):
+    return jnp.sin(3.0 * X[:, 0]) + 0.1 * jr.normal(jr.key(7), (X.shape[0],))
+
+
+def test_solve_matches_the_direct_nystrom_solve() -> None:
+    n, m, lam = 200, 30, 1e-3
+    X, _, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = gaussx.falkon_preconditioner(K_mm, lam)
+
+    alpha = gaussx.falkon_solve(
+        lx.MatrixLinearOperator(K_nm), y, pre, lam, max_iter=100, tol=1e-12
+    )
+
+    # The solver works with the jittered K_mm the preconditioner factored.
+    expected = _direct_nystrom_krr(K_nm, pre.T.T @ pre.T, y, lam)
+    assert jnp.allclose(K_nm @ alpha, K_nm @ expected, rtol=1e-6, atol=1e-8)
+
+
+def test_solve_is_matrix_free_with_an_implicit_cross_kernel(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    n, m, lam = 200, 30, 1e-3
+    X, Z, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = gaussx.falkon_preconditioner(K_mm, lam)
+    # Solve to convergence and compare predictions: the weights themselves
+    # are ill-conditioned, so two roundings of the same solve differ there.
+    options = dict(max_iter=200, tol=1e-12)
+    dense = gaussx.falkon_solve(lx.MatrixLinearOperator(K_nm), y, pre, lam, **options)
+
+    implicit = gaussx.ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=64)
+
+    def refuse(self):
+        raise AssertionError("falkon_solve materialised K_nm")
+
+    monkeypatch.setattr(gaussx.ImplicitCrossKernelOperator, "as_matrix", refuse)
+    alpha = gaussx.falkon_solve(implicit, y, pre, lam, **options)
+
+    assert jnp.allclose(K_nm @ alpha, K_nm @ dense, rtol=1e-6, atol=1e-8)
+
+
+# A 1000 x 50 problem solved twice (Falkon and plain CG): ~3 s.
+@pytest.mark.slow
+def test_a_small_budget_already_reaches_the_solution() -> None:
+    # Falkon's point: the preconditioned system is well conditioned (here
+    # cond 3.6e13 -> 38), so a small budget suffices where plain CG on the
+    # normal equations is still far off. Measured at 20 iterations: 1.5e-5
+    # relative prediction error against 0.3 for plain CG.
+    n, m, lam, budget = 1000, 50, 1e-3, 20
+    X, _, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = gaussx.falkon_preconditioner(K_mm, lam)
+    K_mm_jittered = pre.T.T @ pre.T
+    exact = K_nm @ _direct_nystrom_krr(K_nm, K_mm_jittered, y, lam)
+
+    alpha = gaussx.falkon_solve(
+        lx.MatrixLinearOperator(K_nm), y, pre, lam, max_iter=budget
+    )
+    system = lx.MatrixLinearOperator(
+        K_nm.T @ K_nm + lam * n * K_mm_jittered, lx.positive_semidefinite_tag
+    )
+    plain = lx.linear_solve(
+        system,
+        K_nm.T @ y,
+        lx.CG(rtol=1e-12, atol=0.0, max_steps=budget),
+        throw=False,
+    ).value
+
+    def error(weights):
+        return jnp.linalg.norm(K_nm @ weights - exact) / jnp.linalg.norm(exact)
+
+    assert error(alpha) < 1e-4
+    assert error(plain) > 100 * error(alpha)
+
+
+def test_solve_is_jittable() -> None:
+    n, m, lam = 100, 20, 1e-3
+    X, _, K_nm, K_mm = _krr_problem(n, m)
+    y = _targets(X)
+    pre = gaussx.falkon_preconditioner(K_mm, lam)
+    operator = lx.MatrixLinearOperator(K_nm)
+
+    eager = gaussx.falkon_solve(operator, y, pre, lam)
+    jitted = jax.jit(lambda y, pre: gaussx.falkon_solve(operator, y, pre, lam))(y, pre)
+
+    assert jnp.allclose(eager, jitted, rtol=1e-10, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    ("data_dtype", "regularization_dtype"),
+    [(jnp.float32, jnp.float64), (jnp.float64, jnp.float32)],
+)
+def test_solve_promotes_mixed_dtypes(data_dtype, regularization_dtype) -> None:
+    # A float64 regularization with float32 data used to make the CG
+    # operator's input float32 and its output float64, which lineax rejects.
+    n, m = 100, 20
+    X = jr.normal(jr.key(20), (n, 2)).astype(data_dtype)
+    Z = X[:m]
+    lam = jnp.asarray(1e-3, dtype=regularization_dtype)
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+
+    alpha = gaussx.falkon_solve(
+        lx.MatrixLinearOperator(_gram(X, Z)), jnp.sin(X[:, 0]), pre, lam
+    )
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
+def test_solve_promotes_a_wider_cross_kernel() -> None:
+    # float32 preconditioner and targets, float64 K_nm: the cross-kernel
+    # products are float64 and must not leak a wider dtype into the CG output.
+    n, m = 100, 20
+    X = jr.normal(jr.key(21), (n, 2))
+    Z = X[:m]
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z).astype(jnp.float32), 1e-3)
+    y = jnp.sin(X[:, 0]).astype(jnp.float32)
+
+    alpha = gaussx.falkon_solve(lx.MatrixLinearOperator(_gram(X, Z)), y, pre, 1e-3)
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
+def test_solve_promotes_around_a_narrower_implicit_cross_kernel() -> None:
+    # A float32 implicit K_nm with a float64 regularization: the operator's
+    # transpose scan accumulates in float32 and used to reject the float64
+    # vector the promoted solve handed it.
+    n, m = 100, 20
+    X = jr.normal(jr.key(22), (n, 2)).astype(jnp.float32)
+    Z = X[:m]
+    lam = jnp.asarray(1e-3, dtype=jnp.float64)
+    pre = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+    K_nm = gaussx.ImplicitCrossKernelOperator(_rbf, X, Z, 25)
+
+    alpha = gaussx.falkon_solve(K_nm, jnp.sin(X[:, 0]), pre, lam)
+
+    assert alpha.dtype == jnp.float64
+    assert jnp.all(jnp.isfinite(alpha))
+
+
+def test_solve_rejects_mismatched_shapes() -> None:
+    _, _, K_nm, K_mm = _krr_problem(50, 10)
+    pre = gaussx.falkon_preconditioner(K_mm, 1e-3)
+    operator = lx.MatrixLinearOperator(K_nm)
+
+    with pytest.raises(ValueError, match="K_nm must have shape"):
+        gaussx.falkon_solve(operator, jnp.ones(40), pre, 1e-3)
+    with pytest.raises(ValueError, match="vector"):
+        gaussx.falkon_solve(operator, jnp.ones((50, 2)), pre, 1e-3)
+    with pytest.raises(ValueError, match="max_iter"):
+        gaussx.falkon_solve(operator, jnp.ones(50), pre, 1e-3, max_iter=0)

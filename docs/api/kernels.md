@@ -43,7 +43,7 @@ ever forming the $N \times M$ matrix.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [falkon_preconditioner, FalkonPreconditioner]
+      members: [falkon_preconditioner, falkon_solve, FalkonPreconditioner]
 
 ## Kernel statistics
 
