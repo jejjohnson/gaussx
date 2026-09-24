@@ -208,6 +208,8 @@ def test_solve_is_matrix_free_with_an_implicit_cross_kernel(
     assert jnp.allclose(K_nm @ alpha, K_nm @ dense, rtol=1e-6, atol=1e-8)
 
 
+# A 1000 x 50 problem solved twice (Falkon and plain CG): ~3 s.
+@pytest.mark.slow
 def test_a_small_budget_already_reaches_the_solution() -> None:
     # Falkon's point: the preconditioned system is well conditioned (here
     # cond 3.6e13 -> 38), so a small budget suffices where plain CG on the
