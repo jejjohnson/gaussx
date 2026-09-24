@@ -57,7 +57,7 @@ def solve(
     if isinstance(operator, SumOfKroneckers):
         return _solve_sum_of_kroneckers(operator, vector, solver)
     if isinstance(operator, KroneckerSum):
-        return _solve_kronecker_sum(operator, vector)
+        return _solve_kronecker_sum(operator, vector, solver)
     if isinstance(operator, KroneckerSumSqrt):
         return operator.solve(vector)
     if isinstance(operator, BlockTriDiag):
@@ -193,24 +193,26 @@ def _solve_sum_of_kroneckers(
 def _solve_kronecker_sum(
     operator: KroneckerSum,
     vector: Float[Array, " n"],
+    solver: lx.AbstractLinearSolver | None,
 ) -> Float[Array, " n"]:
     """Solve (A (+) B) x = b via per-factor symmetric eigendecomposition.
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
 
-    Requires the factors ``A`` and ``B`` to be symmetric so the
-    eigenvector matrices are orthonormal — the formula above uses
-    ``Q^T`` as the inverse rotation. Structured factors (Diagonal,
-    BlockDiag, Kronecker, KroneckerSum) skip materialization; otherwise
-    falls back to ``jnp.linalg.eigh`` on the materialized factor.
+    The formula uses ``Q^T`` as the inverse rotation, which is only valid
+    for symmetric factors, so the structured path is taken only when both
+    factors are tagged symmetric (or are diagonal). Otherwise the operator
+    goes to the generic lineax fallback: treating an untagged non-symmetric
+    factor as symmetric used to return a silently wrong answer. For a fast
+    solve with non-symmetric but diagonalizable factors, precompute
+    `gaussx.EigenFactorization` per factor and call
+    `gaussx.kronecker_sum_solve`.
     """
     from gaussx._einx import rearrange
 
-    # The decomposition requires symmetric factors so the eigenvector
-    # matrices are orthonormal (the formula uses ``Q^T`` as the inverse
-    # rotation). We always invoke an ``eigh``-equivalent path even for
-    # untagged operators — matching the pre-existing assumption that
-    # ``KroneckerSum`` factors are symmetric.
+    if not (lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)):
+        return _solve_fallback(operator, vector, solver)
+
     evals_a, Q_a = _eigh_factor(operator.A)
     evals_b, Q_b = _eigh_factor(operator.B)
     n_a, n_b = operator._n_a, operator._n_b

@@ -52,6 +52,20 @@ solves.
       show_root_toc_entry: false
       members: [solve_matrix, solve_columns, solve_rows, solve_tridiagonal, solve_tridiagonal_batched, batched_kernel_matvec, batched_kernel_rmatvec]
 
+## Matrix diagonalization & shifted Kronecker-sum solves
+
+Factor each 1D operator once with `EigenFactorization` (non-symmetric
+diagonalizable factors with a real spectrum are supported), then solve
+$(A_0 \oplus A_1 \oplus \dots - \sigma I)\,x = b$ in tensor form for any
+shift $\sigma$ with `kronecker_sum_solve` — the matrix-diagonalization method
+for separable operators such as tensor-product spectral Laplacians.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [EigenFactorization, kronecker_sum_solve]
+
 ## Stable kernel arithmetic & Lyapunov
 
 ::: gaussx

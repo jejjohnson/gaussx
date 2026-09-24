@@ -138,3 +138,26 @@ class TestKroneckerSum:
         B = lx.MatrixLinearOperator(jnp.eye(2))
         with pytest.raises(ValueError, match="square"):
             gaussx.KroneckerSum(A, B)
+
+
+def test_solve_untagged_nonsymmetric_factors_is_correct():
+    """Regression: untagged non-symmetric factors were solved with ``eigh``.
+
+    ``eigh`` reads only one triangle and the solve used ``Qᵀ`` as ``Q⁻¹``,
+    so the result was silently wrong (relative residual ~0.5 for Chebyshev
+    second-derivative blocks). Untagged factors now take the generic path.
+    """
+    k1, k2, k3 = jax.random.split(jax.random.PRNGKey(7), 3)
+    A = lx.MatrixLinearOperator(jax.random.normal(k1, (4, 4)) + 6 * jnp.eye(4))
+    B = lx.MatrixLinearOperator(jax.random.normal(k2, (3, 3)) + 6 * jnp.eye(3))
+    op = gaussx.KroneckerSum(A, B)
+    b = jax.random.normal(k3, (12,))
+    x = gaussx.solve(op, b)
+    assert jnp.allclose(op.mv(x), b, atol=1e-10)
+
+
+def test_solve_tagged_symmetric_factors_keeps_structured_path(kron_sum):
+    """PSD-tagged factors still use the per-factor ``eigh`` solve."""
+    b = jnp.arange(kron_sum.in_size(), dtype=jnp.float64)
+    x = gaussx.solve(kron_sum, b)
+    assert jnp.allclose(kron_sum.as_matrix() @ x, b, atol=1e-10)

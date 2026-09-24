@@ -5,6 +5,10 @@ from gaussx._linalg._batched_matvec import (
     batched_kernel_rmatvec,
 )
 from gaussx._linalg._diag_inv import diag_inv
+from gaussx._linalg._eigen_factorization import (
+    EigenFactorization,
+    kronecker_sum_solve,
+)
 from gaussx._linalg._linalg import (
     cov_transform,
     diag_conditional_variance,
@@ -30,6 +34,7 @@ from gaussx._linalg._woodbury import woodbury_solve
 
 
 __all__ = [
+    "EigenFactorization",
     "batched_kernel_matvec",
     "batched_kernel_rmatvec",
     "conditional_variance",
@@ -37,6 +42,7 @@ __all__ = [
     "diag_conditional_variance",
     "diag_inv",
     "discrete_lyapunov_solve",
+    "kronecker_sum_solve",
     "safe_cholesky",
     "sandwich",
     "schur_complement",
