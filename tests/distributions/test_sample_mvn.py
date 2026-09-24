@@ -87,26 +87,33 @@ def test_structured_covariances_are_never_densified(
     name: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Small dense factors (a Kronecker factor, one block) are expected to be
-    # factorised densely; the full covariance never is.
+    # factorised densely; the full covariance never is. A full-size dense
+    # factor is poisoned with NaN rather than refused, because a fallback held
+    # in an unexecuted `lax.cond` branch is traced but must never run.
     covariance = _COVARIANCES[name]
     dense_cholesky = cholesky_module._cholesky_dense
-
-    def refuse_full_size(operator):
-        if operator.in_size() >= covariance.in_size():
-            raise AssertionError(f"dense Cholesky of the full {name} covariance")
-        return dense_cholesky(operator)
-
     dense_root = sample_module.dense_symmetric_sqrt
 
-    def refuse_full_size_root(matrix):
+    def poison_full_size_cholesky(operator):
+        factor = dense_cholesky(operator)
+        if operator.in_size() >= covariance.in_size():
+            return lx.MatrixLinearOperator(jnp.full_like(factor.as_matrix(), jnp.nan))
+        return factor
+
+    def poison_full_size_root(matrix):
+        root = dense_root(matrix)
         if matrix.shape[0] >= covariance.in_size():
-            raise AssertionError(f"dense square root of the full {name} covariance")
-        return dense_root(matrix)
+            return jnp.full_like(root, jnp.nan)
+        return root
 
-    monkeypatch.setattr(cholesky_module, "_cholesky_dense", refuse_full_size)
-    monkeypatch.setattr(sample_module, "dense_symmetric_sqrt", refuse_full_size_root)
+    monkeypatch.setattr(cholesky_module, "_cholesky_dense", poison_full_size_cholesky)
+    monkeypatch.setattr(sample_module, "dense_symmetric_sqrt", poison_full_size_root)
 
-    gaussx.sample_mvn(jnp.zeros(covariance.in_size()), covariance, key=jr.key(13))
+    samples = gaussx.sample_mvn(
+        jnp.zeros(covariance.in_size()), covariance, key=jr.key(13), num_samples=4
+    )
+
+    assert jnp.all(jnp.isfinite(samples)), f"{name} took a full-size dense factor"
 
 
 def test_batched_mean_gets_independent_noise() -> None:
@@ -230,6 +237,107 @@ def test_awkward_but_valid_covariances_are_sampled_exactly(
 
     assert jnp.all(jnp.isfinite(samples))
     assert_sample_moments(samples, mean, covariance.as_matrix())
+
+
+@pytest.mark.parametrize(
+    ("name", "covariance"),
+    [
+        # (-1) * (-I) = I and (-I) / (-1) = I: valid, but not through sqrt(c).
+        ("negative_scalar_multiple", -1.0 * lx.DiagonalLinearOperator(-jnp.ones(3))),
+        (
+            "negative_scalar_quotient",
+            lx.DiagonalLinearOperator(-jnp.ones(3)) / -1.0,
+        ),
+        # Square product of rectangular factors: the 2x2 all-ones matrix.
+        (
+            "rectangular_kronecker_factors",
+            gaussx.Kronecker(
+                lx.MatrixLinearOperator(jnp.ones((1, 2))),
+                lx.MatrixLinearOperator(jnp.ones((2, 1))),
+            ),
+        ),
+        # Singular: each diagonal block is [[1, 1], [1, 1]], no coupling.
+        (
+            "singular_block_tridiag",
+            gaussx.BlockTriDiag(jnp.ones((3, 2, 2)), jnp.zeros((2, 2, 2))),
+        ),
+    ],
+)
+def test_more_awkward_covariances_are_sampled_exactly(
+    name: str, covariance: lx.AbstractLinearOperator
+) -> None:
+    del name
+    mean = jnp.zeros(covariance.in_size())
+
+    samples = gaussx.sample_mvn(
+        mean, covariance, key=jr.key(34), num_samples=_NUM_SAMPLES
+    )
+
+    assert jnp.all(jnp.isfinite(samples))
+    assert_sample_moments(samples, mean, covariance.as_matrix())
+
+
+def test_traced_non_positive_scalar_raises() -> None:
+    @jax.jit
+    def draw(scale):
+        covariance = scale * lx.DiagonalLinearOperator(jnp.ones(2))
+        return gaussx.sample_mvn(jnp.zeros(2), covariance, key=jr.key(35))
+
+    assert jnp.all(jnp.isfinite(draw(2.0)))
+    with pytest.raises(Exception, match="c > 0"):
+        draw(-2.0)
+
+
+@pytest.mark.parametrize("structure", ["kronecker", "kronecker_sum"])
+def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -> None:
+    # t I has one eigenvalue repeated three times; differentiating through
+    # eigh's eigenvectors there gives NaN.
+    other = _pd(36, 2).as_matrix()
+
+    def loss(t):
+        isotropic = lx.MatrixLinearOperator(t * jnp.eye(3))
+        if structure == "kronecker":
+            covariance = gaussx.Kronecker(isotropic, lx.MatrixLinearOperator(other))
+        else:
+            covariance = gaussx.KroneckerSum(isotropic, lx.MatrixLinearOperator(other))
+        samples = gaussx.sample_mvn(
+            jnp.zeros(6), covariance, key=jr.key(37), num_samples=16
+        )
+        return jnp.sum(samples**2)
+
+    t = 1.3
+    gradient = jax.grad(loss)(t)
+    step = 1e-6
+    finite_difference = (loss(t + step) - loss(t - step)) / (2 * step)
+
+    assert jnp.isfinite(gradient)
+    assert jnp.allclose(gradient, finite_difference, rtol=1e-5)
+
+
+def test_kronecker_sum_root_jvp_matches_the_dense_root() -> None:
+    # The structured Sylvester JVP against dense_symmetric_sqrt's own JVP on
+    # the materialised A ⊕ B, for random symmetric tangents.
+    a, b = _pd(38, 3).as_matrix(), _pd(39, 2).as_matrix()
+    noise = jr.normal(jr.key(40), (5, 3, 2))
+    tangent_a = jr.normal(jr.key(41), (3, 3))
+    tangent_b = jr.normal(jr.key(42), (2, 2))
+    tangent_noise = jr.normal(jr.key(43), (5, 3, 2))
+
+    def structured(a, b, noise):
+        return sample_module._kronecker_sum_root_action(a, b, noise)
+
+    def dense(a, b, noise):
+        kron_sum = jnp.kron(a, jnp.eye(2)) + jnp.kron(jnp.eye(3), b)
+        root = sample_module.dense_symmetric_sqrt(kron_sum)
+        return jax.vmap(lambda z: (root @ z.reshape(-1)).reshape(3, 2))(noise)
+
+    args = (a, b, noise)
+    tangents = (tangent_a, tangent_b, tangent_noise)
+    structured_out, structured_tangent = jax.jvp(structured, args, tangents)
+    dense_out, dense_tangent = jax.jvp(dense, args, tangents)
+
+    assert jnp.allclose(structured_out, dense_out, atol=1e-10)
+    assert jnp.allclose(structured_tangent, dense_tangent, atol=1e-10)
 
 
 def test_kronecker_sum_with_traced_factors() -> None:
