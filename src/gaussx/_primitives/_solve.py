@@ -23,6 +23,7 @@ from gaussx._operators._kronecker_sum import (
     _eigh_factor,
 )
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
@@ -51,6 +52,8 @@ def solve(
         return _solve_diagonal(operator, vector)
     if isinstance(operator, DiagonalisedOperator):
         return _solve_diagonalised(operator, vector)
+    if isinstance(operator, MaskedOperator) and operator.capacitance is not None:
+        return _solve_masked(operator, vector)
     if isinstance(operator, BlockDiag):
         return _solve_block_diag(operator, vector, solver)
     if isinstance(operator, Kronecker):
@@ -88,6 +91,22 @@ def solve(
         if x is not None:
             return x
     return _solve_fallback(operator, vector, solver)
+
+
+def _solve_masked(
+    operator: MaskedOperator,
+    vector: Float[Array, " m"],
+) -> Float[Array, " m"]:
+    """``B[m][:, m] x = f`` via the operator's precomputed capacitance solver.
+
+    Scatter ``f`` into the full index space, solve with the constraints
+    ``y[C] = 0`` (see `MaskedOperator`), and gather the masked-in entries.
+    """
+    assert operator.capacitance is not None
+    n = operator.base.in_size()
+    idx = jnp.where(operator.col_mask, size=operator.in_size())[0]
+    full = jnp.zeros(n, dtype=jnp.result_type(vector, operator.out_structure().dtype))
+    return operator.capacitance(full.at[idx].set(vector))[idx]
 
 
 def _solve_diagonalised(

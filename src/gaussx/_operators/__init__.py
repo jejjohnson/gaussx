@@ -43,7 +43,7 @@ from gaussx._operators._low_rank_update import (
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
-from gaussx._operators._masked import MaskedOperator
+from gaussx._operators._masked import MaskedOperator, grid_coupling_indices
 from gaussx._operators._sum_kronecker import (
     SumKronecker,
     SumOfKroneckers,
@@ -591,6 +591,7 @@ __all__ = [
     "UpperBlockTriDiag",
     "as_diagonalised",
     "circulant_from_symbol",
+    "grid_coupling_indices",
     "implicit_cross_kernel",
     "kronecker_sum_sample",
     "low_rank_plus_diag",

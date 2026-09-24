@@ -165,6 +165,7 @@ from gaussx._operators import (
     UpperBlockTriDiag as UpperBlockTriDiag,
     as_diagonalised as as_diagonalised,
     circulant_from_symbol as circulant_from_symbol,
+    grid_coupling_indices as grid_coupling_indices,
     implicit_cross_kernel as implicit_cross_kernel,
     kronecker_sum_sample as kronecker_sum_sample,
     low_rank_plus_diag as low_rank_plus_diag,

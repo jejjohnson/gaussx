@@ -153,7 +153,7 @@ Practical guidance:
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [KernelOperator, ImplicitKernelOperator, ImplicitCrossKernelOperator, implicit_cross_kernel, InterpolatedOperator, MaskedOperator]
+      members: [KernelOperator, ImplicitKernelOperator, ImplicitCrossKernelOperator, implicit_cross_kernel, InterpolatedOperator, MaskedOperator, grid_coupling_indices]
 
 ## Lazy algebra & sampling
 
