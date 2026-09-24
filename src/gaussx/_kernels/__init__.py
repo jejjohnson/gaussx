@@ -6,6 +6,7 @@ from gaussx._kernels._eigenpro import (
     eigenpro_preconditioner,
     eigenpro_step_size,
 )
+from gaussx._kernels._falkon import FalkonPreconditioner, falkon_preconditioner
 from gaussx._kernels._grid import (
     create_grid,
     cubic_interpolation_weights,
@@ -23,6 +24,7 @@ from gaussx._kernels._kernel_approx import (
 
 __all__ = [
     "EigenProPreconditioner",
+    "FalkonPreconditioner",
     "center_kernel",
     "centering_operator",
     "create_grid",
@@ -30,6 +32,7 @@ __all__ = [
     "eigenpro_correction",
     "eigenpro_preconditioner",
     "eigenpro_step_size",
+    "falkon_preconditioner",
     "grid_data",
     "hsic",
     "mmd_squared",

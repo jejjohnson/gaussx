@@ -28,6 +28,23 @@ residual spectrum (Ma & Belkin, 2017).
       show_root_toc_entry: false
       members: [eigenpro_preconditioner, eigenpro_step_size, eigenpro_correction, EigenProPreconditioner]
 
+## Falkon kernel ridge regression
+
+Nyström kernel ridge regression solves
+$(K_{nm}^\top K_{nm} + \lambda n K_{mm})\alpha = K_{nm}^\top y$. Falkon
+(Rudi et al., 2017; Meanti et al., 2020) preconditions it with the Nyström
+approximation $K_{nm}^\top K_{nm} \approx (n/m) K_{mm}^2$, factored as two
+upper-triangular $M \times M$ Choleskys. In the preconditioned variable
+$K_{mm}$ cancels, so conjugate gradients needs only triangular solves and
+matvecs with $K_{nm}$, which an `ImplicitCrossKernelOperator` provides without
+ever forming the $N \times M$ matrix.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [falkon_preconditioner, FalkonPreconditioner]
+
 ## Kernel statistics
 
 Centering, the Hilbert-Schmidt independence criterion, and maximum mean
