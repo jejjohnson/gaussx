@@ -106,6 +106,7 @@ from gaussx._kernels import (
     eigenpro_preconditioner as eigenpro_preconditioner,
     eigenpro_step_size as eigenpro_step_size,
     falkon_preconditioner as falkon_preconditioner,
+    falkon_solve as falkon_solve,
     grid_data as grid_data,
     hsic as hsic,
     mmd_squared as mmd_squared,

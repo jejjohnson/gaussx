@@ -13,6 +13,7 @@ touched only through matvecs.
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
@@ -117,6 +118,93 @@ def falkon_preconditioner(
     T = jax.scipy.linalg.cholesky(K_mm + jitter * identity, lower=False)
     A = jax.scipy.linalg.cholesky(T @ T.T / m + regularization * identity, lower=False)
     return FalkonPreconditioner(T=T, A=A)
+
+
+def falkon_solve(
+    K_nm: lx.AbstractLinearOperator,
+    y: Float[Array, " N"],
+    preconditioner: FalkonPreconditioner,
+    regularization: float | Float[Array, ""],
+    *,
+    max_iter: int = 20,
+    tol: float = 1e-6,
+) -> Float[Array, " M"]:
+    r"""Nyström kernel ridge regression weights by Falkon's preconditioned CG.
+
+    Solves $(K_{nm}^{\top} K_{nm} + \lambda n K_{mm})\, \alpha = K_{nm}^{\top} y$
+    for the Nyström weights $\alpha$, with $K_{mm}$ the jittered matrix the
+    preconditioner was built from. CG runs on $\beta = P^{-1} \alpha$
+    against
+
+    $$A^{-\top} \bigl[ T^{-\top} K_{nm}^{\top} K_{nm} T^{-1}
+      + \lambda n I \bigr] A^{-1} \beta = A^{-\top} T^{-\top} K_{nm}^{\top} y,$$
+
+    so each iteration costs four $M \times M$ triangular solves and one
+    matvec each with $K_{nm}$ and $K_{nm}^{\top}$ -- pass an
+    `ImplicitCrossKernelOperator` and the $N \times M$ matrix is never
+    formed. The weights are recovered as $\alpha = T^{-1} A^{-1} \beta$.
+
+    Following Falkon, ``max_iter`` is a budget rather than a failure: the
+    preconditioned system is well conditioned enough that a few tens of
+    iterations reach the statistical accuracy of the estimator, and the
+    iterate at the budget is returned without raising.
+
+    Args:
+        K_nm: Cross-kernel operator between the ``N`` data points and the
+            ``M`` inducing points, shape ``(N, M)``. Only ``mv`` and
+            ``transpose().mv`` are used.
+        y: Targets, shape ``(N,)``.
+        preconditioner: `FalkonPreconditioner` built from the same inducing
+            points and ``regularization``.
+        regularization: Ridge parameter $\lambda$; must match the
+            preconditioner's.
+        max_iter: CG iteration budget.
+        tol: Relative residual tolerance for stopping early.
+
+    Returns:
+        Nyström weights $\alpha$, shape ``(M,)``.
+
+    Raises:
+        ValueError: If the shapes of ``K_nm``, ``y`` and ``preconditioner``
+            disagree, or ``max_iter`` is below one.
+    """
+    y = jnp.asarray(y)
+    m = preconditioner.T.shape[0]
+    if y.ndim != 1:
+        raise ValueError(f"y must be a vector of shape (N,), got {y.shape}.")
+    n = y.shape[0]
+    if (K_nm.out_size(), K_nm.in_size()) != (n, m):
+        raise ValueError(
+            f"K_nm must have shape ({n}, {m}) to match y and the preconditioner, "
+            f"got ({K_nm.out_size()}, {K_nm.in_size()})."
+        )
+    if max_iter < 1:
+        raise ValueError(f"max_iter must be at least 1, got {max_iter}.")
+
+    K_mn = K_nm.transpose()
+    ridge = regularization * n
+    T, A = preconditioner.T, preconditioner.A
+
+    def preconditioned_system(beta: Float[Array, " M"]) -> Float[Array, " M"]:
+        v = _solve_upper(A, beta)
+        w = _solve_upper(T, v)
+        c = _solve_upper(T, K_mn.mv(K_nm.mv(w)), trans=1) + ridge * v
+        return _solve_upper(A, c, trans=1)
+
+    dtype = jnp.result_type(y.dtype, T.dtype)
+    operator = lx.FunctionLinearOperator(
+        preconditioned_system,
+        jax.ShapeDtypeStruct((m,), dtype),
+        lx.positive_semidefinite_tag,
+    )
+    rhs = preconditioner.precondition_transpose(K_mn.mv(y.astype(dtype)))
+    solution = lx.linear_solve(
+        operator,
+        rhs,
+        lx.CG(rtol=tol, atol=0.0, max_steps=max_iter),
+        throw=False,
+    )
+    return preconditioner.precondition(solution.value)
 
 
 def _solve_upper(factor: Float[Array, "M M"], rhs: Array, trans: int = 0) -> Array:
