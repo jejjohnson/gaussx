@@ -114,6 +114,10 @@ def sample_mvn(
 
     batch_shape = mean.shape[:-1]
     num_draws = num_samples * math.prod(batch_shape)
+    if num_draws == 0:
+        # An empty batch: nothing to draw, but the output keeps its shape.
+        dtype = jnp.result_type(mean, covariance.in_structure().dtype)
+        return jnp.zeros((num_samples, *mean.shape), dtype=dtype)
     draws = _zero_mean_draws(covariance, key, num_draws)
 
     axes = [f"b{index}" for index in range(len(batch_shape))]
@@ -147,7 +151,7 @@ def _zero_mean_draws(
         return inner / jnp.sqrt(scalar)
     if isinstance(covariance, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
         return _factor_draws(cholesky(covariance), covariance, key, num_draws)
-    if isinstance(covariance, BlockDiag):
+    if isinstance(covariance, BlockDiag) and _all_square(covariance.operators):
         keys = jr.split(key, len(covariance.operators))
         return jnp.concatenate(
             [
