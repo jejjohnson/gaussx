@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.1.0](https://github.com/jejjohnson/gaussx/compare/v0.0.29...v0.1.0) (2026-09-24)
+
+
+### ⚠ BREAKING CHANGES
+
+* **operators:** the `green` and `capacitance_inv` attributes are removed (replaced by `capacitance_lu`). No downstream package reads them.
+
+### Features
+
+* **operators:** add DiagonalisedOperator and Circulant; diagonalised Kronecker-sum solves ([#268](https://github.com/jejjohnson/gaussx/issues/268)) ([a9b65e9](https://github.com/jejjohnson/gaussx/commit/a9b65e9eb0ccfe6272aaa5dbe9f44ca70e3f6c0a))
+* **operators:** solve(MaskedOperator) via the capacitance method ([#269](https://github.com/jejjohnson/gaussx/issues/269)) ([d951677](https://github.com/jejjohnson/gaussx/commit/d95167779f2bf877dcfac4804caa18b058abca28))
+
+
+### Bug Fixes
+
+* **capacitance:** solve the right PDE for singular bases; drop the Green's table ([#267](https://github.com/jejjohnson/gaussx/issues/267)) ([bff418c](https://github.com/jejjohnson/gaussx/commit/bff418c6710c245697c9367d4bcb4d35e12b4d68))
+
 ## [0.0.29](https://github.com/jejjohnson/gaussx/compare/v0.0.28...v0.0.29) (2026-09-24)
 
 
