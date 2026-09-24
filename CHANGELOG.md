@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.0.29](https://github.com/jejjohnson/gaussx/compare/v0.0.28...v0.0.29) (2026-09-24)
+
+
+### Features
+
+* **kernels:** falkon_preconditioner for Nyström KRR (gh-49, 1/3) ([#253](https://github.com/jejjohnson/gaussx/issues/253)) ([9e02c71](https://github.com/jejjohnson/gaussx/commit/9e02c71cd1ba8e54399efad4acf99c63506a8891))
+* **kernels:** falkon_solve, Falkon's preconditioned CG (gh-49, 2/3) ([#254](https://github.com/jejjohnson/gaussx/issues/254)) ([8926d82](https://github.com/jejjohnson/gaussx/commit/8926d821acd7f1bf229599a18a993bdaa4ace031))
+* **linalg:** add EigenFactorization and kronecker_sum_solve; fix non-symmetric KroneckerSum solve ([#264](https://github.com/jejjohnson/gaussx/issues/264)) ([074e540](https://github.com/jejjohnson/gaussx/commit/074e54035e0d71531e4413b922dd7529bc0bf99a))
+
+
+### Bug Fixes
+
+* **preconditioners:** guard partial-Cholesky pivots past numerical rank (gh-237) ([#252](https://github.com/jejjohnson/gaussx/issues/252)) ([1a2b87b](https://github.com/jejjohnson/gaussx/commit/1a2b87b772ce50eb29c1925992a8fef9111950a3))
+
 ## [0.0.28](https://github.com/jejjohnson/gaussx/compare/v0.0.27...v0.0.28) (2026-09-24)
 
 
