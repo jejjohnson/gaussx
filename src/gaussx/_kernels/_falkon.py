@@ -77,8 +77,8 @@ def falkon_preconditioner(
     to the diagonal of $K_{mm}$ before factorising. The default is the
     pstrf-style ``M * eps * max(diag(K_mm))``: large enough to keep the
     Cholesky finite, small enough not to change the solution at working
-    precision. An all-zero diagonal takes a scale of 1 instead, so the
-    jitter stays positive.
+    precision. It is floored at the dtype's smallest normal number, so a
+    zero or tiny-scale ``K_mm`` still gets a positive jitter.
 
     Args:
         K_mm: Kernel matrix of the inducing points, shape ``(M, M)``, as an
@@ -108,10 +108,10 @@ def falkon_preconditioner(
     identity = jnp.eye(m, dtype=dtype)
     if jitter is None:
         scale = jnp.max(jnp.abs(jnp.diag(K_mm)))
-        # A zero-scale kernel (e.g. a linear kernel at zero inputs) would
-        # otherwise get zero jitter and a NaN Cholesky.
-        scale = jnp.where(scale > 0, scale, 1.0)
-        jitter = m * jnp.finfo(dtype).eps * scale
+        # Floored at the smallest normal number: a zero or tiny-scale kernel
+        # (e.g. a linear kernel at zero inputs) would otherwise get a jitter
+        # that is, or underflows to, zero, and a NaN Cholesky.
+        jitter = jnp.maximum(m * jnp.finfo(dtype).eps * scale, jnp.finfo(dtype).tiny)
     jitter = jnp.asarray(jitter, dtype=dtype)
 
     T = jax.scipy.linalg.cholesky(K_mm + jitter * identity, lower=False)
