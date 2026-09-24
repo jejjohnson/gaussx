@@ -1,0 +1,462 @@
+r"""Structure-aware sampling from multivariate normal distributions.
+
+`sample_mvn` draws $x = \mu + L\varepsilon$ with $LL^{\top} = K$, choosing the
+factor $L$ from the structure of the covariance operator so a sample never
+costs more than the structure demands.
+"""
+
+from __future__ import annotations
+
+import math
+
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+import lineax as lx
+from jaxtyping import Array, Float
+
+from gaussx._einx import einsum, rearrange
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    _arrays_match,
+    _safe_query,
+)
+from gaussx._operators._toeplitz import Toeplitz, _circulant_embedding, toeplitz_sample
+from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._sqrt import dense_symmetric_sqrt
+
+
+def sample_mvn(
+    mean: Float[Array, "*batch N"],
+    covariance: lx.AbstractLinearOperator,
+    *,
+    key: jax.Array,
+    num_samples: int = 1,
+) -> Float[Array, "num_samples *batch N"]:
+    r"""Draw samples from $\mathcal{N}(\mu, K)$, dispatching on $K$'s structure.
+
+    Every branch draws $x = \mu + L\varepsilon$ with $\varepsilon \sim
+    \mathcal{N}(0, I)$ and $LL^{\top} = K$ *exactly* -- no branch
+    approximates the covariance -- and only the factor $L$ changes:
+
+    | Covariance $K$ | Factor | Cost |
+    |---|---|---|
+    | `lineax.DiagonalLinearOperator` | $\sqrt{d} \odot z$ | $O(N)$ |
+    | `gaussx.BlockDiag` | each block by its own rule | per block |
+    | `gaussx.Kronecker` | per-factor eigendecomposition | $O(\sum_i N_i^3)$ |
+    | `gaussx.KroneckerSum` | per-factor eigendecomposition | $O(n_A^3 + n_B^3)$ |
+    | `gaussx.BlockTriDiag` | block-banded Cholesky | $O(T d^3)$ |
+    | `gaussx.Toeplitz` | FFT circulant embedding | $O(N \log N)$ |
+    | `gaussx.LowRankUpdate` | $L_B z_1 + U\sqrt{D} z_2$ | $B$'s cost $+ O(Nr)$ |
+    | anything else | dense symmetric square root | $O(N^3)$ |
+
+    `lineax.TaggedLinearOperator` wrappers are looked through, and a scalar
+    multiple $cK$ (with $c > 0$) samples $K$ and rescales by $\sqrt{c}$, so
+    wrapping never costs the structure underneath.
+
+    The Kronecker branches work in the factors' eigenbases, where the
+    eigenvalues of the whole operator are products (or sums) of the factors'
+    ones. That keeps them exact when a factor is indefinite but the product
+    is not -- ``(-A) \otimes (-B)`` -- and when the covariance is only
+    semi-definite. The dense fallback is the symmetric square root for the
+    same reason: a Cholesky factor of a singular covariance is ``NaN``.
+
+    A `gaussx.SumOfKroneckers` takes the dense fallback: its matrix-free
+    square root, `gaussx.sumkronecker_sample`, is a truncated Lanczos
+    approximation, so it stays an explicit opt-in rather than a default.
+
+    Some structured routes hold only for some values, and each takes the
+    dense square root otherwise -- so every covariance the operator can
+    represent is sampled exactly, and pathwise gradients stay finite:
+
+    - a scalar multiple $cK$ needs $c > 0$;
+    - a `gaussx.Toeplitz` needs a circulant embedding (2, 4, 8 or 16 times
+      ``N``) whose spectrum is strictly positive -- a zero eigenvalue there
+      would put ``sqrt(0)`` in the pathwise derivative;
+    - a `gaussx.LowRankUpdate` $B + UDV^{\top}$ needs $V = U$ established
+      (the same array, or equal values), a base $B$ that is a covariance in
+      its own right (tagged positive semi-definite, or a strictly positive
+      diagonal), and $D > 0$ -- a zero weight would again put ``sqrt(0)``
+      in the derivative.
+
+    When those values are only known at run time (under `jax.jit`), the
+    choice is a `jax.lax.cond`, which runs only the branch it takes; under
+    `jax.vmap` it evaluates both.
+
+    Args:
+        mean: Mean $\mu$ with shape ``(*batch, N)``. Each batch element gets
+            independent noise; the covariance is shared.
+        covariance: Positive-definite covariance operator $K$ of size
+            ``(N, N)``.
+        key: PRNG key.
+        num_samples: Number of independent draws.
+
+    Returns:
+        Samples of shape ``(num_samples, *batch, N)``.
+
+    Raises:
+        ValueError: If ``covariance`` is not square, does not match the last
+            axis of ``mean``, or ``num_samples`` is below one.
+    """
+    mean = jnp.asarray(mean)
+    if covariance.in_size() != covariance.out_size():
+        raise ValueError(
+            "sample_mvn requires a square covariance, got "
+            f"{covariance.out_size()}x{covariance.in_size()}."
+        )
+    if mean.ndim < 1 or mean.shape[-1] != covariance.in_size():
+        raise ValueError(
+            f"mean must have shape (*batch, {covariance.in_size()}), got {mean.shape}."
+        )
+    if num_samples < 1:
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
+
+    batch_shape = mean.shape[:-1]
+    num_draws = num_samples * math.prod(batch_shape)
+    if num_draws == 0:
+        # An empty batch: nothing to draw, but the output keeps its shape.
+        # The represented dtype, which `in_structure` can understate (a
+        # LowRankUpdate reports its base's). Abstract, so nothing is formed.
+        matrix_dtype = jax.eval_shape(covariance.as_matrix).dtype
+        dtype = jnp.result_type(mean, matrix_dtype)
+        return jnp.zeros((num_samples, *mean.shape), dtype=dtype)
+    draws = _zero_mean_draws(covariance, key, num_draws)
+
+    axes = [f"b{index}" for index in range(len(batch_shape))]
+    pattern = f"(s {' '.join(axes)}) n -> s {' '.join(axes)} n"
+    draws = rearrange(draws, pattern, **dict(zip(axes, batch_shape, strict=True)))
+    dtype = jnp.result_type(mean, draws)
+    return mean.astype(dtype) + draws.astype(dtype)
+
+
+def _zero_mean_draws(
+    covariance: lx.AbstractLinearOperator,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """``num_draws`` exact samples from ``N(0, covariance)``, stacked row-wise."""
+    if isinstance(covariance, lx.TaggedLinearOperator):
+        return _zero_mean_draws(covariance.operator, key, num_draws)
+    if isinstance(covariance, lx.MulLinearOperator | lx.DivLinearOperator):
+        scalar = covariance.scalar
+
+        def scaled() -> Float[Array, "S N"]:
+            inner = _zero_mean_draws(covariance.operator, key, num_draws)
+            if isinstance(covariance, lx.MulLinearOperator):
+                return jnp.sqrt(scalar) * inner
+            return inner / jnp.sqrt(scalar)
+
+        # cK is only sampleable through K when c > 0; (-1)(-I) = I is not.
+        return _structured_or_dense(scalar > 0, scaled, covariance, key, num_draws)
+    if isinstance(covariance, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
+        return _factor_draws(cholesky(covariance), covariance, key, num_draws)
+    if isinstance(covariance, BlockDiag) and _all_square(covariance.operators):
+        keys = jr.split(key, len(covariance.operators))
+        return jnp.concatenate(
+            [
+                _zero_mean_draws(block, block_key, num_draws)
+                for block, block_key in zip(covariance.operators, keys, strict=True)
+            ],
+            axis=1,
+        )
+    if isinstance(covariance, Kronecker) and _all_square(covariance.operators):
+        return _kronecker_draws(covariance, key, num_draws)
+    if isinstance(covariance, KroneckerSum):
+        return _kronecker_sum_draws(covariance, key, num_draws)
+    if isinstance(covariance, BlockTriDiag):
+        return _block_tridiag_draws(covariance, key, num_draws)
+    if isinstance(covariance, Toeplitz):
+        return _toeplitz_draws(covariance, key, num_draws)
+    if isinstance(covariance, LowRankUpdate) and _arrays_match(
+        covariance.U, covariance.V
+    ):
+        return _structured_or_dense(
+            _low_rank_is_sampleable(covariance),
+            lambda: _low_rank_draws(covariance, key, num_draws),
+            covariance,
+            key,
+            num_draws,
+        )
+
+    return _dense_draws(covariance, key, num_draws)
+
+
+def _structured_or_dense(
+    valid,
+    structured,
+    covariance: lx.AbstractLinearOperator,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """``structured()`` when ``valid`` holds, else the dense square root.
+
+    ``valid`` may be a Python bool or a JAX boolean. Concrete, only one route
+    is traced; traced, the choice is a ``lax.cond``.
+    """
+    try:
+        known = bool(valid)
+    except jax.errors.TracerBoolConversionError:
+        return jax.lax.cond(
+            valid, structured, lambda: _dense_draws(covariance, key, num_draws)
+        )
+    return structured() if known else _dense_draws(covariance, key, num_draws)
+
+
+def _dense_draws(
+    covariance: lx.AbstractLinearOperator,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """Draws through the dense symmetric square root of the whole covariance."""
+    root = lx.MatrixLinearOperator(dense_symmetric_sqrt(covariance.as_matrix()))
+    return _factor_draws(root, covariance, key, num_draws)
+
+
+def _factor_draws(
+    factor: lx.AbstractLinearOperator,
+    covariance: lx.AbstractLinearOperator,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """``L z`` for ``num_draws`` standard-normal ``z``."""
+    dtype = covariance.in_structure().dtype
+    noise = jr.normal(key, (num_draws, covariance.in_size()), dtype=dtype)
+    return jax.vmap(factor.mv)(noise)
+
+
+def _all_square(operators: tuple[lx.AbstractLinearOperator, ...]) -> bool:
+    return all(op.in_size() == op.out_size() for op in operators)
+
+
+def _kronecker_draws(
+    covariance: Kronecker,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    r"""Draws for ``⊗ A_i`` through ``⊗ √(σ_i A_i)``.
+
+    The Kronecker product of the factors' symmetric square roots is the
+    symmetric square root of the product, and each factor's root carries
+    ``dense_symmetric_sqrt``'s custom JVP, so pathwise gradients stay finite
+    at repeated eigenvalues (an isotropic factor ``t I``).
+
+    A positive semi-definite product of square factors has every factor
+    semi-definite, positive or negative, with the negative ones pairing up.
+    Flipping each factor by the sign ``σ_i`` of its trace makes it positive
+    semi-definite without changing the product, so ``(-A) ⊗ (-B)`` is exact.
+    """
+    roots = []
+    for factor in covariance.operators:
+        diagonal = _base_diagonal(factor)
+        if diagonal is not None:
+            sign = jnp.where(jnp.sum(diagonal) < 0, -1.0, 1.0)
+            roots.append(
+                lx.DiagonalLinearOperator(
+                    jnp.sqrt(jnp.clip(sign * diagonal, 0.0, None))
+                )
+            )
+            continue
+        matrix = factor.as_matrix()
+        sign = jnp.where(jnp.trace(matrix) < 0, -1.0, 1.0)
+        roots.append(lx.MatrixLinearOperator(dense_symmetric_sqrt(sign * matrix)))
+    return _factor_draws(Kronecker(*roots), covariance, key, num_draws)
+
+
+def _kronecker_sum_draws(
+    covariance: KroneckerSum,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """Draws for ``A ⊕ B`` through its symmetric square root, never formed."""
+    dtype = covariance.in_structure().dtype
+    size_a, size_b = covariance.A.in_size(), covariance.B.in_size()
+    noise = jr.normal(key, (num_draws, size_a, size_b), dtype=dtype)
+    draws = _kronecker_sum_root_action(
+        covariance.A.as_matrix(), covariance.B.as_matrix(), noise
+    )
+    return rearrange(draws, "s a b -> s (a b)")
+
+
+def _kronecker_sum_root_parts(a, b, noise):
+    """Eigenbases, root spectrum and rotated noise for ``√(A ⊕ B) z``."""
+    values_a, basis_a = jnp.linalg.eigh(a)
+    values_b, basis_b = jnp.linalg.eigh(b)
+    # Round-off negatives are clipped, which also covers a singular A ⊕ B.
+    roots = jnp.sqrt(jnp.clip(values_a[:, None] + values_b[None, :], 0.0, None))
+    rotated = einsum(basis_a, noise, basis_b, "k i, s k l, l j -> s i j")
+    return basis_a, basis_b, roots, rotated
+
+
+def _from_eigenbasis(basis_a, basis_b, values):
+    return einsum(basis_a, values, basis_b, "i k, s k l, j l -> s i j")
+
+
+@jax.custom_jvp
+def _kronecker_sum_root_action(
+    a: Float[Array, "A A"],
+    b: Float[Array, "B B"],
+    noise: Float[Array, "S A B"],
+) -> Float[Array, "S A B"]:
+    r"""``√(A ⊕ B) z`` for each noise slab, in the factors' eigenbases.
+
+    ``A ⊕ B = (Q_A ⊗ Q_B)(Λ_A ⊕ Λ_B)(Q_A ⊗ Q_B)ᵀ``, so its symmetric square
+    root acts on the eigenbasis coordinates ``Q_Aᵀ Z Q_B`` elementwise.
+    """
+    basis_a, basis_b, roots, rotated = _kronecker_sum_root_parts(a, b, noise)
+    return _from_eigenbasis(basis_a, basis_b, roots * rotated)
+
+
+@_kronecker_sum_root_action.defjvp
+def _kronecker_sum_root_action_jvp(primals, tangents):
+    r"""Sylvester derivative of ``√K z`` for ``K = A ⊕ B``, kept structured.
+
+    As in ``dense_symmetric_sqrt``: in ``K``'s eigenbasis ``dS̃`` is
+    ``dK̃ / (r_p + r_q)`` entrywise, dividing by *sums* of root eigenvalues
+    rather than eigenvalue gaps, so repeated eigenvalues are harmless. With
+    ``dK = dA ⊕ dB`` the rotated tangent is ``dÃ_ik δ_jl + δ_ik dB̃_jl``, so
+
+    $$
+    (dS̃\, \tilde z)_{ij} = \sum_k \frac{dÃ_{ik} \tilde z_{kj}}{r_{ij} + r_{kj}}
+      + \sum_l \frac{dB̃_{jl} \tilde z_{il}}{r_{ij} + r_{il}},
+    $$
+
+    which costs ``O(n_A n_B (n_A + n_B))`` per slab and never forms ``K``.
+    Entries whose root sum is zero (a doubly-degenerate zero eigenvalue) get
+    a zero derivative, matching ``dense_symmetric_sqrt``.
+    """
+    a, b, noise = primals
+    tangent_a, tangent_b, tangent_noise = tangents
+    basis_a, basis_b, roots, rotated = _kronecker_sum_root_parts(a, b, noise)
+    primal_out = _from_eigenbasis(basis_a, basis_b, roots * rotated)
+
+    # eigh reads one triangle, so project the tangents onto symmetric matrices.
+    tangent_a = basis_a.T @ (0.5 * (tangent_a + tangent_a.T)) @ basis_a
+    tangent_b = basis_b.T @ (0.5 * (tangent_b + tangent_b.T)) @ basis_b
+    rotated_tangent_noise = einsum(
+        basis_a, tangent_noise, basis_b, "k i, s k l, l j -> s i j"
+    )
+
+    def safe_inverse(denominator):
+        positive = denominator > 0.0
+        return jnp.where(positive, 1.0 / jnp.where(positive, denominator, 1.0), 0.0)
+
+    # inverse_a[i, k, j] = 1 / (r_ij + r_kj); inverse_b[i, j, l] = 1 / (r_ij + r_il)
+    inverse_a = safe_inverse(roots[:, None, :] + roots[None, :, :])
+    inverse_b = safe_inverse(roots[:, :, None] + roots[:, None, :])
+    # Fold the elementwise weights into the tangents, then contract.
+    weighted_a = tangent_a[:, :, None] * inverse_a
+    weighted_b = tangent_b[None, :, :] * inverse_b
+    term_a = einsum(weighted_a, rotated, "i k j, s k j -> s i j")
+    term_b = einsum(weighted_b, rotated, "i j l, s i l -> s i j")
+    tangent_out = _from_eigenbasis(
+        basis_a, basis_b, roots * rotated_tangent_noise + term_a + term_b
+    )
+    return primal_out, tangent_out
+
+
+def _block_tridiag_draws(
+    covariance: BlockTriDiag,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """Banded-Cholesky draws, or the dense root when the covariance is singular.
+
+    The block Cholesky needs every pivot positive and returns non-finite
+    values at a zero one, so a singular (semi-definite) covariance switches to
+    the dense symmetric square root. ``lax.cond`` evaluates only the branch it
+    takes, so the dense root costs nothing for a definite covariance.
+    """
+    draws = _factor_draws(cholesky(covariance), covariance, key, num_draws)
+    return jax.lax.cond(
+        jnp.all(jnp.isfinite(draws)),
+        lambda: draws,
+        lambda: _dense_draws(covariance, key, num_draws),
+    )
+
+
+# Circulant embedding sizes tried for a Toeplitz covariance, as multiples of N.
+_EMBEDDING_FACTORS = (2, 4, 8, 16)
+
+
+def _toeplitz_draws(
+    covariance: Toeplitz,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    """Circulant-embedding draws, or the dense root when no embedding works.
+
+    An embedding works when its spectrum is strictly positive: a negative
+    eigenvalue fails Wood--Chan, and a zero one leaves the draw correct but
+    its pathwise derivative infinite. A concrete column takes the smallest
+    embedding that works; a traced one checks the 2x embedding at run time.
+    """
+    column = jnp.asarray(covariance.column)
+    column = column.astype(jnp.result_type(column.dtype, jnp.float32))
+    for factor in _EMBEDDING_FACTORS:
+        spectrum = jnp.fft.rfft(
+            _circulant_embedding(column, embedding_factor=factor)
+        ).real
+        # Round-off headroom as in `toeplitz_sample`, but on the positive side.
+        scale = jnp.maximum(1.0, jnp.max(jnp.abs(spectrum)))
+        positive = jnp.all(spectrum > 100 * jnp.finfo(column.dtype).eps * scale)
+
+        def circulant(factor: int = factor) -> Float[Array, "S N"]:
+            return toeplitz_sample(
+                column, key=key, num_samples=num_draws, embedding_factor=factor
+            )
+
+        try:
+            if bool(positive):
+                return circulant()
+        except jax.errors.TracerBoolConversionError:
+            return _structured_or_dense(positive, circulant, covariance, key, num_draws)
+    return _dense_draws(covariance, key, num_draws)
+
+
+def _low_rank_is_sampleable(covariance: LowRankUpdate):
+    """Whether ``B + U D Uᵀ`` samples as ``L_B z₁ + U √D z₂`` with finite gradients.
+
+    ``V = U`` is checked by the caller. Needs strictly positive weights and a
+    base that is a covariance itself: tagged positive semi-definite, or a
+    strictly positive diagonal. Returns a Python bool when that is known and
+    a JAX boolean when only the values' signs are left to check.
+    """
+    valid = jnp.all(covariance.d > 0)
+    diagonal = _base_diagonal(covariance.base)
+    if diagonal is not None:
+        return valid & jnp.all(diagonal > 0)
+    if not _safe_query(lx.is_positive_semidefinite, covariance.base):
+        return False
+    return valid
+
+
+def _base_diagonal(base: lx.AbstractLinearOperator) -> Array | None:
+    """The diagonal of a (tagged) diagonal base, else ``None``."""
+    while isinstance(base, lx.TaggedLinearOperator):
+        base = base.operator
+    if isinstance(base, lx.DiagonalLinearOperator):
+        return lx.diagonal(base)
+    return None
+
+
+def _low_rank_draws(
+    covariance: LowRankUpdate,
+    key: jax.Array,
+    num_draws: int,
+) -> Float[Array, "S N"]:
+    r"""Sample ``B + U D Uᵀ`` as a sum of two independent draws.
+
+    $L_B z_1 + U\sqrt{D} z_2$ has covariance $B + UDU^{\top}$, and the base
+    $B$ is sampled through `_zero_mean_draws` so its own structure is kept.
+    """
+    base_key, update_key = jr.split(key)
+    base = _zero_mean_draws(covariance.base, base_key, num_draws)
+    noise = jr.normal(
+        update_key, (num_draws, covariance.rank), dtype=covariance.U.dtype
+    )
+    scaled = noise * jnp.sqrt(covariance.d)
+    return base + einsum(scaled, covariance.U, "s k, n k -> s n")
