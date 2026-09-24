@@ -15,7 +15,7 @@ from gaussx._distributions._gaussian import (
 from gaussx._distributions._joseph import joseph_update
 from gaussx._distributions._kl import dist_kl_divergence
 from gaussx._distributions._project import project
-from gaussx._distributions._sample import sample_mvn
+from gaussx._distributions._sample import sample_joint_conditional, sample_mvn
 
 
 __all__ = [
@@ -34,6 +34,7 @@ __all__ = [
     "kl_standard_normal",
     "project",
     "quadratic_form",
+    "sample_joint_conditional",
     "sample_mvn",
 ]
 

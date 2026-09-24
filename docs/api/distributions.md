@@ -99,11 +99,18 @@ explicit opt-in. The one-off helpers `toeplitz_sample` and
 `kronecker_sum_sample` also remain available for callers that want them
 directly.
 
+`sample_joint_conditional` draws a partitioned Gaussian $(x_a, x_b)$ jointly
+without forming its $(N + M)^2$ covariance: the observed block through
+`sample_mvn`, so it keeps its structure, and the other through the gain
+$K_{to}K_{oo}^{-1}$ plus a square root of the Schur complement. Given an
+observed value it also returns conditional draws that share the same noise,
+which makes them exactly the [`matheron_update`](gp.md) of the joint draws.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [sample_mvn]
+      members: [sample_mvn, sample_joint_conditional]
 
 ## Exponential family
 

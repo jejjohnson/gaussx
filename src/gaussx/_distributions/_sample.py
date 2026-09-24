@@ -8,6 +8,7 @@ costs more than the structure demands.
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -27,7 +28,10 @@ from gaussx._operators._low_rank_update import (
 )
 from gaussx._operators._toeplitz import Toeplitz, _circulant_embedding, toeplitz_sample
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
+from gaussx._strategies._base import AbstractSolveStrategy
+from gaussx._strategies._dispatch import dispatch_solve
 
 
 def sample_mvn(
@@ -460,3 +464,210 @@ def _low_rank_draws(
     )
     scaled = noise * jnp.sqrt(covariance.d)
     return base + einsum(scaled, covariance.U, "s k, n k -> s n")
+
+
+def sample_joint_conditional(
+    joint_mean: tuple[Float[Array, " N"], Float[Array, " M"]],
+    joint_covariance: dict[str, lx.AbstractLinearOperator],
+    *,
+    key: jax.Array,
+    observed_index: int = 1,
+    observed_value: Float[Array, " K"] | None = None,
+    num_samples: int = 1,
+    solver: AbstractSolveStrategy | None = None,
+) -> dict[str, Any]:
+    r"""Joint draws of a partitioned Gaussian, and conditional draws from them.
+
+    For
+
+    $$
+    \begin{pmatrix} x_a \\ x_b \end{pmatrix} \sim \mathcal{N}\!\left(
+    \begin{pmatrix} m_a \\ m_b \end{pmatrix},
+    \begin{pmatrix} K_{aa} & K_{ab} \\ K_{ba} & K_{bb} \end{pmatrix}
+    \right),
+    $$
+
+    write $o$ for the observed block and $t$ for the other (with
+    ``observed_index=1``, $o = b$ and $t = a$). The joint draw uses the block
+    factorisation
+
+    $$
+    x_o = m_o + L_o z_1, \qquad
+    x_t = m_t + K_{to} K_{oo}^{-1} (x_o - m_o) + L_S z_2,
+    $$
+
+    with $L_o L_o^{\top} = K_{oo}$ drawn by `gaussx.sample_mvn` -- so the
+    observed block keeps its structure -- and $L_S L_S^{\top} = S = K_{tt} -
+    K_{to} K_{oo}^{-1} K_{ot}$ the Schur complement. The joint covariance of
+    size $(N + M)^2$ is never formed.
+
+    When ``observed_value`` $\beta$ is given, the conditional draws of
+    $x_t \mid x_o = \beta$ reuse the same $z_2$:
+
+    $$
+    x_t \mid \beta = m_t + K_{to} K_{oo}^{-1} (\beta - m_o) + L_S z_2,
+    $$
+
+    which is exactly `gaussx.matheron_update` applied to the joint draws.
+
+    The Schur complement is dense in general: $K_{to} K_{oo}^{-1} K_{ot}$ is
+    dense whatever the structure of $K_{tt}$, so $S$ is factorised at
+    $O(N_t^3)$ plus $N_t$ solves against $K_{oo}$. Its square root is the
+    symmetric one from ``dense_symmetric_sqrt``, with round-off negative
+    eigenvalues clipped. That tolerates the rank deficiency of target points
+    that coincide with observed ones -- a Cholesky would return NaNs there --
+    and its custom JVP keeps gradients finite when $S$ has repeated
+    eigenvalues.
+
+    Args:
+        joint_mean: ``(m_a, m_b)`` with shapes ``(N,)`` and ``(M,)``.
+        joint_covariance: Operators ``{"aa": K_aa, "ab": K_ab, "bb": K_bb}``
+            of shapes ``(N, N)``, ``(N, M)`` and ``(M, M)``; ``K_ba`` is
+            ``K_ab.T``.
+        key: PRNG key.
+        observed_index: Which block is conditioned on: ``1`` for $x_b$
+            (sample $x_a \mid x_b$), ``0`` for $x_a$.
+        observed_value: Optional value $\beta$ of the observed block. When
+            given, the result also holds conditional draws.
+        num_samples: Number of independent draws.
+        solver: Optional solver strategy for the solves against $K_{oo}$
+            (e.g. `gaussx.CGSolver`). When ``None``, routes through
+            structural dispatch, as `gaussx.matheron_update` does.
+
+    Returns:
+        ``{"joint": (samples_a, samples_b)}`` with shapes
+        ``(num_samples, N)`` and ``(num_samples, M)``, plus
+        ``"conditional"`` of shape ``(num_samples, N_t)`` when
+        ``observed_value`` is given.
+
+    Raises:
+        ValueError: On a missing covariance block, mismatched shapes,
+            ``observed_index`` outside ``{0, 1}`` or ``num_samples`` below
+            one.
+    """
+    mean_a, mean_b = (jnp.asarray(mean) for mean in joint_mean)
+    covariance_aa, covariance_ab, covariance_bb = _covariance_blocks(
+        joint_covariance, mean_a.shape, mean_b.shape
+    )
+    if observed_index not in (0, 1):
+        raise ValueError(f"observed_index must be 0 or 1, got {observed_index}.")
+    if num_samples < 1:
+        raise ValueError(f"num_samples must be at least 1, got {num_samples}.")
+
+    if observed_index == 1:
+        mean_o, mean_t = mean_b, mean_a
+        covariance_oo, covariance_tt = covariance_bb, covariance_aa
+        cross = covariance_ab
+    else:
+        mean_o, mean_t = mean_a, mean_b
+        covariance_oo, covariance_tt = covariance_aa, covariance_bb
+        cross = covariance_ab.T
+
+    if observed_value is not None:
+        observed_value = jnp.asarray(observed_value)
+        if observed_value.shape != mean_o.shape:
+            raise ValueError(
+                f"observed_value must have shape {mean_o.shape}, got "
+                f"{observed_value.shape}."
+            )
+
+    if solver is None:
+        solve_observed = lambda vector: solve(covariance_oo, vector)
+    else:
+        solve_observed = lambda vector: dispatch_solve(covariance_oo, vector, solver)
+
+    def gain(deviations: Float[Array, "S K"]) -> Float[Array, "S T"]:
+        """Apply ``K_to K_oo⁺`` to each row.
+
+        The structured solve is used whenever it succeeds. A singular -- only
+        semi-definite -- ``K_oo`` makes it return non-finite values, and then
+        the batch is redone with the pseudo-inverse: for a valid joint
+        covariance both the deviations and the rows of ``K_to`` lie in the
+        range of ``K_oo``, where the pseudo-inverse is exact. ``lax.cond``
+        evaluates only the branch it takes.
+        """
+        solved = jax.vmap(solve_observed)(deviations)
+        solved = jax.lax.cond(
+            jnp.all(jnp.isfinite(solved)),
+            lambda: solved,
+            lambda: _pseudo_inverse_solve(covariance_oo, deviations),
+        )
+        return jax.vmap(cross.mv)(solved)
+
+    observed_key, schur_key = jr.split(key)
+    deviations_o = sample_mvn(
+        jnp.zeros_like(mean_o), covariance_oo, key=observed_key, num_samples=num_samples
+    )
+    dtype = deviations_o.dtype
+    schur_root = _schur_root(covariance_tt, cross, gain)
+    noise = jr.normal(schur_key, (num_samples, mean_t.shape[0]), dtype=dtype)
+    residual = einsum(noise, schur_root, "s k, t k -> s t")
+
+    samples_o = mean_o + deviations_o
+    samples_t = mean_t + gain(deviations_o) + residual
+    joint = (samples_t, samples_o) if observed_index == 1 else (samples_o, samples_t)
+    result: dict[str, Any] = {"joint": joint}
+    if observed_value is not None:
+        # Matheron's update of the returned joint draws, literally: with a
+        # finite-tolerance solver the gain is not additive across right-hand
+        # sides, so shifting from the mean instead would drift from it.
+        result["conditional"] = samples_t + gain(observed_value - samples_o)
+    return result
+
+
+def _pseudo_inverse_solve(
+    covariance: lx.AbstractLinearOperator,
+    rows: Float[Array, "S K"],
+) -> Float[Array, "S K"]:
+    """``K⁺ r`` for each row, through the Hermitian pseudo-inverse of ``K``."""
+    inverse = jnp.linalg.pinv(covariance.as_matrix(), hermitian=True)
+    return einsum(rows, inverse, "s k, j k -> s j")
+
+
+def _covariance_blocks(
+    joint_covariance: dict[str, lx.AbstractLinearOperator],
+    shape_a: tuple[int, ...],
+    shape_b: tuple[int, ...],
+) -> tuple[
+    lx.AbstractLinearOperator, lx.AbstractLinearOperator, lx.AbstractLinearOperator
+]:
+    """Validate and unpack the ``{"aa", "ab", "bb"}`` covariance blocks."""
+    missing = {"aa", "ab", "bb"} - set(joint_covariance)
+    if missing:
+        raise ValueError(
+            f"joint_covariance is missing block(s) {sorted(missing)}; expected "
+            '"aa", "ab" and "bb".'
+        )
+    if len(shape_a) != 1 or len(shape_b) != 1:
+        raise ValueError("joint_mean entries must both be vectors.")
+    (n,), (m,) = shape_a, shape_b
+    blocks = joint_covariance["aa"], joint_covariance["ab"], joint_covariance["bb"]
+    expected = ((n, n), (n, m), (m, m))
+    for name, block, (rows, columns) in zip(
+        ("aa", "ab", "bb"), blocks, expected, strict=True
+    ):
+        if (block.out_size(), block.in_size()) != (rows, columns):
+            raise ValueError(
+                f'joint_covariance["{name}"] must have shape ({rows}, {columns}), '
+                f"got ({block.out_size()}, {block.in_size()})."
+            )
+    return blocks
+
+
+def _schur_root(
+    covariance_tt: lx.AbstractLinearOperator,
+    cross: lx.AbstractLinearOperator,
+    gain,
+) -> Float[Array, "T T"]:
+    """The symmetric square root of ``S = K_tt - K_to K_oo⁻¹ K_ot``.
+
+    Uses ``dense_symmetric_sqrt`` rather than a bare ``eigh``: its custom
+    JVP stays finite when ``S`` has repeated eigenvalues -- an isotropic
+    conditional covariance is nothing else -- where differentiating through
+    ``eigh``'s eigenvectors gives NaN.
+    """
+    # Row i of K_to is column i of K_ot, so ``gain`` of the rows of K_to gives
+    # the rows of K_to K_oo⁻¹ K_ot (a symmetric matrix).
+    correction = gain(cross.as_matrix())
+    schur = covariance_tt.as_matrix() - correction
+    return dense_symmetric_sqrt(0.5 * (schur + schur.T))
