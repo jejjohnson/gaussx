@@ -319,3 +319,70 @@ def test_solve_rejects_mismatched_shapes() -> None:
         gaussx.falkon_solve(operator, jnp.ones((50, 2)), pre, 1e-3)
     with pytest.raises(ValueError, match="max_iter"):
         gaussx.falkon_solve(operator, jnp.ones(50), pre, 1e-3, max_iter=0)
+
+
+# ---------------------------------------------------------------------------
+# Prediction
+# ---------------------------------------------------------------------------
+
+
+def test_predict_matches_explicit_kernel_evaluation() -> None:
+    Z = jr.normal(jr.key(8), (15, 2))
+    X_test = jr.normal(jr.key(9), (40, 2))
+    alpha = jr.normal(jr.key(10), (15,))
+
+    predictions = gaussx.falkon_predict(_rbf, Z, alpha, X_test, batch_size=16)
+
+    assert predictions.shape == (40,)
+    assert jnp.allclose(predictions, _gram(X_test, Z) @ alpha, rtol=1e-10)
+
+
+def test_predict_with_kernel_parameters() -> None:
+    Z = jr.normal(jr.key(11), (10, 2))
+    X_test = jr.normal(jr.key(12), (7, 2))
+    alpha = jr.normal(jr.key(13), (10,))
+
+    def scaled_rbf(params, x, z):
+        return jnp.exp(-0.5 * jnp.sum((x - z) ** 2) / params["length"] ** 2)
+
+    predictions = gaussx.falkon_predict(
+        scaled_rbf, Z, alpha, X_test, params={"length": 2.0}
+    )
+
+    expected = _gram(X_test / 2.0, Z / 2.0) @ alpha
+    assert jnp.allclose(predictions, expected, rtol=1e-10)
+
+
+def test_end_to_end_regression_recovers_the_signal() -> None:
+    # Fit sin(3x) from 2000 noisy points with 100 inducing points, entirely
+    # matrix-free, and check held-out accuracy against the noiseless signal.
+    n, m, lam = 2000, 100, 1e-5
+    X = jr.uniform(jr.key(14), (n, 1), minval=-2.0, maxval=2.0)
+    y = jnp.sin(3.0 * X[:, 0]) + 0.1 * jr.normal(jr.key(15), (n,))
+    Z = X[:m]
+    X_test = jnp.linspace(-1.8, 1.8, 50)[:, None]
+
+    precond = gaussx.falkon_preconditioner(_gram(Z, Z), lam)
+    K_nm = gaussx.ImplicitCrossKernelOperator(_rbf, X, Z, batch_size=256)
+    alpha = gaussx.falkon_solve(K_nm, y, precond, lam, max_iter=30)
+    predictions = gaussx.falkon_predict(_rbf, Z, alpha, X_test)
+
+    rmse = jnp.sqrt(jnp.mean((predictions - jnp.sin(3.0 * X_test[:, 0])) ** 2))
+    assert rmse < 0.05
+
+
+def test_predict_is_jittable() -> None:
+    Z = jr.normal(jr.key(16), (8, 2))
+    X_test = jr.normal(jr.key(17), (5, 2))
+    alpha = jr.normal(jr.key(18), (8,))
+
+    eager = gaussx.falkon_predict(_rbf, Z, alpha, X_test)
+    jitted = jax.jit(lambda a: gaussx.falkon_predict(_rbf, Z, a, X_test))(alpha)
+
+    assert jnp.allclose(eager, jitted)
+
+
+def test_predict_rejects_mismatched_weights() -> None:
+    Z = jnp.zeros((5, 2))
+    with pytest.raises(ValueError, match="one weight per inducing point"):
+        gaussx.falkon_predict(_rbf, Z, jnp.ones(4), jnp.zeros((3, 2)))

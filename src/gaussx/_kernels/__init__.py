@@ -9,6 +9,7 @@ from gaussx._kernels._eigenpro import (
 from gaussx._kernels._falkon import (
     FalkonPreconditioner,
     falkon_preconditioner,
+    falkon_predict,
     falkon_solve,
 )
 from gaussx._kernels._grid import (
@@ -37,6 +38,7 @@ __all__ = [
     "eigenpro_preconditioner",
     "eigenpro_step_size",
     "falkon_preconditioner",
+    "falkon_predict",
     "falkon_solve",
     "grid_data",
     "hsic",

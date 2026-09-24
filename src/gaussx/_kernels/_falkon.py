@@ -12,12 +12,17 @@ touched only through matvecs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float
+
+from gaussx._operators._implicit_cross_kernel import ImplicitCrossKernelOperator
 
 
 class FalkonPreconditioner(eqx.Module):
@@ -230,6 +235,49 @@ def falkon_solve(
         throw=False,
     )
     return _solve_upper(T, _solve_upper(A, solution.value))
+
+
+def falkon_predict(
+    kernel_fn: Callable,
+    X_inducing: Float[Array, "M D"],
+    alpha: Float[Array, " M"],
+    X_test: Float[Array, "Nt D"],
+    *,
+    batch_size: int = 1024,
+    params: Any | None = None,
+) -> Float[Array, " Nt"]:
+    r"""Predict with Nyström KRR weights: $f(x_*) = \sum_j \alpha_j\, k(x_*, z_j)$.
+
+    Evaluates $K(X_*, Z)\, \alpha$ through an `ImplicitCrossKernelOperator`,
+    so the ``(Nt, M)`` test kernel is streamed in ``batch_size`` rows and
+    never held in memory at once.
+
+    Args:
+        kernel_fn: Kernel ``k(x, z) -> scalar``, or ``k(params, x, z)`` when
+            ``params`` is given -- the same signatures as
+            `ImplicitCrossKernelOperator`.
+        X_inducing: Inducing points $Z$, shape ``(M, D)``.
+        alpha: Nyström weights, e.g. from `falkon_solve`, shape ``(M,)``.
+        X_test: Test points, shape ``(Nt, D)``.
+        batch_size: Test rows evaluated per scan step.
+        params: Optional kernel hyperparameters.
+
+    Returns:
+        Predictions at ``X_test``, shape ``(Nt,)``.
+
+    Raises:
+        ValueError: If ``alpha`` does not have one weight per inducing point.
+    """
+    alpha = jnp.asarray(alpha)
+    if alpha.shape != (X_inducing.shape[0],):
+        raise ValueError(
+            f"alpha must have shape ({X_inducing.shape[0]},), one weight per "
+            f"inducing point, got {alpha.shape}."
+        )
+    cross = ImplicitCrossKernelOperator(
+        kernel_fn, X_test, X_inducing, batch_size, params=params
+    )
+    return cross.mv(alpha)
 
 
 def _solve_upper(factor: Float[Array, "M M"], rhs: Array, trans: int = 0) -> Array:

@@ -39,11 +39,24 @@ $K_{mm}$ cancels, so conjugate gradients needs only triangular solves and
 matvecs with $K_{nm}$, which an `ImplicitCrossKernelOperator` provides without
 ever forming the $N \times M$ matrix.
 
+```python
+import gaussx
+
+# Preconditioner: two M x M Choleskys, once.
+precond = gaussx.falkon_preconditioner(K_mm, regularization=lam)
+
+# The (N, M) cross kernel stays implicit.
+K_nm = gaussx.ImplicitCrossKernelOperator(kernel_fn, X_train, Z)
+alpha = gaussx.falkon_solve(K_nm, y_train, precond, regularization=lam)
+
+y_pred = gaussx.falkon_predict(kernel_fn, Z, alpha, X_test)
+```
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [falkon_preconditioner, falkon_solve, FalkonPreconditioner]
+      members: [falkon_preconditioner, falkon_solve, falkon_predict, FalkonPreconditioner]
 
 ## Kernel statistics
 
