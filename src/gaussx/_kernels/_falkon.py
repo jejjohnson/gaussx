@@ -98,9 +98,16 @@ def falkon_preconditioner(
     if K_mm.ndim != 2 or K_mm.shape[0] != K_mm.shape[1]:
         raise ValueError(f"K_mm must be a square matrix, got shape {K_mm.shape}.")
     m = K_mm.shape[0]
-    identity = jnp.eye(m, dtype=K_mm.dtype)
+    # One dtype for both factors: a float64 ``regularization`` with a float32
+    # ``K_mm`` would otherwise give a float32 T and a float64 A.
+    operands = [K_mm, regularization] + ([] if jitter is None else [jitter])
+    dtype = jnp.result_type(*operands, jnp.float32)
+    K_mm = K_mm.astype(dtype)
+    regularization = jnp.asarray(regularization, dtype=dtype)
+    identity = jnp.eye(m, dtype=dtype)
     if jitter is None:
-        jitter = m * jnp.finfo(K_mm.dtype).eps * jnp.max(jnp.abs(jnp.diag(K_mm)))
+        jitter = m * jnp.finfo(dtype).eps * jnp.max(jnp.abs(jnp.diag(K_mm)))
+    jitter = jnp.asarray(jitter, dtype=dtype)
 
     T = jax.scipy.linalg.cholesky(K_mm + jitter * identity, lower=False)
     A = jax.scipy.linalg.cholesky(T @ T.T / m + regularization * identity, lower=False)

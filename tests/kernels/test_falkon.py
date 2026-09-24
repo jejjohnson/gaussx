@@ -128,6 +128,16 @@ def test_preconditioner_is_jittable() -> None:
     assert jnp.allclose(eager.A, jitted.A)
 
 
+def test_factors_share_one_promoted_dtype() -> None:
+    # A float64 regularization with a float32 K_mm used to give a float32 T
+    # and a float64 A.
+    K_mm = random_pd_matrix(jr.key(19), 6).astype(jnp.float32)
+
+    pre = gaussx.falkon_preconditioner(K_mm, jnp.asarray(1e-3, dtype=jnp.float64))
+
+    assert pre.T.dtype == pre.A.dtype == jnp.float64
+
+
 def test_rejects_a_non_square_k_mm() -> None:
     with pytest.raises(ValueError, match="square"):
         gaussx.falkon_preconditioner(jnp.ones((3, 4)), 0.1)
