@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/jejjohnson/gaussx/compare/v0.1.0...v0.2.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* the kernel operators, kernel approximations, kernel statistics, Falkon, EigenPro, batched kernel matvecs and stable_rbf_kernel are removed from gaussx. Import them from kernellib: `kernellib.<name>` for operators, Nystrom / RFF, Falkon and EigenPro; `kernellib.functional.<name>` for hsic, mmd_squared, center_kernel, centering_operator and stable_rbf_kernel.
+
+### Features
+
+* move the kernel layer to kernellib; add a low-rank trace_product path ([#272](https://github.com/jejjohnson/gaussx/issues/272)) ([53a0324](https://github.com/jejjohnson/gaussx/commit/53a0324d94666475544f2917fbf4c99968fd6bfa))
+
 ## [0.1.0](https://github.com/jejjohnson/gaussx/compare/v0.0.29...v0.1.0) (2026-09-24)
 
 
