@@ -17,7 +17,6 @@ flowchart TB
         SSM["State-space models<br/><small>SDE kernels · Kalman · RTS · SpInGP · CVI</small>"]
         QUAD["Quadrature<br/><small>Gauss-Hermite · unscented · Taylor · MC</small>"]
         INF["Inference and ensembles<br/><small>BLR · natural gradient · EnKF</small>"]
-        KERN["Kernels<br/><small>Nyström · RFF · EigenPro · HSIC/MMD</small>"]
     end
 
     subgraph L2["Layer 2 · Distributions and sugar"]
@@ -36,7 +35,7 @@ flowchart TB
 
     subgraph L1["Layer 1 · Operators"]
         direction LR
-        OPS["Kronecker · KroneckerSum · BlockDiag<br/>BlockTriDiag · LowRankUpdate · Toeplitz<br/>Kernel · Implicit · Interpolated · Masked"]
+        OPS["Kronecker · KroneckerSum · BlockDiag<br/>BlockTriDiag · LowRankUpdate · Toeplitz<br/>Interpolated · Masked · Circulant"]
         TAGS["Structural tags<br/><small>_tags.py</small>"]
     end
 
@@ -65,7 +64,7 @@ flowchart TB
 | 1 | **Operators** | Structured matrices + tags | [`Kronecker`, `BlockDiag`, …](api/operators.md) |
 | 1.5 | **Strategies** | *How* a solve/logdet is computed | [`DenseSolver`, `CGSolver`, …](api/solvers.md) |
 | 2 | **Distributions** | Gaussians over operators, sugar ops, exp-family | [`MultivariateNormal`, …](api/distributions.md) |
-| 3 | **Recipes** | Domain sequences wiring layers 0–2 | [GP](api/gp.md) · [SSM](api/ssm.md) · [quadrature](api/quadrature.md) · [inference](api/inference.md) · [kernels](api/kernels.md) |
+| 3 | **Recipes** | Domain sequences wiring layers 0–2 | [GP](api/gp.md) · [SSM](api/ssm.md) · [quadrature](api/quadrature.md) · [inference](api/inference.md) |
 
 ---
 
@@ -168,7 +167,7 @@ flowchart LR
     ALO --> P["Products and sums"]
     ALO --> LRK["Low-rank"]
     ALO --> B["Banded and structured"]
-    ALO --> K["Kernel operators"]
+    ALO --> K["Interpolated and masked"]
     ALO --> LZ["Lazy algebra"]
 
     P --> P1["Kronecker"]
@@ -184,11 +183,8 @@ flowchart LR
     B --> B3["Toeplitz"]
     B --> B4["ToeplitzCholesky"]
 
-    K --> K1["KernelOperator"]
-    K --> K2["ImplicitKernelOperator"]
-    K --> K3["ImplicitCrossKernelOperator"]
-    K --> K4["InterpolatedOperator"]
-    K --> K5["MaskedOperator"]
+    K --> K1["InterpolatedOperator"]
+    K --> K2["MaskedOperator"]
 
     LZ --> Z1["SumOperator"]
     LZ --> Z2["ScaledOperator"]
@@ -205,8 +201,6 @@ flowchart LR
 | `LowRankUpdate(L, U, d, V)` | $L + U\,\mathrm{diag}(d)\,V^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
 | `SVDLowRankUpdate` | *Deprecated* --- use `LowRankUpdate(..., orthonormal=True)` | Kept as a subclass so `isinstance` checks keep working; warns on construction |
 | `Toeplitz` | Symmetric Toeplitz | $O(n \log n)$ matvecs and sampling via FFT circulant embedding |
-| `KernelOperator(k, X)` | Dense Gram matrix | Kernel as a first-class operator |
-| `ImplicitKernelOperator(k, X)` | Matrix-free Gram operator | Rows generated per matvec --- never stores $N \times N$ |
 | `InterpolatedOperator` | $W K_{uu} W^\top$ (KISS-GP style) | Grid interpolation weights, sparse in effect |
 | `MaskedOperator` | Row/column sub-selection of a base operator | Irregular domains, held-out indices |
 
@@ -219,17 +213,13 @@ perturbed = K + 0.1 * lx.IdentityLinearOperator(K.in_structure())
 gaussx.solve(perturbed, y)   # dispatches through the sum
 ```
 
-!!! warning "Tags are claims, not inferences"
-    `ImplicitKernelOperator` (and friends) will not guess that your kernel is
-    symmetric or PSD. If you want the Cholesky/CG fast paths, pass the tags
-    explicitly:
-
-    ```python
-    op = gaussx.ImplicitKernelOperator(
-        kernel_fn, X,
-        tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
-    )
-    ```
+!!! note "Kernel operators live in kernellib"
+    `KernelOperator`, `ImplicitKernelOperator` and `ImplicitCrossKernelOperator`
+    moved to [kernellib](https://github.com/jejjohnson/kernellib) in gaussx
+    0.2.0, with Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro.
+    They are lineax operators, so every primitive and strategy here works on
+    them unchanged --- as long as their structural tags are set: tags are
+    claims, not inferences.
 
 ### Structural tags
 
@@ -385,14 +375,12 @@ flowchart TB
         B["State-space models<br/><small>_ssm/</small>"]
         C["Quadrature and moments<br/><small>_quadrature/</small>"]
         D["Inference and ensembles<br/><small>_inference/</small>"]
-        E["Kernel approximations<br/><small>_kernels/</small>"]
     end
 
     A -->|"conditioning · ELBO · whitening"| A1["base_conditional · collapsed_elbo<br/>unwhiten · love_variance · oilmm_project"]
     B -->|"filtering · smoothing"| B1["kalman_filter · rts_smoother<br/>parallel_* · spingp_* · cvi_update_sites"]
     C -->|"expectations under a Gaussian"| C1["GaussHermite · Unscented · Taylor · MC<br/>ep_tilted_moments · uncertain_gp_predict"]
     D -->|"posterior updates"| D1["blr_full_update · damped_natural_update<br/>ensemble_kalman_gain · gaspari_cohn"]
-    E -->|"low-rank kernels"| E1["nystrom_operator · rff_operator<br/>eigenpro_* · hsic · mmd_squared"]
 ```
 
 **Gaussian processes** ([API](api/gp.md)) --- posterior conditioning, prediction
@@ -423,11 +411,6 @@ Gauss-Newton curvature, Riemannian PSD correction, ensemble covariances and
 Kalman gain, ETKF transforms, Gaspari-Cohn localization, and the RTPP/RTPS
 inflation family.
 
-**Kernels & approximations** ([API](api/kernels.md)) --- Nyström and RFF
-approximations returned as `LowRankUpdate` operators (so Woodbury applies
-automatically), EigenPro spectral preconditioning, kernel centering, HSIC, MMD,
-and the grid/interpolation helpers behind KISS-GP-style operators.
-
 Two API constraints worth knowing up front:
 
 - `kronecker_posterior_predictive(...)` needs exact test prior diagonals via
@@ -454,12 +437,12 @@ src/gaussx/
 ├── _primitives/            # Layer 0 — solve, logdet, cholesky, diag, trace,
 │                           #   sqrt, inv, eig, svd, root, frobenius, submatrix
 ├── _linalg/                # Layer 0 — Woodbury, Schur, safe_cholesky,
-│                           #   tridiagonal, Lyapunov, symmetrize, batched matvec
+│                           #   tridiagonal, Lyapunov, symmetrize
 │
 ├── _operators/             # Layer 1 — Kronecker, KroneckerSum, SumOfKroneckers,
 │                           #   BlockDiag, BlockTriDiag, LowRankUpdate, SVD
-│                           #   low-rank, Toeplitz, kernel/implicit/interpolated/
-│                           #   masked operators, lazy algebra, capacitance
+│                           #   low-rank, Toeplitz, interpolated/masked operators,
+│                           #   KISS-GP grids, lazy algebra, capacitance
 │
 ├── _strategies/            # Layer 1.5 — Dense, Auto, CG, PreconditionedCG,
 │                           #   MINRES, LSMR, BBMM, Composed, SLQ logdets
@@ -476,8 +459,7 @@ src/gaussx/
 │                           #   parallel, sqrt, infinite-horizon), SpInGP, CVI
 ├── _quadrature/            # Layer 3 — integrators, likelihoods, expectations,
 │                           #   Ψ-statistics, uncertain-input GP prediction, ADF
-├── _inference/             # Layer 3 — BLR, natural gradient, EnKF, localization
-└── _kernels/               # Layer 3 — Nyström, RFF, EigenPro, HSIC/MMD, grids
+└── _inference/             # Layer 3 — BLR, natural gradient, EnKF, localization
 ```
 
 Layer 3 lives in *named* subpackages (`_gp/`, `_ssm/`, …) rather than a single
@@ -517,6 +499,7 @@ flowchart TB
     GX["<b>gaussx</b><br/><small>structured operators · primitives · Gaussians</small>"]
 
     subgraph PROB["Probabilistic modelling"]
+        KL["kernellib<br/><small>kernels, kernel operators, kernel methods</small>"]
         PYROX["pyrox-gp<br/><small>GP models, kernels, guides on NumPyro</small>"]
         FILTERAX["filterax<br/><small>ensemble filtering</small>"]
         OPTAXB["optax_bayes<br/><small>natural-gradient optimizers</small>"]
@@ -531,6 +514,8 @@ flowchart TB
     MATFREE --> GX
     EQX --> GX
 
+    GX -->|"LowRankUpdate · solvers · trace_product"| KL
+    KL -->|"kernels · kernel operators"| PYROX
     GX -->|"operators · solvers · distributions"| PYROX
     GX -.->|"ensemble covariance · Kalman gain"| FILTERAX
     GX -.->|"Fisher · natural params"| OPTAXB
@@ -540,6 +525,7 @@ flowchart TB
     click LINEAX "https://github.com/patrick-kidger/lineax" _blank
     click MATFREE "https://github.com/pnkraemer/matfree" _blank
     click EQX "https://github.com/patrick-kidger/equinox" _blank
+    click KL "https://github.com/jejjohnson/kernellib" _blank
     click PYROX "https://github.com/jejjohnson/pyrox" _blank
     click FILTERAX "https://github.com/jejjohnson/filterax" _blank
     click OPTAXB "https://github.com/jejjohnson/optax_bayes" _blank
@@ -551,11 +537,18 @@ flowchart TB
 is the modelling shell gaussx deliberately refuses to be: kernels with
 hyperparameter priors, NumPyro sample sites, guides, likelihoods, sparse and
 Markov GP models. It reaches into gaussx for more than forty public symbols ---
-`Kronecker`, `BlockDiag`, `ImplicitKernelOperator`, the solver strategies,
+`Kronecker`, `BlockDiag`, the solver strategies,
 `MultivariateNormal(Precision)`, `base_conditional`,
 `variational_elbo_gaussian`, `whitened_svgp_predict`, `kalman_filter`,
 `rts_smoother`, `ep_tilted_moments`, the OILMM projections, and the
 natural-parameter conversions.
+
+**[kernellib](https://github.com/jejjohnson/kernellib)** owns everything with a
+kernel in it: kernel functions and objects, the kernel operators
+(`KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`),
+Nyström / RFF low-rank operators, HSIC / CKA / MMD, Falkon and EigenPro. They
+moved out of gaussx in 0.2.0. kernellib builds on gaussx's `LowRankUpdate`,
+solver strategies and `trace_product`; gaussx never imports kernellib.
 
 **[finitevolX](https://github.com/jejjohnson/finitevolX)** takes the raw solver
 substrate: its tridiagonal solves are `gaussx.solve_tridiagonal` /

@@ -81,11 +81,9 @@ nav:
       - Expectation Propagation: notebooks/expectation_propagation.ipynb
       - Ensemble Kalman Filter: notebooks/ensemble_kalman.ipynb
       - Natural Gradient VI: notebooks/natural_gradient_vi.ipynb
-      - Kernel Approximations: notebooks/kernel_approximations.ipynb
       - LOVE Cross-Validation: notebooks/love_crossval.ipynb
       - Whitened SVGP & BLR: notebooks/whitened_svgp.ipynb
       - GP with Uncertain Inputs: notebooks/uncertain_gp_inputs.ipynb
-      - Matrix-Free GP: notebooks/implicit_kernel.ipynb
   - API Reference:
       - Overview: api/index.md
       - Primitives: api/primitives.md
@@ -94,7 +92,6 @@ nav:
       - Linear-Algebra Utilities: api/linalg.md
       - Distributions & Exponential Family: api/distributions.md
       - Gaussian Processes: api/gp.md
-      - Kernels & Approximations: api/kernels.md
       - Quadrature & Moment Matching: api/quadrature.md
       - State-Space Models & Kalman: api/ssm.md
       - Bayesian Inference & Ensembles: api/inference.md
