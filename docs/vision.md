@@ -141,6 +141,7 @@ scope, and we intend to defend it.
 | Not this | Go here instead |
 |----------|-----------------|
 | A GP modelling library (kernels with priors, model shells, inference loops) | [pyrox-gp](https://github.com/jejjohnson/pyrox) |
+| Kernels, kernel operators, and kernel methods (KRR, HSIC / MMD, Nyström / RFF, Falkon, EigenPro) | [kernellib](https://github.com/jejjohnson/kernellib) |
 | Probabilistic programming (MCMC, SVI, samplers) | [NumPyro](https://github.com/pyro-ppl/numpyro) |
 | General-purpose optimization | [optax](https://github.com/google-deepmind/optax) / [optimistix](https://github.com/patrick-kidger/optimistix) |
 | PDE discretization, grids, boundary conditions | [finitevolX](https://github.com/jejjohnson/finitevolX) / [spectraldiffx](https://github.com/jejjohnson/spectraldiffx) |
@@ -167,6 +168,7 @@ flowchart TD
     GX["<b>gaussx</b><br/><small>structured operators · primitives · Gaussians</small>"]
 
     subgraph DOWN["Downstream"]
+        KL["kernellib<br/><small>kernels and kernel methods</small>"]
         PYROX["pyrox-gp<br/><small>GP models on NumPyro</small>"]
         FVX["finitevolX<br/><small>finite-volume PDE ops</small>"]
     end
@@ -180,6 +182,8 @@ flowchart TD
     LX --> GX
     MF --> GX
     EQX --> GX
+    GX --> KL
+    KL --> PYROX
     GX --> PYROX
     GX --> FVX
     GX -.-> SDX
@@ -188,6 +192,7 @@ flowchart TD
 
     click LX "https://github.com/patrick-kidger/lineax" _blank
     click MF "https://github.com/pnkraemer/matfree" _blank
+    click KL "https://github.com/jejjohnson/kernellib" _blank
     click PYROX "https://github.com/jejjohnson/pyrox" _blank
     click FVX "https://github.com/jejjohnson/finitevolX" _blank
     click SDX "https://github.com/jejjohnson/spectraldiffx" _blank

@@ -44,7 +44,6 @@ Several of the newer public APIs have explicit requirements that are worth calli
 
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` when you want predictive variances.
 - `gaussx.ssm_to_naturals(...)` validates that `Q[0]` matches `P_0` so the joint prior is internally consistent.
-- `gaussx.ImplicitKernelOperator(...)` only advertises symmetry and PSD to `lineax` when those tags are provided explicitly.
 
 ```python
 import jax.numpy as jnp
@@ -61,12 +60,6 @@ mean, var = gaussx.kronecker_posterior_predictive(
 )
 
 theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0=Q[0])
-
-kernel_op = gaussx.ImplicitKernelOperator(
-	kernel_fn,
-	X,
-	tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
-)
 ```
 
 ## Examples

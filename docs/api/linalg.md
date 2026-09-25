@@ -50,7 +50,7 @@ solves.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [solve_matrix, solve_columns, solve_rows, solve_tridiagonal, solve_tridiagonal_batched, batched_kernel_matvec, batched_kernel_rmatvec]
+      members: [solve_matrix, solve_columns, solve_rows, solve_tridiagonal, solve_tridiagonal_batched]
 
 ## Matrix diagonalization & shifted Kronecker-sum solves
 
@@ -66,10 +66,10 @@ for separable operators such as tensor-product spectral Laplacians.
       show_root_toc_entry: false
       members: [EigenFactorization, kronecker_sum_solve]
 
-## Stable kernel arithmetic & Lyapunov
+## Stable distances & Lyapunov
 
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [stable_squared_distances, stable_rbf_kernel, discrete_lyapunov_solve]
+      members: [stable_squared_distances, discrete_lyapunov_solve]

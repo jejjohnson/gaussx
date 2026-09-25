@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import cov_transform, diag_conditional_variance, sandwich, trace_product
 from gaussx._testing import random_pd_matrix, tree_allclose
@@ -271,3 +272,61 @@ def test_sandwich_jit_vmap_grad(getkey):
     assert grads.shape == ds.shape
     assert jnp.all(jnp.isfinite(values))
     assert jnp.all(jnp.isfinite(grads))
+
+
+# ---------------------------------------------------------------------------
+# trace_product: LowRankUpdate fast path
+#
+# Pinned keys: the operators are incidental, the check is exact agreement with
+# the dense trace.
+# ---------------------------------------------------------------------------
+
+
+def _low_rank(key, n, k, base):
+    k1, k2, k3 = jr.split(key, 3)
+    from gaussx import LowRankUpdate
+
+    return LowRankUpdate(
+        base, jr.normal(k1, (n, k)), jr.normal(k2, (k,)), jr.normal(k3, (n, k))
+    )
+
+
+@pytest.mark.parametrize(
+    "base_kind", ["zero", "diagonal", "dense"], ids=["zero", "diagonal", "dense"]
+)
+def test_trace_product_low_rank_matches_dense(base_kind):
+    n = 9
+    keys = jr.split(jr.key(0), 4)
+
+    def base(key):
+        if base_kind == "zero":
+            return lx.DiagonalLinearOperator(jnp.zeros(n))
+        if base_kind == "diagonal":
+            return lx.DiagonalLinearOperator(jr.normal(key, (n,)))
+        return lx.MatrixLinearOperator(jr.normal(key, (n, n)))
+
+    A = _low_rank(keys[0], n, 3, base(keys[1]))
+    B = _low_rank(keys[2], n, 4, base(keys[3]))
+    expected = jnp.trace(A.as_matrix() @ B.as_matrix())
+    assert jnp.allclose(trace_product(A, B), expected, rtol=1e-10, atol=1e-10)
+
+
+def test_trace_product_low_rank_is_jittable_and_differentiable():
+    n = 7
+    keys = jr.split(jr.key(1), 2)
+    base = lx.DiagonalLinearOperator(jnp.zeros(n))
+    A = _low_rank(keys[0], n, 2, base)
+    B = _low_rank(keys[1], n, 3, base)
+
+    def f(scale):
+        from gaussx import LowRankUpdate
+
+        A_scaled = LowRankUpdate(A.base, A.U, scale * A.d, A.V)
+        return trace_product(A_scaled, B)
+
+    def f_dense(scale):
+        A_mat = A.as_matrix() * scale
+        return jnp.trace(A_mat @ B.as_matrix())
+
+    assert jnp.allclose(jax.jit(f)(2.0), f_dense(2.0), rtol=1e-10)
+    assert jnp.allclose(jax.grad(f)(2.0), jax.grad(f_dense)(2.0), rtol=1e-10)

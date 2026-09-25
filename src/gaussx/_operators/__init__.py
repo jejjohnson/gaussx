@@ -17,14 +17,8 @@ from gaussx._operators._diagonalised import (
     as_diagonalised,
     circulant_from_symbol,
 )
-from gaussx._operators._implicit_cross_kernel import (
-    ImplicitCrossKernelOperator,
-    _TransposedCrossKernelOperator,
-    implicit_cross_kernel,
-)
-from gaussx._operators._implicit_kernel import ImplicitKernelOperator
+from gaussx._operators._grid import create_grid, cubic_interpolation_weights, grid_data
 from gaussx._operators._interpolated import InterpolatedOperator
-from gaussx._operators._kernel import KernelOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import (
     KroneckerSum,
@@ -228,24 +222,6 @@ def _(operator: LowerBlockTriDiag) -> bool:
     return False
 
 
-# ImplicitKernelOperator tag registrations
-
-
-@lx.is_symmetric.register(ImplicitKernelOperator)
-def _(operator: ImplicitKernelOperator) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
-@lx.is_diagonal.register(ImplicitKernelOperator)
-def _(operator: ImplicitKernelOperator) -> bool:
-    return False
-
-
-@lx.is_positive_semidefinite.register(ImplicitKernelOperator)
-def _(operator: ImplicitKernelOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
 # MaskedOperator tag registrations
 
 
@@ -343,60 +319,6 @@ def _(operator: InterpolatedOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# KernelOperator tag registrations
-
-
-@lx.is_symmetric.register(KernelOperator)
-def _(operator: KernelOperator) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
-@lx.is_diagonal.register(KernelOperator)
-def _(operator: KernelOperator) -> bool:
-    return False
-
-
-@lx.is_positive_semidefinite.register(KernelOperator)
-def _(operator: KernelOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
-# ImplicitCrossKernelOperator tag registrations
-
-
-@lx.is_symmetric.register(ImplicitCrossKernelOperator)
-def _(operator: ImplicitCrossKernelOperator) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
-@lx.is_diagonal.register(ImplicitCrossKernelOperator)
-def _(operator: ImplicitCrossKernelOperator) -> bool:
-    return False
-
-
-@lx.is_positive_semidefinite.register(ImplicitCrossKernelOperator)
-def _(operator: ImplicitCrossKernelOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
-# _TransposedCrossKernelOperator tag registrations
-
-
-@lx.is_symmetric.register(_TransposedCrossKernelOperator)
-def _(operator: _TransposedCrossKernelOperator) -> bool:
-    return lx.symmetric_tag in operator.tags
-
-
-@lx.is_diagonal.register(_TransposedCrossKernelOperator)
-def _(operator: _TransposedCrossKernelOperator) -> bool:
-    return False
-
-
-@lx.is_positive_semidefinite.register(_TransposedCrossKernelOperator)
-def _(operator: _TransposedCrossKernelOperator) -> bool:
-    return lx.positive_semidefinite_tag in operator.tags
-
-
 # is_negative_semidefinite registrations.
 # lineax 0.1.1 promoted this to a required dispatch (no default). None of the
 # gaussx operators claim NSD by construction — propagate to children where it
@@ -443,11 +365,6 @@ def _(operator: UpperBlockTriDiag) -> bool:
     return False
 
 
-@lx.is_negative_semidefinite.register(ImplicitKernelOperator)
-def _(operator: ImplicitKernelOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
 @lx.is_negative_semidefinite.register(MaskedOperator)
 def _(operator: MaskedOperator) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
@@ -468,21 +385,6 @@ def _(operator: InterpolatedOperator) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
-@lx.is_negative_semidefinite.register(KernelOperator)
-def _(operator: KernelOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
-@lx.is_negative_semidefinite.register(ImplicitCrossKernelOperator)
-def _(operator: ImplicitCrossKernelOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
-@lx.is_negative_semidefinite.register(_TransposedCrossKernelOperator)
-def _(operator: _TransposedCrossKernelOperator) -> bool:
-    return lx.negative_semidefinite_tag in operator.tags
-
-
 # is_tridiagonal / is_lower_triangular / is_upper_triangular registrations.
 # lineax 0.1.1 made all predicates required. None of the gaussx operators
 # claim element-wise tridiagonal or triangular structure (block-tridiagonal
@@ -499,14 +401,10 @@ _ALL_TRIDIAG_DEFAULTS = (
     BlockTriDiag,
     LowerBlockTriDiag,
     UpperBlockTriDiag,
-    ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
     SumOfKroneckers,
     InterpolatedOperator,
-    KernelOperator,
-    ImplicitCrossKernelOperator,
-    _TransposedCrossKernelOperator,
 )
 
 _TRI_DEFAULTS = (
@@ -517,14 +415,10 @@ _TRI_DEFAULTS = (
     KroneckerSum,
     KroneckerSumSqrt,
     BlockTriDiag,
-    ImplicitKernelOperator,
     MaskedOperator,
     Toeplitz,
     SumOfKroneckers,
     InterpolatedOperator,
-    KernelOperator,
-    ImplicitCrossKernelOperator,
-    _TransposedCrossKernelOperator,
 )
 
 for _cls in _ALL_TRIDIAG_DEFAULTS:
@@ -570,10 +464,7 @@ __all__ = [
     "CapacitanceSolver",
     "Circulant",
     "DiagonalisedOperator",
-    "ImplicitCrossKernelOperator",
-    "ImplicitKernelOperator",
     "InterpolatedOperator",
-    "KernelOperator",
     "Kronecker",
     "KroneckerSum",
     "KroneckerSumSqrt",
@@ -591,8 +482,10 @@ __all__ = [
     "UpperBlockTriDiag",
     "as_diagonalised",
     "circulant_from_symbol",
+    "create_grid",
+    "cubic_interpolation_weights",
     "grid_coupling_indices",
-    "implicit_cross_kernel",
+    "grid_data",
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",

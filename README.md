@@ -71,9 +71,6 @@ Extend `lineax.AbstractLinearOperator` with structured matrices. All are immutab
 | `BlockTriDiag` | Block tridiagonal (lower/upper variants) |
 | `LowRankUpdate` | A + UDV^T (pass `orthonormal=True` for SVD / Nystrom factors) |
 | `Toeplitz` | Symmetric Toeplitz, O(n log n) matvec via FFT |
-| `KernelOperator` | Rectangular kernel block K(X1, X2), matrix-free |
-| `ImplicitKernelOperator` | Square training covariance with fused noise, matrix-free |
-| `ImplicitCrossKernelOperator` | Rectangular data-inducing block, tunable scan chunk |
 | `InterpolatedOperator` | Grid-interpolated (KISS-GP style) |
 | `MaskedOperator` | Row/column sub-selection of a base operator |
 | `SumOperator`, `ScaledOperator`, `ProductOperator` | Lazy algebra |
@@ -99,7 +96,6 @@ Pluggable solve + logdet algorithms that decouple numerics from distributions. `
 - **Variational inference** -- ELBO (analytic & MC), SVGP (whitened), SpinGP
 - **Bayesian linear regression** -- full & diagonal updates, GGN diagonal, Hutchinson trace
 - **Natural gradients** -- damped natural updates, Gauss-Newton precision, Riemannian PSD correction
-- **Kernel approximation** -- Nystrom, RFF, kernel centering, HSIC, MMD
 - **Quadrature** -- sigma points, cubature points, Gauss-Hermite
 - **Numerics** -- Woodbury solve, Joseph-form covariance update, covariance transform
 
@@ -153,7 +149,7 @@ A few usage details that are easy to miss:
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` so predictive variances use the exact prior diagonal at the test points instead of reconstructing it from cross-covariances.
 - `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` expects `Q[0]` to equal `P_0`; the function raises a `ValueError` if the initial covariance is inconsistent.
 - `gaussx.SumKronecker` and `gaussx.SVDLowRankUpdate` are **deprecated** aliases (for `SumOfKroneckers` and `LowRankUpdate(..., orthonormal=True)`); both warn on construction and will be removed in a future release.
-- `gaussx.ImplicitKernelOperator(...)` only reports `lineax` structure such as symmetry or PSD when those tags are passed explicitly.
+- Kernel operators, Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro moved to [kernellib](https://github.com/jejjohnson/kernellib) in 0.2.0. They are lineax operators and work with every gaussx primitive and strategy.
 
 ## Development
 

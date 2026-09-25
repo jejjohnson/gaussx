@@ -10,7 +10,7 @@ import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._einx import reduce
+from gaussx._einx import einsum, reduce
 from gaussx._linalg._schur import conditional_variance as _conditional_variance
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve
@@ -194,6 +194,12 @@ def trace_product(
       per-block ``trace_product``.
     - **Matched** `gaussx.Kronecker` (same factor structure):
       ``prod_i tr(A_i @ B_i)``.
+    - **Both** `gaussx.LowRankUpdate` (``L + U diag(d) V^T``): the
+      base-base term recurses, the two cross terms need ``k`` matvecs with
+      the other base, and the low-rank-low-rank term costs
+      ``O(N k_A k_B)``. For pure low-rank operators (zero-diagonal base, as
+      Nystrom and RFF factorizations produce) this replaces the ``O(N^2)``
+      dense fallback.
     - Otherwise falls back to ``sum(A * B^T)`` on the materialized
       matrices — the same O(N²) cost the previous implementation paid.
 
@@ -206,6 +212,7 @@ def trace_product(
     """
     from gaussx._operators._block_diag import BlockDiag
     from gaussx._operators._kronecker import Kronecker
+    from gaussx._operators._low_rank_update import LowRankUpdate
     from gaussx._primitives._diag import diag
 
     # Both diagonal: O(N) inner product of diagonals.
@@ -250,7 +257,35 @@ def trace_product(
         ]
         return jnp.prod(jnp.stack(parts))
 
+    if isinstance(A, LowRankUpdate) and isinstance(B, LowRankUpdate):
+        return _trace_product_low_rank(A, B)
+
     return _trace_product_dense(A, B)
+
+
+def _trace_product_low_rank(A, B) -> Float[Array, ""]:
+    r"""``tr(A @ B)`` for ``A = L_A + U_A D_A V_A^T``, ``B = L_B + U_B D_B V_B^T``.
+
+    Expands into four terms:
+
+    - ``tr(L_A L_B)``, by recursing on the bases (``O(N)`` for diagonal ones);
+    - ``tr(L_A U_B D_B V_B^T) = sum_l d_B[l] (V_B^T L_A U_B)[l, l]``, one
+      matvec with ``L_A`` per column of ``U_B``;
+    - ``tr(U_A D_A V_A^T L_B) = sum_k d_A[k] (V_A^T L_B U_A)[k, k]``;
+    - ``tr(U_A D_A V_A^T U_B D_B V_B^T) = sum_{kl} d_A[k] M[k, l] d_B[l] N[l, k]``
+      with ``M = V_A^T U_B`` and ``N = V_B^T U_A``.
+    """
+    base_A, base_B = A.base, B.base
+    M = einsum(A.V, B.U, "n k, n l -> k l")
+    N = einsum(B.V, A.U, "n l, n k -> l k")
+    # Scale columns of M by d_A (rows) and d_B (columns), then one contraction.
+    low_low = einsum(M * A.d[:, None] * B.d[None, :], N, "k l, l k -> ")
+    LA_UB = jax.vmap(base_A.mv, in_axes=1, out_axes=1)(B.U)
+    LB_UA = jax.vmap(base_B.mv, in_axes=1, out_axes=1)(A.U)
+    # diag(V^T L U)[l] = sum_n V[n, l] (L U)[n, l], then weight by d.
+    cross_A = einsum(reduce(B.V * LA_UB, "n l -> l", "sum"), B.d, "l, l -> ")
+    cross_B = einsum(reduce(A.V * LB_UA, "n k -> k", "sum"), A.d, "k, k -> ")
+    return trace_product(base_A, base_B) + cross_A + cross_B + low_low
 
 
 def _trace_product_dense(
