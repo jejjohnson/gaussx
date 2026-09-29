@@ -316,3 +316,32 @@ def test_with_base_rebuilds_the_capacitance(disc_mask, old, new):
     rebuilt = masked.with_base(new_base)
     assert jnp.allclose(gaussx.solve(rebuilt, f), expected, atol=1e-10)
     assert jnp.allclose(gaussx.solve(rebuilt.T, f), expected, atol=1e-10)
+
+
+def test_traced_singular_base_needs_an_explicit_null_vector(disc_mask):
+    # Built under jit, the null vector of a singular base cannot be derived:
+    # without one the solve raises instead of solving the wrong system, and
+    # with one it is exact.
+    base = _laplacian(0.0)
+    flat = jnp.asarray(disc_mask.ravel())
+    coupling = grid_coupling_indices(disc_mask, periodic=True)
+    f = jr.normal(jr.key(8), (int(disc_mask.sum()),))
+
+    def solve_with(null_vector):
+        @jax.jit
+        def run(lam):
+            op = MaskedOperator(
+                base.with_eigenvalues(lam),
+                flat,
+                flat,
+                coupling_indices=coupling,
+                null_vector=null_vector,
+            )
+            return gaussx.solve(op, f)
+
+        return run(base.eigenvalues)
+
+    with pytest.raises(Exception, match="null vector cannot be derived"):
+        jax.block_until_ready(solve_with(None))
+    x = solve_with(jnp.ones(N * N))
+    assert jnp.allclose(x, _dense_masked_solve(base, disc_mask, f), atol=1e-10)

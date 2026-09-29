@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
+from jax.core import Tracer
 from jaxtyping import Array, Bool, Float, Int
 
 from gaussx._operators._block_diag import _to_frozenset
@@ -77,7 +78,11 @@ class MaskedOperator(lx.AbstractLinearOperator):
     ``eqx.apply_updates`` after an optimiser step, or ``eqx.tree_at``) leaves
     the factorisation describing the *old* base, and ``solve`` is then
     wrong. Rebuild with `with_base`, or construct the operator inside the
-    loss from the current parameters (which also works under ``jit``).
+    loss from the current parameters. That also works under ``jit``, except
+    that a traced base's null vector cannot be derived: for a singular base
+    built under ``jit`` pass ``null_vector`` (and ``left_null_vector``)
+    explicitly. A traced diagonalised base with a zero eigenvalue and no
+    ``null_vector`` raises at run time rather than solving the wrong system.
     """
 
     base: lx.AbstractLinearOperator
@@ -236,9 +241,12 @@ def _build_capacitance(
         raise ValueError(
             "coupling_indices requires a square mask (row_mask == col_mask)."
         )
+    traced_eigenvalues = None
     if null_vector is None:
         null_vector, left_null_vector = _derived_null_vectors(base)
-    return CapacitanceSolver(
+        if null_vector is None:
+            traced_eigenvalues = _traced_eigenvalues(base)
+    solver = CapacitanceSolver(
         ft.partial(solve, base),
         coupling_indices,
         base.in_size(),
@@ -246,6 +254,28 @@ def _build_capacitance(
         left_null_vector=left_null_vector,
         keep_base_solve=False,
     )
+    if traced_eigenvalues is None:
+        return solver
+    # A traced singular base cannot have its null vector derived, and the
+    # unaugmented capacitance system would then solve the wrong problem.
+    # Guard the factorisation (which every solve reads) at run time.
+    lu, pivots = solver.capacitance_lu
+    lu = eqx.error_if(
+        lu,
+        jnp.any(traced_eigenvalues == 0),
+        "The base operator is singular, but its null vector cannot be derived "
+        "under tracing; pass null_vector (and left_null_vector) explicitly.",
+    )
+    return eqx.tree_at(lambda s: s.capacitance_lu, solver, (lu, pivots))
+
+
+def _traced_eigenvalues(base: lx.AbstractLinearOperator) -> Array | None:
+    """A diagonalised base's eigenvalues when they are traced, else ``None``."""
+    diagonalised = as_diagonalised(base)
+    if diagonalised is None:
+        return None
+    eigenvalues = diagonalised.eigenvalues_flat()
+    return eigenvalues if isinstance(eigenvalues, Tracer) else None
 
 
 def _derived_null_vectors(
