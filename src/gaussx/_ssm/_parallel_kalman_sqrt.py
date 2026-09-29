@@ -245,12 +245,11 @@ def _smoother_sqrt_combine(elem1, elem2):
 def parallel_rts_smoother_sqrt(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Square-root parallel RTS smoother via reverse associative scan."""
-    del process_noise, solver
+    del solver
 
     f_means = filter_state.filtered_means
     f_covs = filter_state.filtered_covs

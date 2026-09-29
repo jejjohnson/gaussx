@@ -44,7 +44,7 @@ from gaussx._linalg._symmetrize import symmetrize
 from gaussx._quadrature._integrator import AbstractIntegrator, moment_transform
 from gaussx._quadrature._unscented import UnscentedIntegrator
 from gaussx._ssm._kalman import FilterState
-from gaussx._ssm._utils import _materialise
+from gaussx._ssm._utils import _materialise, _warn_unused_process_noise
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
@@ -934,9 +934,9 @@ def nonlinear_rts_smoother(
         filter_state: Output of `gaussx.nonlinear_kalman_filter`. Pass the
             same ``dynamics`` and ``integrator`` used to produce it.
         dynamics: State transition ``(N,) -> (N,)``.
-        process_noise: Accepted for API symmetry with
-            `gaussx.rts_smoother` and unused — the predicted covariances in
-            ``filter_state`` already include it.
+        process_noise: Deprecated and ignored -- the predicted covariances
+            in ``filter_state`` already include it. Passing it warns; it will
+            be removed in 0.5.0.
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``; use the one the filter
             used.
@@ -949,7 +949,7 @@ def nonlinear_rts_smoother(
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
     """
-    del process_noise  # predicted covariances already include it
+    _warn_unused_process_noise("nonlinear_rts_smoother", process_noise)
 
     if integrator is None:
         integrator = UnscentedIntegrator(alpha=1.0)

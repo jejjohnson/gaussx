@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -14,6 +16,7 @@ from gaussx._linalg._linalg import sandwich, solve_rows
 from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._dare import DAREResult, dare
+from gaussx._ssm._kalman import FilterState
 from gaussx._ssm._utils import (
     _as_operator,
     _innovation_covariance,
@@ -26,22 +29,20 @@ from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
-class InfiniteHorizonState(eqx.Module):
-    """Output of ``infinite_horizon_filter``.
+# ``InfiniteHorizonState`` was a field-for-field copy of `FilterState`; it is
+# now a deprecated alias, reached only through the package ``__getattr__``
+# so that importing it warns (gh-364).
+_DEPRECATED_ALIASES = {"InfiniteHorizonState": FilterState}
 
-    Attributes:
-        filtered_means: Filtered state estimates, shape ``(T, N)``.
-        filtered_covs: Filtered covariances (constant), shape ``(T, N, N)``.
-        predicted_means: Predicted state estimates, shape ``(T, N)``.
-        predicted_covs: Predicted covariances (constant), shape ``(T, N, N)``.
-        log_likelihood: Total log-likelihood (scalar).
-    """
 
-    filtered_means: Float[Array, "T N"]
-    filtered_covs: Float[Array, "T N N"]
-    predicted_means: Float[Array, "T N"]
-    predicted_covs: Float[Array, "T N N"]
-    log_likelihood: Float[Array, ""]
+def _deprecated_alias(name: str) -> type[FilterState]:
+    warnings.warn(
+        f"gaussx.{name} is deprecated: infinite_horizon_filter returns a "
+        "gaussx.FilterState. The alias will be removed in 0.5.0.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    return _DEPRECATED_ALIASES[name]
 
 
 def _checked_p_inf(dare_result: DAREResult) -> Float[Array, "N N"]:
@@ -68,7 +69,7 @@ def infinite_horizon_filter(
     tol: float = 1e-8,
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
-) -> InfiniteHorizonState:
+) -> FilterState:
     """Infinite-horizon Kalman filter with fixed steady-state gain.
 
     Uses the DARE solution for a constant Kalman gain K∞, avoiding
@@ -87,7 +88,9 @@ def infinite_horizon_filter(
     filter starts at the DARE fixed point
     (``init_cov = dare(...).P_inf``); from any other prior it
     approximates the transient. There is no ``init_cov`` argument for
-    that reason.
+    that reason, and no ``mask``: a skipped update leaves the covariance
+    off the steady state, which a fixed gain cannot follow. Use
+    `gaussx.kalman_filter` for gappy data.
 
     All four operator/array arguments accept either a raw JAX array or
     a `lineax.AbstractLinearOperator`. Operator inputs preserve
@@ -115,7 +118,7 @@ def infinite_horizon_filter(
             structured ``R`` can use Woodbury solves/log-determinants.
 
     Returns:
-        An ``InfiniteHorizonState`` with filtered/predicted means,
+        A `gaussx.FilterState` with filtered/predicted means,
         covariances, and total log-likelihood.
     """
     if dare_result is None:
@@ -186,7 +189,7 @@ def infinite_horizon_filter(
     f_covs = repeat(P_filt_inf, "n1 n2 -> T n1 n2", T=T)
     p_covs = repeat(P_pred_inf, "n1 n2 -> T n1 n2", T=T)
 
-    return InfiniteHorizonState(
+    return FilterState(
         filtered_means=f_means,
         filtered_covs=f_covs,
         predicted_means=p_means,
@@ -196,11 +199,14 @@ def infinite_horizon_filter(
 
 
 def infinite_horizon_smoother(
-    filter_state: InfiniteHorizonState,
+    filter_state: FilterState,
     transition: Float[Array, "N N"] | lx.AbstractLinearOperator,
-    dare_result: DAREResult,
-    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator | DAREResult,
+    _legacy_process_noise: Float[Array, "N N"]
+    | lx.AbstractLinearOperator
+    | None = None,
     *,
+    dare_result: DAREResult | None = None,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Infinite-horizon RTS smoother with fixed steady-state gain.
@@ -214,9 +220,14 @@ def infinite_horizon_smoother(
     Args:
         filter_state: Output of ``infinite_horizon_filter``.
         transition: State transition matrix or operator, shape ``(N, N)``.
-        dare_result: DARE result used in the filter. A result with
-            ``converged=False`` raises an ``EquinoxRuntimeError``.
-        process_noise: Process noise covariance or operator, shape ``(N, N)``.
+        process_noise: Process noise covariance or operator, shape
+            ``(N, N)``. The positional prefix ``(filter_state, transition,
+            process_noise)`` matches `gaussx.rts_smoother`.
+        dare_result: DARE result used in the filter (keyword-only). A
+            result with ``converged=False`` raises an
+            ``EquinoxRuntimeError``. The old positional order
+            ``(filter_state, transition, dare_result, process_noise)`` still
+            works with a ``DeprecationWarning`` until 0.5.0.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
 
@@ -224,8 +235,29 @@ def infinite_horizon_smoother(
         Tuple ``(smoothed_means, smoothed_covs)`` with shapes
         ``(T, N)`` and ``(T, N, N)``.
     """
+    noise: Array | lx.AbstractLinearOperator | None
+    if isinstance(process_noise, DAREResult):
+        # Old order: (filter_state, transition, dare_result, process_noise).
+        warnings.warn(
+            "infinite_horizon_smoother(filter_state, transition, dare_result, "
+            "process_noise) is deprecated; pass process_noise third and "
+            "dare_result as a keyword, as in rts_smoother. The old order will "
+            "stop working in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        dare_result, noise = process_noise, _legacy_process_noise
+    elif _legacy_process_noise is not None:
+        msg = "infinite_horizon_smoother takes dare_result as a keyword argument."
+        raise TypeError(msg)
+    else:
+        noise = process_noise
+    if dare_result is None or noise is None:
+        msg = "infinite_horizon_smoother requires process_noise and dare_result."
+        raise TypeError(msg)
+
     A_op = _as_operator(transition)
-    Q_dense = _materialise(process_noise)
+    Q_dense = _materialise(noise)
     P_inf = _checked_p_inf(dare_result)  # (N, N)
     P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
     P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)

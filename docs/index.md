@@ -43,7 +43,7 @@ t = gaussx.trace(K)           # trace(A) * trace(B)
 Several of the newer public APIs have explicit requirements that are worth calling out up front:
 
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` when you want predictive variances.
-- `gaussx.ssm_to_naturals(...)` validates that `Q[0]` matches `P_0` so the joint prior is internally consistent.
+- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `gaussx.MarkovGaussian`. The older stacked layout (`Q[0] == P_0`) still works with a `DeprecationWarning` until 0.5.0.
 
 ```python
 import jax.numpy as jnp
@@ -59,7 +59,7 @@ mean, var = gaussx.kronecker_posterior_predictive(
 	K_test_diag_factors=[jnp.ones(nx_star), jnp.ones(ny_star)],
 )
 
-theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0=Q[0])
+theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0)
 ```
 
 ## Examples

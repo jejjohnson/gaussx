@@ -145,7 +145,7 @@ print("Parallel log-likelihood:", par_filter_state.log_likelihood)
 
 # %%
 # Parallel smoother
-par_smooth_means, par_smooth_covs = gaussx.parallel_rts_smoother(par_filter_state, A, Q)
+par_smooth_means, par_smooth_covs = gaussx.parallel_rts_smoother(par_filter_state, A)
 
 print("Parallel smoothed means shape:", par_smooth_means.shape)
 print("Parallel smoothed covs shape:", par_smooth_covs.shape)
@@ -162,7 +162,7 @@ print("Parallel smoothed covs shape:", par_smooth_covs.shape)
 seq_filter_state = gaussx.kalman_filter(A, H, Q, R, observations, init_mean, init_cov)
 
 # Sequential smoother
-seq_smooth_means, seq_smooth_covs = gaussx.rts_smoother(seq_filter_state, A, Q)
+seq_smooth_means, seq_smooth_covs = gaussx.rts_smoother(seq_filter_state, A)
 
 # Compare filtered means
 mean_diff = jnp.max(
@@ -237,23 +237,21 @@ print(f"Joseph symmetry error:   {jnp.max(jnp.abs(P_joseph - P_joseph.T)):.2e}")
 # $(\theta_1, \theta_2)$ where $\theta_2 = -\tfrac{1}{2}\Lambda$ is
 # stored as a `BlockTriDiag` operator.
 #
-# The API expects `Q` to have shape `(N, d, d)` where `Q[0]` is the initial
-# covariance $P_0$ and `Q[1:]` contains the process noise at each step.
+# The API takes the chain in the same layout as `gaussx.MarkovGaussian`:
+# `A` and `Q` of shape `(N-1, d, d)`, where `Q[k]` is the noise of the
+# transition $x_k \to x_{k+1}$, and the initial covariance $P_0$ separately.
 
 # %%
-# Build the full Q array: Q[0] = P_0, Q[1:] = process noise
-d_state = A.shape[0]
-Q_full = jnp.concatenate([init_cov[None], jnp.tile(Q, (T - 1, 1, 1))], axis=0)
 A_full = jnp.tile(A, (T - 1, 1, 1))
+Q_full = jnp.tile(Q, (T - 1, 1, 1))
 
 print("A_full shape:", A_full.shape)
 print("Q_full shape:", Q_full.shape)
-print("Q_full[0] (= P_0):\n", Q_full[0])
 
 # %%
 # Convert to natural parameters
 theta_linear, theta_precision = gaussx.ssm_to_naturals(
-    A_full, Q_full, init_mean, Q_full[0]
+    A_full, Q_full, init_mean, init_cov
 )
 
 print("theta_linear shape:", theta_linear.shape)
@@ -276,7 +274,9 @@ print("Dense precision shape:", dense_precision.shape)
 
 # %%
 # Round-trip: convert back to SSM parameters
-A_rt, Q_rt, mu0_rt, P0_rt = gaussx.naturals_to_ssm(theta_linear, theta_precision)
+A_rt, Q_rt, mu0_rt, P0_rt = gaussx.naturals_to_ssm(
+    theta_linear, theta_precision, initial_in_q=False
+)
 
 print("Round-trip A max error:", jnp.max(jnp.abs(A_rt - A_full)).item())
 print("Round-trip Q max error:", jnp.max(jnp.abs(Q_rt - Q_full)).item())

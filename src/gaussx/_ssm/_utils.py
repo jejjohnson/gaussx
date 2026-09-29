@@ -9,6 +9,8 @@ sandwich sites.
 
 from __future__ import annotations
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -334,3 +336,20 @@ def _normalise_tv_inputs(
             )
 
     return A_seq, H_seq, Q_seq, R_seq, mask_seq, not has_3d_array
+
+
+def _warn_unused_process_noise(function: str, process_noise: object) -> None:
+    """Deprecate passing ``process_noise`` to an RTS smoother (gh-364).
+
+    The RTS recurrence never reads it -- the filter's predicted covariances
+    already include ``Q`` -- so accepting it suggests behaviour that does
+    not exist.
+    """
+    if process_noise is not None:
+        warnings.warn(
+            f"{function}(..., process_noise) is deprecated and ignored: the RTS "
+            "recurrence never reads it (the filter's predicted covariances "
+            "already include Q). Omit it; the argument will be removed in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=3,
+        )

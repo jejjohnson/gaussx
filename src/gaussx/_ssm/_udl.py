@@ -11,6 +11,8 @@ joint precision is $\Lambda$.
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -199,9 +201,9 @@ def udl_to_ssm_params(
     A_k = -U_k^{\top}, \qquad Q_{k}^{-1} = \tilde{D}_{k}, \qquad P_0^{-1} = \tilde{D}_0,
     $$
 
-    so the factors *are* the SSM. The returned ``Q`` follows the
-    `ssm_to_naturals` / `naturals_to_ssm` layout: ``Q[0]`` is $P_0$ and
-    ``Q[k]`` for $k \ge 1$ is the process noise entering state $k$.
+    so the factors *are* the SSM. The returned ``Q`` stacks the two:
+    ``Q[0]`` is $P_0$ and ``Q[k]`` for $k \ge 1$ is the process noise
+    entering state $k$ (``Q[1:]`` is the `gaussx.MarkovGaussian` layout).
 
     Args:
         udl: Factorisation of the chain's precision.
@@ -219,7 +221,8 @@ def udl_to_ssm_params(
 
 def udl_from_ssm_params(
     A: Float[Array, "Tm1 d d"],
-    Q: Float[Array, "T d d"],
+    Q: Float[Array, "Tm1 d d"] | Float[Array, "T d d"],
+    P0: Float[Array, "d d"] | None = None,
 ) -> UDLDecomposition:
     r"""Build the `UDLDecomposition` of a Gauss-Markov chain's precision.
 
@@ -230,13 +233,33 @@ def udl_from_ssm_params(
 
     Args:
         A: Transition matrices, shape ``(T-1, d, d)``.
-        Q: Covariances, shape ``(T, d, d)``; ``Q[0]`` is the initial
-            covariance $P_0$ and ``Q[k]`` the process noise entering
-            state $k$.
+        Q: Transition noise, shape ``(T-1, d, d)``, with ``Q[k]`` driving
+            state $k+1$ -- the `gaussx.MarkovGaussian` layout. Without
+            ``P0``, the older stacked layout of shape ``(T, d, d)`` with
+            ``Q[0] = P_0`` is accepted with a ``DeprecationWarning`` until
+            0.5.0.
+        P0: Initial covariance $P_0$, shape ``(d, d)``.
 
     Returns:
         The factorisation of the chain's precision.
     """
+    if P0 is not None:
+        Q = jnp.concatenate([P0[None], Q], axis=0)
+    else:
+        warnings.warn(
+            "udl_from_ssm_params(A, Q) with P_0 stacked as Q[0] is deprecated; "
+            "pass the transition noise and P0 separately, "
+            "udl_from_ssm_params(A, Q, P0). The stacked layout will be "
+            "removed in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if Q.shape[0] != A.shape[0] + 1:
+        msg = (
+            f"udl_from_ssm_params: expected {A.shape[0]} transition-noise blocks "
+            f"to match A, got {Q.shape[0] - (P0 is not None)}."
+        )
+        raise ValueError(msg)
     chol_Q = jnp.linalg.cholesky(Q)
     D_diag = jax.vmap(_cho_inv)(chol_Q)
     chol_D = jnp.linalg.cholesky(D_diag)

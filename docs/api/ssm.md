@@ -214,7 +214,7 @@ filter/smoother.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, meanfield_kalman_filter, meanfield_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, InfiniteHorizonState, dare, DAREResult, pairwise_marginals]
+      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, meanfield_kalman_filter, meanfield_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, dare, DAREResult, pairwise_marginals]
 
 ## SpInGP
 

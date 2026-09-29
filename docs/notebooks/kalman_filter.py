@@ -246,7 +246,7 @@ plt.show()
 # This optimal smoother was derived by Rauch, Tung, & Striebel (1965).
 
 # %%
-smoothed_means, smoothed_covs = gaussx.rts_smoother(filter_state, A, Q)
+smoothed_means, smoothed_covs = gaussx.rts_smoother(filter_state, A)
 
 print("Smoothed means shape:", smoothed_means.shape)
 print("Smoothed covs shape:", smoothed_covs.shape)

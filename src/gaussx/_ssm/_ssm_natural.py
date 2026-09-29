@@ -11,6 +11,8 @@ diagonal EP) conversions see `gaussx._ssm._site_natural`.
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -24,9 +26,51 @@ from gaussx._primitives._inv import inv
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
+def _transition_noise(
+    A: Float[Array, "Nm1 d d"],
+    Q: Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
+    P_0: Float[Array, "d d"],
+    function: str,
+) -> tuple[Float[Array, "d d"], Float[Array, "Nm1 d d"]]:
+    """Normalise ``Q`` to the transition-noise layout (gh-364).
+
+    The `gaussx.MarkovGaussian` layout -- ``Q`` of shape ``(N-1, d, d)``,
+    ``Q[k]`` the noise of the transition ``x_k → x_{k+1}``, and ``P_0``
+    separate -- is the one to use. The older stacked layout of shape
+    ``(N, d, d)`` with ``Q[0] == P_0`` is told apart by its length, still
+    accepted with a ``DeprecationWarning``, and checked for consistency.
+    """
+    n_transitions = A.shape[0]
+    if Q.shape[0] == n_transitions:
+        return P_0, Q
+    if Q.shape[0] != n_transitions + 1:
+        msg = (
+            f"{function}: Q must have {n_transitions} transition-noise blocks "
+            f"to match A, got {Q.shape[0]}."
+        )
+        raise ValueError(msg)
+    warnings.warn(
+        f"{function} with Q of shape (N, d, d) and Q[0] == P_0 is deprecated; "
+        "pass only the transition noise Q[1:] (shape (N-1, d, d)), as "
+        "MarkovGaussian does. The stacked layout will be removed in 0.5.0.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
+    # Python ``bool()`` could only run eagerly (gh-359). Attached to both
+    # P_0 and Q so every output depends on it and a jitted projection cannot
+    # dead-code-eliminate it.
+    P_0, Q = eqx.error_if(
+        (P_0, Q),
+        ~jnp.allclose(Q[0], P_0),
+        "Q[0] must match P_0 so the returned natural parameters are consistent",
+    )
+    return P_0, Q[1:]
+
+
 def ssm_to_naturals(
     A: Float[Array, "Nm1 d d"],
-    Q: Float[Array, "N d d"],
+    Q: Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
     mu_0: Float[Array, " d"],
     P_0: Float[Array, "d d"],
     *,
@@ -46,10 +90,11 @@ def ssm_to_naturals(
 
     Args:
         A: Transition matrices, shape ``(N-1, d, d)``.
-        Q: Process noise covariances, shape ``(N, d, d)``.
-            ``Q[0]`` must equal ``P_0`` (checked with `equinox.error_if`,
-            so also under ``jax.jit`` / ``jax.vmap``) and ``Q[k]`` for
-            ``k >= 1`` is the process noise at step ``k``.
+        Q: Transition noise covariances, shape ``(N-1, d, d)``: ``Q[k]``
+            drives ``x_k → x_{k+1}``, as in `gaussx.MarkovGaussian`. The
+            older stacked layout of shape ``(N, d, d)`` with ``Q[0] == P_0``
+            (checked with `equinox.error_if`, so also under ``jax.jit``) is
+            deprecated and will be removed in 0.5.0.
         mu_0: Initial mean, shape ``(d,)``.
         P_0: Initial covariance, shape ``(d, d)``.
         solver: Optional solver strategy for structured linear algebra.
@@ -61,27 +106,16 @@ def ssm_to_naturals(
         ``theta_precision`` is a `BlockTriDiag`
         in the ``eta_2 = -0.5 * Lambda`` convention.
     """
-    N = Q.shape[0]
-    d = Q.shape[1]
+    P_0, Q = _transition_noise(A, Q, P_0, "ssm_to_naturals")
+    N = Q.shape[0] + 1
+    d = P_0.shape[0]
 
-    # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
-    # Python ``bool()`` could only run eagerly (gh-359). Attached to both
-    # P_0 and Q so every output depends on it and a jitted projection cannot
-    # dead-code-eliminate it: theta_linear and the first diagonal block use
-    # P_0 (the only live input when N = 1), the sub-diagonal uses only
-    # A and Q[1:].
-    P_0, Q = eqx.error_if(
-        (P_0, Q),
-        ~jnp.allclose(Q[0], P_0),
-        "Q[0] must match P_0 so the returned natural parameters are consistent",
-    )
-
-    # Invert the transition noise Q[1:] only; Q[0] is P_0, handled below
-    # with a single factorisation (gh-403).
+    # Invert the transition noise only; P_0 is handled below with a single
+    # factorisation (gh-403).
     def _inv_single(q):
         return inv(lx.MatrixLinearOperator(q, lx.positive_semidefinite_tag)).as_matrix()
 
-    Q_inv = jax.vmap(_inv_single)(Q[1:])  # (N-1, d, d): Q_inv[k] = Q[k+1]^{-1}
+    Q_inv = jax.vmap(_inv_single)(Q)  # (N-1, d, d): Q_inv[k] = Q[k]^{-1}
 
     # P_0^{-1} and P_0^{-1} mu_0 from one solve against [I | mu_0].
     P_0_op = lx.MatrixLinearOperator(P_0, lx.positive_semidefinite_tag)
@@ -127,9 +161,10 @@ def naturals_to_ssm(
     theta_precision: BlockTriDiag,
     *,
     solver: AbstractSolverStrategy | None = None,
+    initial_in_q: bool | None = None,
 ) -> tuple[
     Float[Array, "Nm1 d d"],
-    Float[Array, "N d d"],
+    Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
     Float[Array, " d"],
     Float[Array, "d d"],
 ]:
@@ -142,19 +177,41 @@ def naturals_to_ssm(
         theta_linear: Natural location parameter, shape ``(N*d,)``.
         theta_precision: Natural precision parameter as
             `BlockTriDiag` (eta2 convention).
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch. This parameter
-            is accepted for API consistency but is not currently used by the
-            matrix inverse operations in this function.
+        solver: Deprecated and ignored (the block inverses are dense);
+            passing it warns, and it will be removed in 0.5.0.
+        initial_in_q: Layout of the returned ``Q``. ``False`` returns only
+            the transition noise, shape ``(N-1, d, d)``, as
+            `gaussx.MarkovGaussian` takes it; ``True`` the older stacked
+            layout of shape ``(N, d, d)`` with ``Q[0] == P_0``. The default
+            ``None`` means ``True`` with a ``DeprecationWarning``; it becomes
+            ``False`` in 0.5.0.
 
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` where:
         - ``A``: Transition matrices, shape ``(N-1, d, d)``.
-        - ``Q``: Process noise covariances, shape ``(N, d, d)``.
+        - ``Q``: Process noise covariances, in the layout chosen by
+          ``initial_in_q``.
         - ``mu_0``: Initial mean, shape ``(d,)``.
         - ``P_0``: Initial covariance, shape ``(d, d)``.
     """
-    del solver  # inv does not accept a solver; parameter reserved for future use
+    if solver is not None:
+        warnings.warn(
+            "naturals_to_ssm(solver=...) is deprecated and ignored; it will be "
+            "removed in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    if initial_in_q is None:
+        warnings.warn(
+            "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in 0.5.0 it "
+            "will return only the transition noise (shape (N-1, d, d)), as "
+            "MarkovGaussian and ssm_to_naturals take it. Pass "
+            "initial_in_q=False to adopt that layout now, or initial_in_q=True "
+            "to keep the current one until then.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        initial_in_q = True
     d = theta_precision._block_size
 
     # Convert from eta2 to raw precision
@@ -198,7 +255,7 @@ def naturals_to_ssm(
     P_0 = Q[0]
     mu_0 = P_0 @ theta_linear[:d]
 
-    return A, Q, mu_0, P_0
+    return A, (Q if initial_in_q else Q[1:]), mu_0, P_0
 
 
 def ssm_to_expectations(

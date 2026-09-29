@@ -237,7 +237,6 @@ from gaussx._ssm import (
     EmissionModel as EmissionModel,
     FilterState as FilterState,
     GaussianSites as GaussianSites,
-    InfiniteHorizonState as InfiniteHorizonState,
     IntegratedWienerSDE as IntegratedWienerSDE,
     MaternSDE as MaternSDE,
     PeriodicSDE as PeriodicSDE,
@@ -343,3 +342,15 @@ try:
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":
         raise
+
+
+def __getattr__(name: str):
+    # Deprecated aliases warn on access (gh-364).
+    from gaussx._ssm._infinite_horizon_kalman import (
+        _DEPRECATED_ALIASES,
+        _deprecated_alias,
+    )
+
+    if name in _DEPRECATED_ALIASES:
+        return _deprecated_alias(name)
+    raise AttributeError(f"module 'gaussx' has no attribute {name!r}")

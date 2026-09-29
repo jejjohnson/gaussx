@@ -110,7 +110,7 @@ def test_rts_smoother_basic(getkey):
     observations = jr.normal(getkey(), (T, M))
 
     state = kalman_filter(A, H, Q, R, observations, jnp.zeros(N), jnp.eye(N))
-    s_means, s_covs = rts_smoother(state, A, Q)
+    s_means, s_covs = rts_smoother(state, A)
 
     assert s_means.shape == (T, N)
     assert s_covs.shape == (T, N, N)
@@ -485,7 +485,7 @@ def test_rts_smoother_tv(getkey):
     x0, P0 = jnp.zeros(N), jnp.eye(N)
 
     state = kalman_filter(A_seq, H, Q, R, y, x0, P0)
-    s_means, s_covs = rts_smoother(state, A_seq, Q)
+    s_means, s_covs = rts_smoother(state, A_seq)
 
     # Last smoothed = last filtered.
     assert tree_allclose(s_means[-1], state.filtered_means[-1], rtol=1e-6)
@@ -628,7 +628,7 @@ def test_float32_covariances_exactly_symmetric(woodbury):
     state = kalman_filter(
         A, H, Q, R, y, jnp.zeros(3, jnp.float32), P0, woodbury_innovation=woodbury
     )
-    smoothed = rts_smoother(state, A, Q)[1]
+    smoothed = rts_smoother(state, A)[1]
     for P in (state.filtered_covs, state.predicted_covs, smoothed):
         assert P.dtype == jnp.float32
         assert jnp.array_equal(P, jnp.swapaxes(P, -1, -2))

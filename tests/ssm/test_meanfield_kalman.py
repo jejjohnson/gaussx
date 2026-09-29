@@ -212,10 +212,10 @@ def test_meanfield_smoother_matches_full_rts():
     _, (A, H, Q, R, P0), m0, y = _block_system(jr.key(9), L, d, m, T)
 
     full_state = kalman_filter(A, H, Q, R, y, m0, P0)
-    full_means, full_covs = rts_smoother(full_state, A, Q)
+    full_means, full_covs = rts_smoother(full_state, A)
 
     mf_state = meanfield_kalman_filter(A, H, Q, R, y, m0, P0, block_size=d)
-    mf_means, mf_covs = meanfield_rts_smoother(mf_state, A, Q, block_size=d)
+    mf_means, mf_covs = meanfield_rts_smoother(mf_state, A, block_size=d)
 
     assert mf_means.shape == (T, L * d)
     assert mf_covs.shape == (T, L * d, L * d)
@@ -229,10 +229,8 @@ def test_smoother_parallel_matches_sequential():
     _, (A, H, Q, R, P0), m0, y = _block_system(jr.key(10), L, d, m, T)
 
     state = meanfield_kalman_filter(A, H, Q, R, y, m0, P0, block_size=d)
-    seq_means, seq_covs = meanfield_rts_smoother(state, A, Q, block_size=d)
-    par_means, par_covs = meanfield_rts_smoother(
-        state, A, Q, block_size=d, parallel=True
-    )
+    seq_means, seq_covs = meanfield_rts_smoother(state, A, block_size=d)
+    par_means, par_covs = meanfield_rts_smoother(state, A, block_size=d, parallel=True)
 
     assert tree_allclose(par_means, seq_means, rtol=1e-4)
     assert tree_allclose(par_covs, seq_covs, rtol=1e-4)
@@ -296,4 +294,4 @@ def test_invalid_block_size_raises():
         A, jnp.eye(D), Q, jnp.eye(D), jnp.zeros((T, D)), jnp.zeros(D), jnp.eye(D)
     )
     with pytest.raises(ValueError, match="not divisible by block_size"):
-        meanfield_rts_smoother(state, A, Q, block_size=3)
+        meanfield_rts_smoother(state, A, block_size=3)

@@ -28,7 +28,7 @@ from gaussx._ssm._parallel_kalman import (
     parallel_kalman_filter,
     parallel_rts_smoother,
 )
-from gaussx._ssm._utils import _materialise
+from gaussx._ssm._utils import _materialise, _warn_unused_process_noise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -209,7 +209,7 @@ def meanfield_kalman_filter(
 def meanfield_rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T D D"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T D D"] | lx.AbstractLinearOperator,
+    process_noise: Float[Array, "*T D D"] | lx.AbstractLinearOperator | None = None,
     *,
     block_size: int,
     solver: AbstractSolverStrategy | None = None,
@@ -219,16 +219,16 @@ def meanfield_rts_smoother(
 
     Backward pass paired with `meanfield_kalman_filter`: runs ``L``
     independent `gaussx.rts_smoother` passes under `jax.vmap`, one per
-    diagonal block. ``transition`` / ``process_noise`` accept the same
-    forms as the filter and are projected onto their diagonal blocks.
+    diagonal block. ``transition`` accepts the same forms as the filter
+    and is projected onto its diagonal blocks.
 
     Args:
         filter_state: Output of `meanfield_kalman_filter` (or any
             `gaussx.FilterState` whose covariances are block-diagonal —
             off-block entries are discarded).
         transition: State transition matrix or operator.
-        process_noise: Process noise covariance or operator. (Unused by
-            the standard RTS recurrence — kept for API symmetry.)
+        process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
+            it will be removed in 0.5.0.
         block_size: State block size ``d``; ``D`` must be divisible by
             it.
         solver: Optional solver strategy for the per-block smoother
@@ -251,13 +251,8 @@ def meanfield_rts_smoother(
         raise ValueError(f"State dimension {D} is not divisible by block_size {d}.")
     L = D // d
 
+    _warn_unused_process_noise("meanfield_rts_smoother", process_noise)
     A_blocks = _split_diag_blocks(transition, L, d, d)
-    # The standard RTS recurrence never reads ``process_noise`` (both base
-    # smoothers ``del`` it), so skip the block split — it would only force
-    # dense materialisation of a structured Q — and pass a shape-compatible
-    # placeholder instead.
-    del process_noise
-    Q_blocks = jnp.zeros_like(A_blocks)
 
     block_states = FilterState(
         filtered_means=rearrange(filter_state.filtered_means, "t (l d) -> l t d", l=L),
@@ -271,10 +266,10 @@ def meanfield_rts_smoother(
 
     base_smoother = parallel_rts_smoother if parallel else rts_smoother
 
-    def _run(state_b, A_b, Q_b):
-        return base_smoother(state_b, A_b, Q_b, solver=solver)
+    def _run(state_b, A_b):
+        return base_smoother(state_b, A_b, solver=solver)
 
-    s_means, s_covs = jax.vmap(_run)(block_states, A_blocks, Q_blocks)
+    s_means, s_covs = jax.vmap(_run)(block_states, A_blocks)
 
     return (
         rearrange(s_means, "l t d -> t (l d)"),

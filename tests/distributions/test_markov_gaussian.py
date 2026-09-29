@@ -187,7 +187,7 @@ class TestPrecisionForm:
         means, covs = posterior.marginals()
 
         state = kalman_filter(A, H, Q, R, y, m0, P0)
-        s_means, s_covs = rts_smoother(state, A, Q)
+        s_means, s_covs = rts_smoother(state, A)
         assert jnp.allclose(means, s_means, atol=1e-8)
         assert jnp.allclose(covs, s_covs, atol=1e-8)
 
