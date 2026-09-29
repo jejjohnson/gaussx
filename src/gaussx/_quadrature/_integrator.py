@@ -38,6 +38,26 @@ class AbstractIntegrator(eqx.Module):
         """
         ...
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """Whether the rule's moment triple is PSD by construction at ``dim``.
+
+        A rule whose covariance weights are all non-negative (or a
+        linearisation, which propagates the covariance exactly) returns a
+        consistent joint over ``(x, g(x))``, so its output covariance and
+        the implied conditional are PSD. Consumers such as
+        `gaussx.nonlinear_kalman_filter` skip their definiteness checks for
+        such rules (gh-331). The default is ``False``, so a custom rule is
+        always checked; the built-in positive-weight rules override it.
+
+        Args:
+            dim: Input dimension ``N`` the rule is applied at.
+
+        Returns:
+            ``True`` if every covariance weight is non-negative at ``dim``.
+        """
+        del dim
+        return False
+
     def points_and_weights(
         self,
         state: GaussianState,

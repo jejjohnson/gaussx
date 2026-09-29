@@ -33,6 +33,7 @@ from collections.abc import Callable
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsla
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
@@ -96,6 +97,56 @@ def _reject_indefinite(
     dimension = cov.shape[-1]
     tolerance = dimension * jnp.finfo(cov.dtype).eps * jnp.maximum(jnp.trace(cov), 1.0)
     return eqx.error_if(cov, jnp.linalg.eigvalsh(cov).min() < -tolerance, message)
+
+
+def _resolve_validate(
+    validate: bool | None, integrator: AbstractIntegrator, dim: int
+) -> bool:
+    """``validate`` as given, or whether ``integrator`` can go indefinite.
+
+    The definiteness checks cost an eigendecomposition each and can only
+    fire for a rule without a PSD guarantee, so by default they are skipped
+    for the built-in positive-weight rules (gh-331) and kept for everything
+    else, custom rules included.
+    """
+    if validate is None:
+        return not integrator.guarantees_psd(dim)
+    return validate
+
+
+def _solve_psd_or_lstsq(
+    P: Float[Array, "N N"],
+    B: Float[Array, "N K"],
+) -> Float[Array, "N K"]:
+    """``P⁻¹ B`` for PSD ``P``: Cholesky, or minimum-norm least squares.
+
+    ``P`` is legitimately singular for a deterministic initial state, zero
+    process noise or dimension-reducing dynamics, where a Cholesky solve
+    returns ``NaN`` although the minimum-norm solution is well defined.
+    The least-squares (SVD) branch runs only when the Cholesky pivots say
+    ``P`` is numerically singular, so the common case costs one ``potrf``
+    instead of an SVD (gh-331). Each branch sees a safe stand-in for the
+    other's input, so the branch not taken -- evaluated anyway under
+    ``vmap`` -- cannot put ``NaN`` into the gradient.
+    """
+    n = P.shape[-1]
+    chol = jnp.linalg.cholesky(P)
+    pivots = jnp.diagonal(chol)
+    scale = jnp.max(jnp.abs(jnp.diagonal(P)))
+    nonsingular = jnp.all(jnp.isfinite(chol)) & (
+        jnp.min(pivots) ** 2 > n * jnp.finfo(P.dtype).eps * scale
+    )
+    eye = jnp.eye(n, dtype=P.dtype)
+    safe_chol = jnp.where(nonsingular, chol, eye)
+    safe_P = jnp.where(nonsingular, eye, P)
+    return jax.lax.cond(
+        nonsingular,
+        lambda: jsla.cho_solve((safe_chol, True), B),
+        # rcond=0.0 keeps every representable mode: lstsq's default cutoff
+        # scales with epsilon, which in float32 also discards small-but-real
+        # covariance modes (for P = diag(1, 1e-8) it would zero that axis).
+        lambda: jnp.linalg.lstsq(safe_P, B, rcond=0.0)[0],
+    )
 
 
 def _broadcast_noise(
@@ -254,6 +305,7 @@ def nonlinear_kalman_predict(
     process_noise: Float[Array, "N N"],
     *,
     integrator: AbstractIntegrator | None = None,
+    validate: bool | None = None,
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
     r"""One moment-matched predict step.
 
@@ -275,6 +327,9 @@ def nonlinear_kalman_predict(
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)`` — see
             `gaussx.nonlinear_kalman_filter` on why not ``alpha=1e-3``.
+        validate: Check the predicted covariance is PSD. Defaults to
+            ``not integrator.guarantees_psd(N)``; see
+            `gaussx.nonlinear_kalman_filter`.
 
     Returns:
         Tuple ``(mean_pred, cov_pred)``.
@@ -291,6 +346,8 @@ def nonlinear_kalman_predict(
     # same transform precisely to recover it.
     mean_pred, cov_dyn, _ = moment_transform(dynamics, mean, cov, integrator=integrator)
     cov_pred = symmetrize(cov_dyn + process_noise)
+    if not _resolve_validate(validate, integrator, mean.shape[-1]):
+        return mean_pred, cov_pred
 
     # Validate here as well as after the update. A negative-weight rule can
     # return an indefinite Cov[f(x)] that a small process noise does not
@@ -321,6 +378,7 @@ def nonlinear_kalman_update(
     mask: Bool[Array, " M"] | None = None,
     joseph: bool = True,
     solver: AbstractSolverStrategy | None = None,
+    validate: bool | None = None,
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"], Float[Array, ""]]:
     r"""One moment-matched update step.
 
@@ -354,7 +412,13 @@ def nonlinear_kalman_update(
             are marginalised out exactly and may be ``NaN`` in
             ``observation``.
         joseph: Use the Joseph-form covariance update. Defaults to ``True``.
-        solver: Optional solver strategy.
+        solver: Optional solver strategy. With ``None`` the innovation is
+            factorised once by Cholesky and shared by the gain, the
+            residual solve and the log-determinant.
+        validate: Check the innovation is positive definite and the
+            updated covariance PSD. Defaults to
+            ``not integrator.guarantees_psd(N)``; see
+            `gaussx.nonlinear_kalman_filter`.
 
     Returns:
         Tuple ``(mean_upd, cov_upd, log_likelihood_increment)``. The
@@ -362,6 +426,7 @@ def nonlinear_kalman_update(
     """
     if integrator is None:
         integrator = UnscentedIntegrator(alpha=1.0)
+    validate = _resolve_validate(validate, integrator, mean.shape[-1])
 
     M = observation.shape[-1]
     obs_noise = _check_noise_shape(obs_noise, M, "obs_noise")
@@ -387,13 +452,6 @@ def nonlinear_kalman_update(
 
     # S = S_yy + R. Symmetrised because it is assembled from a weighted
     # outer-product sum, which drifts asymmetric.
-    #
-    # Tagged symmetric rather than positive-semidefinite: S_yy comes from a
-    # quadrature rule, and rules with negative weights (the scaled
-    # unscented transform, the degree-5 cubature rule above N=4) can return
-    # an indefinite Cov[h(x)]. Claiming PSD would route the solve to a
-    # Cholesky path that returns NaN on such a matrix instead of a solver
-    # that copes.
     innovation = symmetrize(obs_cov_e + R_e)
 
     # A quadrature rule with negative weights can return an indefinite
@@ -401,25 +459,40 @@ def nonlinear_kalman_update(
     # nor the likelihood is defined then -- the quadratic form can go
     # negative and the log-determinant becomes log|det S| -- so this is
     # rejected rather than allowed to produce a plausible-looking but
-    # meaningless number. The eigendecomposition is on the (M, M)
-    # innovation and is negligible beside the moment transform that
-    # produced it.
-    smallest_eigenvalue = jnp.linalg.eigvalsh(innovation).min()
-    innovation = eqx.error_if(
-        innovation,
-        smallest_eigenvalue <= 0.0,
+    # meaningless number. With a positive-weight rule S_yy is PSD, so S is
+    # positive definite whenever R is and the check is skipped (gh-331).
+    innovation_message = (
         "nonlinear_kalman_update: the innovation covariance S = Cov[h(x)] + R "
         "is not positive definite. A negative-weight quadrature rule (the "
         "scaled unscented transform, or the degree-5 cubature rule above "
         "N = 4) can return an indefinite Cov[h(x)]. Use a positive-weight "
         "rule such as CubatureIntegrator or UnscentedIntegrator(alpha=1.0), "
-        "or increase obs_noise.",
+        "or increase obs_noise."
     )
-    innovation_op = _symmetric(innovation)
-
-    # K = C S^-1. solve_rows solves S x = c for each *row* of C, i.e. it
-    # forms C S^-1 without inverting S.
-    gain = solve_rows(innovation_op, cross_e, solver=solver)  # (N, M)
+    if solver is None:
+        # One Cholesky of S serves the gain, the residual solve and the
+        # log-determinant; a non-finite factor is the definiteness check.
+        chol = jnp.linalg.cholesky(innovation)
+        if validate:
+            chol = eqx.error_if(
+                chol, ~jnp.all(jnp.isfinite(jnp.diagonal(chol))), innovation_message
+            )
+        # K = C S^-1, i.e. S Kᵀ = Cᵀ.
+        gain = jsla.cho_solve((chol, True), cross_e.T).T  # (N, M)
+        solved = jsla.cho_solve((chol, True), residual)
+        logdet = 2.0 * jnp.sum(jnp.log(jnp.diagonal(chol)))
+    else:
+        if validate:
+            innovation = eqx.error_if(
+                innovation,
+                jnp.linalg.eigvalsh(innovation).min() <= 0.0,
+                innovation_message,
+            )
+        innovation_op = _symmetric(innovation)
+        # K = C S^-1. solve_rows solves S x = c for each *row* of C.
+        gain = solve_rows(innovation_op, cross_e, solver=solver)  # (N, M)
+        solved = dispatch_solve(innovation_op, residual, solver)
+        logdet = dispatch_logdet(innovation_op, solver)
 
     # m+ = m- + K v
     mean_upd = mean + gain @ residual
@@ -443,21 +516,15 @@ def nonlinear_kalman_update(
         # Omega = S_yy - A P- A^T the linearisation residual: PSD, and zero
         # for affine h. Hence switching this default cannot perturb the
         # linear reduction.
-        # H_eff = C^T (P^-)^-1, via a least-squares solve rather than
-        # `solve_rows`. P^- is legitimately singular for a deterministic
-        # initial state, zero process noise, or dimension-reducing
-        # dynamics, and a well-posed solver returns NaN on those even
-        # though the update itself is perfectly well defined (R keeps S
-        # invertible). The pseudo-inverse gives the minimum-norm H_eff,
-        # which is the natural reading of the linearisation when the
-        # belief is confined to a subspace.
-        #
-        # rcond=0.0 is deliberate: it discards only exactly-zero singular
-        # values. lstsq's default cutoff scales with the dtype's epsilon,
-        # which in float32 also discards small-but-real covariance modes --
-        # for P = diag(1, 1e-8) it zeroes H_eff along the second axis, and
-        # the update then *grows* that variance instead of shrinking it.
-        obs_eff = jnp.linalg.lstsq(cov, cross_e, rcond=0.0)[0].T
+        # H_eff = C^T (P^-)^-1. P^- is legitimately singular for a
+        # deterministic initial state, zero process noise, or
+        # dimension-reducing dynamics, and a well-posed solve returns NaN
+        # on those even though the update itself is perfectly well defined
+        # (R keeps S invertible). The pseudo-inverse then gives the
+        # minimum-norm H_eff, the natural reading of the linearisation when
+        # the belief is confined to a subspace; a Cholesky solve covers the
+        # nonsingular case at a fraction of the cost.
+        obs_eff = _solve_psd_or_lstsq(cov, cross_e).T
 
         # The noise of that regression is R + Omega, *not* R: linearising
         # h leaves a residual eps ~ N(0, Omega) on top of the measurement
@@ -499,6 +566,9 @@ def nonlinear_kalman_update(
     # side of zero; a strict test would reject those. Genuine
     # inconsistency is not marginal: the example above sits at -0.28
     # against a trace of 0.72, many orders above this bound.
+    ll_inc = _log_likelihood_increment(residual, solved, logdet, M, n_missing)
+    if not validate:
+        return mean_upd, cov_upd, ll_inc
     cov_upd = _reject_indefinite(
         cov_upd,
         "nonlinear_kalman_update: the updated covariance is not positive "
@@ -508,20 +578,28 @@ def nonlinear_kalman_update(
         "or UnscentedIntegrator(alpha=1.0).",
     )
 
-    # ll += -0.5 (v^T S^-1 v + log|S| + M log 2pi).
-    #
-    # An approximation, not the exact marginal: S is the *matched*
-    # innovation covariance. Exact when the maps are affine.
-    solved = dispatch_solve(innovation_op, residual, solver)
-    logdet = dispatch_logdet(innovation_op, solver)
-    # Each masked channel contributed a dummy unit block to S, worth
-    # -0.5 log(2 pi) of the full-vector density. Adding it back makes the
-    # result the exact marginal over the observed entries, and independent
-    # of the dummy block's variance.
-    ll_inc = (
+    return mean_upd, cov_upd, ll_inc
+
+
+def _log_likelihood_increment(
+    residual: Float[Array, " M"],
+    solved: Float[Array, " M"],
+    logdet: Float[Array, ""],
+    M: int,
+    n_missing: Float[Array, ""],
+) -> Float[Array, ""]:
+    """``-0.5 (vᵀ S⁻¹ v + log|S| + M log 2π)``, over the observed channels.
+
+    An approximation, not the exact marginal: ``S`` is the *matched*
+    innovation covariance. Exact when the maps are affine. Each masked
+    channel contributed a dummy unit block to ``S``, worth
+    ``-0.5 log 2π`` of the full-vector density; adding it back makes the
+    result the exact marginal over the observed entries, independent of
+    the dummy block's variance.
+    """
+    return (
         -0.5 * (residual @ solved + logdet + M * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
     )
-    return mean_upd, cov_upd, ll_inc
 
 
 def nonlinear_rts_step(
@@ -535,6 +613,7 @@ def nonlinear_rts_step(
     *,
     integrator: AbstractIntegrator | None = None,
     solver: AbstractSolverStrategy | None = None,
+    validate: bool | None = None,
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
     r"""One moment-matched RTS backward step.
 
@@ -557,10 +636,12 @@ def nonlinear_rts_step(
         cov_smoothed: Smoothed covariance at $t + 1$.
         integrator: Moment-matching rule; use the one the filter used.
         solver: Accepted for API symmetry with `gaussx.rts_smoother` and
-            unused. The smoother gain is taken with a least-squares solve
+            unused. The smoother gain falls back to a least-squares solve
             so that a singular predicted covariance -- a deterministic or
             rank-deficient process -- still yields the correction defined
             on its supported subspace, which supersedes the strategy.
+        validate: Check the smoothed covariance is PSD. Defaults to
+            ``not integrator.guarantees_psd(N)``.
 
     Returns:
         Tuple ``(mean, cov)`` smoothed at $t$.
@@ -585,15 +666,15 @@ def nonlinear_rts_step(
     # G = Sigma_xx+ (P-_{t+1})^-1. For linear f this is
     # P_t A^T (P-_{t+1})^-1, the textbook RTS gain.
     #
-    # Least-squares rather than a well-posed solve, for the same reason as
-    # the filter's Joseph linearisation: a deterministic or rank-deficient
+    # Least-squares when P^- is singular, for the same reason as the
+    # filter's Joseph linearisation: a deterministic or rank-deficient
     # process leaves P^- singular while the RTS correction stays perfectly
     # well defined on the subspace the belief actually occupies. A
     # well-posed solver returns NaN there, so a filter run that handles a
     # singular covariance would still fail the moment its result reached
-    # the smoother. rcond=0.0 keeps every representable mode.
+    # the smoother.
     del solver  # the rank policy below supersedes the solver strategy
-    gain = jnp.linalg.lstsq(cov_predicted, cross.T, rcond=0.0)[0].T  # (N, N)
+    gain = _solve_psd_or_lstsq(cov_predicted, cross.T).T  # (N, N)
 
     # The RTS corrections: push the filtered belief toward the smoothed
     # future, by however much that future disagreed with what was predicted
@@ -607,6 +688,8 @@ def nonlinear_rts_step(
     # ones.
     mean_new = mean_filtered + gain @ (mean_smoothed - mean_predicted)
     cov_new = symmetrize(cov_filtered + gain @ (cov_smoothed - cov_predicted) @ gain.T)
+    if not _resolve_validate(validate, integrator, mean_filtered.shape[-1]):
+        return mean_new, cov_new
 
     # Validated for the same reason predict and update are. The filtered and
     # predicted covariances can each be PSD while an inconsistent
@@ -637,6 +720,7 @@ def nonlinear_kalman_filter(
     mask: Bool[Array, " T"] | Bool[Array, "T M"] | None = None,
     joseph: bool = True,
     solver: AbstractSolverStrategy | None = None,
+    validate: bool | None = None,
 ) -> FilterState:
     r"""Moment-matched nonlinear Kalman filter.
 
@@ -730,7 +814,17 @@ def nonlinear_kalman_filter(
         joseph: Use the Joseph-form covariance update. Defaults to
             ``True``; see Notes.
         solver: Optional solver strategy for the innovation solve. When
-            ``None``, uses structural dispatch.
+            ``None``, the innovation is factorised once by Cholesky.
+        validate: Check at every step that the predicted, innovation and
+            updated covariances are positive (semi-)definite, raising an
+            ``EquinoxRuntimeError`` otherwise. Only a quadrature rule with
+            negative weights can violate this, so it defaults to
+            ``not integrator.guarantees_psd(N)``: on for the scaled
+            unscented transform with small ``alpha``, the degree-5 cubature
+            rule above ``N = 4`` and any custom integrator; off (and free)
+            for the default ``UnscentedIntegrator(alpha=1.0)`` and the
+            cubature, Gauss-Hermite, Taylor and Monte Carlo rules. Pass
+            ``True`` to force the checks.
 
     Returns:
         A `gaussx.FilterState`, identical in shape to
@@ -758,7 +852,7 @@ def nonlinear_kalman_filter(
         # The loop is exactly `predict` then `update`; both are public, so
         # a caller who wants a different loop can use them directly.
         mean_pred, cov_pred = nonlinear_kalman_predict(
-            dynamics, mean, cov, Q_t, integrator=integrator
+            dynamics, mean, cov, Q_t, integrator=integrator, validate=validate
         )
 
         def _update(_):
@@ -772,6 +866,7 @@ def nonlinear_kalman_filter(
                 mask=mask_t if channel_mask else None,
                 joseph=joseph,
                 solver=solver,
+                validate=validate,
             )
 
         def _skip(_):
@@ -816,6 +911,7 @@ def nonlinear_rts_smoother(
     *,
     integrator: AbstractIntegrator | None = None,
     solver: AbstractSolverStrategy | None = None,
+    validate: bool | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     r"""Moment-matched nonlinear Rauch-Tung-Striebel smoother.
 
@@ -846,6 +942,9 @@ def nonlinear_rts_smoother(
             used.
         solver: Accepted for API symmetry with `gaussx.rts_smoother` and
             unused -- see `gaussx.nonlinear_rts_step`.
+        validate: Check each smoothed covariance is PSD; defaults to
+            ``not integrator.guarantees_psd(N)``, as in
+            `gaussx.nonlinear_kalman_filter`.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
@@ -871,6 +970,7 @@ def nonlinear_rts_smoother(
             cov_smooth,
             integrator=integrator,
             solver=solver,
+            validate=validate,
         )
 
         return (mean_new, cov_new), (mean_new, cov_new)

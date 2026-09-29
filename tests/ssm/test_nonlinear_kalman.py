@@ -1,8 +1,12 @@
 """Tests for the moment-matched nonlinear Kalman filter and smoother."""
 
+import collections
+import re
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 import pytest
 
@@ -1186,3 +1190,85 @@ def test_smoothed_covariance_is_validated():
                 integrator=_InconsistentDynamics(),
             )
         )
+
+
+# ---------------------------------------------------------------------------
+# gh-331: validation only where it can fire; one Cholesky per solve
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("integrator", "dim", "expected"),
+    [
+        (UnscentedIntegrator(alpha=1.0), 3, True),
+        (UnscentedIntegrator(), 3, False),  # alpha = 1e-3: centre weight < 0
+        (CubatureIntegrator(), 3, True),
+        (GaussHermiteIntegrator(order=3), 2, True),
+        (TaylorIntegrator(), 3, True),
+        (FifthOrderCubatureIntegrator(), 4, True),
+        (FifthOrderCubatureIntegrator(), 5, False),
+    ],
+    ids=lambda v: type(v).__name__ if isinstance(v, AbstractIntegrator) else str(v),
+)
+def test_integrator_psd_guarantee(integrator, dim, expected):
+    assert integrator.guarantees_psd(dim) is expected
+
+
+def _lapack_counts(validate):
+    """LAPACK calls in the compiled filter for the linear N = 3, M = 2 model."""
+    T, N, M = 20, 3, 2
+    k1, k2, k3 = jr.split(jr.key(0), 3)  # pinned: counts do not depend on values
+    A = 0.9 * jnp.eye(N) + 0.05 * jr.normal(k1, (N, N))
+    H = jr.normal(k2, (M, N))
+    y = jr.normal(k3, (T, M))
+
+    def ll(Q):
+        return nonlinear_kalman_filter(
+            lambda x: A @ x,
+            lambda x: H @ x,
+            Q,
+            0.5 * jnp.eye(M),
+            y,
+            jnp.zeros(N),
+            jnp.eye(N),
+            validate=validate,
+        ).log_likelihood
+
+    hlo = jax.jit(ll).lower(0.1 * jnp.eye(N)).compile().as_text()
+    return collections.Counter(
+        re.findall(r'custom_call_target="lapack_(\w+?)_ffi"', hlo)
+    )
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
+def test_default_filter_skips_validation_decompositions():
+    counts = _lapack_counts(validate=None)
+    # Only the two sigma-point square roots remain as eigendecompositions;
+    # the innovation is Cholesky-factored, not LU; the single SVD is the
+    # singular-covariance fallback branch.
+    assert counts["dsyevd"] == 2
+    assert counts["dgetrf"] == 0
+    assert counts["dgesdd"] <= 1
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
+def test_validate_true_restores_the_checks():
+    assert _lapack_counts(validate=True)["dsyevd"] == 4  # + predict and update
+
+
+def test_singular_initial_covariance_gradient_under_vmap():
+    # P0 = 0 sends H_eff through the least-squares fallback; under vmap both
+    # branches run, and the Cholesky branch must not leak NaN into the grad.
+    def ll(scale):
+        return nonlinear_kalman_filter(
+            _linear_dynamics,
+            _linear_obs,
+            scale * _Q,
+            _R,
+            _YS,
+            _M0,
+            jnp.zeros((_N, _N)),
+        ).log_likelihood
+
+    grads = jax.vmap(jax.grad(ll))(jnp.array([0.5, 1.0]))
+    assert jnp.all(jnp.isfinite(grads))

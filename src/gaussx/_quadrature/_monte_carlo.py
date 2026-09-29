@@ -39,6 +39,11 @@ class MonteCarloIntegrator(AbstractIntegrator):
     regularization: float = eqx.field(static=True, default=1e-6)
     key: jax.Array | None = None
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """A sample covariance is PSD."""
+        del dim
+        return True
+
     def integrate(
         self,
         fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],

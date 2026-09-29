@@ -50,6 +50,10 @@ class FifthOrderCubatureIntegrator(AbstractIntegrator):
         Y = jax.vmap(fn)(chi)
         return assemble_propagation_result(chi, Y, state.mean, weights)
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """The axis-shell weights are negative for ``N > 4``."""
+        return dim <= 4
+
     def points_and_weights(
         self,
         state: GaussianState,
