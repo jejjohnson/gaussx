@@ -218,3 +218,15 @@ class TestConditionalUnderJit:
         f = jax.jit(lambda i, v: gaussx.conditional(mu, cov, i, v)[0])
         with pytest.raises(Exception, match="obs_idx must be within bounds"):
             f(idx, jnp.array([0.5, -1.0])).block_until_ready()
+
+    def test_traced_invalid_indices_raise_when_only_covariance_is_used(self, joint):
+        # The check must not be dead-code-eliminated with the mean.
+        mu, cov = joint
+        f = jax.jit(lambda i, v: gaussx.conditional(mu, cov, i, v)[1].as_matrix())
+        with pytest.raises(Exception, match="obs_idx must be within bounds"):
+            f(jnp.array([1, 1]), jnp.array([0.5, -1.0])).block_until_ready()
+
+    def test_concrete_non_integral_indices_are_validated_after_casting(self, joint):
+        mu, cov = joint
+        with pytest.raises(ValueError, match="duplicates"):
+            gaussx.conditional(mu, cov, np.array([1.1, 1.2]), jnp.array([0.5, -1.0]))

@@ -72,19 +72,23 @@ def conditional(
         bad = jnp.any((obs_idx < 0) | (obs_idx >= N)) | jnp.any(
             jnp.diff(jnp.sort(obs_idx)) == 0
         )
-        obs_values = eqx.error_if(
-            obs_values,
+        # Attached to obs_idx, which feeds both outputs, so the check cannot
+        # be dead-code-eliminated when a caller uses only one of them.
+        obs_idx = eqx.error_if(
+            obs_idx,
             bad,
             f"obs_idx must be within bounds [0, {N}) and must not contain duplicates.",
         )
     else:
-        idx_np = np.asarray(obs_idx)
+        # Cast before validating, so e.g. [1.1, 1.2] is caught as the
+        # duplicate [1, 1] it becomes.
+        idx_np = np.asarray(obs_idx).astype(np.int32)
         _check_shapes(idx_np, obs_values)
         if np.any((idx_np < 0) | (idx_np >= N)):
             raise ValueError(f"obs_idx must be within bounds [0, {N}).")
         if np.any(np.diff(np.sort(idx_np)) == 0):
             raise ValueError("obs_idx must not contain duplicates.")
-        obs_idx = jnp.asarray(idx_np, dtype=jnp.int32)
+        obs_idx = jnp.asarray(idx_np)
 
     # Build mask for unobserved indices
     mask = jnp.ones(N, dtype=bool).at[obs_idx].set(False)
