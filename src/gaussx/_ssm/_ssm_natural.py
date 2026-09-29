@@ -18,10 +18,10 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange
+from gaussx._linalg._linalg import solve_matrix
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._primitives._inv import inv
 from gaussx._strategies._base import AbstractSolverStrategy
-from gaussx._strategies._dispatch import dispatch_solve
 
 
 def ssm_to_naturals(
@@ -76,17 +76,22 @@ def ssm_to_naturals(
         "Q[0] must match P_0 so the returned natural parameters are consistent",
     )
 
-    # Invert all process noise covariances (batch over N)
+    # Invert the transition noise Q[1:] only; Q[0] is P_0, handled below
+    # with a single factorisation (gh-403).
     def _inv_single(q):
         return inv(lx.MatrixLinearOperator(q, lx.positive_semidefinite_tag)).as_matrix()
 
-    Q_inv = jax.vmap(_inv_single)(Q)  # (N, d, d)
+    Q_inv = jax.vmap(_inv_single)(Q[1:])  # (N-1, d, d): Q_inv[k] = Q[k+1]^{-1}
+
+    # P_0^{-1} and P_0^{-1} mu_0 from one solve against [I | mu_0].
     P_0_op = lx.MatrixLinearOperator(P_0, lx.positive_semidefinite_tag)
-    P_0_inv = inv(P_0_op).as_matrix()
+    rhs = jnp.concatenate([jnp.eye(d, dtype=Q.dtype), mu_0[:, None]], axis=1)
+    P_0_solved = solve_matrix(P_0_op, rhs, solver=solver)
+    P_0_inv, eta1_0 = P_0_solved[:, :d], P_0_solved[:, d]
 
     # Future contributions: A_k^T Q_{k+1}^{-1} A_k for k = 0..N-2
     future = jax.vmap(lambda Ak, Qinv_kp1: Ak.T @ Qinv_kp1 @ Ak)(
-        A, Q_inv[1:]
+        A, Q_inv
     )  # (N-1, d, d)
 
     # Precision diagonal blocks (raw Lambda, not eta2)
@@ -96,7 +101,7 @@ def ssm_to_naturals(
     diag = jnp.zeros((N, d, d), dtype=Q.dtype)
     diag = diag.at[0].set(P_0_inv + future[0] if N > 1 else P_0_inv)
     if N > 2:
-        diag = diag.at[1:-1].set(Q_inv[1:-1] + future[1:])
+        diag = diag.at[1:-1].set(Q_inv[:-1] + future[1:])
     if N > 1:
         # For N = 1 the only block is the initial one, P_0^{-1}.
         diag = diag.at[-1].set(Q_inv[-1])
@@ -104,9 +109,7 @@ def ssm_to_naturals(
     # Sub-diagonal blocks (raw precision off-diagonal)
     # S[k] = -Q[k+1]^{-1} A[k]  for k=0..N-2
     # (negative because precision cross-terms are negative for transitions)
-    sub_diag = jax.vmap(lambda Qinv_kp1, Ak: -Qinv_kp1 @ Ak)(
-        Q_inv[1:], A
-    )  # (N-1, d, d)
+    sub_diag = jax.vmap(lambda Qinv_kp1, Ak: -Qinv_kp1 @ Ak)(Q_inv, A)  # (N-1, d, d)
 
     # Convert to eta2 convention: theta_precision = -0.5 * Lambda
     theta_precision = BlockTriDiag(-0.5 * diag, -0.5 * sub_diag)
@@ -114,7 +117,6 @@ def ssm_to_naturals(
     # Linear natural parameter: eta1 = Lambda @ mu
     # For zero-mean transitions, only the initial condition contributes
     theta_linear = jnp.zeros(N * d, dtype=Q.dtype)
-    eta1_0 = dispatch_solve(P_0_op, mu_0, solver)
     theta_linear = theta_linear.at[:d].set(eta1_0)
 
     return theta_linear, theta_precision
@@ -174,29 +176,23 @@ def naturals_to_ssm(
         A_k = -Q_next @ sub_k
         # Q_k^{-1} = diag_k - A_k^T @ Q_next_inv @ A_k
         Q_k_inv = diag_k - A_k.T @ Q_next_inv @ A_k
-        return Q_k_inv, (A_k, Q_k_inv)
+        # Emit Q_next (= Q[k+1]) so it is not inverted again below (gh-403).
+        return Q_k_inv, (A_k, Q_next)
 
     Q_last_inv = prec_diag[-1]
 
     # Reverse scan: iterate from k=N-2 down to 0
-    _, (A_rev, Q_inv_rev) = jax.lax.scan(
+    Q_0_inv, (A, Q_rest) = jax.lax.scan(
         _backward_step,
         Q_last_inv,
         (prec_diag[:-1], prec_sub),
         reverse=True,
     )
 
-    # A_rev is (N-1, d, d), Q_inv_rev is (N-1, d, d) for k=0..N-2
-    A = A_rev
-
-    # Q: invert all Q_inv values (batch over N)
-    def _inv_single(q_inv):
-        return inv(
-            lx.MatrixLinearOperator(q_inv, lx.positive_semidefinite_tag)
-        ).as_matrix()
-
-    Q_inv_all = jnp.concatenate([Q_inv_rev, Q_last_inv[None]], axis=0)
-    Q = jax.vmap(_inv_single)(Q_inv_all)
+    # The scan inverted Q[1..N-1]; only Q[0] (the final carry) is left:
+    # N factorisations in total, not 2N - 1.
+    Q_0 = inv(lx.MatrixLinearOperator(Q_0_inv, lx.positive_semidefinite_tag))
+    Q = jnp.concatenate([Q_0.as_matrix()[None], Q_rest], axis=0)
 
     # Recover initial conditions
     P_0 = Q[0]

@@ -2,96 +2,90 @@
 
 from __future__ import annotations
 
-import jax
+from typing import NamedTuple
+
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange, repeat
+from gaussx._linalg._linalg import solve_columns
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._primitives._inv import inv
-from gaussx._primitives._logdet import logdet
+from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._diag import diag
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
-def _build_likelihood_precision(
+class _WhitenedObservations(NamedTuple):
+    """Observation model whitened by one Cholesky factor ``R = L Lᵀ``.
+
+    Attributes:
+        W: ``L⁻¹ H``, shape ``(d_obs, d)`` or ``(N, d_obs, d)``.
+        z: ``L⁻¹ y_k`` per step, shape ``(N, d_obs)``.
+        logdet_R: ``log|R|``.
+    """
+
+    W: Array
+    z: Float[Array, "N d_obs"]
+    logdet_R: Float[Array, ""]
+
+
+def _whiten(
     emission_model: Array,
     obs_noise: lx.AbstractLinearOperator,
-    N: int,
-    d: int,
+    observations: Float[Array, "N d_obs"],
+) -> _WhitenedObservations:
+    """Factor ``R`` once and whiten ``H`` and ``y`` by triangular solves.
+
+    Then ``Hᵀ R⁻¹ H = Wᵀ W``, ``Hᵀ R⁻¹ y = Wᵀ z`` and ``yᵀ R⁻¹ y = ‖z‖²``,
+    so no ``R⁻¹`` is materialised and ``R`` is factorised exactly once
+    (gh-403). `cholesky` dispatches structurally, so a diagonal ``R``
+    stays O(d_obs).
+    """
+    L = cholesky(obs_noise)
+    logdet_R = 2.0 * jnp.sum(jnp.log(diag(L)))
+    z = rearrange(solve_columns(L, rearrange(observations, "N M -> M N")), "M N -> N M")
+    if emission_model.ndim == 2:
+        W = solve_columns(L, emission_model)
+    else:
+        N, _, d = emission_model.shape
+        stacked = rearrange(emission_model, "N M d -> M (N d)")
+        W = rearrange(solve_columns(L, stacked), "M (N d) -> N M d", N=N, d=d)
+    return _WhitenedObservations(W=W, z=z, logdet_R=logdet_R)
+
+
+def _build_likelihood_precision(
+    whitened: _WhitenedObservations, N: int, d: int
 ) -> BlockTriDiag:
-    """Build block-tridiagonal likelihood precision from emission model.
-
-    For scalar or vector observations at each time step, the likelihood
-    precision contribution is block-diagonal (zero sub-diagonals):
-
-        Lambda_lik[k] = H_k^T R_k^{-1} H_k
-
-    The observation noise inverse ``R^{-1}`` is computed once via
-    structural dispatch and reused for all time steps.
+    """Block-diagonal likelihood precision ``Λ_lik[k] = Hₖᵀ R⁻¹ Hₖ = Wₖᵀ Wₖ``.
 
     Args:
-        emission_model: Emission matrix. Shape ``(N, d_obs, d)`` for
-            per-timestep matrices or ``(d_obs, d)`` for shared.
-        obs_noise: Observation noise covariance operator.
+        whitened: The observation model whitened by `_whiten`.
         N: Number of time steps.
         d: State dimension.
 
     Returns:
         Block-tridiagonal likelihood precision (block-diagonal).
     """
-    # Compute R^{-1} once via structural dispatch (obs_noise is typically small)
-    R_inv = inv(obs_noise).as_matrix()
-
-    if emission_model.ndim == 2:
-        # Shared emission model: H^T R^{-1} H for all time steps
-        block = emission_model.T @ R_inv @ emission_model
+    W = whitened.W
+    if W.ndim == 2:
+        block = einsum(W, W, "M d1, M d2 -> d1 d2")
         diag_blocks = repeat(block, "d1 d2 -> N d1 d2", N=N)
     else:
-        # Per-timestep emission: Hₖᵀ R⁻¹ Hₖ
-        diag_blocks = einsum(
-            emission_model,
-            R_inv,
-            emission_model,
-            "N M d1, M M2, N M2 d2 -> N d1 d2",
-        )
+        diag_blocks = einsum(W, W, "N M d1, N M d2 -> N d1 d2")
 
     sub_diag_blocks = jnp.zeros((N - 1, d, d), dtype=diag_blocks.dtype)
     return BlockTriDiag(diag_blocks, sub_diag_blocks)
 
 
-def _build_data_vector(
-    emission_model: Array,
-    obs_noise: lx.AbstractLinearOperator,
-    observations: Float[Array, "N d_obs"],
-) -> Float[Array, " Nd"]:
-    """Build the data contribution to the posterior mean equation.
-
-    Computes ``H^T R^{-1} y`` for each time step.  The observation
-    noise inverse is computed once and reused for all time steps.
-
-    Args:
-        emission_model: Emission matrix, shape ``(N, d_obs, d)`` or
-            ``(d_obs, d)``.
-        obs_noise: Observation noise covariance operator.
-        observations: Observations, shape ``(N, d_obs)``.
-
-    Returns:
-        Data vector, shape ``(N * d,)``.
-    """
-    # Precompute R^{-1} once (obs_noise is typically small)
-    R_inv = inv(obs_noise).as_matrix()
-
-    if emission_model.ndim == 2:
-        # Shared: H^T R^{-1} y_k for each k
-        HtRinv = emission_model.T @ R_inv
-        data_vec = jax.vmap(lambda y_k: HtRinv @ y_k)(observations)
+def _build_data_vector(whitened: _WhitenedObservations) -> Float[Array, " Nd"]:
+    """Data contribution ``Hₖᵀ R⁻¹ yₖ = Wₖᵀ zₖ``, flattened to ``(N * d,)``."""
+    W, z = whitened.W, whitened.z
+    if W.ndim == 2:
+        data_vec = einsum(W, z, "M d, N M -> N d")
     else:
-        data_vec = jax.vmap(lambda H_k, y_k: H_k.T @ R_inv @ y_k)(
-            emission_model, observations
-        )
-
+        data_vec = einsum(W, z, "N M d, N M -> N d")
     return rearrange(data_vec, "N d -> (N d)")
 
 
@@ -147,27 +141,26 @@ def spingp_log_likelihood(
     log_2pi = jnp.log(2.0 * jnp.pi)
 
     # Build likelihood precision and posterior precision
-    lik_prec = _build_likelihood_precision(emission_model, obs_noise, N, d)
+    whitened = _whiten(emission_model, obs_noise, observations)
+    lik_prec = _build_likelihood_precision(whitened, N, d)
     post_prec = prior_precision.add(lik_prec)
 
     # Data vector: eta = H^T R^{-1} y
-    eta = _build_data_vector(emission_model, obs_noise, observations)
+    eta = _build_data_vector(whitened)
 
     # Quadratic term: eta^T Lambda_post^{-1} eta
     post_solve = dispatch_solve(post_prec, eta, solver)
     quad_term = jnp.dot(eta, post_solve)
 
-    # Observation quadratic: y^T R^{-1} y (obs_noise is small, use inv)
-    R_inv = inv(obs_noise).as_matrix()
-    obs_quad = jnp.sum(jax.vmap(lambda y_k: y_k @ R_inv @ y_k)(observations))
+    # Observation quadratic: y^T R^{-1} y = ||z||^2
+    obs_quad = jnp.sum(whitened.z**2)
 
     # Log determinants (posterior precision: may be large, use solver)
     ld_post = dispatch_logdet(post_prec, solver)
     ld_prior = dispatch_logdet(prior_precision, solver)
 
-    # Total observation noise logdet: N * log|R| (small, structural dispatch)
-    ld_R = logdet(obs_noise)
-    ld_R_total = N * ld_R
+    # Total observation noise logdet: N * log|R|, from the same factor
+    ld_R_total = N * whitened.logdet_R
 
     return -0.5 * (
         N_obs * log_2pi + ld_R_total + obs_quad - quad_term + ld_post - ld_prior
@@ -216,11 +209,12 @@ def spingp_posterior(
     d = prior_precision._block_size
 
     # Build likelihood precision and posterior precision
-    lik_prec = _build_likelihood_precision(emission_model, obs_noise, N, d)
+    whitened = _whiten(emission_model, obs_noise, observations)
+    lik_prec = _build_likelihood_precision(whitened, N, d)
     post_prec = prior_precision.add(lik_prec)
 
     # Data vector: eta = H^T R^{-1} y (+ Lambda_prior mu_prior)
-    eta = _build_data_vector(emission_model, obs_noise, observations)
+    eta = _build_data_vector(whitened)
     if prior_mean is not None:
         eta = eta + prior_precision.mv(prior_mean)
 

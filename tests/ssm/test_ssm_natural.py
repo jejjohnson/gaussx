@@ -1,7 +1,10 @@
 """Tests for SSM <-> natural parameter transformations."""
 
+import re
+
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import pytest
 
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -168,3 +171,43 @@ class TestNaturalsToSSM:
         f = jax.jit(lambda *args: project(ssm_to_naturals(*args)))
         with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
             jax.block_until_ready(f(A, Q_bad, jnp.ones(d), jnp.eye(d)))
+
+
+# gh-403: N block factorisations, not 2N - 1; P_0 factorised once.
+
+
+def _lapack_factorisations(f, *args):
+    hlo = jax.jit(f).lower(*args).compile().as_text()
+    found = []
+    for line in hlo.splitlines():
+        match = re.search(r'custom_call_target="lapack_(\w+?)_ffi"', line)
+        if match and match.group(1) in ("dpotrf", "dgetrf"):
+            shape = re.search(r"=\s*\(?([a-z0-9]+\[[0-9,]*\])", line).group(1)
+            found.append((match.group(1), shape))
+    return found
+
+
+def _pinned_ssm(N=6, d=2):
+    # Pinned: the counts do not depend on the values.
+    k1, k2 = jr.split(jr.key(0))
+    A = jnp.tile((0.9 * jnp.eye(d) + 0.05 * jr.normal(k1, (d, d)))[None], (N - 1, 1, 1))
+    L = jr.normal(k2, (d, d))
+    Q = jnp.tile((L @ L.T + 0.1 * jnp.eye(d))[None], (N, 1, 1))
+    return A, Q, jnp.ones(d), Q[0]
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
+def test_naturals_to_ssm_factorisation_count():
+    A, Q, mu_0, P_0 = _pinned_ssm()
+    theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
+    found = _lapack_factorisations(naturals_to_ssm, theta_linear, theta_prec)
+    # One d x d factorisation in the scan body (run N - 1 times) plus Q[0].
+    assert found == [("dpotrf", "f64[2,2]"), ("dpotrf", "f64[2,2]")]
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
+def test_ssm_to_naturals_factorises_p0_once():
+    A, Q, mu_0, _ = _pinned_ssm()
+    found = _lapack_factorisations(lambda A, Q: ssm_to_naturals(A, Q, mu_0, Q[0]), A, Q)
+    # P_0 once, plus one batched factorisation of the N - 1 transition noises.
+    assert sorted(found) == [("dpotrf", "f64[2,2]"), ("dpotrf", "f64[5,2,2]")]
