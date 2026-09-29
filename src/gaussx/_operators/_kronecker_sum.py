@@ -190,30 +190,7 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         b_factor = _factor_array(B)
         evals_a, evecs_a = _factor_eigh(jax.lax.stop_gradient(a_factor))
         evals_b, evecs_b = _factor_eigh(jax.lax.stop_gradient(b_factor))
-        eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
-            jnp.result_type(evals_a, evals_b, jnp.float32)
-        )
-        # Tolerance for "numerically zero" negative eigenvalues. We scale
-        # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
-        # enough for large-magnitude spectra while still admitting eigh
-        # roundoff. Linear scaling becomes too permissive: with
-        # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
-        # genuinely-indefinite operators (negatives on the order of
-        # ``-1e3``) could slip past the guard.
-        scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
-        threshold = (
-            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
-            * jnp.finfo(eigenvalues.dtype).eps
-            * jnp.sqrt(scale)
-        )
-        # ``eqx.error_if`` rather than a Python branch, so the check also
-        # runs (at run time) when the factors are traced.
-        eigenvalues = eqx.error_if(
-            eigenvalues,
-            jnp.min(eigenvalues) < threshold,
-            "A ⊕ B must be positive semidefinite (minimum eigenvalue of the "
-            "Kronecker sum is below the round-off threshold).",
-        )
+        eigenvalues = _checked_kronecker_sum_spectrum(evals_a, evals_b)
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
         self.a_factor = a_factor
@@ -268,6 +245,40 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
 
 
+def _checked_kronecker_sum_spectrum(
+    evals_a: Float[Array, " a"], evals_b: Float[Array, " b"]
+) -> Float[Array, "a b"]:
+    """``λ^A_i + λ^B_j``, with a run-time error if ``A ⊕ B`` is indefinite.
+
+    Shared by the constructor and the custom JVPs (which recompute the
+    spectrum), so autodiff cannot bypass the check.
+    """
+    eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
+        jnp.result_type(evals_a, evals_b, jnp.float32)
+    )
+    # Tolerance for "numerically zero" negative eigenvalues. We scale
+    # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
+    # enough for large-magnitude spectra while still admitting eigh
+    # roundoff. Linear scaling becomes too permissive: with
+    # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
+    # genuinely-indefinite operators (negatives on the order of
+    # ``-1e3``) could slip past the guard.
+    scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
+    threshold = (
+        -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
+        * jnp.finfo(eigenvalues.dtype).eps
+        * jnp.sqrt(scale)
+    )
+    # ``eqx.error_if`` rather than a Python branch, so the check also
+    # runs (at run time) when the factors are traced.
+    return eqx.error_if(
+        eigenvalues,
+        jnp.min(eigenvalues) < threshold,
+        "A ⊕ B must be positive semidefinite (minimum eigenvalue of the "
+        "Kronecker sum is below the round-off threshold).",
+    )
+
+
 def _factor_array(
     operator: lx.AbstractLinearOperator,
 ) -> Float[Array, "n n"] | Float[Array, " n"]:
@@ -296,11 +307,20 @@ def _spectral_parts(a, b):
 
     The custom JVPs below recompute these from the primal factors rather than
     use the cached (``stop_gradient``) ones, so that differentiating the JVP
-    itself -- a Hessian -- still sees their dependence on the factors.
+    itself -- a Hessian -- still sees their dependence on the factors. The
+    PSD check is re-applied, so autodiff cannot bypass it.
+
+    First derivatives never differentiate ``eigh`` and are exact at repeated
+    eigenvalues. Second and higher derivatives do differentiate it here, so
+    -- exactly like ``dense_symmetric_sqrt`` -- they are non-finite
+    when a factor has a repeated eigenvalue. (An exact second-order rule
+    needs the Sylvester solve with a right-hand side that is no longer a
+    Kronecker sum, i.e. a dense ``(n_a n_b)²`` intermediate.)
     """
     values_a, basis_a = _factor_eigh(a)
     values_b, basis_b = _factor_eigh(b)
-    roots = jnp.sqrt(jnp.maximum(values_a[:, None] + values_b[None, :], 0.0))
+    eigenvalues = _checked_kronecker_sum_spectrum(values_a, values_b)
+    roots = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
     return basis_a, basis_b, roots
 
 

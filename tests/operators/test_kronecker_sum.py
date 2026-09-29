@@ -207,3 +207,23 @@ def test_solve_tagged_symmetric_factors_keeps_structured_path(kron_sum):
     b = jnp.arange(kron_sum.in_size(), dtype=jnp.float64)
     x = gaussx.solve(kron_sum, b)
     assert jnp.allclose(kron_sum.as_matrix() @ x, b, atol=1e-10)
+
+
+@pytest.mark.parametrize("transform", ["grad", "jit_grad", "jvp"])
+def test_sqrt_psd_guard_survives_autodiff(transform):
+    # The custom JVPs recompute the spectrum; they must re-apply the check
+    # rather than silently clip a materially indefinite A ⊕ B.
+    B = lx.DiagonalLinearOperator(jnp.array([0.5, 1.0]))
+    v = jnp.ones(4)
+
+    def f(s):
+        A = lx.DiagonalLinearOperator(jnp.array([1.0, -3.0]) * s)
+        return gaussx.KroneckerSumSqrt(A, B).mv(v).sum()
+
+    with pytest.raises(Exception, match="positive semidefinite"):
+        if transform == "grad":
+            jax.grad(f)(1.0)
+        elif transform == "jit_grad":
+            jax.block_until_ready(jax.jit(jax.grad(f))(1.0))
+        else:
+            jax.block_until_ready(jax.jvp(f, (1.0,), (1.0,))[1])
