@@ -127,6 +127,9 @@ class UDLDecomposition(eqx.Module):
         $D_k = \tilde{D}_k + A_k^{\top} \tilde{D}_{k+1}^{-1} A_k
         = \tilde{D}_k + U_k \tilde{D}_{k+1} U_k^{\top}$.
         """
+        if self.U_sub.shape[0] == 0:
+            # One block: Λ = D̃_0 (einx cannot contract the empty axis).
+            return BlockTriDiag(self.D_diag, self.U_sub)
         sub = einsum(self.D_diag[1:], self.U_sub, "T i j, T j k -> T i k")
         future = einsum(self.U_sub, sub, "T j i, T j k -> T i k")
         diag = self.D_diag.at[:-1].add(future)

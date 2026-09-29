@@ -14,6 +14,7 @@ import jax.random as jr
 import lineax as lx
 import numpyro
 import numpyro.handlers as handlers
+from jax.scipy.stats import multivariate_normal as mvn
 
 from gaussx import MarkovGaussian
 from gaussx._einx import rearrange
@@ -258,3 +259,52 @@ class TestDensityAndSampling:
         assert jnp.allclose(value, chain.log_prob(xs), atol=1e-8)
         assert jnp.all(jnp.isfinite(grads.A))
         assert jnp.all(jnp.isfinite(grads.Q))
+
+
+class TestSingleStep:
+    """gh-348: zero transitions (T = 1) is just N(mu0, P0)."""
+
+    mu0 = jnp.array([0.5, -1.0])
+    P0 = jnp.array([[1.0, 0.3], [0.3, 2.0]])
+
+    def _chain(self):
+        empty = jnp.zeros((0, 2, 2))
+        return MarkovGaussian(empty, empty, self.mu0, self.P0)
+
+    @pytest.mark.parametrize("jit", [False, True], ids=["eager", "jit"])
+    def test_log_prob_is_the_initial_gaussian(self, jit):
+        mg = self._chain()
+        x = jnp.array([[[0.1, 0.2]], [[1.0, -2.0]], [[0.0, 0.0]]])  # (3, 1, d)
+
+        def log_prob(m, v):
+            return m.log_prob(v)
+
+        got = (eqx.filter_jit(log_prob) if jit else log_prob)(mg, x)
+        expected = jax.vmap(lambda v: mvn.logpdf(v[0], self.mu0, self.P0))(x)
+        assert jnp.allclose(got, expected, rtol=1e-12, atol=1e-12)
+        assert jnp.allclose(mg.log_prob(x[0]), expected[0], rtol=1e-12)
+
+    def test_precision_views(self):
+        mg = self._chain()
+        precision = mg.precision
+        assert precision.sub_diagonal.shape == (0, 2, 2)
+        assert jnp.allclose(precision.as_matrix(), jnp.linalg.inv(self.P0), atol=1e-12)
+        mean, prec = mg.to_precision_form()
+        assert jnp.allclose(mean, self.mu0)
+        back = MarkovGaussian.from_precision_form(mean, prec)
+        assert back.A.shape == (0, 2, 2)
+        assert jnp.allclose(back.P0, self.P0, atol=1e-12)
+        assert jnp.allclose(back.mu0, self.mu0, atol=1e-12)
+
+    def test_pairwise_quantities_are_empty(self):
+        mg = self._chain()
+        assert mg.cross_covariances().shape == (0, 2, 2)
+        joint_means, joint_covs = mg.pairwise_marginals()
+        assert joint_means.shape == (0, 4)
+        assert joint_covs.shape == (0, 4, 4)
+
+    def test_sample_and_moments_still_work(self):
+        mg = self._chain()
+        assert mg.sample(jr.key(0)).shape == (1, 2)
+        assert jnp.allclose(mg.mean, self.mu0[None])
+        assert jnp.allclose(mg.covariance_matrix, self.P0, atol=1e-12)
