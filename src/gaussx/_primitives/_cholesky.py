@@ -74,6 +74,10 @@ def _cholesky_block_tridiag(operator: BlockTriDiag) -> LowerBlockTriDiag:
     where A_k are the sub-diagonal blocks of the original matrix.
     """
     N = operator._num_blocks
+    if N == 1:
+        # The scan body below indexes the empty sub-diagonal at trace time.
+        L_0 = jnp.linalg.cholesky(operator.diagonal[0])
+        return LowerBlockTriDiag(L_0[None], operator.sub_diagonal)
 
     def scan_fn(carry, k):
         L_prev = carry
