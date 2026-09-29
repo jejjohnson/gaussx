@@ -389,3 +389,60 @@ def test_parallel_kf_sqrt_jit_vmap_grad(getkey):
     assert batched.shape == (B,)
     assert jnp.all(jnp.isfinite(batched))
     assert jnp.all(jnp.isfinite(grad))
+
+
+# ---------------------------------------------------------------------------
+# gh-412: genuinely time-varying parity (every A_t, H_t, Q_t, R_t distinct)
+# ---------------------------------------------------------------------------
+
+
+def _random_tv_model():
+    # Pinned: parity is an identity, any well-conditioned model will do.
+    T, N, M = 9, 3, 2
+    k = jr.split(jr.key(0), 8)
+    A = 0.8 * jnp.eye(N) + 0.1 * jr.normal(k[0], (T, N, N))
+    H = jr.normal(k[1], (T, M, N))
+    Lq = 0.3 * jr.normal(k[2], (T, N, N))
+    Q = Lq @ jnp.swapaxes(Lq, -1, -2) + 0.1 * jnp.eye(N)
+    Lr = 0.3 * jr.normal(k[3], (T, M, M))
+    R = Lr @ jnp.swapaxes(Lr, -1, -2) + 0.2 * jnp.eye(M)
+    y = jr.normal(k[4], (T, M))
+    m0, P0 = jr.normal(k[5], (N,)), jnp.eye(N)
+    masks = {
+        "none": None,
+        "steps": jr.bernoulli(k[6], 0.7, (T,)).at[0].set(True),
+        "channels": jr.bernoulli(k[7], 0.7, (T, M)),
+    }
+    return (A, H, Q, R, y, m0, P0), masks
+
+
+_TV_CASES = [
+    (mask, form)
+    for mask in ("none", "steps", "channels")
+    for form in ("covariance", "sqrt")
+    if not (form == "sqrt" and mask == "channels")  # rejected by design
+]
+
+
+@pytest.mark.parametrize(("mask_name", "form"), _TV_CASES)
+def test_tv_parity_random_params(mask_name, form):
+    args, masks = _random_tv_model()
+    A, Q = args[0], args[2]
+    # Guard against regressing to broadcast (time-invariant) inputs.
+    assert jnp.abs(A[0] - A[1]).max() > 0.01
+    mask = masks[mask_name]
+    seq = kalman_filter(*args, mask=mask)
+    par = parallel_kalman_filter(*args, mask=mask, form=form)
+    tol = {"rtol": 1e-12, "atol": 1e-12}
+    assert jnp.allclose(seq.log_likelihood, par.log_likelihood, **tol)
+    for field in (
+        "filtered_means",
+        "filtered_covs",
+        "predicted_means",
+        "predicted_covs",
+    ):
+        assert jnp.allclose(getattr(seq, field), getattr(par, field), **tol), field
+    m_seq, P_seq = rts_smoother(seq, A, Q)
+    m_par, P_par = parallel_rts_smoother(par, A, Q, form=form)
+    assert jnp.allclose(m_seq, m_par, **tol)
+    assert jnp.allclose(P_seq, P_par, **tol)
