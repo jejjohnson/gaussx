@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
+from jax.core import Tracer
 from jaxtyping import Array, Float, Int
 
 from gaussx._linalg._linalg import solve_matrix
@@ -66,7 +66,7 @@ def conditional(
     N = loc.shape[0]
     obs_values = jnp.asarray(obs_values, dtype=loc.dtype)
 
-    if isinstance(obs_idx, jax.core.Tracer):
+    if isinstance(obs_idx, Tracer):
         obs_idx = obs_idx.astype(jnp.int32)
         _check_shapes(obs_idx, obs_values)
         bad = jnp.any((obs_idx < 0) | (obs_idx >= N)) | jnp.any(
