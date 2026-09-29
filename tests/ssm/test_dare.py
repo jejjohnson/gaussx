@@ -2,6 +2,9 @@
 
 import jax
 import jax.numpy as jnp
+import numpy as np
+import pytest
+import scipy.linalg
 
 from gaussx import dare
 
@@ -67,16 +70,17 @@ class TestDARE:
         result = jax.jit(dare)(A, H, Q, R)
         assert result.converged
 
-    def test_custom_p_init(self, getkey):
-        """Custom P_init does not affect convergence."""
+    def test_p_init_is_deprecated_and_ignored(self):
+        """The doubling algorithm needs no initial guess (gh-294)."""
         D, M = 3, 2
         A = 0.9 * jnp.eye(D)
-        H = jax.random.normal(getkey(), (M, D)) * 0.5
+        H = jax.random.normal(jax.random.key(0), (M, D)) * 0.5
         Q = 0.1 * jnp.eye(D)
         R = 0.5 * jnp.eye(M)
-        P_init = jnp.eye(D)
-        result = dare(A, H, Q, R, P_init=P_init)
+        with pytest.warns(DeprecationWarning, match="P_init"):
+            result = dare(A, H, Q, R, P_init=jnp.eye(D))
         assert result.converged
+        assert jnp.array_equal(result.P_inf, dare(A, H, Q, R).P_inf)
 
 
 def test_dare_obs_noise_diagonal_operator(getkey):
@@ -93,3 +97,43 @@ def test_dare_obs_noise_diagonal_operator(getkey):
     op = dare(A, H, Q, lx.DiagonalLinearOperator(R_diag))
     assert jnp.allclose(ref.P_inf, op.P_inf, atol=1e-5)
     assert jnp.allclose(ref.K_inf, op.K_inf, atol=1e-5)
+
+
+def _scipy_filtered(A, H, Q, R):
+    """scipy's DARE gives the predicted P⁻; convert to the filtered P."""
+    A, H, Q, R = (np.asarray(x) for x in (A, H, Q, R))
+    P_pred = scipy.linalg.solve_discrete_are(A.T, H.T, Q, R)
+    return P_pred - P_pred @ H.T @ np.linalg.solve(H @ P_pred @ H.T + R, H @ P_pred)
+
+
+@pytest.mark.parametrize("a", [0.5, 0.9, 0.99, 0.999, 0.9999])
+def test_slow_dynamics_match_scipy(a):
+    # gh-294: at a = 0.999 the old 100-step fixed-point iteration stopped
+    # 21% short and reported converged=False.
+    A, H = jnp.array([[a]]), jnp.array([[1.0]])
+    Q, R = jnp.array([[1e-4]]), jnp.array([[1.0]])
+    result = dare(A, H, Q, R)
+    assert result.converged
+    np.testing.assert_allclose(result.P_inf, _scipy_filtered(A, H, Q, R), rtol=1e-10)
+
+
+def test_random_stable_system_matches_scipy():
+    k_a, k_h, k_q = jax.random.split(jax.random.key(0), 3)
+    A = jax.random.normal(k_a, (3, 3))
+    A = 0.95 * A / jnp.max(jnp.abs(jnp.linalg.eigvals(A)))
+    H = jax.random.normal(k_h, (2, 3))
+    L = jax.random.normal(k_q, (3, 3))
+    Q = 0.1 * L @ L.T + 0.01 * jnp.eye(3)
+    R = 0.5 * jnp.eye(2)
+    result = dare(A, H, Q, R)
+    assert result.converged
+    np.testing.assert_allclose(result.P_inf, _scipy_filtered(A, H, Q, R), rtol=1e-9)
+    P_pred = A @ result.P_inf @ A.T + Q
+    K = P_pred @ H.T @ jnp.linalg.inv(H @ P_pred @ H.T + R)
+    np.testing.assert_allclose(result.K_inf, K, rtol=1e-9)
+
+
+def test_reports_non_convergence():
+    A, H = jnp.array([[0.999]]), jnp.array([[1.0]])
+    Q, R = jnp.array([[1e-4]]), jnp.array([[1.0]])
+    assert not dare(A, H, Q, R, max_iter=2).converged

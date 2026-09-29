@@ -44,6 +44,17 @@ class InfiniteHorizonState(eqx.Module):
     log_likelihood: Float[Array, ""]
 
 
+def _checked_p_inf(dare_result: DAREResult) -> Float[Array, "N N"]:
+    """``P_inf``, raising at run time if the DARE did not converge (gh-294)."""
+    return eqx.error_if(
+        dare_result.P_inf,
+        ~dare_result.converged,
+        "dare did not converge within max_iter doubling steps; the steady-state "
+        "gain would be wrong. Raise max_iter, or check that (A, H) is "
+        "detectable and R is invertible.",
+    )
+
+
 def infinite_horizon_filter(
     transition: Float[Array, "N N"] | lx.AbstractLinearOperator,
     obs_model: Float[Array, "M N"] | lx.AbstractLinearOperator,
@@ -81,8 +92,9 @@ def infinite_horizon_filter(
         observations: Observed data y, shape ``(T, M)``.
         init_mean: Initial state mean, shape ``(N,)``. Defaults to zeros.
         dare_result: Precomputed DARE result. If ``None``, calls
-            ``dare()`` internally.
-        max_iter: Maximum DARE iterations (used only if ``dare_result``
+            ``dare()`` internally. A result with ``converged=False``
+            raises an ``EquinoxRuntimeError`` (also under ``jit``).
+        max_iter: Maximum DARE doubling steps (used only if ``dare_result``
             is ``None``).
         tol: DARE convergence tolerance (used only if ``dare_result``
             is ``None``).
@@ -120,7 +132,7 @@ def infinite_horizon_filter(
         else _materialise(obs_noise)
     )
 
-    P_inf = dare_result.P_inf  # (N, N)
+    P_inf = _checked_p_inf(dare_result)  # (N, N)
     K_inf = dare_result.K_inf  # (N, M)
     T = observations.shape[0]
     M = observations.shape[-1]
@@ -192,7 +204,8 @@ def infinite_horizon_smoother(
     Args:
         filter_state: Output of ``infinite_horizon_filter``.
         transition: State transition matrix or operator, shape ``(N, N)``.
-        dare_result: DARE result used in the filter.
+        dare_result: DARE result used in the filter. A result with
+            ``converged=False`` raises an ``EquinoxRuntimeError``.
         process_noise: Process noise covariance or operator, shape ``(N, N)``.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
@@ -203,7 +216,7 @@ def infinite_horizon_smoother(
     """
     A_op = _as_operator(transition)
     Q_dense = _materialise(process_noise)
-    P_inf = dare_result.P_inf  # (N, N)
+    P_inf = _checked_p_inf(dare_result)  # (N, N)
     P_inf_op = lx.MatrixLinearOperator(P_inf, lx.positive_semidefinite_tag)
     P_pred_inf = sandwich(A_op, P_inf_op).as_matrix() + Q_dense  # (N, N)
 
