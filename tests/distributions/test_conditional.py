@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 import pytest
 
 import gaussx
@@ -166,3 +167,66 @@ class TestConditional:
                 jnp.array([0, 2]),
                 jnp.array([1.0]),
             )
+
+
+class TestConditionalUnderJit:
+    """gh-351: index validation used ``bool()`` on (traced) arrays."""
+
+    @pytest.fixture
+    def joint(self):
+        S = _make_psd_mat(jax.random.key(0), 4)
+        return jnp.zeros(4), lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+
+    @pytest.mark.parametrize(
+        "make_idx",
+        [lambda: jnp.array([1, 3]), lambda: np.array([1, 3])],
+        ids=["jnp-constant", "numpy-constant"],
+    )
+    def test_constant_indices(self, joint, make_idx):
+        mu, cov = joint
+        vals = jnp.array([0.5, -1.0])
+        eager_mean, eager_cov = gaussx.conditional(mu, cov, make_idx(), vals)
+
+        @jax.jit
+        def f(v):
+            mean, c = gaussx.conditional(mu, cov, make_idx(), v)
+            return mean, c.as_matrix()
+
+        mean, cov_mat = f(vals)
+        assert jnp.allclose(mean, eager_mean, rtol=1e-12, atol=1e-12)
+        assert jnp.allclose(cov_mat, eager_cov.as_matrix(), rtol=1e-12, atol=1e-12)
+
+    def test_traced_indices(self, joint):
+        mu, cov = joint
+        idx, vals = jnp.array([1, 3]), jnp.array([0.5, -1.0])
+        eager_mean, eager_cov = gaussx.conditional(mu, cov, idx, vals)
+
+        @jax.jit
+        def f(i, v):
+            mean, c = gaussx.conditional(mu, cov, i, v)
+            return mean, c.as_matrix()
+
+        mean, cov_mat = f(idx, vals)
+        assert jnp.allclose(mean, eager_mean, rtol=1e-12, atol=1e-12)
+        assert jnp.allclose(cov_mat, eager_cov.as_matrix(), rtol=1e-12, atol=1e-12)
+
+    @pytest.mark.parametrize(
+        "idx", [jnp.array([1, 4]), jnp.array([-1, 2]), jnp.array([1, 1])]
+    )
+    def test_traced_invalid_indices_raise_at_run_time(self, joint, idx):
+        mu, cov = joint
+        f = jax.jit(lambda i, v: gaussx.conditional(mu, cov, i, v)[0])
+        with pytest.raises(Exception, match="obs_idx must be within bounds"):
+            f(idx, jnp.array([0.5, -1.0])).block_until_ready()
+
+    def test_traced_invalid_indices_raise_when_only_covariance_is_used(self, joint):
+        # The check must not be dead-code-eliminated with the mean.
+        mu, cov = joint
+        f = jax.jit(lambda i, v: gaussx.conditional(mu, cov, i, v)[1].as_matrix())
+        with pytest.raises(Exception, match="obs_idx must be within bounds"):
+            f(jnp.array([1, 1]), jnp.array([0.5, -1.0])).block_until_ready()
+
+    def test_concrete_non_integral_indices_are_validated_after_casting(self, joint):
+        mu, cov = joint
+        with pytest.raises(ValueError, match="duplicates"):
+            gaussx.conditional(mu, cov, np.array([1.1, 1.2]), jnp.array([0.5, -1.0]))
