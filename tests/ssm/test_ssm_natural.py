@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._ssm._ssm_natural import naturals_to_ssm, ssm_to_naturals
@@ -65,12 +66,37 @@ class TestSSMToNaturals:
         A, Q, mu_0, P_0 = _make_ssm(getkey, N=4, d=2)
         bad_P_0 = P_0 + 0.5 * jnp.eye(P_0.shape[0])
 
-        try:
+        # eqx.error_if raises EquinoxRuntimeError eagerly (gh-359).
+        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
             ssm_to_naturals(A, Q, mu_0, bad_P_0)
-        except ValueError as exc:
-            assert "Q[0]" in str(exc)
+
+    @pytest.mark.parametrize("transform", ["jit", "vmap"])
+    def test_rejects_mismatched_initial_covariance_under_tracing(self, transform):
+        # gh-359: the check used to be skipped silently under tracing.
+        d = 2
+        P_0, mu_0 = jnp.eye(d), jnp.ones(d)
+        Q_bad = jnp.stack([3.0 * jnp.eye(d), 0.5 * jnp.eye(d)])
+        A = jnp.stack([0.9 * jnp.eye(d)])
+        args = (A, Q_bad, mu_0, P_0)
+        if transform == "jit":
+            f = jax.jit(ssm_to_naturals)
         else:
-            raise AssertionError("Expected mismatched P_0 to raise ValueError")
+            args = tuple(x[None] for x in args)
+            f = jax.vmap(ssm_to_naturals)
+        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
+            jax.block_until_ready(f(*args))
+
+    def test_single_step_precision_is_initial_precision(self):
+        # gh-359: for N = 1 the last-block write overwrote P_0^{-1} with
+        # Q[0]^{-1}; with consistent inputs the block is P_0^{-1}.
+        d = 2
+        P_0 = jnp.array([[2.0, 0.3], [0.3, 1.0]])
+        mu_0 = jnp.array([1.0, -1.0])
+        A = jnp.zeros((0, d, d))
+        for f in (ssm_to_naturals, jax.jit(ssm_to_naturals)):
+            theta_linear, theta_prec = f(A, P_0[None], mu_0, P_0)
+            assert jnp.allclose(-2.0 * theta_prec.diagonal[0], jnp.linalg.inv(P_0))
+            assert jnp.allclose(theta_linear, jnp.linalg.solve(P_0, mu_0))
 
 
 class TestNaturalsToSSM:
