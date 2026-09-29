@@ -27,8 +27,14 @@ on:
 permissions:
   contents: read
 
+# A new push supersedes a running PR run. Concurrency applies before the job
+# `if:`, so adding any other label would cancel a real run for one that then
+# skips; those events get a group of their own.
 concurrency:
-  group: tests-extended-${{ github.ref }}
+  group: >-
+    tests-extended-${{ github.ref }}${{
+    (github.event.action == 'labeled' && github.event.label.name != 'run-slow')
+    && format('-{0}', github.run_id) || '' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
