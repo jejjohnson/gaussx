@@ -76,6 +76,24 @@ class SumSDE(SDEKernel):
 
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=P_inf)
 
+    def discretise(
+        self,
+        dt: Float[Array, ""],
+    ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
+        """Block-diagonal of each component's own discretisation.
+
+        The components are independent, so ``A`` and ``Q`` are
+        block-diagonal. Each block keeps its component's exact route
+        (closed form, stationary ``P∞ − A P∞ Aᵀ``, or MFD only where needed)
+        instead of exponentiating the whole sum -- which, with one
+        non-stationary component, sent everything through ``discretise_mfd``
+        at ~27× the cost (gh-318).
+        """
+        parts = [k.discretise(dt) for k in self.kernels]
+        A = jsl.block_diag(*(a for a, _ in parts))
+        Q = jsl.block_diag(*(q for _, q in parts))
+        return A, Q
+
 
 class ProductSDE(SDEKernel):
     """Product of two SDE kernels via Kronecker composition.

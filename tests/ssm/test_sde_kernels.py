@@ -31,6 +31,7 @@ from gaussx import (
     symmetrize,
 )
 from gaussx._ssm._periodic import _scaled_bessel_i
+from gaussx._ssm._sde_kernel import SDEKernel
 
 
 class TestMaternSDE:
@@ -172,6 +173,82 @@ class TestSumSDE:
         k2 = ConstantSDE(variance=jnp.array(0.5))
         kern = SumSDE(kernels=(k1, k2))
         assert kern.state_dim == 3
+
+    # gh-318: discretise per component instead of exponentiating the sum.
+
+    @staticmethod
+    def _trend_plus_seasonal(dtype=jnp.float64):
+        iwp = IntegratedWienerSDE(diffusion=jnp.array(0.5, dtype=dtype), order=1)
+        matern = MaternSDE(
+            variance=jnp.array(1.0, dtype=dtype),
+            lengthscale=jnp.array(0.7, dtype=dtype),
+            order=2,
+        )
+        return SumSDE(kernels=(iwp, matern))
+
+    @staticmethod
+    def _all_stationary():
+        return SumSDE(
+            kernels=(
+                MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(0.7), order=1),
+                CosineSDE(variance=jnp.array(0.5), frequency=jnp.array(2.0)),
+                PeriodicSDE(
+                    variance=jnp.array(0.8),
+                    lengthscale=jnp.array(1.2),
+                    period=jnp.array(1.5),
+                    n_harmonics=2,
+                ),
+            )
+        )
+
+    @pytest.mark.parametrize("make", ["_trend_plus_seasonal", "_all_stationary"])
+    def test_discretise_is_block_diagonal_of_components(self, make):
+        kern = getattr(self, make)()
+        dt = jnp.array(0.13)
+        A, Q = kern.discretise(dt)
+        parts = [k.discretise(dt) for k in kern.kernels]
+        assert jnp.array_equal(A, jsl.block_diag(*(a for a, _ in parts)))
+        assert jnp.array_equal(Q, jsl.block_diag(*(q for _, q in parts)))
+        # Same answer as exponentiating the whole sum (the inherited path).
+        A_ref, Q_ref = SDEKernel.discretise(kern, dt)
+        assert jnp.allclose(A, A_ref, atol=1e-10)
+        assert jnp.allclose(Q, Q_ref, atol=1e-10)
+
+    def test_non_stationary_sum_avoids_mfd(self, monkeypatch):
+        import gaussx._ssm._sde_kernel as sde_kernel
+
+        def fail(*args, **kwargs):
+            raise AssertionError("SumSDE.discretise went through discretise_mfd")
+
+        monkeypatch.setattr(sde_kernel, "discretise_mfd", fail)
+        A_seq, _ = self._trend_plus_seasonal().discretise_sequence(
+            jnp.linspace(0.01, 0.5, 4)
+        )
+        assert A_seq.shape == (4, 5, 5)
+
+    def test_float32_components_give_float32(self):
+        A, Q = self._trend_plus_seasonal(jnp.float32).discretise(
+            jnp.array(0.1, dtype=jnp.float32)
+        )
+        assert A.dtype == jnp.float32 and Q.dtype == jnp.float32
+
+    def test_gradient_matches_whole_sum_path(self):
+        dt = jnp.linspace(0.01, 0.5, 4)
+
+        def loss(lengthscale, discretise):
+            kern = eqx.tree_at(
+                lambda k: k.kernels[1].lengthscale,
+                self._trend_plus_seasonal(),
+                lengthscale,
+            )
+            A, Q = jax.vmap(lambda d: discretise(kern, d))(dt)
+            return jnp.sum(A**2) + jnp.sum(Q**2)
+
+        ell = jnp.array(0.7)
+        grad = jax.grad(loss)(ell, SumSDE.discretise)
+        grad_ref = jax.grad(loss)(ell, SDEKernel.discretise)
+        assert jnp.isfinite(grad)
+        assert jnp.allclose(grad, grad_ref, rtol=1e-6)
 
 
 class TestProductSDE:
