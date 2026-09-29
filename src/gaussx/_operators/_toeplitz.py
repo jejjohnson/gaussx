@@ -22,7 +22,12 @@ class Toeplitz(lx.AbstractLinearOperator):
     is Toeplitz, so this gives an asymptotic win over dense storage.
 
     Args:
-        column: First column of the Toeplitz matrix, shape ``(n,)``.
+        column: First column of the Toeplitz matrix, shape ``(n,)``. Real;
+            integer columns are promoted to floating point.
+
+    Raises:
+        TypeError: If ``column`` is complex.
+        ValueError: If ``column`` is not rank 1 or is empty.
     """
 
     column: Float[Array, " n"]
@@ -36,7 +41,7 @@ class Toeplitz(lx.AbstractLinearOperator):
         *,
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
-        self.column = jnp.asarray(column)
+        self.column = _as_floating_column(column)
         self._size = self.column.shape[0]
         self._dtype = str(self.column.dtype)
         self.tags = _to_frozenset(tags) | {lx.symmetric_tag}
@@ -209,6 +214,14 @@ def _as_floating_column(column: Float[Array, " n"]) -> Float[Array, " n"]:
         raise ValueError(f"Toeplitz column must be rank 1, got shape {column.shape}.")
     if column.shape[0] == 0:
         raise ValueError("Toeplitz column must be non-empty.")
+    if jnp.issubdtype(column.dtype, jnp.complexfloating):
+        # The FFT matvec uses rfft, and the operator is tagged symmetric
+        # (gh-368).
+        raise TypeError(
+            f"Toeplitz column must be real, got {column.dtype}; complex Toeplitz "
+            "operators are not supported (use gaussx.Circulant for complex "
+            "circulant operators, or a dense operator)."
+        )
     dtype = jnp.result_type(column.dtype, jnp.float32)
     return column.astype(dtype)
 

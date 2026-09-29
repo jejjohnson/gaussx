@@ -300,3 +300,35 @@ class TestLogdet:
         ld = logdet(T)
         expected = jnp.linalg.slogdet(T.as_matrix())[1]
         assert tree_allclose(ld, expected, rtol=1e-4)
+
+
+# gh-368: complex columns are rejected at construction, not inside rfft.
+_COMPLEX_COLUMN = jnp.array([1 + 1j, 2.0, 3.0])
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda c: Toeplitz(c),
+        lambda c: ToeplitzCholesky(c),
+        lambda c: toeplitz_sample(c, key=jr.key(0)),
+    ],
+    ids=["Toeplitz", "ToeplitzCholesky", "toeplitz_sample"],
+)
+def test_complex_column_rejected(build):
+    with pytest.raises(TypeError, match="must be real, got complex128"):
+        build(_COMPLEX_COLUMN)
+
+
+def test_toeplitz_validates_rank_and_emptiness():
+    with pytest.raises(ValueError, match="rank 1"):
+        Toeplitz(jnp.ones((2, 2)))
+    with pytest.raises(ValueError, match="non-empty"):
+        Toeplitz(jnp.ones(0))
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_real_columns_keep_their_dtype(dtype):
+    op = Toeplitz(jnp.array([2.0, 0.5, 0.1], dtype=dtype))
+    assert op.in_structure().dtype == dtype
+    assert op.mv(jnp.ones(3, dtype=dtype)).dtype == dtype
