@@ -416,7 +416,8 @@ Two API constraints worth knowing up front:
 - `kronecker_posterior_predictive(...)` needs exact test prior diagonals via
   `K_test_diag_factors=` for predictive variances.
 - `ssm_to_naturals(...)` expects `Q[0] == P_0` and raises on an inconsistent
-  initial covariance.
+  initial covariance -- eagerly and at run time under `jax.jit` / `jax.vmap`
+  (an `EquinoxRuntimeError` via `equinox.error_if`).
 
 ---
 

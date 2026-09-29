@@ -11,6 +11,7 @@ diagonal EP) conversions see `gaussx._ssm._site_natural`.
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -46,8 +47,9 @@ def ssm_to_naturals(
     Args:
         A: Transition matrices, shape ``(N-1, d, d)``.
         Q: Process noise covariances, shape ``(N, d, d)``.
-            ``Q[0]`` must equal ``P_0`` and ``Q[k]`` for ``k >= 1`` is the
-            process noise at step ``k``.
+            ``Q[0]`` must equal ``P_0`` (checked with `equinox.error_if`,
+            so also under ``jax.jit`` / ``jax.vmap``) and ``Q[k]`` for
+            ``k >= 1`` is the process noise at step ``k``.
         mu_0: Initial mean, shape ``(d,)``.
         P_0: Initial covariance, shape ``(d, d)``.
         solver: Optional solver strategy for structured linear algebra.
@@ -62,14 +64,17 @@ def ssm_to_naturals(
     N = Q.shape[0]
     d = Q.shape[1]
 
-    try:
-        q0_matches_p0 = bool(jnp.allclose(Q[0], P_0))
-    except jax.errors.TracerBoolConversionError:
-        q0_matches_p0 = True  # skip validation under jax.jit
-
-    if not q0_matches_p0:
-        msg = "Q[0] must match P_0 so the returned natural parameters are consistent"
-        raise ValueError(msg)
+    # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
+    # Python ``bool()`` could only run eagerly (gh-359). Attached to both
+    # P_0 and Q so every output depends on it and a jitted projection cannot
+    # dead-code-eliminate it: theta_linear and the first diagonal block use
+    # P_0 (the only live input when N = 1), the sub-diagonal uses only
+    # A and Q[1:].
+    P_0, Q = eqx.error_if(
+        (P_0, Q),
+        ~jnp.allclose(Q[0], P_0),
+        "Q[0] must match P_0 so the returned natural parameters are consistent",
+    )
 
     # Invert all process noise covariances (batch over N)
     def _inv_single(q):
@@ -92,7 +97,9 @@ def ssm_to_naturals(
     diag = diag.at[0].set(P_0_inv + future[0] if N > 1 else P_0_inv)
     if N > 2:
         diag = diag.at[1:-1].set(Q_inv[1:-1] + future[1:])
-    diag = diag.at[-1].set(Q_inv[-1])
+    if N > 1:
+        # For N = 1 the only block is the initial one, P_0^{-1}.
+        diag = diag.at[-1].set(Q_inv[-1])
 
     # Sub-diagonal blocks (raw precision off-diagonal)
     # S[k] = -Q[k+1]^{-1} A[k]  for k=0..N-2
