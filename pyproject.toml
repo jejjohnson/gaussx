@@ -45,6 +45,7 @@ dev = [
     "pre-commit>=3.7",
     "beartype>=0.18",
     "numpyro>=0.21",
+    "jupytext>=1.19.1",
 ]
 lint = [
     "ruff>=0.15.10",

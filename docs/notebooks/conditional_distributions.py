@@ -317,9 +317,12 @@ pred_var_manual = K_ss_diag - var_reduction
 pred_var_cv = gaussx.conditional_variance(K_ss_diag, K_sf, A)
 
 print("Max |variance difference|:", jnp.max(jnp.abs(pred_var_cv - pred_var_manual)))
+# cond_cov carries the 1e-6 jitter added to the whole joint in section 3,
+# while the manual formula uses the un-jittered kernel, so the two agree to
+# about that jitter, not to machine precision.
 print(
     "Matches conditional diagonal:",
-    jnp.allclose(pred_var_manual, jnp.diag(cond_cov), atol=1e-10),
+    jnp.allclose(pred_var_manual, jnp.diag(cond_cov), atol=1e-5),
 )
 
 # %% [markdown]
