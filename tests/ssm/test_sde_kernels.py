@@ -103,7 +103,8 @@ class TestPeriodicSDE:
             period=jnp.array(1.0),
             n_harmonics=4,
         )
-        assert kern.state_dim == 8
+        # One rotation block per harmonic j = 0..4 (gh-289).
+        assert kern.state_dim == 10
 
     def test_stationary_condition(self):
         kern = PeriodicSDE(
@@ -138,7 +139,9 @@ class TestScaledBessel:
         )
         x = 1.0 / 0.1**2
         ref = 2 * np.sum(2 * scipy.special.ive(np.arange(1, 7), x))
-        assert jnp.allclose(jnp.trace(kern.sde_params().P_inf), ref, rtol=1e-10)
+        # Harmonic blocks j = 1..6; block 0 is the constant term (gh-289).
+        P_inf = kern.sde_params().P_inf
+        assert jnp.allclose(jnp.trace(P_inf[2:, 2:]), ref, rtol=1e-10)
 
     @pytest.mark.parametrize("ell", [0.1, 0.2, 0.5, 1.0, 5.0])
     def test_gradient_matches_finite_differences(self, ell):
@@ -223,7 +226,7 @@ class TestQuasiPeriodicSDE:
             n_harmonics=2,
         )
         kern = QuasiPeriodicSDE(kernel1=k1, kernel2=k2)
-        assert kern.state_dim == 2 * 4
+        assert kern.state_dim == 2 * 6
         assert isinstance(kern, ProductSDE)
 
 

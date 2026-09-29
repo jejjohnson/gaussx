@@ -57,8 +57,18 @@ class CosineSDE(SDEKernel):
 class PeriodicSDE(SDEKernel):
     r"""State-space representation of the periodic (MacKay) kernel.
 
-    Approximates the periodic kernel via Fourier series truncation
-    to ``n_harmonics`` terms. State dimension is ``2 * n_harmonics``.
+    Approximates the periodic kernel via its Fourier (Bessel) series,
+    truncated after ``n_harmonics`` harmonics (Solin & Särkkä, 2014):
+
+    $$
+    k(\tau) = \sigma^2 e^{-x} \Big[I_0(x)
+    + 2 \sum_{j=1}^{J} I_j(x) \cos(j \omega_0 \tau)\Big],
+    \qquad x = 1/\ell^2, \ \omega_0 = 2\pi / T.
+    $$
+
+    Each term ``j = 0..J`` is a 2-D rotation block at frequency
+    ``j ω₀``; the constant ``j = 0`` block has zero drift. State dimension
+    is ``2 * (n_harmonics + 1)``.
 
     Short lengthscales put more of the variance into high harmonics, so
     they need more terms: use ``n_harmonics ≳ 3 / lengthscale`` (with the
@@ -79,23 +89,26 @@ class PeriodicSDE(SDEKernel):
 
     @property
     def state_dim(self) -> int:
-        return 2 * self.n_harmonics
+        return 2 * (self.n_harmonics + 1)
 
     def sde_params(self) -> SDEParams:
         """Return SDE parameters for the periodic kernel."""
         dtype = jnp.result_type(self.variance, self.lengthscale, self.period)
-        J = self.n_harmonics
-        d = 2 * J
+        n_blocks = self.n_harmonics + 1
+        d = 2 * n_blocks
         w0 = 2.0 * jnp.pi / self.period
 
         inv_ell_sq = 1.0 / self.lengthscale**2
-        # q_j = 2 σ² I_j(x) e^{-x}, from the scaled Bessel values directly.
-        q_j = 2.0 * self.variance * _scaled_bessel_i(J, inv_ell_sq)[1:]
+        # q_0 = σ² Ĩ_0(x) and q_j = 2 σ² Ĩ_j(x) for j ≥ 1, with the scaled
+        # Bessel values Ĩ_j = I_j e^{-x}. Dropping j = 0 left every
+        # covariance short by σ² Ĩ_0(x) (gh-289).
+        weights = jnp.ones(n_blocks, dtype=dtype).at[1:].set(2.0)
+        q_j = self.variance * weights * _scaled_bessel_i(self.n_harmonics, inv_ell_sq)
 
         F = jnp.zeros((d, d), dtype=dtype)
         P_inf = jnp.zeros((d, d), dtype=dtype)
-        for j_idx in range(J):
-            freq = (j_idx + 1) * w0
+        for j_idx in range(n_blocks):
+            freq = j_idx * w0
             block_start = 2 * j_idx
             F = F.at[block_start, block_start + 1].set(-freq)
             F = F.at[block_start + 1, block_start].set(freq)
@@ -104,7 +117,7 @@ class PeriodicSDE(SDEKernel):
 
         L = jnp.zeros((d, 1), dtype=dtype)
         H = jnp.zeros((1, d), dtype=dtype)
-        for j_idx in range(J):
+        for j_idx in range(n_blocks):
             H = H.at[0, 2 * j_idx].set(1.0)
 
         Q_c = jnp.zeros((1, 1), dtype=dtype)
@@ -114,14 +127,14 @@ class PeriodicSDE(SDEKernel):
         self,
         dt: Float[Array, ""],
     ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
-        """Closed-form: block-diagonal rotation matrices."""
-        J = self.n_harmonics
-        d = 2 * J
+        """Closed-form: block-diagonal rotation matrices (identity for j = 0)."""
+        n_blocks = self.n_harmonics + 1
+        d = 2 * n_blocks
         w0 = 2.0 * jnp.pi / self.period
 
         A = jnp.zeros((d, d), dtype=jnp.result_type(w0, dt))
-        for j_idx in range(J):
-            freq = (j_idx + 1) * w0
+        for j_idx in range(n_blocks):
+            freq = j_idx * w0
             cos_val = jnp.cos(freq * dt)
             sin_val = jnp.sin(freq * dt)
             block_start = 2 * j_idx
