@@ -174,7 +174,9 @@ def cavity_distribution(
             applied only on the diagonal path. A site that has absorbed
             more precision than the posterior holds leaves a negative
             cavity precision, which EP loops guard against by clipping;
-            ``None`` (the default) returns the raw cavity. The operator
+            ``None`` (the default) returns the raw cavity, whose negative
+            variances `ep_tilted_moments` treats as invalid and passes
+            through unchanged (a zero site update). The operator
             path ignores it, since flooring a matrix would require an
             eigendecomposition — the same split as `newton_update`.
 
