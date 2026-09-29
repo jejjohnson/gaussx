@@ -8,7 +8,9 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy.linalg as jsl
 import lineax as lx
+import numpy as np
 import pytest
+import scipy.special
 
 from gaussx import (
     ConstantSDE,
@@ -28,6 +30,7 @@ from gaussx import (
     sde_autocovariance,
     symmetrize,
 )
+from gaussx._ssm._periodic import _scaled_bessel_i
 
 
 class TestMaternSDE:
@@ -113,6 +116,51 @@ class TestPeriodicSDE:
         params = kern.sde_params()
         reconstructed = A @ params.P_inf @ A.T + Q
         assert jnp.allclose(reconstructed, params.P_inf, atol=1e-5)
+
+
+class TestScaledBessel:
+    """gh-291: the harmonic weights need I_j(x) e^{-x} for any x = 1/ℓ²."""
+
+    @pytest.mark.parametrize("n_max", [6, 10, 20])
+    @pytest.mark.parametrize("x", [0.04, 0.25, 1.0, 4.0, 11.0, 25.0, 44.0, 100.0, 1e3])
+    def test_matches_scipy_ive(self, n_max, x):
+        got = np.asarray(_scaled_bessel_i(n_max, jnp.array(x)))
+        ref = scipy.special.ive(np.arange(n_max + 1), x)
+        np.testing.assert_allclose(got, ref, rtol=1e-10)
+
+    def test_short_lengthscale_keeps_its_variance(self):
+        # The old fixed 20-term series gave trace ≈ 5e-10 here.
+        kern = PeriodicSDE(
+            variance=jnp.array(1.0),
+            lengthscale=jnp.array(0.1),
+            period=jnp.array(1.0),
+            n_harmonics=6,
+        )
+        x = 1.0 / 0.1**2
+        ref = 2 * np.sum(2 * scipy.special.ive(np.arange(1, 7), x))
+        assert jnp.allclose(jnp.trace(kern.sde_params().P_inf), ref, rtol=1e-10)
+
+    @pytest.mark.parametrize("ell", [0.1, 0.2, 0.5, 1.0, 5.0])
+    def test_gradient_matches_finite_differences(self, ell):
+        def trace(ell):
+            kern = PeriodicSDE(
+                variance=jnp.array(1.0),
+                lengthscale=ell,
+                period=jnp.array(1.0),
+                n_harmonics=6,
+            )
+            return jnp.trace(kern.sde_params().P_inf)
+
+        grad = jax.grad(trace)(jnp.array(ell))
+        h = 1e-6 * ell
+        fd = (trace(jnp.array(ell + h)) - trace(jnp.array(ell - h))) / (2 * h)
+        assert jnp.isfinite(grad)
+        assert jnp.allclose(grad, fd, rtol=1e-6)
+
+    def test_float32_stays_float32(self):
+        out = _scaled_bessel_i(6, jnp.array(3.0, dtype=jnp.float32))
+        assert out.dtype == jnp.float32
+        np.testing.assert_allclose(out, scipy.special.ive(np.arange(7), 3.0), rtol=1e-5)
 
 
 class TestSumSDE:
