@@ -703,8 +703,14 @@ def nonlinear_kalman_filter(
         obs_noise: $R$, additive in observation space. Shape ``(M, M)``,
             ``(T, M, M)``, or an operator.
         observations: Observed data, shape ``(T, M)``.
-        init_mean: Initial state mean, shape ``(N,)``.
-        init_cov: Initial state covariance, shape ``(N, N)``.
+        init_mean: Mean of the prior on x₀, shape ``(N,)``.
+        init_cov: Covariance of the prior on x₀, shape ``(N, N)``.
+            The filter predicts before each update, so
+            ``observations[0]`` observes ``x₁ = dynamics(x₀) + q``, not
+            x₀. ``dynamics`` is time-invariant, so to score a first
+            observation against the prior itself, update the prior with
+            `gaussx.nonlinear_kalman_update` and filter the remaining
+            observations from there.
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``, which is derivative-free
             and exact for affine maps. Must supply a cross-covariance.
