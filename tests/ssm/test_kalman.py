@@ -21,6 +21,7 @@ from gaussx import (
     parallel_kalman_filter,
     rts_smoother,
 )
+from gaussx._einx import rearrange
 from gaussx._ssm._utils import _innovation_covariance
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -32,16 +33,45 @@ class LazyDiagonal(lx.DiagonalLinearOperator):
         raise AssertionError("as_matrix should not be called")
 
 
-def test_kalman_filter_constant_state(getkey):
-    """With zero process noise and identity dynamics, filter should converge."""
+def _dense_joint_filtered_mean(A, H, Q, R, y, m0, P0):
+    """E[x_T | y_1..y_T] from the dense joint Gaussian (predict first)."""
+    T, N = y.shape[0], m0.shape[0]
+    means, covs, P = [], [], P0
+    m = m0
+    for _ in range(T):
+        m, P = A @ m, A @ P @ A.T + Q
+        means.append(m)
+        covs.append(P)
+    # Cov(x_j, x_i) = A^{j-i} P_i for j >= i.
+    cross = [[None] * T for _ in range(T)]
+    for i in range(T):
+        block = covs[i]
+        for j in range(i, T):
+            if j > i:
+                block = A @ block
+            cross[j][i] = block
+            cross[i][j] = block.T
+    Sigma = jnp.block(cross)
+    H_full = jnp.kron(jnp.eye(T), H)
+    S = H_full @ Sigma @ H_full.T + jnp.kron(jnp.eye(T), R)
+    mean = jnp.concatenate(means)
+    gain_rows = Sigma[-N:] @ H_full.T
+    innovation = rearrange(y, "T M -> (T M)") - H_full @ mean
+    return means[-1] + gain_rows @ jnp.linalg.solve(S, innovation)
+
+
+def test_kalman_filter_constant_state():
+    """The last filtered mean is the exact conditional mean E[x_T | y]."""
     N, M, T = 2, 2, 5
     A = jnp.eye(N)
     H = jnp.eye(M)
     Q = 1e-6 * jnp.eye(N)
     R = 0.1 * jnp.eye(M)
 
+    # Pinned: the check is exactness of the filter, not convergence to the
+    # truth, so the noise draw is incidental (gh-412).
     true_state = jnp.array([1.0, 2.0])
-    observations = true_state[None, :] + 0.1 * jr.normal(getkey(), (T, M))
+    observations = true_state[None, :] + 0.1 * jr.normal(jr.key(0), (T, M))
 
     x0 = jnp.zeros(N)
     P0 = jnp.eye(N)
@@ -53,8 +83,8 @@ def test_kalman_filter_constant_state(getkey):
     assert state.filtered_covs.shape == (T, N, N)
     assert state.log_likelihood.shape == ()
 
-    # Last filtered mean should be close to true state
-    assert tree_allclose(state.filtered_means[-1], true_state, atol=0.5)
+    expected = _dense_joint_filtered_mean(A, H, Q, R, observations, x0, P0)
+    assert tree_allclose(state.filtered_means[-1], expected, rtol=1e-10, atol=1e-10)
 
 
 def test_kalman_filter_log_likelihood_finite(getkey):
@@ -655,3 +685,31 @@ def test_identity_first_transition_observes_the_prior(name):
     state = _FILTERS[name](jnp.eye(2)[None], jnp.zeros((1, 2, 2)))
     expected = mvn.logpdf(_PF_Y[0], _PF_H @ _PF_M0, _PF_H @ _PF_P0 @ _PF_H.T + _PF_R)
     assert jnp.allclose(state.log_likelihood, expected, rtol=1e-12, atol=1e-12)
+
+
+def test_kalman_filter_grad_matches_fd():
+    # gh-412: a fast-tier gradient check on a genuinely time-varying model.
+    T, N, M = 6, 3, 2
+    k = jr.split(jr.key(0), 5)
+    A = 0.8 * jnp.eye(N) + 0.1 * jr.normal(k[0], (T, N, N))
+    H = jr.normal(k[1], (T, M, N))
+    Lq = 0.3 * jr.normal(k[2], (T, N, N))
+    Q = Lq @ jnp.swapaxes(Lq, -1, -2) + 0.1 * jnp.eye(N)
+    R = 0.3 * jnp.eye(M)
+    y = jr.normal(k[3], (T, M))
+    m0 = jr.normal(k[4], (N,))
+
+    def ll(q_scale, r_scale):
+        return kalman_filter(
+            A, H, q_scale * Q, r_scale * R, y, m0, jnp.eye(N)
+        ).log_likelihood
+
+    check_grads(ll, (1.0, 1.0), order=1, modes=["rev"])
+    grad = jax.grad(ll, argnums=(0, 1))(1.0, 1.0)
+    h = 1e-5
+    fd = (
+        (ll(1.0 + h, 1.0) - ll(1.0 - h, 1.0)) / (2 * h),
+        (ll(1.0, 1.0 + h) - ll(1.0, 1.0 - h)) / (2 * h),
+    )
+    for g, f in zip(grad, fd, strict=True):
+        assert jnp.allclose(g, f, rtol=1e-6)
