@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 from jaxtyping import Array, Float, Int
 
 from gaussx._linalg._linalg import solve_matrix
@@ -45,19 +48,43 @@ def conditional(
     Returns:
         Tuple ``(cond_mean, cond_cov)`` — mean and covariance of the
         conditional distribution over unobserved variables.
+
+    Raises:
+        ValueError: If ``obs_idx`` is not 1D, does not match
+            ``obs_values`` in shape, or -- when it is concrete -- is out
+            of bounds or contains duplicates.
+        EquinoxRuntimeError: At run time, if a *traced* ``obs_idx`` is
+            out of bounds or contains duplicates.
+
+    Note:
+        Usable under ``jax.jit``. Concrete indices (NumPy or JAX constants,
+        including ones closed over by the jitted function) are validated
+        on the host; traced indices are validated at run time with
+        `equinox.error_if`, since an out-of-bounds gather would otherwise
+        be silently clamped.
     """
     N = loc.shape[0]
-    obs_idx = jnp.asarray(obs_idx, dtype=jnp.int32)
     obs_values = jnp.asarray(obs_values, dtype=loc.dtype)
 
-    if obs_idx.ndim != 1:
-        raise ValueError("obs_idx must be a 1D array.")
-    if obs_values.shape != obs_idx.shape:
-        raise ValueError("obs_values must have the same shape as obs_idx.")
-    if bool(jnp.any((obs_idx < 0) | (obs_idx >= N))):
-        raise ValueError(f"obs_idx must be within bounds [0, {N}).")
-    if bool(jnp.any(jnp.diff(jnp.sort(obs_idx)) == 0)):
-        raise ValueError("obs_idx must not contain duplicates.")
+    if isinstance(obs_idx, jax.core.Tracer):
+        obs_idx = obs_idx.astype(jnp.int32)
+        _check_shapes(obs_idx, obs_values)
+        bad = jnp.any((obs_idx < 0) | (obs_idx >= N)) | jnp.any(
+            jnp.diff(jnp.sort(obs_idx)) == 0
+        )
+        obs_values = eqx.error_if(
+            obs_values,
+            bad,
+            f"obs_idx must be within bounds [0, {N}) and must not contain duplicates.",
+        )
+    else:
+        idx_np = np.asarray(obs_idx)
+        _check_shapes(idx_np, obs_values)
+        if np.any((idx_np < 0) | (idx_np >= N)):
+            raise ValueError(f"obs_idx must be within bounds [0, {N}).")
+        if np.any(np.diff(np.sort(idx_np)) == 0):
+            raise ValueError("obs_idx must not contain duplicates.")
+        obs_idx = jnp.asarray(idx_np, dtype=jnp.int32)
 
     # Build mask for unobserved indices
     mask = jnp.ones(N, dtype=bool).at[obs_idx].set(False)
@@ -95,3 +122,10 @@ def conditional(
     cond_cov = lx.MatrixLinearOperator(cond_cov_mat, lx.positive_semidefinite_tag)
 
     return cond_mean, cond_cov
+
+
+def _check_shapes(obs_idx, obs_values: Float[Array, " M"]) -> None:
+    if obs_idx.ndim != 1:
+        raise ValueError("obs_idx must be a 1D array.")
+    if obs_values.shape != obs_idx.shape:
+        raise ValueError("obs_values must have the same shape as obs_idx.")
