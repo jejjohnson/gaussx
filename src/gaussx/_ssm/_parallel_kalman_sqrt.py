@@ -1,4 +1,9 @@
-"""Square-root parallel Kalman filter and RTS smoother helpers."""
+"""PSD-projected parallel Kalman filter and RTS smoother (``psd_project=True``).
+
+Not a square-root filter: the filter's associative scan runs the
+covariance-form combinator and projects its outputs onto the PSD cone
+(gh-306). A factor-propagating combinator is tracked in #454.
+"""
 
 from __future__ import annotations
 
@@ -97,7 +102,7 @@ def parallel_kalman_filter_sqrt(
     mask: Bool[Array, " T"] | None = None,
     solver: AbstractSolverStrategy | None = None,
 ) -> FilterState:
-    """Square-root parallel Kalman filter via associative scan.
+    """PSD-projected parallel Kalman filter via associative scan.
 
     Only the ``(T,)`` per-step mask is supported. A per-channel
     ``(T, M)`` mask makes the innovation covariance block-degenerate,
@@ -113,8 +118,8 @@ def parallel_kalman_filter_sqrt(
 
     if mask is not None and jnp.ndim(mask) == 2:
         raise NotImplementedError(
-            "form='sqrt' does not support per-channel (T, M) masks; pass a "
-            "(T,) per-step mask, or use form='covariance' / kalman_filter."
+            "psd_project=True does not support per-channel (T, M) masks; pass a "
+            "(T,) per-step mask, or use psd_project=False / kalman_filter."
         )
 
     M_obs = observations.shape[-1]
@@ -248,7 +253,7 @@ def parallel_rts_smoother_sqrt(
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
-    """Square-root parallel RTS smoother via reverse associative scan."""
+    """PSD-projected parallel RTS smoother via reverse associative scan."""
     del solver
 
     f_means = filter_state.filtered_means

@@ -9,13 +9,11 @@ parallel hardware (GPU / TPU). On sequential hardware (CPU) the total
 work is strictly larger than `gaussx.kalman_filter`'s ``O(T)``
 ``lax.scan``; the win is on accelerators with large ``T``.
 
-The default element math is the covariance-form combinators from §III.A /
-§III.B of the paper. Pass ``form="sqrt"`` to additionally maintain lower-
-triangular factors alongside the covariance updates and reconstruct PSD
-covariances at the API boundary; the associative-scan equations still use
-the covariance form internally, so the factor path is a PSD-safety net
-for ill-conditioned float32 chains rather than a fully factor-propagating
-combinator. See #165 for the latter.
+The element math is the covariance-form combinators from §III.A / §III.B
+of the paper. ``psd_project=True`` projects the returned covariances onto
+the PSD cone -- a safety net for ill-conditioned float32 chains, not a
+square-root filter: the scan itself still runs in covariance form. A
+factor-propagating combinator is tracked in #454.
 """
 
 from __future__ import annotations
@@ -187,6 +185,7 @@ def parallel_kalman_filter(
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
     form: str = "covariance",
+    psd_project: bool = False,
 ) -> FilterState:
     """Parallel Kalman filter via `jax.lax.associative_scan`.
 
@@ -216,8 +215,8 @@ def parallel_kalman_filter(
             steps (``False`` runs predict-only and contributes 0 to the
             log-likelihood); shape ``(T, M)`` gates individual channels
             and yields the exact marginal log-likelihood over the
-            observed entries. Defaults to all-True. Not supported by
-            ``form="sqrt"``.
+            observed entries. Defaults to all-True. A ``(T, M)`` mask is
+            not supported with ``psd_project=True``.
         solver: Used only with ``woodbury_innovation=True``, which
             delegates to `gaussx.kalman_filter`. The associative-scan
             combinators use dense solves, so passing ``solver`` without
@@ -226,14 +225,19 @@ def parallel_kalman_filter(
         woodbury_innovation: When ``True``, delegates to
             `gaussx.kalman_filter` with the same flag so structured
             ``R`` uses the Woodbury innovation path.
-        form: Either ``"covariance"`` (default) or ``"sqrt"``. The
-            square-root form maintains lower-triangular covariance
-            factors alongside the covariance updates and reconstructs
-            PSD covariance matrices in the returned `FilterState`.
-            Note: the associative-scan equations themselves still use
-            the covariance form internally; the factor path is a
-            PSD-safety net for ill-conditioned float32 chains rather
-            than a fully factor-propagating combinator (see #165).
+        form: ``"covariance"``. The former ``"sqrt"`` is a deprecated
+            spelling of ``psd_project=True`` (it warns, and will be removed
+            in 0.5.0): it never was a square-root filter.
+        psd_project: Project each returned covariance onto the PSD cone
+            (eigenvalue clip) and keep lower-triangular factors of the
+            projections. The associative scan still runs in covariance
+            form, so this has the covariance form's conditioning; it only
+            guarantees PSD outputs, which float32 chains with very small
+            observation noise can otherwise lose (the covariance form can
+            return an indefinite covariance and a NaN log-likelihood
+            there). Gradients are those of the unprojected path. gaussx has
+            no square-root (PSD-by-construction) filter yet, sequential or
+            parallel; see #454.
 
     Raises:
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
@@ -252,6 +256,17 @@ def parallel_kalman_filter(
             stacklevel=2,
         )
     if form == "sqrt":
+        warnings.warn(
+            'form="sqrt" is deprecated: it is a PSD projection of the '
+            "covariance-form combinator, not a square-root filter. Pass "
+            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        psd_project = True
+    elif form != "covariance":
+        raise ValueError("form must be 'covariance' or 'sqrt'.")
+    if psd_project:
         from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt
 
         return parallel_kalman_filter_sqrt(
@@ -265,8 +280,6 @@ def parallel_kalman_filter(
             mask=mask,
             solver=solver,
         )
-    if form != "covariance":
-        raise ValueError("form must be 'covariance' or 'sqrt'.")
 
     if woodbury_innovation:
         return kalman_filter(
@@ -411,6 +424,7 @@ def parallel_rts_smoother(
     *,
     solver: AbstractSolverStrategy | None = None,
     form: str = "covariance",
+    psd_project: bool = False,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Parallel RTS smoother via reverse `jax.lax.associative_scan`.
 
@@ -425,11 +439,13 @@ def parallel_rts_smoother(
             it will be removed in 0.5.0.
         solver: Accepted for API symmetry; not currently threaded
             through.
-        form: Either ``"covariance"`` (default) or ``"sqrt"``. The
-            square-root form maintains lower-triangular factors
-            alongside the smoother associative scan and returns
-            PSD-reconstructed covariances (see `parallel_kalman_filter`
-            for the same caveat about the internal combinator).
+        form: ``"covariance"``. ``"sqrt"`` is a deprecated spelling of
+            ``psd_project=True``, removed in 0.5.0.
+        psd_project: Build the per-step smoother elements from
+            PSD-projected factors and combine the factors with QR, so the
+            smoothed covariances are PSD. As in `parallel_kalman_filter`,
+            the elements come from covariance-form quantities, so this is
+            a PSD safety net rather than a square-root smoother.
 
     Raises:
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
@@ -439,11 +455,20 @@ def parallel_rts_smoother(
     """
     _warn_unused_process_noise("parallel_rts_smoother", process_noise)
     if form == "sqrt":
+        warnings.warn(
+            'form="sqrt" is deprecated: it is a PSD projection of the '
+            "covariance-form combinator, not a square-root filter. Pass "
+            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.',
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        psd_project = True
+    elif form != "covariance":
+        raise ValueError("form must be 'covariance' or 'sqrt'.")
+    if psd_project:
         from gaussx._ssm._parallel_kalman_sqrt import parallel_rts_smoother_sqrt
 
         return parallel_rts_smoother_sqrt(filter_state, transition, solver=solver)
-    if form != "covariance":
-        raise ValueError("form must be 'covariance' or 'sqrt'.")
 
     del solver
 

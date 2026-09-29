@@ -9,7 +9,8 @@ $$
 
 turning $O(N^3)$ GP inference into $O(N d^3)$ Kalman filtering. This page
 covers the SDE kernel zoo, the filters and smoothers (sequential, parallel
-associative-scan, square-root, and steady-state), and the natural-parameter /
+associative-scan with optional PSD projection, and steady-state), and the
+natural-parameter /
 site machinery for non-conjugate likelihoods.
 
 ## SDE kernels
@@ -188,8 +189,8 @@ An all-`False` row of a `(T, M)` mask is equivalent to a `False` entry in the
 `(T,)` form, and `M == 1` is unambiguous either way. Masked entries of
 `observations` are never read, so they may be `NaN`. Operator-typed
 `obs_model` / `obs_noise` are materialised under a `(T, M)` mask, since
-zeroing rows is inherently dense; `form="sqrt"` supports the `(T,)` mask only
-and raises `NotImplementedError` otherwise. `rts_smoother` needs no mask of
+zeroing rows is inherently dense; `parallel_kalman_filter(psd_project=True)`
+supports the `(T,)` mask only and raises `NotImplementedError` otherwise. `rts_smoother` needs no mask of
 its own — it consumes filtered/predicted moments, which are already
 mask-aware.
 

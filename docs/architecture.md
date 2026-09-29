@@ -394,7 +394,7 @@ rational spectral densities have exact SDE representations, turning $O(N^3)$ GP
 inference into $O(N d^3)$ Kalman filtering. Ships the SDE kernel zoo (Matérn,
 periodic, quasi-periodic, cosine, constant, plus sum/product composition), the
 sequential filter and RTS smoother, their $O(\log N)$ parallel associative-scan
-counterparts, square-root variants, steady-state (infinite-horizon) filters via
+counterparts (optionally PSD-projected), steady-state (infinite-horizon) filters via
 the discrete algebraic Riccati equation, SpInGP, and CVI site machinery for
 non-conjugate likelihoods.
 
