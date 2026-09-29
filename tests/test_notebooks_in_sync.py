@@ -9,6 +9,7 @@ only, so they need no kernel and run at unit-test speed.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -19,8 +20,10 @@ jupytext = pytest.importorskip("jupytext")
 NOTEBOOK_DIR = Path(__file__).resolve().parents[1] / "docs" / "notebooks"
 SOURCES = sorted(NOTEBOOK_DIR.glob("*.py"))
 
-# Committed outputs must not show a warning or a crash on the published page.
-_BAD_OUTPUT = ("DeprecationWarning", "Traceback (most recent call last)")
+# Committed outputs must not show a warning (any category: "TqdmWarning: ...",
+# "DeprecationWarning: ...") or a crash on the published page.
+_WARNING = re.compile(r"\b\w*Warning: ")
+_TRACEBACK = "Traceback (most recent call last)"
 
 
 def _cells(path: Path) -> list[tuple[str, str]]:
@@ -44,12 +47,34 @@ def test_notebook_matches_source(source: Path):
 
 
 @pytest.mark.parametrize("source", SOURCES, ids=lambda p: p.stem)
-def test_notebook_outputs_have_no_warnings_or_tracebacks(source: Path):
+def test_notebook_was_executed(source: Path):
+    """Matching sources alone pass for `jupytext --to notebook` without
+    `--execute`, which publishes a page with no outputs or figures."""
     nb = jupytext.read(source.with_suffix(".ipynb"))
-    texts = [
-        "".join(out.get("text", "")) + "".join(out.get("traceback", []))
-        for cell in nb.cells
-        for out in cell.get("outputs", [])
+    unexecuted = [
+        i
+        for i, cell in enumerate(nb.cells)
+        if cell.cell_type == "code"
+        and cell.source.strip()
+        and cell.get("execution_count") is None
     ]
-    found = sorted({bad for bad in _BAD_OUTPUT for text in texts if bad in text})
+    assert not unexecuted, (
+        f"{source.with_suffix('.ipynb').name} has unexecuted code cells "
+        f"{unexecuted}; re-run it with `jupytext --execute`"
+    )
+
+
+@pytest.mark.parametrize("source", SOURCES, ids=lambda p: p.stem)
+def test_notebook_outputs_have_no_warnings_or_errors(source: Path):
+    nb = jupytext.read(source.with_suffix(".ipynb"))
+    found = []
+    for i, cell in enumerate(nb.cells):
+        for out in cell.get("outputs", []):
+            if out.get("output_type") == "error":
+                found.append(f"cell {i}: {out.get('ename')}")
+                continue
+            text = "".join(out.get("text", ""))
+            found += [f"cell {i}: {m}" for m in _WARNING.findall(text)]
+            if _TRACEBACK in text:
+                found.append(f"cell {i}: traceback")
     assert not found, f"{source.with_suffix('.ipynb').name} outputs contain {found}"
