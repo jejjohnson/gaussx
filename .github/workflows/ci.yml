@@ -15,18 +15,23 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every PR: single Python version, fast unit tests only, with coverage so
+  # Every PR: every supported Python version (the classifiers in
+  # pyproject.toml), fast unit tests only, with coverage so
   # `fail_under` in pyproject.toml gates the PR rather than main after merge.
   # Slow numerics and end-to-end integration tests run on demand via the
   # "Extended Tests" workflow (workflow_dispatch).
   test-fast:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: uv sync --group dev
       - name: Run fast tests with coverage
