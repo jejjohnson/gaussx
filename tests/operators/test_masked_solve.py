@@ -298,3 +298,21 @@ def test_transpose_of_singular_base_under_jit(disc_mask):
     idx = np.flatnonzero(disc_mask.ravel())
     B = op.as_matrix()[np.ix_(idx, idx)]
     assert jnp.allclose(x, jnp.linalg.solve(B.T, f), atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"), [(0.0, 0.5), (1.0, 0.0)], ids=["singular-to-regular", "to-singular"]
+)
+def test_with_base_rebuilds_the_capacitance(disc_mask, old, new):
+    # The capacitance is a cache of the base; after an update (here a new
+    # shift, as an optimiser step would produce) with_base rebuilds it,
+    # re-deriving the null vector for the new base.
+    masked = _masked(_laplacian(old), disc_mask)
+    new_base = _laplacian(new)
+    f = jr.normal(jr.key(7), (int(disc_mask.sum()),))
+    expected = _dense_masked_solve(new_base, disc_mask, f)
+    stale = eqx.tree_at(lambda o: o.base, masked, new_base)
+    assert float(jnp.abs(gaussx.solve(stale, f) - expected).max()) > 1e-6
+    rebuilt = masked.with_base(new_base)
+    assert jnp.allclose(gaussx.solve(rebuilt, f), expected, atol=1e-10)
+    assert jnp.allclose(gaussx.solve(rebuilt.T, f), expected, atol=1e-10)

@@ -71,6 +71,13 @@ class MaskedOperator(lx.AbstractLinearOperator):
             ``base_solve``: ``solve`` builds one from ``base`` at call time,
             so ``base`` stays a differentiable pytree leaf and ``solve`` is
             differentiated implicitly (not through the cached factorisation).
+
+    **The capacitance is a cache of ``base``.** Gradients with respect to
+    ``base`` are exact, but replacing ``base`` in an existing operator (e.g.
+    ``eqx.apply_updates`` after an optimiser step, or ``eqx.tree_at``) leaves
+    the factorisation describing the *old* base, and ``solve`` is then
+    wrong. Rebuild with `with_base`, or construct the operator inside the
+    loss from the current parameters (which also works under ``jit``).
     """
 
     base: lx.AbstractLinearOperator
@@ -143,6 +150,44 @@ class MaskedOperator(lx.AbstractLinearOperator):
         row_indices = jnp.where(self.row_mask, size=self._out_size)[0]
         col_indices = jnp.where(self.col_mask, size=self._in_size)[0]
         return full[jnp.ix_(row_indices, col_indices)]
+
+    def with_base(
+        self,
+        base: lx.AbstractLinearOperator,
+        *,
+        null_vector: Float[Array, " N"] | None = None,
+        left_null_vector: Float[Array, " N"] | None = None,
+    ) -> MaskedOperator:
+        """The same masked view of a new base, with its capacitance rebuilt.
+
+        Use this after updating ``base`` (e.g. an optimiser step): the
+        capacitance factorisation is a cache of the base and does not follow
+        leaf updates. Costs the ``|C|`` base solves of construction.
+
+        Args:
+            base: The new ``(N, N)`` base operator.
+            null_vector: Right null vector of a singular ``base``. As in the
+                constructor, it is derived automatically for a singular
+                diagonalised base; the old one is *not* reused, since the
+                update may change (or remove) the null space.
+            left_null_vector: Left null vector of a singular non-symmetric
+                ``base``; defaults to ``null_vector``.
+
+        Returns:
+            A new `MaskedOperator` over ``base`` with the same masks, tags and
+            coupling indices.
+        """
+        if self.capacitance is None:
+            return MaskedOperator(base, self.row_mask, self.col_mask, tags=self.tags)
+        return MaskedOperator(
+            base,
+            self.row_mask,
+            self.col_mask,
+            tags=self.tags,
+            coupling_indices=self.capacitance.boundary_indices,
+            null_vector=null_vector,
+            left_null_vector=left_null_vector,
+        )
 
     def transpose(self) -> MaskedOperator:
         # Built field by field rather than through ``__init__``, which needs
