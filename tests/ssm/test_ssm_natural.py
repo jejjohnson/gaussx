@@ -141,3 +141,12 @@ class TestNaturalsToSSM:
         assert Q_rec.shape == (N, d, d)
         assert mu_0_rec.shape == (d,)
         assert P_0_rec.shape == (d, d)
+
+    def test_rejects_mismatched_single_step_under_jit(self):
+        # N = 1 leaves Q otherwise unused; the check must stay live.
+        d = 2
+        f = jax.jit(ssm_to_naturals)
+        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
+            jax.block_until_ready(
+                f(jnp.zeros((0, d, d)), 3.0 * jnp.eye(d)[None], jnp.ones(d), jnp.eye(d))
+            )

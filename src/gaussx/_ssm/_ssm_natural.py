@@ -65,9 +65,11 @@ def ssm_to_naturals(
     d = Q.shape[1]
 
     # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
-    # Python ``bool()`` could only run eagerly (gh-359).
-    Q = eqx.error_if(
-        Q,
+    # Python ``bool()`` could only run eagerly (gh-359). Attached to P_0,
+    # which feeds every output for every N (Q is unused when N = 1, so a
+    # check on Q could be dead-code-eliminated there).
+    P_0 = eqx.error_if(
+        P_0,
         ~jnp.allclose(Q[0], P_0),
         "Q[0] must match P_0 so the returned natural parameters are consistent",
     )
