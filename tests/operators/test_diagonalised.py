@@ -374,3 +374,35 @@ def test_every_accepted_symbol_matches_its_matrix(name):
     tol = 1e-4 if op.eigenvalues.dtype == jnp.float32 else 1e-10
     assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=tol)
     assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], atol=tol)
+
+
+# ---------------------------------------------------------------------------
+# gh-330: complex operators — Aᵀ, not Aᴴ, and no false symmetric tag
+# ---------------------------------------------------------------------------
+
+
+def test_complex_circulant_transpose_is_not_the_adjoint():
+    re, im = jr.normal(jr.key(0), (2, 4))
+    op = gaussx.Circulant(re + 1j * im)
+    M = op.as_matrix()
+    assert not jnp.allclose(M.T, M.conj().T)
+    assert jnp.allclose(op.T.as_matrix(), M.T, atol=1e-12)
+    assert jnp.allclose(op.T.T.as_matrix(), M, atol=1e-12)
+    # Transposing twice restores the original transforms (no jit recompile).
+    assert op.T.T.forward is op.forward
+    assert op.T.forward == gaussx.Circulant(re + 1j * im).T.forward
+    b = jnp.arange(1.0, 5.0).astype(M.dtype)
+    assert jnp.allclose(gaussx.solve(op.T, b), jnp.linalg.solve(M.T, b), atol=1e-12)
+
+
+def test_complex_output_is_not_tagged_symmetric():
+    op = gaussx.circulant_from_symbol(
+        jnp.array([1.0, 2.0, 3.0, 4.0]), real_output=False
+    )
+    A = op.as_matrix()
+    assert jnp.allclose(A, A.conj().T)  # Hermitian ...
+    assert not jnp.allclose(A, A.T)  # ... but not symmetric
+    assert not lx.is_symmetric(op)
+    real = gaussx.circulant_from_symbol(jnp.array([1.0, 2.0, 3.0, 2.0]))
+    assert lx.is_symmetric(real)
+    assert jnp.allclose(real.T.as_matrix(), real.as_matrix().T, atol=1e-12)

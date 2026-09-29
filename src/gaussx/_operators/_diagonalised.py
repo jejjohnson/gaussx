@@ -60,10 +60,12 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
     solved through the composed per-axis transforms.
 
     **Transpose.** With ``normal=True`` (``V⁻¹ ∝ Vᴴ``, e.g. FFT or orthonormal
-    DCT/DST), ``Aᵀ`` for a real operator is the same pair with conjugated
-    eigenvalues. Otherwise pass ``transpose_pair=(forward_T, inverse_T)``
-    applying ``V⁻ᵀ`` and ``Vᵀ`` in the same roles; without either,
-    `transpose` raises.
+    DCT/DST), ``Aᵀ`` for a real operator (``real_output=True``) is the same
+    pair with conjugated eigenvalues; for a complex one it is the same
+    eigenvalues with the conjugated pair ``conj(V)``, ``conj(V)⁻¹``, since
+    ``Aᵀ x = conj(Aᴴ conj(x))``. Otherwise pass
+    ``transpose_pair=(forward_T, inverse_T)`` applying ``V⁻ᵀ`` and ``Vᵀ`` in
+    the same roles; without either, `transpose` raises.
 
     Args:
         eigenvalues: ``Λ`` in the coefficient layout; ``eigenvalues.size``
@@ -81,7 +83,9 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
         normal: Whether ``V⁻¹`` is proportional to ``Vᴴ`` (see Transpose).
         transpose_pair: Optional ``(forward_T, inverse_T)`` for ``Aᵀ``.
         tags: lineax tags. ``symmetric_tag`` is added automatically when
-            ``normal`` is set and the eigenvalues have a real dtype.
+            ``normal`` and ``real_output`` are set and the eigenvalues have a
+            real dtype. (Real eigenvalues in a unitary basis make ``A``
+            Hermitian; it is also symmetric only when it is real.)
 
     The transform callables are stored as static fields, so they must be
     hashable (module-level functions, ``functools.partial`` of them, or
@@ -127,7 +131,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
         self.normal = normal
         self.transpose_pair = transpose_pair
         tags = _to_frozenset(tags)
-        if normal and not jnp.iscomplexobj(eigenvalues):
+        if normal and real_output and not jnp.iscomplexobj(eigenvalues):
             tags = tags | {lx.symmetric_tag}
         self.tags = tags
 
@@ -225,6 +229,17 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
 
     def transpose(self) -> DiagonalisedOperator:
         tags = lx.transpose_tags(self.tags)
+        if self.normal and not self.real_output:
+            # Conjugated eigenvalues would give Aᴴ, not Aᵀ (gh-330).
+            return DiagonalisedOperator(
+                self.eigenvalues,
+                _conjugated(self.forward),
+                _conjugated(self.inverse),
+                self.in_shape,
+                real_output=False,
+                normal=True,
+                tags=tags,
+            )
         if self.normal:
             return DiagonalisedOperator(
                 jnp.conj(self.eigenvalues),
@@ -534,6 +549,34 @@ def _along_axis(transform: Transform, x: Array, axis: int) -> Array:
 # ----------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------
+
+
+class _Conjugated:
+    """Callable ``x ↦ conj(f(conj(x)))``: the transform with matrix ``conj(V)``.
+
+    Compares by the wrapped transform, so repeated transposes hash equal and
+    do not trigger ``jit`` recompiles.
+    """
+
+    __slots__ = ("transform",)
+
+    def __init__(self, transform: Transform) -> None:
+        self.transform = transform
+
+    def __call__(self, x: Array) -> Array:
+        return jnp.conj(self.transform(jnp.conj(x)))
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Conjugated) and other.transform == self.transform
+
+    def __hash__(self) -> int:
+        return hash((_Conjugated, self.transform))
+
+
+def _conjugated(transform: Transform) -> Transform:
+    if isinstance(transform, _Conjugated):
+        return transform.transform
+    return _Conjugated(transform)
 
 
 class _MatrixApply:
