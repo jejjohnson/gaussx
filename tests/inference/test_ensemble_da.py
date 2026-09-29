@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import (
     ensemble_kalman_gain,
@@ -229,3 +230,31 @@ def test_etkf_jit(getkey):
     R_op = lx.MatrixLinearOperator(R, lx.positive_semidefinite_tag)
     w, t = jax.jit(lambda o, yy: etkf_transform(o, yy, R_op))(obs_particles, y)
     assert w.shape == (J,) and t.shape == (J, J)
+
+
+# gh-341: etkf_transform validates its inputs like its siblings.
+_R2 = lx.DiagonalLinearOperator(0.1 * jnp.ones(2))
+_Y2 = jnp.array([0.5, -0.2])
+
+
+def test_etkf_rejects_single_member():
+    with pytest.raises(ValueError, match="J >= 2"):
+        etkf_transform(jr.normal(jr.key(0), (1, 2)), _Y2, _R2)
+
+
+def test_etkf_rejects_wrong_observation_length():
+    H = jr.normal(jr.key(1), (4, 2))
+    with pytest.raises(ValueError, match=r"y must have shape \(2,\).*\(3,\)"):
+        etkf_transform(H, jnp.ones(3), _R2)
+
+
+def test_etkf_rejects_wrong_noise_size():
+    H = jr.normal(jr.key(1), (4, 2))
+    with pytest.raises(ValueError, match=r"obs_noise must be \(2, 2\).*\(3, 3\)"):
+        etkf_transform(H, _Y2, lx.DiagonalLinearOperator(jnp.ones(3)))
+
+
+def test_etkf_rejects_non_positive_inflation():
+    H = jr.normal(jr.key(1), (4, 2))
+    with pytest.raises(ValueError, match="inflation must be positive"):
+        etkf_transform(H, _Y2, _R2, inflation=0.0)
