@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
@@ -32,8 +33,8 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
             variance ``sigma^2``.
     """
 
-    rank: int = 50
-    shift: float = 1.0
+    rank: int = eqx.field(static=True, default=50)
+    shift: float = eqx.field(static=True, default=1.0)
 
     def as_operator(
         self,

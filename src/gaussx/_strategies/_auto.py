@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -28,7 +29,7 @@ class AutoSolver(AbstractSolverStrategy):
             solvers are preferred. Default: 1000.
     """
 
-    size_threshold: int = 1000
+    size_threshold: int = eqx.field(static=True, default=1000)
 
     def solve(
         self,

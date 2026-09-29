@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -33,11 +34,11 @@ class BBMMSolver(AbstractSolverStrategy):
         seed: Seed for probe vector generation.
     """
 
-    cg_max_iter: int = 1000
-    cg_tolerance: float = 1e-4
-    lanczos_iter: int = 100
-    num_probes: int = 10
-    seed: int = 0
+    cg_max_iter: int = eqx.field(static=True, default=1000)
+    cg_tolerance: float = eqx.field(static=True, default=1e-4)
+    lanczos_iter: int = eqx.field(static=True, default=100)
+    num_probes: int = eqx.field(static=True, default=10)
+    seed: int = eqx.field(static=True, default=0)
 
     def solve(
         self,

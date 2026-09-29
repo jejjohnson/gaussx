@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -171,12 +172,12 @@ class MINRESSolver(AbstractSolverStrategy):
         lanczos_order: Order of the Lanczos decomposition for SLQ.
     """
 
-    rtol: float = 1e-5
-    atol: float = 1e-5
-    max_steps: int = 1000
-    shift: float = 0.0
-    num_probes: int = 20
-    lanczos_order: int = 30
+    rtol: float = eqx.field(static=True, default=1e-5)
+    atol: float = eqx.field(static=True, default=1e-5)
+    max_steps: int = eqx.field(static=True, default=1000)
+    shift: float = eqx.field(static=True, default=0.0)
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
 
     def solve(
         self,

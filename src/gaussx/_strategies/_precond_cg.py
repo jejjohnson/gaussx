@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -35,14 +36,14 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         seed: Seed for probe vector generation.
     """
 
-    preconditioner_rank: int = 50
-    shift: float = 1.0
-    rtol: float = 1e-5
-    atol: float = 1e-5
-    max_steps: int = 1000
-    num_probes: int = 20
-    lanczos_order: int = 30
-    seed: int = 0
+    preconditioner_rank: int = eqx.field(static=True, default=50)
+    shift: float = eqx.field(static=True, default=1.0)
+    rtol: float = eqx.field(static=True, default=1e-5)
+    atol: float = eqx.field(static=True, default=1e-5)
+    max_steps: int = eqx.field(static=True, default=1000)
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
+    seed: int = eqx.field(static=True, default=0)
 
     def solve(
         self,
