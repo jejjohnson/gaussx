@@ -17,7 +17,7 @@ classifiers = [
     "Natural Language :: English",
     "License :: OSI Approved :: MIT License",
     "Intended Audience :: Science/Research",
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
 ]
 dependencies = [
     "jax>=0.10",
@@ -70,6 +70,19 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gaussx"]
+
+[tool.hatch.build.targets.sdist]
+# Allow-list: only what building and testing gaussx needs, so notebooks,
+# uv.lock and tooling/agent files stay out without an exclude entry each.
+include = [
+    "/src/gaussx",
+    "/tests",
+    "/docs/api",  # read by tests/test_docs_api_coverage.py
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+    "/pyproject.toml",
+]
 
 [tool.ruff]
 target-version = "py312"
