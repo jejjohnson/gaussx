@@ -166,6 +166,26 @@ def test_sqrt_entry_points_run_under_jit(kron_sum, entry_point):
     assert jnp.allclose(jitted, eager, rtol=1e-12, atol=1e-12)
 
 
+def test_kronecker_sum_sample_grad_with_repeated_eigenvalue():
+    # gh-295: the sample inherited KroneckerSumSqrt's NaN eigenvector
+    # gradient for an isotropic factor.
+    B = _make_psd(jax.random.key(0), 2)
+    psd = lx.positive_semidefinite_tag
+
+    def loss(s):
+        A = lx.MatrixLinearOperator(s * jnp.eye(3), psd)
+        draws = gaussx.kronecker_sum_sample(
+            A, lx.MatrixLinearOperator(B, psd), key=jax.random.key(1)
+        )
+        return draws.sum()
+
+    grad = jax.grad(loss)(1.5)
+    step = 1e-6
+    finite_difference = (loss(1.5 + step) - loss(1.5 - step)) / (2 * step)
+    assert jnp.isfinite(grad)
+    assert jnp.allclose(grad, finite_difference, rtol=1e-6)
+
+
 def test_solve_untagged_nonsymmetric_factors_is_correct():
     """Regression: untagged non-symmetric factors were solved with ``eigh``.
 

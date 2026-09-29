@@ -20,7 +20,12 @@ from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._kronecker_sum import (
+    KroneckerSum,
+    _from_eigenbasis,
+    _kronecker_sum_root_tangent,
+    _to_eigenbasis,
+)
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
     _arrays_match,
@@ -291,12 +296,8 @@ def _kronecker_sum_root_parts(a, b, noise):
     values_b, basis_b = jnp.linalg.eigh(b)
     # Round-off negatives are clipped, which also covers a singular A ⊕ B.
     roots = jnp.sqrt(jnp.clip(values_a[:, None] + values_b[None, :], 0.0, None))
-    rotated = einsum(basis_a, noise, basis_b, "k i, s k l, l j -> s i j")
+    rotated = _to_eigenbasis(basis_a, basis_b, noise)
     return basis_a, basis_b, roots, rotated
-
-
-def _from_eigenbasis(basis_a, basis_b, values):
-    return einsum(basis_a, values, basis_b, "i k, s k l, j l -> s i j")
 
 
 @jax.custom_jvp
@@ -318,46 +319,20 @@ def _kronecker_sum_root_action(
 def _kronecker_sum_root_action_jvp(primals, tangents):
     r"""Sylvester derivative of ``√K z`` for ``K = A ⊕ B``, kept structured.
 
-    As in ``dense_symmetric_sqrt``: in ``K``'s eigenbasis ``dS̃`` is
-    ``dK̃ / (r_p + r_q)`` entrywise, dividing by *sums* of root eigenvalues
-    rather than eigenvalue gaps, so repeated eigenvalues are harmless. With
-    ``dK = dA ⊕ dB`` the rotated tangent is ``dÃ_ik δ_jl + δ_ik dB̃_jl``, so
-
-    $$
-    (dS̃\, \tilde z)_{ij} = \sum_k \frac{dÃ_{ik} \tilde z_{kj}}{r_{ij} + r_{kj}}
-      + \sum_l \frac{dB̃_{jl} \tilde z_{il}}{r_{ij} + r_{il}},
-    $$
-
-    which costs ``O(n_A n_B (n_A + n_B))`` per slab and never forms ``K``.
-    Entries whose root sum is zero (a doubly-degenerate zero eigenvalue) get
-    a zero derivative, matching ``dense_symmetric_sqrt``.
+    See `_kronecker_sum_root_tangent` (shared with `KroneckerSumSqrt`): it
+    divides by *sums* of root eigenvalues rather than eigenvalue gaps, so
+    repeated eigenvalues are harmless, and never forms ``K``.
     """
     a, b, noise = primals
     tangent_a, tangent_b, tangent_noise = tangents
     basis_a, basis_b, roots, rotated = _kronecker_sum_root_parts(a, b, noise)
     primal_out = _from_eigenbasis(basis_a, basis_b, roots * rotated)
-
-    # eigh reads one triangle, so project the tangents onto symmetric matrices.
-    tangent_a = basis_a.T @ (0.5 * (tangent_a + tangent_a.T)) @ basis_a
-    tangent_b = basis_b.T @ (0.5 * (tangent_b + tangent_b.T)) @ basis_b
-    rotated_tangent_noise = einsum(
-        basis_a, tangent_noise, basis_b, "k i, s k l, l j -> s i j"
+    term = _kronecker_sum_root_tangent(
+        basis_a, basis_b, roots, tangent_a, tangent_b, rotated
     )
-
-    def safe_inverse(denominator):
-        positive = denominator > 0.0
-        return jnp.where(positive, 1.0 / jnp.where(positive, denominator, 1.0), 0.0)
-
-    # inverse_a[i, k, j] = 1 / (r_ij + r_kj); inverse_b[i, j, l] = 1 / (r_ij + r_il)
-    inverse_a = safe_inverse(roots[:, None, :] + roots[None, :, :])
-    inverse_b = safe_inverse(roots[:, :, None] + roots[:, None, :])
-    # Fold the elementwise weights into the tangents, then contract.
-    weighted_a = tangent_a[:, :, None] * inverse_a
-    weighted_b = tangent_b[None, :, :] * inverse_b
-    term_a = einsum(weighted_a, rotated, "i k j, s k j -> s i j")
-    term_b = einsum(weighted_b, rotated, "i j l, s i l -> s i j")
+    rotated_tangent_noise = _to_eigenbasis(basis_a, basis_b, tangent_noise)
     tangent_out = _from_eigenbasis(
-        basis_a, basis_b, roots * rotated_tangent_noise + term_a + term_b
+        basis_a, basis_b, roots * rotated_tangent_noise + term
     )
     return primal_out, tangent_out
 

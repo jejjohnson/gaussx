@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import functools as ft
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import (
     BlockTriDiag,
@@ -253,26 +255,53 @@ def _solve_kronecker_sum(
     `gaussx.EigenFactorization` per factor and call
     `gaussx.kronecker_sum_solve`.
     """
-    from gaussx._einx import rearrange
-
     diagonalised = as_diagonalised(operator)
     if diagonalised is not None:
         return _solve_diagonalised(diagonalised, vector)
     if not (lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)):
         return _solve_fallback(operator, vector, solver)
 
+    return _eigen_solve_kronecker_sum(operator, vector)
+
+
+@eqx.filter_custom_jvp
+def _eigen_solve_kronecker_sum(
+    operator: KroneckerSum,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
+    """``(A ⊕ B)⁻¹ b`` for symmetric factors, in their eigenbases."""
     evals_a, Q_a = _eigh_factor(operator.A)
     evals_b, Q_b = _eigh_factor(operator.B)
     n_a, n_b = operator._n_a, operator._n_b
-    # Rotate into eigenbasis: c = (Q_A^T (x) Q_B^T) b
-    X = rearrange(vector, "(a b) -> b a", a=n_a, b=n_b)
-    C = Q_b.T @ X @ Q_a  # (n_b, n_a)
-    # Divide by eigenvalues
-    eig_mat = evals_a[None, :] + evals_b[:, None]  # (n_b, n_a)
-    C = C / eig_mat
-    # Rotate back: x = (Q_A (x) Q_B) c
-    result = Q_b @ C @ Q_a.T
-    return rearrange(result, "b a -> (a b)")
+    # Rotate into eigenbasis: C = Q_Aᵀ X Q_B, then divide by λ^A_i + λ^B_j.
+    X = rearrange(vector, "(a b) -> a b", a=n_a, b=n_b)
+    C = einsum(Q_a, X, Q_b, "k i, k l, l j -> i j")
+    C = C / (evals_a[:, None] + evals_b[None, :])
+    # Rotate back: X = Q_A C Q_Bᵀ.
+    result = einsum(Q_a, C, Q_b, "i k, k l, j l -> i j")
+    return rearrange(result, "a b -> (a b)")
+
+
+@_eigen_solve_kronecker_sum.def_jvp
+def _eigen_solve_kronecker_sum_jvp(primals, tangents):
+    r"""Implicit JVP ``dx = K^{-1} (db - dK x)`` (gh-295).
+
+    Differentiating through the factor ``eigh`` calls gives NaN whenever a
+    factor has a repeated eigenvalue (an isotropic ``s I`` factor, say):
+    the eigenvector derivative divides by eigenvalue gaps. The solution does
+    not depend on how a degenerate eigenbasis is chosen, so the derivative
+    written in terms of the operator alone is exact, at the cost of one more
+    structured solve and the tangent operator's matvec. Same rule as
+    `SumOfKroneckers`' ``_eigen_solve``.
+    """
+    operator, vector = primals
+    t_operator, t_vector = tangents
+    x = _eigen_solve_kronecker_sum(operator, vector)
+    rhs = jnp.zeros_like(vector) if t_vector is None else t_vector
+    if jax.tree_util.tree_leaves(t_operator):
+        _, dKx = eqx.filter_jvp(lambda op: op.mv(x), (operator,), (t_operator,))
+        rhs = rhs - dKx
+    return x, _eigen_solve_kronecker_sum(operator, rhs)
 
 
 def _solve_block_tridiag(
