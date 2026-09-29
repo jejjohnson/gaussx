@@ -11,7 +11,7 @@ import lineax as lx
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._low_rank_update import LowRankUpdate, _arrays_match
+from gaussx._operators._low_rank_update import LowRankUpdate
 
 
 def inv(
@@ -51,7 +51,7 @@ def inv(
     if (
         isinstance(operator, LowRankUpdate)
         and lx.is_symmetric(operator)
-        and _arrays_match(operator.U, operator.V)
+        and operator.symmetric_factors
     ):
         return _inv_low_rank_symmetric(operator, solver)
     if isinstance(operator, lx.MulLinearOperator):

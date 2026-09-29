@@ -6,7 +6,6 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jax.errors import TracerBoolConversionError
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import _to_frozenset
@@ -26,9 +25,21 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         V: Right factor, shape ``(n, k)``. Defaults to *U* for
             square operators, yielding the symmetric update
             ``L + U diag(d) Uᵀ``.
-        orthonormal: When ``True``, symmetry inference for orthonormal
-            factors uses object identity, so symmetric SVD-style updates
-            must pass the same array object for ``U`` and ``V``.
+        tags: Extra lineax tags -- the caller's structural claims.
+        orthonormal: Marks *U* and *V* as having orthonormal columns.
+
+    Tags are inferred from structure only, never from array values, so the
+    same call gives the same tags (and pytree structure) eagerly and under
+    ``jax.jit``:
+
+    - ``symmetric_tag`` when the base is symmetric and the factors are
+      shared -- *V* omitted or passed as the same object as *U*. This is
+      recorded in the static ``symmetric_factors`` field. Value-equal but
+      distinct factors (``V = U.copy()``) are not inferred symmetric; pass
+      ``tags=lx.symmetric_tag`` to claim it.
+    - ``positive_semidefinite_tag`` additionally when the base is PSD and
+      *d* is omitted (all ones). A caller-supplied *d* can have any sign,
+      so pass ``tags=lx.positive_semidefinite_tag`` to claim PSD.
     """
 
     base: lx.AbstractLinearOperator
@@ -36,6 +47,7 @@ class LowRankUpdate(lx.AbstractLinearOperator):
     d: Float[Array, " k"]
     V: Float[Array, "n k"]
     orthonormal: bool = eqx.field(static=True)
+    symmetric_factors: bool = eqx.field(static=True)
     tags: frozenset[object] = eqx.field(static=True)
 
     def __init__(
@@ -53,8 +65,10 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         k = U.shape[1] if U.ndim == 2 else 1
         if U.ndim == 1:
             U = U[:, None]
+        unit_weights = d is None
         if d is None:
             d = jnp.ones(k, dtype=U.dtype)
+        symmetric_factors = V is None or V is U
         if V is None:
             V = U
         if V.ndim == 1:
@@ -75,9 +89,14 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         self.d = d
         self.V = V
         self.orthonormal = orthonormal
+        self.symmetric_factors = symmetric_factors and m == n
         from gaussx._tags import low_rank_tag
 
-        inferred_tags = _infer_tags(base, U, d, V, orthonormal=orthonormal)
+        inferred_tags = _infer_tags(
+            base,
+            symmetric_factors=self.symmetric_factors,
+            unit_weights=unit_weights,
+        )
         self.tags = _to_frozenset(tags) | inferred_tags | {low_rank_tag}
 
     @property
@@ -98,11 +117,13 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         return L + self.U @ jnp.diag(self.d) @ self.V.T
 
     def transpose(self) -> LowRankUpdate:
+        # Shared factors are passed once so the transpose keeps them shared
+        # even under tracing, where ``U`` and ``V`` are distinct tracers.
         return LowRankUpdate(
             self.base.T,
             self.V,
             self.d,
-            self.U,
+            None if self.symmetric_factors else self.U,
             tags=lx.transpose_tags(self.tags),
             orthonormal=self.orthonormal,
         )
@@ -119,6 +140,8 @@ def low_rank_plus_diag(
     U: Float[Array, "n k"],
     d: Float[Array, " k"] | None = None,
     V: Float[Array, "n k"] | None = None,
+    *,
+    psd: bool = False,
 ) -> LowRankUpdate:
     """Construct ``diag(diag) + U diag(d) Vᵀ``.
 
@@ -130,11 +153,15 @@ def low_rank_plus_diag(
         U: Left factor, shape ``(n, k)``.
         d: Diagonal scaling, shape ``(k,)``. Defaults to ones.
         V: Right factor, shape ``(n, k)``. Defaults to *U*.
+        psd: Claim that ``diag`` and ``d`` are non-negative (and the
+            factors shared), so the base and the update are tagged
+            positive semidefinite. The sign of ``diag`` is never inspected,
+            so without this the result is only symmetric-tagged.
 
     Returns:
         A ``LowRankUpdate`` with a ``DiagonalLinearOperator`` base.
     """
-    return _low_rank_update_with_diag_base(diag, U, d, V)
+    return _low_rank_update_with_diag_base(diag, U, d, V, psd=psd)
 
 
 def svd_low_rank_plus_diag(
@@ -142,6 +169,8 @@ def svd_low_rank_plus_diag(
     U: Float[Array, "n k"],
     S: Float[Array, " k"],
     V: Float[Array, "n k"],
+    *,
+    psd: bool = False,
 ) -> LowRankUpdate:
     """Construct ``diag(diag) + U diag(S) Vᵀ`` from a truncated SVD.
 
@@ -149,12 +178,16 @@ def svd_low_rank_plus_diag(
         diag: Diagonal entries, shape ``(n,)``.
         U: Left singular vectors, shape ``(n, k)``.
         S: Singular values, shape ``(k,)``.
-        V: Right singular vectors, shape ``(n, k)``.
+        V: Right singular vectors, shape ``(n, k)``. Pass the same array
+            object as *U* for a symmetric update; value-equal copies are
+            not inferred symmetric.
+        psd: Claim that ``diag`` is non-negative and the update is
+            symmetric, so the result is tagged positive semidefinite.
 
     Returns:
         A ``LowRankUpdate`` with a ``DiagonalLinearOperator`` base.
     """
-    return _low_rank_update_with_diag_base(diag, U, S, V, orthonormal=True)
+    return _low_rank_update_with_diag_base(diag, U, S, V, orthonormal=True, psd=psd)
 
 
 def low_rank_plus_identity(
@@ -163,6 +196,7 @@ def low_rank_plus_identity(
     V: Float[Array, "n k"] | None = None,
     *,
     scale: float = 1.0,
+    psd: bool = False,
 ) -> LowRankUpdate:
     """Construct ``scale * I + U diag(d) Vᵀ``.
 
@@ -173,13 +207,21 @@ def low_rank_plus_identity(
         d: Diagonal scaling, shape ``(k,)``. Defaults to ones.
         V: Right factor, shape ``(n, k)``. Defaults to *U*.
         scale: Scalar multiplier on the identity. Default 1.0.
+        psd: Claim that ``scale`` and ``d`` are non-negative (and the
+            factors shared), so the result is tagged positive semidefinite.
+            A Python-number ``scale >= 0`` already makes the base PSD
+            (it is static, not an array value), so the default
+            ``low_rank_plus_identity(U)`` is PSD-tagged without it.
 
     Returns:
         A ``LowRankUpdate`` with a scaled identity base.
     """
     n = U.shape[0]
     diag = jnp.full(n, scale, dtype=U.dtype)
-    return _low_rank_update_with_diag_base(diag, U, d, V)
+    static_nonnegative = isinstance(scale, (int, float)) and scale >= 0
+    return _low_rank_update_with_diag_base(
+        diag, U, d, V, psd=psd, psd_base=static_nonnegative
+    )
 
 
 def _low_rank_update_with_diag_base(
@@ -189,66 +231,43 @@ def _low_rank_update_with_diag_base(
     V: Float[Array, "n k"] | None = None,
     *,
     orthonormal: bool = False,
+    psd: bool = False,
+    psd_base: bool = False,
 ) -> LowRankUpdate:
-    """Construct a low-rank update with a diagonal base operator."""
-    base = _diagonal_base(diag)
-    return LowRankUpdate(base, U, d, V, orthonormal=orthonormal)
+    """Construct a low-rank update with a diagonal base operator.
 
-
-def _diagonal_base(diag: Float[Array, " n"]) -> lx.AbstractLinearOperator:
-    """Wrap concrete non-negative diagonals with a PSD tag."""
+    ``psd`` is the caller's claim that the whole update is PSD;
+    ``psd_base`` that only the diagonal is non-negative.
+    """
     base = lx.DiagonalLinearOperator(diag)
-    if _is_nonnegative(diag):
-        return lx.TaggedLinearOperator(base, lx.positive_semidefinite_tag)
-    return base
+    if psd or psd_base:
+        base = lx.TaggedLinearOperator(base, lx.positive_semidefinite_tag)
+    tags = (
+        frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+        if psd
+        else frozenset()
+    )
+    return LowRankUpdate(base, U, d, V, tags=tags, orthonormal=orthonormal)
 
 
 def _infer_tags(
     base: lx.AbstractLinearOperator,
-    U: Float[Array, "m k"],
-    d: Float[Array, " k"],
-    V: Float[Array, "n k"],
     *,
-    orthonormal: bool = False,
+    symmetric_factors: bool,
+    unit_weights: bool,
 ) -> frozenset[object]:
-    """Infer stable structural tags without materializing the operator."""
-    if base.in_size() != base.out_size():
+    """Infer tags from static structure only (never from array values).
+
+    Symmetric when the base is symmetric and the factors are shared; PSD
+    when, in addition, the base is PSD and the weights are the default
+    ones. Anything else is the caller's claim to make through ``tags``.
+    """
+    if not symmetric_factors or not _safe_query(lx.is_symmetric, base):
         return frozenset()
-
-    inferred: set[object] = set()
-    # Symmetry inference uses value-or-identity equality regardless of the
-    # orthonormal flag, so that callers passing ``V = U.copy()`` (a common
-    # SVD-construction pattern) still get a symmetric tag — matching the
-    # pre-consolidation ``SVDLowRankUpdate`` behavior. The ``orthonormal``
-    # flag still controls PSD inference below (where orthonormal updates
-    # with non-negative weights are PSD even when the base is just
-    # symmetric).
-    same_factors = _arrays_match(U, V)
-    if _safe_query(lx.is_symmetric, base) and same_factors:
-        inferred.add(lx.symmetric_tag)
-        if _safe_query(lx.is_positive_semidefinite, base) and _is_nonnegative(d):
-            inferred.add(lx.positive_semidefinite_tag)
+    inferred: set[object] = {lx.symmetric_tag}
+    if unit_weights and _safe_query(lx.is_positive_semidefinite, base):
+        inferred.add(lx.positive_semidefinite_tag)
     return frozenset(inferred)
-
-
-def _arrays_match(x: Array, y: Array) -> bool:
-    """Best-effort equality check that stays safe under tracing."""
-    if x is y:
-        return True
-    if x.shape != y.shape:
-        return False
-    try:
-        return bool(jnp.array_equal(x, y))
-    except (TracerBoolConversionError, TypeError, ValueError):
-        return False
-
-
-def _is_nonnegative(x: Array) -> bool:
-    """Return True only when non-negativity is known concretely."""
-    try:
-        return bool(jnp.all(x >= 0))
-    except (TracerBoolConversionError, TypeError, ValueError):
-        return False
 
 
 def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
