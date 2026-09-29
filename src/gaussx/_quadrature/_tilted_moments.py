@@ -18,11 +18,19 @@ def ep_tilted_moments(
 ) -> tuple[Float[Array, " *batch"], Float[Array, " *batch"]]:
     r"""Compute tilted distribution moments via Gauss-Hermite quadrature.
 
+    A site whose cavity variance is not positive -- EP's usual failure mode,
+    when the site holds more precision than the current posterior -- has no
+    tilted distribution. Its cavity moments are returned unchanged, so the
+    moment-matched site update ``1/t_var - 1/cav_var`` is zero and nothing
+    ``NaN`` reaches the site parameters; skip or damp such sites in the
+    caller. Valid sites are unaffected, and gradients stay finite for both.
+
     Args:
         log_lik_fn: Scalar function mapping latent value ``f`` to scalar
             log-likelihood ``log p(y|f)``.
         cav_mean: Cavity means, shape ``(*batch,)``.
-        cav_var: Cavity variances (positive), shape ``(*batch,)``.
+        cav_var: Cavity variances, shape ``(*batch,)``. Non-positive entries
+            are passed through as described above.
         order: Number of Gauss-Hermite quadrature points. Default 20.
 
     Returns:
@@ -35,6 +43,13 @@ def ep_tilted_moments(
     log_w = jnp.log(w)
 
     def _compute_moments(mean_i: Float[Array, ""], var_i: Float[Array, ""]):
+        # Double where: the quadrature never sees a negative variance, so
+        # neither the value nor the gradient of an invalid site is NaN.
+        valid = var_i > 0
+        t_mean, t_var = _quadrature_moments(mean_i, jnp.where(valid, var_i, 1.0))
+        return jnp.where(valid, t_mean, mean_i), jnp.where(valid, t_var, var_i)
+
+    def _quadrature_moments(mean_i: Float[Array, ""], var_i: Float[Array, ""]):
         std_i = jnp.sqrt(var_i)
         f_nodes = mean_i + std_i * z
 
