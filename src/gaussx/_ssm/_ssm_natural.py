@@ -189,8 +189,7 @@ def naturals_to_ssm(
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` where:
         - ``A``: Transition matrices, shape ``(N-1, d, d)``.
-        - ``Q``: Process noise covariances, in the layout chosen by
-          ``initial_in_q``.
+        - ``Q``: Process noise covariances, in the layout chosen by ``initial_in_q``.
         - ``mu_0``: Initial mean, shape ``(d,)``.
         - ``P_0``: Initial covariance, shape ``(d, d)``.
     """
