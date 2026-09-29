@@ -8,6 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+from gaussx._einx import rearrange
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
 from gaussx._primitives import solve, sqrt
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
@@ -206,3 +207,44 @@ def test_kronecker_sum_sqrt_jvp_matches_dense_root(inverse):
     dense_out, dense_tangent = jax.jvp(dense, args, tangents)
     assert jnp.allclose(out, dense_out, atol=1e-10)
     assert jnp.allclose(tangent, dense_tangent, atol=1e-10)
+
+
+@pytest.mark.parametrize("inverse", [False, True], ids=["mv", "solve"])
+def test_kronecker_sum_sqrt_second_derivative(inverse):
+    # The JVP recomputes the spectrum from the factors, so a Hessian sees
+    # its dependence: with A = [s], B = [1], z = [1], S z = sqrt(s + 1).
+    psd = lx.positive_semidefinite_tag
+
+    def f(s):
+        root = KroneckerSumSqrt(
+            lx.MatrixLinearOperator(jnp.array([[s]]), psd),
+            lx.MatrixLinearOperator(jnp.ones((1, 1)), psd),
+        )
+        z = jnp.ones(1)
+        return (root.solve(z) if inverse else root.mv(z))[0]
+
+    s = 1.5
+    # d²/ds² (s+1)^{±1/2}
+    expected = 0.75 * (s + 1) ** -2.5 if inverse else -0.25 * (s + 1) ** -1.5
+    assert jnp.allclose(jax.grad(jax.grad(f))(s), expected, rtol=1e-10)
+
+
+def test_kronecker_sum_sqrt_keeps_diagonal_factors_lazy():
+    class LazyDiagonal(lx.DiagonalLinearOperator):
+        def as_matrix(self):
+            raise NotImplementedError("dense materialization unavailable")
+
+    da, db = jnp.array([1.0, 2.0, 3.0]), jnp.array([0.5, 1.5])
+    root = KroneckerSumSqrt(LazyDiagonal(da), LazyDiagonal(db))
+    v = jnp.arange(1.0, 7.0)
+    expected = jnp.sqrt(rearrange(da[:, None] + db[None, :], "a b -> (a b)")) * v
+    assert jnp.allclose(root.mv(v), expected)
+    grad = jax.grad(
+        lambda d: KroneckerSumSqrt(LazyDiagonal(d), LazyDiagonal(db)).mv(v).sum()
+    )(da)
+    dense_grad = jax.grad(
+        lambda d: (
+            jnp.sqrt(rearrange(d[:, None] + db[None, :], "a b -> (a b)")) * v
+        ).sum()
+    )(da)
+    assert jnp.allclose(grad, dense_grad)

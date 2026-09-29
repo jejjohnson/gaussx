@@ -147,8 +147,8 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
             (checked with `equinox.error_if`, so also under ``jax.jit``).
     """
 
-    a_matrix: Float[Array, "a a"]
-    b_matrix: Float[Array, "b b"]
+    a_factor: Float[Array, "a a"] | Float[Array, " a"]
+    b_factor: Float[Array, "b b"] | Float[Array, " b"]
     eigenvectors_a: Float[Array, "a a"]
     eigenvectors_b: Float[Array, "b b"]
     sqrt_eigenvalues: Float[Array, "a b"]
@@ -180,15 +180,16 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
                 "KroneckerSumSqrt requires both factors to be symmetric "
                 "(tag them with lx.symmetric_tag or lx.positive_semidefinite_tag)."
             )
-        # The factor matrices are the differentiable leaves; the cached
+        # The factors (a matrix, or the diagonal of a diagonal factor, which
+        # is never materialised) are the differentiable leaves; the cached
         # eigendecomposition is a constant for autodiff. `mv` and `solve` go
-        # through custom JVPs written in terms of the matrices, because the
+        # through custom JVPs written in terms of the factors, because the
         # eigenvector derivative divides by eigenvalue gaps and is NaN at a
         # repeated eigenvalue (e.g. an isotropic factor ``s I``), gh-295.
-        a_matrix = A.as_matrix()
-        b_matrix = B.as_matrix()
-        evals_a, evecs_a = _constant_eigh(A, a_matrix)
-        evals_b, evecs_b = _constant_eigh(B, b_matrix)
+        a_factor = _factor_array(A)
+        b_factor = _factor_array(B)
+        evals_a, evecs_a = _factor_eigh(jax.lax.stop_gradient(a_factor))
+        evals_b, evecs_b = _factor_eigh(jax.lax.stop_gradient(b_factor))
         eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
             jnp.result_type(evals_a, evals_b, jnp.float32)
         )
@@ -215,8 +216,8 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         )
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
-        self.a_matrix = a_matrix
-        self.b_matrix = b_matrix
+        self.a_factor = a_factor
+        self.b_factor = b_factor
         self.eigenvectors_a = evecs_a
         self.eigenvectors_b = evecs_b
         self.sqrt_eigenvalues = sqrt_eigenvalues
@@ -246,8 +247,8 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
 
     def _parts(self):
         return (
-            self.a_matrix,
-            self.b_matrix,
+            self.a_factor,
+            self.b_factor,
             self.eigenvectors_a,
             self.eigenvectors_b,
             self.sqrt_eigenvalues,
@@ -267,14 +268,40 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
 
 
-def _constant_eigh(
-    operator: lx.AbstractLinearOperator, matrix: Float[Array, "n n"]
-) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
-    """`_eigh_factor` with no tangent flowing into the eigenvectors."""
+def _factor_array(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "n n"] | Float[Array, " n"]:
+    """A factor as an array: its diagonal if diagonal (never materialised)."""
     if isinstance(operator, lx.DiagonalLinearOperator):
-        diagonal = jax.lax.stop_gradient(lx.diagonal(operator))
-        return _eigh_factor(lx.DiagonalLinearOperator(diagonal))
-    return jnp.linalg.eigh(jax.lax.stop_gradient(matrix))
+        return lx.diagonal(operator)
+    return operator.as_matrix()
+
+
+def _factor_eigh(
+    factor: Float[Array, "n n"] | Float[Array, " n"],
+) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    """``(eigenvalues, Q)`` of a `_factor_array` (identity basis if diagonal)."""
+    if factor.ndim == 1:
+        return factor, jnp.eye(factor.shape[0], dtype=factor.dtype)
+    return jnp.linalg.eigh(factor)
+
+
+def _factor_tangent(tangent: Array) -> Float[Array, "n n"]:
+    """A factor tangent as a matrix (a diagonal factor's tangent is a vector)."""
+    return jnp.diag(tangent) if tangent.ndim == 1 else tangent
+
+
+def _spectral_parts(a, b):
+    """Eigenbases and root spectrum of ``A ⊕ B``, differentiably from the factors.
+
+    The custom JVPs below recompute these from the primal factors rather than
+    use the cached (``stop_gradient``) ones, so that differentiating the JVP
+    itself -- a Hessian -- still sees their dependence on the factors.
+    """
+    values_a, basis_a = _factor_eigh(a)
+    values_b, basis_b = _factor_eigh(b)
+    roots = jnp.sqrt(jnp.maximum(values_a[:, None] + values_b[None, :], 0.0))
+    return basis_a, basis_b, roots
 
 
 def _to_eigenbasis(basis_a, basis_b, values):
@@ -340,9 +367,10 @@ def _kronecker_sum_root_tangent(basis_a, basis_b, roots, tangent_a, tangent_b, r
 def _kronecker_sum_root_apply(a, b, basis_a, basis_b, roots, Z):
     """``√(A ⊕ B) Z`` per slab, from a cached eigendecomposition.
 
-    ``a`` and ``b`` are unused by the primal; they carry the tangent that
-    the JVP differentiates with. The cached ``basis_*`` / ``roots`` are
-    treated as constants.
+    ``a`` and ``b`` (`_factor_array` s) are unused by the primal; the JVP
+    differentiates with respect to them and ignores the tangents of the
+    cached ``basis_*`` / ``roots``, recomputing them from ``a`` and ``b``
+    (`_spectral_parts`) so higher-order derivatives stay correct.
     """
     del a, b
     return _from_eigenbasis(
@@ -352,8 +380,10 @@ def _kronecker_sum_root_apply(a, b, basis_a, basis_b, roots, Z):
 
 @_kronecker_sum_root_apply.defjvp
 def _kronecker_sum_root_apply_jvp(primals, tangents):
-    _, _, basis_a, basis_b, roots, Z = primals
+    a, b, _, _, _, Z = primals
     tangent_a, tangent_b, _, _, _, tangent_Z = tangents
+    basis_a, basis_b, roots = _spectral_parts(a, b)
+    tangent_a, tangent_b = _factor_tangent(tangent_a), _factor_tangent(tangent_b)
     rotated = _to_eigenbasis(basis_a, basis_b, Z)
     primal_out = _from_eigenbasis(basis_a, basis_b, roots * rotated)
     term = _kronecker_sum_root_tangent(
@@ -376,8 +406,10 @@ def _kronecker_sum_root_solve(a, b, basis_a, basis_b, roots, Z):
 @_kronecker_sum_root_solve.defjvp
 def _kronecker_sum_root_solve_jvp(primals, tangents):
     """``d(S⁻¹ z) = S⁻¹ (dz - dS S⁻¹ z)``."""
-    _, _, basis_a, basis_b, roots, Z = primals
+    a, b, _, _, _, Z = primals
     tangent_a, tangent_b, _, _, _, tangent_Z = tangents
+    basis_a, basis_b, roots = _spectral_parts(a, b)
+    tangent_a, tangent_b = _factor_tangent(tangent_a), _factor_tangent(tangent_b)
     rotated_out = _to_eigenbasis(basis_a, basis_b, Z) / roots
     primal_out = _from_eigenbasis(basis_a, basis_b, rotated_out)
     term = _kronecker_sum_root_tangent(
