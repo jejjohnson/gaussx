@@ -34,6 +34,11 @@ class GaussHermiteIntegrator(AbstractIntegrator):
 
     order: int = eqx.field(static=True, default=20)
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """Gauss-Hermite weights are positive."""
+        del dim
+        return True
+
     def integrate(
         self,
         fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],

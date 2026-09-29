@@ -30,6 +30,11 @@ class CubatureIntegrator(AbstractIntegrator):
     indefinite by a negative weight.
     """
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """All ``2N`` cubature weights are ``1 / 2N``."""
+        del dim
+        return True
+
     def integrate(
         self,
         fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],

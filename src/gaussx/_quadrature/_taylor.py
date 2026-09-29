@@ -41,6 +41,12 @@ class TaylorIntegrator(AbstractIntegrator):
     order: int = eqx.field(static=True, default=1)
     correct_variance: bool = eqx.field(static=True, default=True)
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """A linearisation propagates a consistent joint (``J P Jᵀ`` plus a PSD
+        second-order correction)."""
+        del dim
+        return True
+
     def integrate(
         self,
         fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],

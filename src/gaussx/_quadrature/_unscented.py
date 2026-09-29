@@ -48,6 +48,21 @@ class UnscentedIntegrator(AbstractIntegrator):
         Y = jax.vmap(fn)(chi)
         return assemble_propagation_result(chi, Y, state.mean, w_m, w_c)
 
+    def guarantees_psd(self, dim: int) -> bool:
+        """Whether every scaled-unscented covariance weight is non-negative.
+
+        With ``lambda = alpha^2 (N + kappa) - N`` the weights are
+        ``1 / (2 (N + lambda))`` off-centre and
+        ``lambda / (N + lambda) + 1 - alpha^2 + beta`` at the centre, so
+        small ``alpha`` (the ``1e-3`` default) makes the centre weight
+        large and negative; ``alpha = 1`` does not.
+        """
+        lam = self.alpha**2 * (dim + self.kappa) - dim
+        spread = dim + lam
+        if spread <= 0:
+            return False
+        return lam / spread + 1.0 - self.alpha**2 + self.beta >= 0
+
     def points_and_weights(
         self,
         state: GaussianState,
