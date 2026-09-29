@@ -88,7 +88,7 @@ def test_parallel_kf_sqrt_matches_covariance_form(getkey):
     obs = jr.normal(getkey(), (100, 2))
 
     cov_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
-    sqrt_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+    sqrt_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, psd_project=True)
 
     assert tree_allclose(sqrt_state.filtered_means, cov_state.filtered_means, rtol=1e-5)
     assert tree_allclose(sqrt_state.filtered_covs, cov_state.filtered_covs, rtol=1e-5)
@@ -103,10 +103,10 @@ def test_parallel_kf_sqrt_matches_covariance_form(getkey):
 def test_parallel_rts_sqrt_matches_covariance_form(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (64, 2))
-    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, psd_project=True)
 
     cov_means, cov_covs = parallel_rts_smoother(state, A)
-    sqrt_means, sqrt_covs = parallel_rts_smoother(state, A, form="sqrt")
+    sqrt_means, sqrt_covs = parallel_rts_smoother(state, A, psd_project=True)
 
     assert tree_allclose(sqrt_means, cov_means, rtol=1e-5)
     assert tree_allclose(sqrt_covs, cov_covs, rtol=1e-5)
@@ -123,7 +123,7 @@ def test_parallel_kf_sqrt_covariances_are_psd(getkey):
     P0 = jnp.eye(2, dtype=dtype)
     obs = jr.normal(getkey(), (128, 1), dtype=dtype)
 
-    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
+    state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, psd_project=True)
     covs = jnp.concatenate([state.filtered_covs, state.predicted_covs], axis=0)
     min_eig = jnp.min(jnp.linalg.eigvalsh(covs))
     psd_atol_factor = 100
@@ -383,7 +383,7 @@ def test_parallel_kf_sqrt_jit_vmap_grad(getkey):
     def fn(obs_, log_q_diag):
         Q_ = jnp.diag(jnp.exp(log_q_diag))
         return parallel_kalman_filter(
-            A, H, Q_, R, obs_, x0, P0, form="sqrt"
+            A, H, Q_, R, obs_, x0, P0, psd_project=True
         ).log_likelihood
 
     log_q = jnp.log(jnp.diag(Q))
@@ -421,22 +421,22 @@ def _random_tv_model():
 
 
 _TV_CASES = [
-    (mask, form)
+    (mask, psd_project)
     for mask in ("none", "steps", "channels")
-    for form in ("covariance", "sqrt")
-    if not (form == "sqrt" and mask == "channels")  # rejected by design
+    for psd_project in (False, True)
+    if not (psd_project and mask == "channels")  # rejected by design
 ]
 
 
-@pytest.mark.parametrize(("mask_name", "form"), _TV_CASES)
-def test_tv_parity_random_params(mask_name, form):
+@pytest.mark.parametrize(("mask_name", "psd_project"), _TV_CASES)
+def test_tv_parity_random_params(mask_name, psd_project):
     args, masks = _random_tv_model()
     A = args[0]
     # Guard against regressing to broadcast (time-invariant) inputs.
     assert jnp.abs(A[0] - A[1]).max() > 0.01
     mask = masks[mask_name]
     seq = kalman_filter(*args, mask=mask)
-    par = parallel_kalman_filter(*args, mask=mask, form=form)
+    par = parallel_kalman_filter(*args, mask=mask, psd_project=psd_project)
     tol = {"rtol": 1e-12, "atol": 1e-12}
     assert jnp.allclose(seq.log_likelihood, par.log_likelihood, **tol)
     for field in (
@@ -447,6 +447,44 @@ def test_tv_parity_random_params(mask_name, form):
     ):
         assert jnp.allclose(getattr(seq, field), getattr(par, field), **tol), field
     m_seq, P_seq = rts_smoother(seq, A)
-    m_par, P_par = parallel_rts_smoother(par, A, form=form)
+    m_par, P_par = parallel_rts_smoother(par, A, psd_project=psd_project)
     assert jnp.allclose(m_seq, m_par, **tol)
     assert jnp.allclose(P_seq, P_par, **tol)
+
+
+def test_form_sqrt_is_a_deprecated_spelling_of_psd_project():
+    # gh-306: form="sqrt" never was a square-root filter.
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    new = parallel_kalman_filter(A, H, Q, R, y, m0, P0, psd_project=True)
+    with pytest.warns(DeprecationWarning, match="psd_project=True"):
+        old = parallel_kalman_filter(A, H, Q, R, y, m0, P0, form="sqrt")
+    assert jnp.array_equal(new.log_likelihood, old.log_likelihood)
+    assert jnp.array_equal(new.filtered_covs, old.filtered_covs)
+    smoothed = parallel_rts_smoother(new, A, psd_project=True)
+    with pytest.warns(DeprecationWarning, match="psd_project=True"):
+        smoothed_old = parallel_rts_smoother(new, A, form="sqrt")
+    for a, b in zip(smoothed, smoothed_old, strict=True):
+        assert jnp.array_equal(a, b)
+
+
+@pytest.mark.slow
+def test_psd_project_keeps_a_float32_chain_finite():
+    # gh-306: a regime where the covariance form goes indefinite in float32
+    # (Matérn-5/2, dt = 1e-4, R = 1e-10) while the projection stays PSD. The
+    # model is built in float64 so only the filter runs in float32.
+    from gaussx import MaternSDE
+
+    T = 1000
+    kern = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(0.5), order=2)
+    A, Q = kern.discretise(jnp.array(1e-4))
+    P0 = kern.sde_params().P_inf
+    H = jnp.array([[1.0, 0.0, 0.0]])
+    t = jnp.arange(T) * 1e-4
+    y = (jnp.sin(6.0 * t) + 0.1 * jr.normal(jr.key(0), (T,)))[:, None]
+    args32 = [x.astype(jnp.float32) for x in (A, H, Q, 1e-10 * jnp.eye(1), y)]
+    m0 = jnp.zeros(3, jnp.float32)
+    P0_32 = P0.astype(jnp.float32)
+    projected = parallel_kalman_filter(*args32, m0, P0_32, psd_project=True)
+    assert jnp.isfinite(projected.log_likelihood)
+    eigs = jnp.linalg.eigvalsh(projected.filtered_covs.astype(jnp.float64))
+    assert jnp.min(eigs) > -1e-9

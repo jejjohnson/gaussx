@@ -486,8 +486,8 @@ class TestParallelParity:
         wood = kalman_filter(A, H, Q, R, y, m0, P0, mask=mask, woodbury_innovation=True)
         assert abs(float(seq.log_likelihood - wood.log_likelihood)) <= 1e-11
 
-    def test_sqrt_form_rejects_channel_mask(self, getkey):
+    def test_psd_project_rejects_channel_mask(self, getkey):
         A, H, Q, R, y, m0, P0 = _make_model(getkey())
         mask = _partial_mask(getkey(), y.shape[0], y.shape[1])
         with pytest.raises(NotImplementedError, match=r"per-channel"):
-            parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask, form="sqrt")
+            parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask, psd_project=True)

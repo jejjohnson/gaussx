@@ -649,8 +649,8 @@ _FILTERS = {
     "parallel_covariance": lambda A, Q: parallel_kalman_filter(
         A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0
     ),
-    "parallel_sqrt": lambda A, Q: parallel_kalman_filter(
-        A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0, form="sqrt"
+    "parallel_psd_project": lambda A, Q: parallel_kalman_filter(
+        A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0, psd_project=True
     ),
 }
 
