@@ -72,7 +72,12 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
         inverse: ``V⁻¹``: coefficient array → array of shape ``in_shape``.
         in_shape: Field shape the transforms act on.
         real_output: Return the real part of ``mv`` (default ``True``), as
-            needed when ``V`` is complex but ``A`` is real (FFT).
+            needed when ``V`` is complex but ``A`` is real (FFT). The
+            primitives work on ``Λ`` directly, so this is only consistent
+            when ``V⁻¹ Λ V`` is itself real (for the FFT: a conjugate-even
+            ``Λ``); otherwise ``mv`` applies ``Re(A)`` while ``solve`` and
+            ``logdet`` describe ``A``. The generic class cannot check an
+            arbitrary transform pair; `circulant_from_symbol` does.
         normal: Whether ``V⁻¹`` is proportional to ``Vᴴ`` (see Transpose).
         transpose_pair: Optional ``(forward_T, inverse_T)`` for ``Aᵀ``.
         tags: lineax tags. ``symmetric_tag`` is added automatically when
@@ -337,6 +342,12 @@ def circulant_from_symbol(
     (tagged automatically); add ``lx.positive_semidefinite_tag`` /
     ``negative_semidefinite_tag`` yourself when it applies.
 
+    With ``real_output=True`` the symbol must be conjugate-even,
+    ``symbol[k] = conj(symbol[−k mod n])`` (for a real symbol: even), since
+    only then is ``ifftn(symbol ⊙ fftn(x))`` real for real ``x``. Any other
+    symbol would make ``mv`` apply the real part of the operator while
+    ``solve`` / ``logdet`` / ``inv`` / ``sqrt`` describe the complex one.
+
     Args:
         symbol: Eigenvalues in `numpy.fft` frequency order, shape = grid shape.
         real_output: Take the real part of ``mv`` (default ``True``).
@@ -344,8 +355,15 @@ def circulant_from_symbol(
 
     Returns:
         A `DiagonalisedOperator` with the FFT transform pair.
+
+    Raises:
+        ValueError: If ``real_output`` and a concrete ``symbol`` is not
+            conjugate-even. A traced symbol is checked at run time and
+            raises an ``EquinoxRuntimeError`` instead.
     """
     symbol = jnp.asarray(symbol)
+    if real_output:
+        symbol = _check_conjugate_even(symbol)
     return DiagonalisedOperator(
         symbol,
         _fftn,
@@ -392,6 +410,40 @@ def Circulant(
         real_output=not jnp.iscomplexobj(column),
         tags=tags,
     )
+
+
+_NOT_CONJUGATE_EVEN = (
+    "circulant_from_symbol: symbol is not conjugate-even "
+    "(symbol[k] != conj(symbol[-k mod n])), so Re(ifftn(symbol * fftn(x))) is "
+    "not diagonalised by the FFT; pass real_output=False, or symmetrise the "
+    "symbol as (symbol[k] + conj(symbol[-k mod n])) / 2."
+)
+
+
+def _reflect(x: Array) -> Array:
+    """``x[−k mod n]`` along every axis."""
+    for axis in range(x.ndim):
+        x = jnp.roll(jnp.flip(x, axis=axis), 1, axis=axis)
+    return x
+
+
+def _check_conjugate_even(symbol: Array) -> Array:
+    """Reject a symbol whose real-output circulant is inconsistent (gh-325).
+
+    The tolerance is relative to the largest eigenvalue, so a symbol built
+    from ``cos`` in float32 passes despite its roundoff.
+    """
+    defect = jnp.max(jnp.abs(symbol - jnp.conj(_reflect(symbol))), initial=0.0)
+    scale = jnp.max(jnp.abs(symbol), initial=0.0)
+    tol = 1e3 * jnp.finfo(jnp.result_type(symbol, jnp.float32)).eps
+    bad = defect > tol * scale
+    try:
+        concrete_bad = bool(bad)
+    except jax.errors.ConcretizationTypeError:
+        return eqx.error_if(symbol, bad, _NOT_CONJUGATE_EVEN)
+    if concrete_bad:
+        raise ValueError(_NOT_CONJUGATE_EVEN)
+    return symbol
 
 
 def _is_even_real_kernel(column: Array) -> bool:
