@@ -89,11 +89,18 @@ CI (PRs and pushes to `main`) runs only unmarked (fast) tests:
 `-m "not slow and not integration"`, with coverage. A PR fails if total
 coverage drops below `fail_under` in `pyproject.toml`, a ratchet
 (currently 95%) that is raised as coverage rises and never lowered to
-make a PR pass. Slow and integration tests never run
-automatically — trigger them on demand with the "Extended Tests" workflow:
-`gh workflow run tests-extended.yml` (heavy lane) or
-`gh workflow run tests-extended.yml -f suite=full` (entire suite), or run
-`make test-slow` / `make test` locally. When adding tests:
+make a PR pass. Slow and integration tests run in the "Extended Tests"
+workflow (`tests-extended.yml`):
+
+- weekly, full suite on 3.12 and 3.13. A failure opens (or comments on) a
+  `ci-failure` issue, which is the signal to act on;
+- on a PR with the `run-slow` label (heavy lane), re-running on each push.
+  Add it to PRs that touch the SSM filters, distributions or numpyro paths;
+- on demand: `gh workflow run tests-extended.yml` (heavy lane) or
+  `gh workflow run tests-extended.yml -f suite=full` (entire suite), or
+  `make test-slow` / `make test` locally.
+
+When adding tests:
 
 - Unmarked (default): unit tests, < ~1 s each.
 - `@pytest.mark.slow`: individually expensive tests (> ~1.5 s — heavy
