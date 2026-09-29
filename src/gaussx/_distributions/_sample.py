@@ -28,7 +28,6 @@ from gaussx._operators._kronecker_sum import (
 )
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
-    _arrays_match,
     _safe_query,
 )
 from gaussx._operators._toeplitz import Toeplitz, _circulant_embedding, toeplitz_sample
@@ -180,9 +179,7 @@ def _zero_mean_draws(
         return _block_tridiag_draws(covariance, key, num_draws)
     if isinstance(covariance, Toeplitz):
         return _toeplitz_draws(covariance, key, num_draws)
-    if isinstance(covariance, LowRankUpdate) and _arrays_match(
-        covariance.U, covariance.V
-    ):
+    if isinstance(covariance, LowRankUpdate) and covariance.symmetric_factors:
         return _structured_or_dense(
             _low_rank_is_sampleable(covariance),
             lambda: _low_rank_draws(covariance, key, num_draws),

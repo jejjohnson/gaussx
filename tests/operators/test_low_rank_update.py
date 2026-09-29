@@ -10,7 +10,12 @@ import lineax as lx
 import pytest
 
 import gaussx
-from gaussx._operators import LowRankUpdate, low_rank_plus_diag, svd_low_rank_plus_diag
+from gaussx._operators import (
+    LowRankUpdate,
+    low_rank_plus_diag,
+    low_rank_plus_identity,
+    svd_low_rank_plus_diag,
+)
 from gaussx._tags import is_low_rank
 from gaussx._testing import tree_allclose
 
@@ -229,12 +234,26 @@ def test_low_rank_plus_diag(getkey):
     assert tree_allclose(lr.mv(v), lr.as_matrix() @ v)
 
 
-def test_low_rank_plus_diag_infers_psd(getkey):
+def test_low_rank_plus_diag_psd_is_a_claim_not_an_inference(getkey):
+    # gh-343: the sign of ``diag`` is never inspected; PSD is the caller's
+    # claim via ``psd=True``.
     diag = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
     U = jr.normal(getkey(), (4, 2))
     lr = low_rank_plus_diag(diag, U)
     assert lx.is_symmetric(lr) is True
-    assert lx.is_positive_semidefinite(lr) is True
+    assert lx.is_positive_semidefinite(lr) is False
+    claimed = low_rank_plus_diag(diag, U, psd=True)
+    assert lx.is_symmetric(claimed) is True
+    assert lx.is_positive_semidefinite(claimed) is True
+    assert lx.is_positive_semidefinite(claimed.base) is True
+
+
+def test_low_rank_plus_identity_static_scale_is_psd(getkey):
+    U = jr.normal(getkey(), (4, 2))
+    assert lx.is_positive_semidefinite(low_rank_plus_identity(U)) is True
+    assert lx.is_positive_semidefinite(low_rank_plus_identity(U, scale=-1.0)) is False
+    array_scale = low_rank_plus_identity(U, scale=jnp.array(2.0))
+    assert lx.is_positive_semidefinite(array_scale) is False
 
 
 def test_svd_low_rank_plus_diag(getkey):
@@ -262,13 +281,11 @@ def test_svd_low_rank_plus_diag_matches_low_rank_plus_diag(getkey):
     assert tree_allclose(lr.d, expected.d)
 
 
-def test_orthonormal_symmetry_requires_identity_not_equality(getkey):
-    """Both default and orthonormal modes infer symmetry from value-equal factors.
+def test_symmetry_requires_identity_not_equality(getkey):
+    """Value-equal but distinct factors are not inferred symmetric (gh-343).
 
-    The pre-consolidation ``SVDLowRankUpdate`` used value equality to infer
-    symmetry; we keep that behaviour for ``orthonormal=True`` so the common
-    SVD-construction pattern (``V = U.copy()`` from separate slice ops on
-    the singular vector matrix) continues to be tagged symmetric.
+    A value check cannot survive tracing, so symmetry comes only from shared
+    factors or from the caller's ``symmetric_tag``.
     """
     diag = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
     base = lx.TaggedLinearOperator(
@@ -280,10 +297,14 @@ def test_orthonormal_symmetry_requires_identity_not_equality(getkey):
     default = LowRankUpdate(base, U, orthonormal=False, V=V)
     orthonormal = LowRankUpdate(base, U, V=V, orthonormal=True)
 
-    assert tree_allclose(default.as_matrix(), default.as_matrix().T)
-    assert tree_allclose(orthonormal.as_matrix(), orthonormal.as_matrix().T)
-    assert lx.is_symmetric(default) is True
-    assert lx.is_symmetric(orthonormal) is True
+    assert lx.is_symmetric(default) is False
+    assert lx.is_symmetric(orthonormal) is False
+    claimed = LowRankUpdate(base, U, V=V, tags=lx.symmetric_tag)
+    assert lx.is_symmetric(claimed) is True
+    assert claimed.symmetric_factors is False
+    shared = LowRankUpdate(base, U, V=U, orthonormal=True)
+    assert lx.is_symmetric(shared) is True
+    assert shared.symmetric_factors is True
 
 
 def test_svd_style_low_rank_update_supports_solve_and_logdet():
@@ -409,13 +430,11 @@ def test_svd_low_rank_update_optional_S_and_V_defaults(getkey):
     assert jnp.allclose(op.d, S)
 
 
-def test_svd_low_rank_plus_diag_value_equality_symmetry(getkey):
-    """svd_low_rank_plus_diag tags symmetric for V = U.copy() factors.
+def test_svd_low_rank_plus_diag_value_equality_is_not_symmetry(getkey):
+    """svd_low_rank_plus_diag with V = U.copy() is symmetric only if claimed.
 
-    Common SVD-construction pattern: U_full[:, :rank] and Vt[:rank, :].T
-    are equal in value but distinct objects. Pre-consolidation
-    ``SVDLowRankUpdate`` used value equality for symmetry inference;
-    this preserves that behaviour.
+    Value-equal but distinct factors lose any value-based inference under
+    tracing (gh-343); pass ``V=U`` or ``psd=True`` instead.
     """
     n, k = 5, 2
     diag = jnp.abs(jr.normal(getkey(), (n,))) + 0.1
@@ -424,4 +443,66 @@ def test_svd_low_rank_plus_diag_value_equality_symmetry(getkey):
     V = U.copy()  # equal-but-distinct array
 
     op = svd_low_rank_plus_diag(diag, U, S, V)
-    assert lx.is_symmetric(op) is True
+    assert lx.is_symmetric(op) is False
+    assert lx.is_symmetric(svd_low_rank_plus_diag(diag, U, S, U)) is True
+    assert lx.is_positive_semidefinite(svd_low_rank_plus_diag(diag, U, S, V, psd=True))
+
+
+# ---------------------------------------------------------------------------
+# gh-343: tags are identical eagerly and under tracing
+# ---------------------------------------------------------------------------
+
+
+def _tag_report(op):
+    return (
+        lx.is_symmetric(op),
+        lx.is_positive_semidefinite(op),
+        jax.tree_util.tree_structure(op),
+    )
+
+
+@pytest.mark.parametrize(
+    "make",
+    [
+        lambda diag, U, d: low_rank_plus_diag(diag, U, d),
+        lambda diag, U, d: low_rank_plus_diag(diag, U, d, psd=True),
+        lambda diag, U, d: low_rank_plus_diag(diag, U, d, U),
+        lambda diag, U, d: low_rank_plus_diag(diag, U, d, U.copy()),
+        lambda diag, U, d: low_rank_plus_identity(U),
+        lambda diag, U, d: LowRankUpdate(
+            lx.TaggedLinearOperator(
+                lx.DiagonalLinearOperator(diag), lx.positive_semidefinite_tag
+            ),
+            U,
+        ),
+    ],
+    ids=["diag", "diag-psd", "V-is-U", "V-copy", "identity", "psd-base-unit-d"],
+)
+def test_tags_and_treedef_match_eager_and_traced(make):
+    U = jr.normal(jr.key(0), (4, 2))
+    diag, d = jnp.ones(4), jnp.array([1.0, 2.0])
+    eager = _tag_report(make(diag, U, d))
+    seen = {}
+
+    def traced(diag, U, d):
+        seen["report"] = _tag_report(make(diag, U, d))
+        return make(diag, U, d)
+
+    op_jit = jax.jit(traced)(diag, U, d)
+    assert seen["report"] == eager
+    op_filter = eqx.filter_jit(traced)(diag, U, d)
+    assert seen["report"] == eager
+    assert _tag_report(op_jit) == eager == _tag_report(op_filter)
+    # Same treedef, so the two can meet in lax.cond.
+    jax.lax.cond(True, lambda: make(diag, U, d), lambda: op_jit)
+
+
+def test_transpose_keeps_shared_factors_under_jit():
+    U = jr.normal(jr.key(0), (4, 2))
+    op = LowRankUpdate(lx.DiagonalLinearOperator(jnp.ones(4)), U)
+
+    @eqx.filter_jit
+    def transposed_tags(op):
+        return op.T.symmetric_factors, lx.is_symmetric(op.T)
+
+    assert transposed_tags(op) == (True, True)
