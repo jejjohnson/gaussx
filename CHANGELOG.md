@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.0](https://github.com/jejjohnson/gaussx/compare/v0.3.1...v0.4.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **periodic:** PeriodicSDE.state_dim is 2 * (n_harmonics + 1), was 2 * n_harmonics.
+
+### Bug Fixes
+
+* **dare:** solve by doubling so slow dynamics converge; refuse a non-converged steady state ([#294](https://github.com/jejjohnson/gaussx/issues/294)) ([#445](https://github.com/jejjohnson/gaussx/issues/445)) ([70b3f38](https://github.com/jejjohnson/gaussx/commit/70b3f3804cc4f1de3e48181c27c71c9e71892aa5))
+* **kalman:** symmetrise the filter and smoother covariances ([#388](https://github.com/jejjohnson/gaussx/issues/388)) ([#447](https://github.com/jejjohnson/gaussx/issues/447)) ([b358060](https://github.com/jejjohnson/gaussx/commit/b35806098ed901569b2b64e9321fd390ea9c2e39))
+* **periodic:** add the missing j = 0 harmonic so k(0) equals the variance ([#289](https://github.com/jejjohnson/gaussx/issues/289)) ([#444](https://github.com/jejjohnson/gaussx/issues/444)) ([e2aa904](https://github.com/jejjohnson/gaussx/commit/e2aa904624c1ba546075df85a30bb964465f03a8))
+* **periodic:** exact scaled Bessel weights for any lengthscale ([#291](https://github.com/jejjohnson/gaussx/issues/291)) ([#443](https://github.com/jejjohnson/gaussx/issues/443)) ([7029e9a](https://github.com/jejjohnson/gaussx/commit/7029e9aeb635b9330e687c1b44f9964dd3da2866))
+
+
+### Performance Improvements
+
+* **composition:** SumSDE.discretise is the block diagonal of its components ([#318](https://github.com/jejjohnson/gaussx/issues/318)) ([#446](https://github.com/jejjohnson/gaussx/issues/446)) ([33f36ad](https://github.com/jejjohnson/gaussx/commit/33f36adb6b3252f5a2267217709add8c7c8095e1))
+* **nonlinear_kalman:** validate only rules that can go indefinite; Cholesky solves ([#331](https://github.com/jejjohnson/gaussx/issues/331)) ([#451](https://github.com/jejjohnson/gaussx/issues/451)) ([418ce42](https://github.com/jejjohnson/gaussx/commit/418ce42be1579be6e21f83c0487e5ec61ae9d42f))
+* **spingp,ssm_natural:** factor R once; N block factorisations in naturals_to_ssm ([#403](https://github.com/jejjohnson/gaussx/issues/403)) ([#449](https://github.com/jejjohnson/gaussx/issues/449)) ([f603059](https://github.com/jejjohnson/gaussx/commit/f60305994cb6a90dd857f28c30865fdc372835c5))
+
 ## [0.3.1](https://github.com/jejjohnson/gaussx/compare/v0.3.0...v0.3.1) (2026-09-29)
 
 
