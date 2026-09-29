@@ -506,3 +506,69 @@ def test_transpose_keeps_shared_factors_under_jit():
         return op.T.symmetric_factors, lx.is_symmetric(op.T)
 
     assert transposed_tags(op) == (True, True)
+
+
+# ---------------------------------------------------------------------------
+# Zero weights and rank 0 (gh-307)
+# ---------------------------------------------------------------------------
+
+
+def _zero_weight_operator(d, *, nonsymmetric=False, dtype=jnp.float64):
+    U = jr.normal(jr.key(0), (5, 2), dtype=dtype)
+    V = jr.normal(jr.key(1), (5, 2), dtype=dtype) if nonsymmetric else None
+    base = lx.DiagonalLinearOperator(jnp.ones(5, dtype=dtype))
+    return LowRankUpdate(base, U, d, V)
+
+
+@pytest.mark.parametrize("nonsymmetric", [False, True], ids=["sym", "general"])
+@pytest.mark.parametrize(
+    "d", [[1.0, 0.0], [0.0, 0.0], [0.7, -0.2]], ids=["one_zero", "all_zero", "signed"]
+)
+def test_zero_weight_matches_dense(d, nonsymmetric):
+    # The capacitance used to be diag(1/d) + V^T L^{-1} U: inf for d_k = 0.
+    op = _zero_weight_operator(jnp.array(d), nonsymmetric=nonsymmetric)
+    M = op.as_matrix()
+    b = jnp.ones(5)
+    tol = {"rtol": 1e-12, "atol": 1e-12}
+    assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], **tol)
+    assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), **tol)
+    assert jnp.allclose(gaussx.inv(op).as_matrix(), jnp.linalg.inv(M), **tol)
+
+
+@pytest.mark.parametrize("nonsymmetric", [False, True], ids=["sym", "general"])
+def test_zero_weight_gradients_match_dense(nonsymmetric):
+    d0 = jnp.array([1.0, 0.0])
+    b = jnp.ones(5)
+    template = _zero_weight_operator(d0, nonsymmetric=nonsymmetric)
+
+    def structured(d):
+        op = eqx.tree_at(lambda o: o.d, template, d)
+        return gaussx.solve(op, b).sum() + gaussx.logdet(op)
+
+    def dense(d):
+        op = eqx.tree_at(lambda o: o.d, template, d)
+        M = op.as_matrix()
+        return jnp.linalg.solve(M, b).sum() + jnp.linalg.slogdet(M)[1]
+
+    grad = jax.grad(structured)(d0)
+    assert jnp.all(jnp.isfinite(grad))
+    assert jnp.allclose(grad, jax.grad(dense)(d0), rtol=1e-10, atol=1e-10)
+    assert jnp.allclose(eqx.filter_jit(jax.grad(structured))(d0), grad, rtol=1e-12)
+
+
+def test_zero_weight_float32():
+    op = _zero_weight_operator(jnp.array([1.0, 0.0], jnp.float32), dtype=jnp.float32)
+    M = op.as_matrix().astype(jnp.float64)
+    b = jnp.ones(5, jnp.float32)
+    assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], rtol=1e-5)
+    assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=1e-5)
+    assert jnp.allclose(gaussx.inv(op).as_matrix(), jnp.linalg.inv(M), atol=1e-5)
+
+
+def test_rank_zero_is_the_base():
+    base = lx.DiagonalLinearOperator(jnp.arange(1.0, 6.0))
+    op = LowRankUpdate(base, jnp.zeros((5, 0)), jnp.zeros(0))
+    b = jnp.ones(5)
+    assert jnp.allclose(gaussx.solve(op, b), b / jnp.arange(1.0, 6.0))
+    assert jnp.allclose(gaussx.logdet(op), jnp.sum(jnp.log(jnp.arange(1.0, 6.0))))
+    assert jnp.allclose(gaussx.inv(op).as_matrix(), jnp.diag(1 / jnp.arange(1.0, 6.0)))

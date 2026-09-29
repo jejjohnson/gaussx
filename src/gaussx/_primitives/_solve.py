@@ -61,6 +61,8 @@ def solve(
     if isinstance(operator, Kronecker):
         return _solve_kronecker(operator, vector, solver)
     if isinstance(operator, LowRankUpdate):
+        if operator.rank == 0:
+            return solve(operator.base, vector, solver=solver)
         return _solve_low_rank(operator, vector, solver)
     if isinstance(operator, SumOfKroneckers):
         return _solve_sum_of_kroneckers(operator, vector, solver)
@@ -204,10 +206,13 @@ def _low_rank_capacitance(
     operator: LowRankUpdate,
     solver: lx.AbstractLinearSolver | None,
 ) -> tuple[Float[Array, "n k"], Float[Array, "k k"]]:
-    """Shared Woodbury pieces: ``L^{-1} U`` and ``C = D^{-1} + V^T L^{-1} U``.
+    """Shared Woodbury pieces: ``L^{-1} U`` and ``K = I + D V^T L^{-1} U``.
 
-    Used by the low-rank ``solve``, ``logdet``, and ``inv`` primitives so
-    the capacitance construction lives in exactly one place.
+    ``K`` is the capacitance ``D^{-1} + V^T L^{-1} U`` scaled by ``D``, so
+    no reciprocal of the weights is ever taken and a zero weight (a
+    truncated SVD or Nystrom factor past its numerical rank) stays exact
+    (gh-307). Used by the low-rank ``solve``, ``logdet``, and ``inv``
+    primitives so the capacitance construction lives in exactly one place.
     """
     U, d, V = operator.U, operator.d, operator.V
     Linv_U = jax.vmap(
@@ -215,8 +220,9 @@ def _low_rank_capacitance(
         in_axes=1,
         out_axes=1,
     )(U)
-    C = jnp.diag(1.0 / d) + V.T @ Linv_U
-    return Linv_U, C
+    S = einsum(V, Linv_U, "n i, n j -> i j")
+    K = jnp.eye(operator.rank, dtype=S.dtype) + d[:, None] * S
+    return Linv_U, K
 
 
 def _solve_low_rank(
@@ -226,15 +232,13 @@ def _solve_low_rank(
 ) -> Float[Array, " n"]:
     """Woodbury identity: (L + U D V^T)^{-1} b.
 
-    (L + U D V^T)^{-1} = L^{-1} - L^{-1} U C^{-1} V^T L^{-1}
-    where C = D^{-1} + V^T L^{-1} U  (k x k capacitance matrix).
+    (L + U D V^T)^{-1} = L^{-1} - L^{-1} U K^{-1} D V^T L^{-1}
+    where K = I + D V^T L^{-1} U  (k x k, free of D^{-1}).
     """
-    V = operator.V
-
     Linv_b = solve(operator.base, vector, solver=solver)
-    Linv_U, C = _low_rank_capacitance(operator, solver)
-    Cinv_VtLinvb = jnp.linalg.solve(C, V.T @ Linv_b)
-    return Linv_b - Linv_U @ Cinv_VtLinvb
+    Linv_U, K = _low_rank_capacitance(operator, solver)
+    DVt_Linv_b = operator.d * einsum(operator.V, Linv_b, "n k, n -> k")
+    return Linv_b - Linv_U @ jnp.linalg.solve(K, DVt_Linv_b)
 
 
 def _solve_sum_of_kroneckers(
