@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
+from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, LowRankUpdate
 from gaussx._primitives import solve
-from gaussx._testing import dense_solve, tree_allclose
+from gaussx._testing import dense_solve, random_pd_matrix, tree_allclose
 
 
 class LazyDiagonal(lx.DiagonalLinearOperator):
@@ -75,3 +76,28 @@ def test_solve_filter_jit(getkey):
         return solve(op, v)
 
     assert tree_allclose(f(op, v), dense_solve(op, v))
+
+
+def test_solve_kronecker_sum_grad_with_repeated_eigenvalue():
+    # gh-295: differentiating through the factors' eigh gave NaN when a
+    # factor has a repeated eigenvalue (here A = s I). The implicit JVP
+    # must match the dense reference.
+    B = random_pd_matrix(jr.key(0), 2)
+    psd = lx.positive_semidefinite_tag
+    v = jnp.arange(1.0, 7.0)
+
+    def structured(s):
+        K = KroneckerSum(
+            lx.MatrixLinearOperator(s * jnp.eye(3), psd),
+            lx.MatrixLinearOperator(B, psd),
+        )
+        return solve(K, v).sum()
+
+    def dense(s):
+        K = jnp.kron(s * jnp.eye(3), jnp.eye(2)) + jnp.kron(jnp.eye(3), B)
+        return jnp.linalg.solve(K, v).sum()
+
+    grad = jax.grad(structured)(1.5)
+    assert jnp.isfinite(grad)
+    assert jnp.allclose(grad, jax.grad(dense)(1.5), rtol=1e-8, atol=1e-8)
+    assert jnp.allclose(jax.jit(jax.grad(structured))(1.5), grad, rtol=1e-12)

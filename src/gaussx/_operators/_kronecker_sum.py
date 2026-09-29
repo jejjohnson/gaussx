@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._einx import rearrange
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 
 
@@ -147,6 +147,8 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
             (checked with `equinox.error_if`, so also under ``jax.jit``).
     """
 
+    a_factor: Float[Array, "a a"] | Float[Array, " a"]
+    b_factor: Float[Array, "b b"] | Float[Array, " b"]
     eigenvectors_a: Float[Array, "a a"]
     eigenvectors_b: Float[Array, "b b"]
     sqrt_eigenvalues: Float[Array, "a b"]
@@ -178,34 +180,21 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
                 "KroneckerSumSqrt requires both factors to be symmetric "
                 "(tag them with lx.symmetric_tag or lx.positive_semidefinite_tag)."
             )
-        evals_a, evecs_a = _eigh_factor(A)
-        evals_b, evecs_b = _eigh_factor(B)
-        eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
-            jnp.result_type(evals_a, evals_b, jnp.float32)
-        )
-        # Tolerance for "numerically zero" negative eigenvalues. We scale
-        # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
-        # enough for large-magnitude spectra while still admitting eigh
-        # roundoff. Linear scaling becomes too permissive: with
-        # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
-        # genuinely-indefinite operators (negatives on the order of
-        # ``-1e3``) could slip past the guard.
-        scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
-        threshold = (
-            -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
-            * jnp.finfo(eigenvalues.dtype).eps
-            * jnp.sqrt(scale)
-        )
-        # ``eqx.error_if`` rather than a Python branch, so the check also
-        # runs (at run time) when the factors are traced.
-        eigenvalues = eqx.error_if(
-            eigenvalues,
-            jnp.min(eigenvalues) < threshold,
-            "A ⊕ B must be positive semidefinite (minimum eigenvalue of the "
-            "Kronecker sum is below the round-off threshold).",
-        )
+        # The factors (a matrix, or the diagonal of a diagonal factor, which
+        # is never materialised) are the differentiable leaves; the cached
+        # eigendecomposition is a constant for autodiff. `mv` and `solve` go
+        # through custom JVPs written in terms of the factors, because the
+        # eigenvector derivative divides by eigenvalue gaps and is NaN at a
+        # repeated eigenvalue (e.g. an isotropic factor ``s I``), gh-295.
+        a_factor = _factor_array(A)
+        b_factor = _factor_array(B)
+        evals_a, evecs_a = _factor_eigh(jax.lax.stop_gradient(a_factor))
+        evals_b, evecs_b = _factor_eigh(jax.lax.stop_gradient(b_factor))
+        eigenvalues = _checked_kronecker_sum_spectrum(evals_a, evals_b)
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
+        self.a_factor = a_factor
+        self.b_factor = b_factor
         self.eigenvectors_a = evecs_a
         self.eigenvectors_b = evecs_b
         self.sqrt_eigenvalues = sqrt_eigenvalues
@@ -216,11 +205,9 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         self._dtype = str(jnp.result_type(evecs_a, evecs_b, sqrt_eigenvalues))
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
-        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
-        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
-        C = self.sqrt_eigenvalues.T * C
-        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
-        return rearrange(result, "b a -> (a b)")
+        Z = rearrange(vector, "(a b) -> 1 a b", a=self._n_a, b=self._n_b)
+        result = _kronecker_sum_root_apply(*self._parts(), Z)
+        return rearrange(result, "1 a b -> (a b)")
 
     def solve(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         """Apply the inverse square root ``S^{-1}`` to ``vector``.
@@ -231,11 +218,18 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         Returns:
             ``S^{-1} @ vector``, shape ``(n_a · n_b,)``.
         """
-        X = rearrange(vector, "(a b) -> b a", a=self._n_a, b=self._n_b)
-        C = self.eigenvectors_b.T @ X @ self.eigenvectors_a
-        C = C / self.sqrt_eigenvalues.T
-        result = self.eigenvectors_b @ C @ self.eigenvectors_a.T
-        return rearrange(result, "b a -> (a b)")
+        Z = rearrange(vector, "(a b) -> 1 a b", a=self._n_a, b=self._n_b)
+        result = _kronecker_sum_root_solve(*self._parts(), Z)
+        return rearrange(result, "1 a b -> (a b)")
+
+    def _parts(self):
+        return (
+            self.a_factor,
+            self.b_factor,
+            self.eigenvectors_a,
+            self.eigenvectors_b,
+            self.sqrt_eigenvalues,
+        )
 
     def as_matrix(self) -> Float[Array, "n n"]:
         basis = jnp.eye(self._in_size, dtype=jnp.dtype(self._dtype))
@@ -249,6 +243,201 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
         return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
+
+
+def _checked_kronecker_sum_spectrum(
+    evals_a: Float[Array, " a"], evals_b: Float[Array, " b"]
+) -> Float[Array, "a b"]:
+    """``λ^A_i + λ^B_j``, with a run-time error if ``A ⊕ B`` is indefinite.
+
+    Shared by the constructor and the custom JVPs (which recompute the
+    spectrum), so autodiff cannot bypass the check.
+    """
+    eigenvalues = (evals_a[:, None] + evals_b[None, :]).astype(
+        jnp.result_type(evals_a, evals_b, jnp.float32)
+    )
+    # Tolerance for "numerically zero" negative eigenvalues. We scale
+    # by ``sqrt(spectrum magnitude)`` so the threshold stays tight
+    # enough for large-magnitude spectra while still admitting eigh
+    # roundoff. Linear scaling becomes too permissive: with
+    # ``scale ~ 1e8`` and the previous ``100 * eps * scale`` formula,
+    # genuinely-indefinite operators (negatives on the order of
+    # ``-1e3``) could slip past the guard.
+    scale = jnp.maximum(jnp.max(jnp.abs(eigenvalues)), 1.0)
+    threshold = (
+        -_NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR
+        * jnp.finfo(eigenvalues.dtype).eps
+        * jnp.sqrt(scale)
+    )
+    # ``eqx.error_if`` rather than a Python branch, so the check also
+    # runs (at run time) when the factors are traced.
+    return eqx.error_if(
+        eigenvalues,
+        jnp.min(eigenvalues) < threshold,
+        "A ⊕ B must be positive semidefinite (minimum eigenvalue of the "
+        "Kronecker sum is below the round-off threshold).",
+    )
+
+
+def _factor_array(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "n n"] | Float[Array, " n"]:
+    """A factor as an array: its diagonal if diagonal (never materialised)."""
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return lx.diagonal(operator)
+    return operator.as_matrix()
+
+
+def _factor_eigh(
+    factor: Float[Array, "n n"] | Float[Array, " n"],
+) -> tuple[Float[Array, " n"], Float[Array, "n n"]]:
+    """``(eigenvalues, Q)`` of a `_factor_array` (identity basis if diagonal)."""
+    if factor.ndim == 1:
+        return factor, jnp.eye(factor.shape[0], dtype=factor.dtype)
+    return jnp.linalg.eigh(factor)
+
+
+def _factor_tangent(tangent: Array) -> Float[Array, "n n"]:
+    """A factor tangent as a matrix (a diagonal factor's tangent is a vector)."""
+    return jnp.diag(tangent) if tangent.ndim == 1 else tangent
+
+
+def _spectral_parts(a, b):
+    """Eigenbases and root spectrum of ``A ⊕ B``, differentiably from the factors.
+
+    The custom JVPs below recompute these from the primal factors rather than
+    use the cached (``stop_gradient``) ones, so that differentiating the JVP
+    itself -- a Hessian -- still sees their dependence on the factors. The
+    PSD check is re-applied, so autodiff cannot bypass it.
+
+    First derivatives never differentiate ``eigh`` and are exact at repeated
+    eigenvalues. Second and higher derivatives do differentiate it here, so
+    -- exactly like ``dense_symmetric_sqrt`` -- they are non-finite
+    when a factor has a repeated eigenvalue. (An exact second-order rule
+    needs the Sylvester solve with a right-hand side that is no longer a
+    Kronecker sum, i.e. a dense ``(n_a n_b)²`` intermediate.)
+    """
+    values_a, basis_a = _factor_eigh(a)
+    values_b, basis_b = _factor_eigh(b)
+    eigenvalues = _checked_kronecker_sum_spectrum(values_a, values_b)
+    roots = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
+    return basis_a, basis_b, roots
+
+
+def _to_eigenbasis(basis_a, basis_b, values):
+    """``Q_Aᵀ Z Q_B`` for each slab ``Z``."""
+    return einsum(basis_a, values, basis_b, "k i, s k l, l j -> s i j")
+
+
+def _from_eigenbasis(basis_a, basis_b, values):
+    """``Q_A Z̃ Q_Bᵀ`` for each slab ``Z̃``."""
+    return einsum(basis_a, values, basis_b, "i k, s k l, j l -> s i j")
+
+
+def _kronecker_sum_root_tangent(basis_a, basis_b, roots, tangent_a, tangent_b, rotated):
+    r"""Eigenbasis action of ``d√K`` on ``z̃`` for ``K = A ⊕ B``.
+
+    As in ``dense_symmetric_sqrt``: in ``K``'s eigenbasis ``dS̃`` is
+    ``dK̃ / (r_p + r_q)`` entrywise, dividing by *sums* of root eigenvalues
+    rather than eigenvalue gaps, so repeated eigenvalues are harmless. With
+    ``dK = dA ⊕ dB`` the rotated tangent is ``dÃ_ik δ_jl + δ_ik dB̃_jl``, so
+
+    $$
+    (dS̃\, \tilde z)_{ij} = \sum_k \frac{dÃ_{ik} \tilde z_{kj}}{r_{ij} + r_{kj}}
+      + \sum_l \frac{dB̃_{jl} \tilde z_{il}}{r_{ij} + r_{il}},
+    $$
+
+    which costs ``O(n_A n_B (n_A + n_B))`` per slab and never forms ``K``.
+    Entries whose root sum is zero (a doubly-degenerate zero eigenvalue) get
+    a zero derivative, matching ``dense_symmetric_sqrt``.
+
+    Args:
+        basis_a: Eigenvectors of ``A``, shape ``(n_a, n_a)``.
+        basis_b: Eigenvectors of ``B``, shape ``(n_b, n_b)``.
+        roots: ``√(λ^A_i + λ^B_j)``, shape ``(n_a, n_b)``.
+        tangent_a: Tangent of ``A`` (in the original basis).
+        tangent_b: Tangent of ``B`` (in the original basis).
+        rotated: ``z̃ = Q_Aᵀ Z Q_B`` slabs, shape ``(s, n_a, n_b)``.
+
+    Returns:
+        ``(dS̃ z̃)`` slabs in the eigenbasis, shape ``(s, n_a, n_b)``.
+    """
+    # eigh reads one triangle, so project the tangents onto symmetric matrices.
+    sym_a = 0.5 * (tangent_a + rearrange(tangent_a, "i k -> k i"))
+    sym_b = 0.5 * (tangent_b + rearrange(tangent_b, "j l -> l j"))
+    tangent_a = einsum(basis_a, sym_a, basis_a, "p i, p q, q k -> i k")
+    tangent_b = einsum(basis_b, sym_b, basis_b, "p j, p q, q l -> j l")
+
+    def safe_inverse(denominator):
+        positive = denominator > 0.0
+        return jnp.where(positive, 1.0 / jnp.where(positive, denominator, 1.0), 0.0)
+
+    # inverse_a[i, k, j] = 1 / (r_ij + r_kj); inverse_b[i, j, l] = 1 / (r_ij + r_il)
+    inverse_a = safe_inverse(roots[:, None, :] + roots[None, :, :])
+    inverse_b = safe_inverse(roots[:, :, None] + roots[:, None, :])
+    # Fold the elementwise weights into the tangents, then contract.
+    weighted_a = tangent_a[:, :, None] * inverse_a
+    weighted_b = tangent_b[None, :, :] * inverse_b
+    term_a = einsum(weighted_a, rotated, "i k j, s k j -> s i j")
+    term_b = einsum(weighted_b, rotated, "i j l, s i l -> s i j")
+    return term_a + term_b
+
+
+@jax.custom_jvp
+def _kronecker_sum_root_apply(a, b, basis_a, basis_b, roots, Z):
+    """``√(A ⊕ B) Z`` per slab, from a cached eigendecomposition.
+
+    ``a`` and ``b`` (`_factor_array` s) are unused by the primal; the JVP
+    differentiates with respect to them and ignores the tangents of the
+    cached ``basis_*`` / ``roots``, recomputing them from ``a`` and ``b``
+    (`_spectral_parts`) so higher-order derivatives stay correct.
+    """
+    del a, b
+    return _from_eigenbasis(
+        basis_a, basis_b, roots * _to_eigenbasis(basis_a, basis_b, Z)
+    )
+
+
+@_kronecker_sum_root_apply.defjvp
+def _kronecker_sum_root_apply_jvp(primals, tangents):
+    a, b, _, _, _, Z = primals
+    tangent_a, tangent_b, _, _, _, tangent_Z = tangents
+    basis_a, basis_b, roots = _spectral_parts(a, b)
+    tangent_a, tangent_b = _factor_tangent(tangent_a), _factor_tangent(tangent_b)
+    rotated = _to_eigenbasis(basis_a, basis_b, Z)
+    primal_out = _from_eigenbasis(basis_a, basis_b, roots * rotated)
+    term = _kronecker_sum_root_tangent(
+        basis_a, basis_b, roots, tangent_a, tangent_b, rotated
+    )
+    rotated_tangent_Z = _to_eigenbasis(basis_a, basis_b, tangent_Z)
+    tangent_out = _from_eigenbasis(basis_a, basis_b, roots * rotated_tangent_Z + term)
+    return primal_out, tangent_out
+
+
+@jax.custom_jvp
+def _kronecker_sum_root_solve(a, b, basis_a, basis_b, roots, Z):
+    """``√(A ⊕ B)⁻¹ Z`` per slab, from a cached eigendecomposition."""
+    del a, b
+    return _from_eigenbasis(
+        basis_a, basis_b, _to_eigenbasis(basis_a, basis_b, Z) / roots
+    )
+
+
+@_kronecker_sum_root_solve.defjvp
+def _kronecker_sum_root_solve_jvp(primals, tangents):
+    """``d(S⁻¹ z) = S⁻¹ (dz - dS S⁻¹ z)``."""
+    a, b, _, _, _, Z = primals
+    tangent_a, tangent_b, _, _, _, tangent_Z = tangents
+    basis_a, basis_b, roots = _spectral_parts(a, b)
+    tangent_a, tangent_b = _factor_tangent(tangent_a), _factor_tangent(tangent_b)
+    rotated_out = _to_eigenbasis(basis_a, basis_b, Z) / roots
+    primal_out = _from_eigenbasis(basis_a, basis_b, rotated_out)
+    term = _kronecker_sum_root_tangent(
+        basis_a, basis_b, roots, tangent_a, tangent_b, rotated_out
+    )
+    rotated_tangent_Z = _to_eigenbasis(basis_a, basis_b, tangent_Z)
+    tangent_out = _from_eigenbasis(basis_a, basis_b, (rotated_tangent_Z - term) / roots)
+    return primal_out, tangent_out
 
 
 def kronecker_sum_sample(

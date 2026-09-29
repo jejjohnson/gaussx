@@ -166,6 +166,26 @@ def test_sqrt_entry_points_run_under_jit(kron_sum, entry_point):
     assert jnp.allclose(jitted, eager, rtol=1e-12, atol=1e-12)
 
 
+def test_kronecker_sum_sample_grad_with_repeated_eigenvalue():
+    # gh-295: the sample inherited KroneckerSumSqrt's NaN eigenvector
+    # gradient for an isotropic factor.
+    B = _make_psd(jax.random.key(0), 2)
+    psd = lx.positive_semidefinite_tag
+
+    def loss(s):
+        A = lx.MatrixLinearOperator(s * jnp.eye(3), psd)
+        draws = gaussx.kronecker_sum_sample(
+            A, lx.MatrixLinearOperator(B, psd), key=jax.random.key(1)
+        )
+        return draws.sum()
+
+    grad = jax.grad(loss)(1.5)
+    step = 1e-6
+    finite_difference = (loss(1.5 + step) - loss(1.5 - step)) / (2 * step)
+    assert jnp.isfinite(grad)
+    assert jnp.allclose(grad, finite_difference, rtol=1e-6)
+
+
 def test_solve_untagged_nonsymmetric_factors_is_correct():
     """Regression: untagged non-symmetric factors were solved with ``eigh``.
 
@@ -187,3 +207,23 @@ def test_solve_tagged_symmetric_factors_keeps_structured_path(kron_sum):
     b = jnp.arange(kron_sum.in_size(), dtype=jnp.float64)
     x = gaussx.solve(kron_sum, b)
     assert jnp.allclose(kron_sum.as_matrix() @ x, b, atol=1e-10)
+
+
+@pytest.mark.parametrize("transform", ["grad", "jit_grad", "jvp"])
+def test_sqrt_psd_guard_survives_autodiff(transform):
+    # The custom JVPs recompute the spectrum; they must re-apply the check
+    # rather than silently clip a materially indefinite A ⊕ B.
+    B = lx.DiagonalLinearOperator(jnp.array([0.5, 1.0]))
+    v = jnp.ones(4)
+
+    def f(s):
+        A = lx.DiagonalLinearOperator(jnp.array([1.0, -3.0]) * s)
+        return gaussx.KroneckerSumSqrt(A, B).mv(v).sum()
+
+    with pytest.raises(Exception, match="positive semidefinite"):
+        if transform == "grad":
+            jax.grad(f)(1.0)
+        elif transform == "jit_grad":
+            jax.block_until_ready(jax.jit(jax.grad(f))(1.0))
+        else:
+            jax.block_until_ready(jax.jvp(f, (1.0,), (1.0,))[1])

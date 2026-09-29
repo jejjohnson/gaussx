@@ -8,6 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+from gaussx._einx import rearrange
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
 from gaussx._primitives import solve, sqrt
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
@@ -141,3 +142,109 @@ class TestDenseSqrtGradients:
         _, tangent = jax.jvp(dense_symmetric_sqrt, (matrix,), (direction,))
         assert jnp.all(jnp.isfinite(tangent))
         assert tree_allclose(tangent[0, 0], jnp.asarray(0.5))
+
+
+def _isotropic_kronecker_sum(s, B):
+    psd = lx.positive_semidefinite_tag
+    return KroneckerSum(
+        lx.MatrixLinearOperator(s * jnp.eye(3), psd),
+        lx.MatrixLinearOperator(B, psd),
+    )
+
+
+def _dense_isotropic_root(s, B):
+    dense = jnp.kron(s * jnp.eye(3), jnp.eye(2)) + jnp.kron(jnp.eye(3), B)
+    return dense_symmetric_sqrt(dense)
+
+
+@pytest.mark.parametrize("inverse", [False, True], ids=["mv", "solve"])
+def test_sqrt_kronecker_sum_grad_with_repeated_eigenvalue(inverse):
+    # gh-295: KroneckerSumSqrt exposed its eigh eigenvectors to autodiff,
+    # so the gradient was NaN for a factor with a repeated eigenvalue.
+    B = random_pd_matrix(jr.key(0), 2)
+    v = jnp.arange(1.0, 7.0)
+
+    def structured(s):
+        root = sqrt(_isotropic_kronecker_sum(s, B))
+        return (solve(root, v) if inverse else root.mv(v)).sum()
+
+    def dense(s):
+        root = _dense_isotropic_root(s, B)
+        return (jnp.linalg.solve(root, v) if inverse else root @ v).sum()
+
+    grad = jax.grad(structured)(1.5)
+    assert jnp.isfinite(grad)
+    assert jnp.allclose(grad, jax.grad(dense)(1.5), rtol=1e-8, atol=1e-8)
+    assert jnp.allclose(jax.jit(jax.grad(structured))(1.5), grad, rtol=1e-12)
+
+
+@pytest.mark.parametrize("inverse", [False, True], ids=["mv", "solve"])
+def test_kronecker_sum_sqrt_jvp_matches_dense_root(inverse):
+    # The structured Sylvester JVP of KroneckerSumSqrt's action against
+    # dense_symmetric_sqrt's JVP on the materialised A ⊕ B, for random
+    # symmetric tangents of the factors and of the vector.
+    keys = jr.split(jr.key(0), 5)
+    a, b = random_pd_matrix(keys[0], 3), random_pd_matrix(keys[1], 2)
+    ta = jr.normal(keys[2], (3, 3))
+    tb = jr.normal(keys[3], (2, 2))
+    ta, tb = ta + ta.T, tb + tb.T
+    v = jr.normal(keys[4], (6,))
+    tv = jnp.ones(6)
+    psd = lx.positive_semidefinite_tag
+
+    def structured(a, b, v):
+        root = KroneckerSumSqrt(
+            lx.MatrixLinearOperator(a, psd), lx.MatrixLinearOperator(b, psd)
+        )
+        return root.solve(v) if inverse else root.mv(v)
+
+    def dense(a, b, v):
+        root = dense_symmetric_sqrt(jnp.kron(a, jnp.eye(2)) + jnp.kron(jnp.eye(3), b))
+        return jnp.linalg.solve(root, v) if inverse else root @ v
+
+    args, tangents = (a, b, v), (ta, tb, tv)
+    out, tangent = jax.jvp(structured, args, tangents)
+    dense_out, dense_tangent = jax.jvp(dense, args, tangents)
+    assert jnp.allclose(out, dense_out, atol=1e-10)
+    assert jnp.allclose(tangent, dense_tangent, atol=1e-10)
+
+
+@pytest.mark.parametrize("inverse", [False, True], ids=["mv", "solve"])
+def test_kronecker_sum_sqrt_second_derivative(inverse):
+    # The JVP recomputes the spectrum from the factors, so a Hessian sees
+    # its dependence: with A = [s], B = [1], z = [1], S z = sqrt(s + 1).
+    psd = lx.positive_semidefinite_tag
+
+    def f(s):
+        root = KroneckerSumSqrt(
+            lx.MatrixLinearOperator(jnp.array([[s]]), psd),
+            lx.MatrixLinearOperator(jnp.ones((1, 1)), psd),
+        )
+        z = jnp.ones(1)
+        return (root.solve(z) if inverse else root.mv(z))[0]
+
+    s = 1.5
+    # d²/ds² (s+1)^{±1/2}
+    expected = 0.75 * (s + 1) ** -2.5 if inverse else -0.25 * (s + 1) ** -1.5
+    assert jnp.allclose(jax.grad(jax.grad(f))(s), expected, rtol=1e-10)
+
+
+def test_kronecker_sum_sqrt_keeps_diagonal_factors_lazy():
+    class LazyDiagonal(lx.DiagonalLinearOperator):
+        def as_matrix(self):
+            raise NotImplementedError("dense materialization unavailable")
+
+    da, db = jnp.array([1.0, 2.0, 3.0]), jnp.array([0.5, 1.5])
+    root = KroneckerSumSqrt(LazyDiagonal(da), LazyDiagonal(db))
+    v = jnp.arange(1.0, 7.0)
+    expected = jnp.sqrt(rearrange(da[:, None] + db[None, :], "a b -> (a b)")) * v
+    assert jnp.allclose(root.mv(v), expected)
+    grad = jax.grad(
+        lambda d: KroneckerSumSqrt(LazyDiagonal(d), LazyDiagonal(db)).mv(v).sum()
+    )(da)
+    dense_grad = jax.grad(
+        lambda d: (
+            jnp.sqrt(rearrange(d[:, None] + db[None, :], "a b -> (a b)")) * v
+        ).sum()
+    )(da)
+    assert jnp.allclose(grad, dense_grad)
