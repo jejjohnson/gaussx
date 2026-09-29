@@ -95,6 +95,7 @@ def solve(
     return _solve_fallback(operator, vector, solver)
 
 
+@eqx.filter_custom_jvp
 def _solve_masked(
     operator: MaskedOperator,
     vector: Float[Array, " m"],
@@ -103,12 +104,36 @@ def _solve_masked(
 
     Scatter ``f`` into the full index space, solve with the constraints
     ``y[C] = 0`` (see `MaskedOperator`), and gather the masked-in entries.
+    The base solve is built here from the ``base`` leaf rather than stored.
     """
     assert operator.capacitance is not None
     n = operator.base.in_size()
     idx = jnp.where(operator.col_mask, size=operator.in_size())[0]
     full = jnp.zeros(n, dtype=jnp.result_type(vector, operator.out_structure().dtype))
-    return operator.capacitance(full.at[idx].set(vector))[idx]
+    base_solve = ft.partial(solve, operator.base)
+    # ``unique_indices`` (true: they come from a mask) makes the scatter
+    # transposable, which reverse mode needs for the implicit JVP below.
+    rhs = full.at[idx].set(vector, unique_indices=True)
+    return operator.capacitance(rhs, base_solve=base_solve)[idx]
+
+
+@_solve_masked.def_jvp
+def _solve_masked_jvp(primals, tangents):
+    r"""Implicit JVP ``dx = A^{-1} (df - dA x)`` for ``A = B[m][:, m]`` (gh-290).
+
+    The capacitance factorisation is cached from the base, so differentiating
+    through it would miss the base's contribution to ``C``; the solution
+    depends on ``B`` only through ``A``, so the implicit rule is exact. It
+    costs one more masked solve and the tangent operator's matvec.
+    """
+    operator, vector = primals
+    t_operator, t_vector = tangents
+    x = _solve_masked(operator, vector)
+    rhs = jnp.zeros_like(x) if t_vector is None else t_vector
+    if jax.tree_util.tree_leaves(t_operator):
+        _, dAx = eqx.filter_jvp(lambda op: op.mv(x), (operator,), (t_operator,))
+        rhs = rhs - dAx
+    return x, _solve_masked(operator, rhs)
 
 
 def _solve_diagonalised(

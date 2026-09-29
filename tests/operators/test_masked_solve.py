@@ -183,3 +183,165 @@ def test_grid_coupling_indices_wrap_and_connectivity():
     assert diag == {1, 5, 6}
     with pytest.raises(ValueError, match="connectivity"):
         grid_coupling_indices(mask, connectivity=3)
+
+
+# ---------------------------------------------------------------------------
+# gh-290: the base is a differentiable leaf; no per-instance recompiles;
+# .T keeps the capacitance and is trace-safe.
+# ---------------------------------------------------------------------------
+
+_SMALL_MASK = jnp.array([True, True, False, True, True, False])
+_SMALL_IDX = np.flatnonzero(np.asarray(_SMALL_MASK))
+_SMALL_F = jnp.arange(1.0, 5.0)
+
+
+def _small_base(symmetric=True):
+    A = jr.normal(jr.key(0), (6, 6))
+    B = A @ A.T + 6 * jnp.eye(6)
+    if not symmetric:
+        B = B + 0.5 * jr.normal(jr.key(1), (6, 6))
+    return B
+
+
+def _small_masked(B, coupling=True):
+    return MaskedOperator(
+        lx.MatrixLinearOperator(B),
+        _SMALL_MASK,
+        _SMALL_MASK,
+        coupling_indices=jnp.array([2, 5]) if coupling else None,
+    )
+
+
+def _dense_small_grad(B):
+    ix = np.ix_(_SMALL_IDX, _SMALL_IDX)
+    return jax.grad(lambda M: jnp.linalg.solve(M[ix], _SMALL_F).sum())(B)
+
+
+@pytest.mark.parametrize("symmetric", [True, False], ids=["sym", "nonsym"])
+@pytest.mark.parametrize("coupling", [True, False], ids=["capacitance", "dense"])
+def test_masked_solve_grad_wrt_matrix_base(symmetric, coupling):
+    # The capacitance path used to return exact zeros (static closure over
+    # the base); the dense path raised in lineax's VJP (transpose via
+    # __init__ on traced masks).
+    B = _small_base(symmetric)
+    loss = eqx.filter_grad(lambda op: gaussx.solve(op, _SMALL_F).sum())
+    grad = eqx.filter_jit(loss)(_small_masked(B, coupling))
+    assert jnp.allclose(grad.base.matrix, _dense_small_grad(B), atol=1e-10)
+
+
+def test_masked_solve_grad_wrt_diagonalised_eigenvalues():
+    n = 6
+    k = 2.0 * jnp.pi * jnp.fft.fftfreq(n)
+    s1 = 2.0 * jnp.cos(k) - 2.0
+    base = gaussx.circulant_from_symbol(s1[:, None] + s1[None, :] - 1.0)
+    j, i = np.mgrid[:n, :n]
+    mask = np.hypot(j - 2.5, i - 2.5) < 1.9
+    flat = jnp.asarray(mask.ravel())
+    coupling = grid_coupling_indices(mask, periodic=True)
+    idx = np.flatnonzero(mask.ravel())
+    f = jr.normal(jr.key(0), (idx.size,))
+
+    def structured(lam):
+        op = MaskedOperator(
+            base.with_eigenvalues(lam), flat, flat, coupling_indices=coupling
+        )
+        return gaussx.solve(op, f).sum()
+
+    def dense(lam):
+        M = base.with_eigenvalues(lam).as_matrix()[np.ix_(idx, idx)]
+        return jnp.linalg.solve(M, f).sum()
+
+    lam0 = base.eigenvalues
+    # jit so each gradient compiles once rather than op by op.
+    grad = jax.jit(jax.grad(structured))(lam0)
+    assert float(jnp.abs(grad).max()) > 0.0
+    assert jnp.allclose(grad, jax.jit(jax.grad(dense))(lam0), atol=1e-10)
+
+    # Built outside, differentiated w.r.t. the operator.
+    op = MaskedOperator(base, flat, flat, coupling_indices=coupling)
+    grad_op = eqx.filter_jit(eqx.filter_grad(lambda o: gaussx.solve(o, f).sum()))(op)
+    assert jnp.allclose(grad_op.base.eigenvalues, grad, atol=1e-10)
+
+
+def test_new_instance_does_not_recompile():
+    traces = []
+
+    @eqx.filter_jit
+    def solve(op, f):
+        traces.append(1)
+        return gaussx.solve(op, f)
+
+    B = _small_base()
+    first = solve(_small_masked(B), _SMALL_F)
+    second = solve(_small_masked(B), _SMALL_F)
+    assert len(traces) == 1
+    assert jnp.allclose(first, second)
+
+
+@pytest.mark.parametrize("symmetric", [True, False], ids=["sym", "nonsym"])
+def test_transpose_keeps_capacitance(symmetric):
+    B = _small_base(symmetric)
+    op = _small_masked(B)
+    assert op.T.capacitance is not None
+    expected = jnp.linalg.solve(B[np.ix_(_SMALL_IDX, _SMALL_IDX)].T, _SMALL_F)
+    assert jnp.allclose(gaussx.solve(op.T, _SMALL_F), expected, atol=1e-12)
+    assert jnp.allclose(op.T.as_matrix(), op.as_matrix().T)
+    assert jnp.allclose(gaussx.solve(op.T.T, _SMALL_F), gaussx.solve(op, _SMALL_F))
+
+
+def test_transpose_of_singular_base_under_jit(disc_mask):
+    # Bordered (null-vector) capacitance, transposed inside a trace.
+    op = _laplacian(0.0)
+    masked = _masked(op, disc_mask)
+    f = jr.normal(jr.key(6), (int(disc_mask.sum()),))
+    x = eqx.filter_jit(lambda o, f: gaussx.solve(o.T, f))(masked, f)
+    idx = np.flatnonzero(disc_mask.ravel())
+    B = op.as_matrix()[np.ix_(idx, idx)]
+    assert jnp.allclose(x, jnp.linalg.solve(B.T, f), atol=1e-10)
+
+
+@pytest.mark.parametrize(
+    ("old", "new"), [(0.0, 0.5), (1.0, 0.0)], ids=["singular-to-regular", "to-singular"]
+)
+def test_with_base_rebuilds_the_capacitance(disc_mask, old, new):
+    # The capacitance is a cache of the base; after an update (here a new
+    # shift, as an optimiser step would produce) with_base rebuilds it,
+    # re-deriving the null vector for the new base.
+    masked = _masked(_laplacian(old), disc_mask)
+    new_base = _laplacian(new)
+    f = jr.normal(jr.key(7), (int(disc_mask.sum()),))
+    expected = _dense_masked_solve(new_base, disc_mask, f)
+    stale = eqx.tree_at(lambda o: o.base, masked, new_base)
+    assert float(jnp.abs(gaussx.solve(stale, f) - expected).max()) > 1e-6
+    rebuilt = masked.with_base(new_base)
+    assert jnp.allclose(gaussx.solve(rebuilt, f), expected, atol=1e-10)
+    assert jnp.allclose(gaussx.solve(rebuilt.T, f), expected, atol=1e-10)
+
+
+def test_traced_singular_base_needs_an_explicit_null_vector(disc_mask):
+    # Built under jit, the null vector of a singular base cannot be derived:
+    # without one the solve raises instead of solving the wrong system, and
+    # with one it is exact.
+    base = _laplacian(0.0)
+    flat = jnp.asarray(disc_mask.ravel())
+    coupling = grid_coupling_indices(disc_mask, periodic=True)
+    f = jr.normal(jr.key(8), (int(disc_mask.sum()),))
+
+    def solve_with(null_vector):
+        @jax.jit
+        def run(lam):
+            op = MaskedOperator(
+                base.with_eigenvalues(lam),
+                flat,
+                flat,
+                coupling_indices=coupling,
+                null_vector=null_vector,
+            )
+            return gaussx.solve(op, f)
+
+        return run(base.eigenvalues)
+
+    with pytest.raises(Exception, match="null vector cannot be derived"):
+        jax.block_until_ready(solve_with(None))
+    x = solve_with(jnp.ones(N * N))
+    assert jnp.allclose(x, _dense_masked_solve(base, disc_mask, f), atol=1e-10)

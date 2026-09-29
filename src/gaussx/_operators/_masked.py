@@ -10,10 +10,11 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
+from jax.core import Tracer
 from jaxtyping import Array, Bool, Float, Int
 
 from gaussx._operators._block_diag import _to_frozenset
-from gaussx._operators._capacitance import CapacitanceSolver
+from gaussx._operators._capacitance import CapacitanceSolver, _replace_fields
 from gaussx._operators._diagonalised import as_diagonalised
 
 
@@ -67,7 +68,21 @@ class MaskedOperator(lx.AbstractLinearOperator):
     Attributes:
         capacitance: The precomputed `gaussx.CapacitanceSolver` on the full
             index space, or ``None`` when no ``coupling_indices`` were given
-            (``solve`` then falls back to the dense path).
+            (``solve`` then falls back to the dense path). It stores no
+            ``base_solve``: ``solve`` builds one from ``base`` at call time,
+            so ``base`` stays a differentiable pytree leaf and ``solve`` is
+            differentiated implicitly (not through the cached factorisation).
+
+    **The capacitance is a cache of ``base``.** Gradients with respect to
+    ``base`` are exact, but replacing ``base`` in an existing operator (e.g.
+    ``eqx.apply_updates`` after an optimiser step, or ``eqx.tree_at``) leaves
+    the factorisation describing the *old* base, and ``solve`` is then
+    wrong. Rebuild with `with_base`, or construct the operator inside the
+    loss from the current parameters. That also works under ``jit``, except
+    that a traced base's null vector cannot be derived: for a singular base
+    built under ``jit`` pass ``null_vector`` (and ``left_null_vector``)
+    explicitly. A traced diagonalised base with a zero eigenvalue and no
+    ``null_vector`` raises at run time rather than solving the wrong system.
     """
 
     base: lx.AbstractLinearOperator
@@ -104,8 +119,11 @@ class MaskedOperator(lx.AbstractLinearOperator):
         self.base = base
         self.row_mask = jnp.asarray(row_mask, dtype=bool)
         self.col_mask = jnp.asarray(col_mask, dtype=bool)
-        self._in_size = int(jnp.sum(col_mask))
-        self._out_size = int(jnp.sum(row_mask))
+        # Counted with NumPy so constant masks also work inside ``jit``
+        # (``jnp.sum`` would be staged); traced masks cannot give a static
+        # size and raise.
+        self._in_size = int(np.sum(np.asarray(col_mask)))
+        self._out_size = int(np.sum(np.asarray(row_mask)))
         struct = base.out_structure()
         leaves = jax.tree.leaves(struct)
         self._dtype = str(leaves[0].dtype)
@@ -138,11 +156,59 @@ class MaskedOperator(lx.AbstractLinearOperator):
         col_indices = jnp.where(self.col_mask, size=self._in_size)[0]
         return full[jnp.ix_(row_indices, col_indices)]
 
-    def transpose(self) -> MaskedOperator:
+    def with_base(
+        self,
+        base: lx.AbstractLinearOperator,
+        *,
+        null_vector: Float[Array, " N"] | None = None,
+        left_null_vector: Float[Array, " N"] | None = None,
+    ) -> MaskedOperator:
+        """The same masked view of a new base, with its capacitance rebuilt.
+
+        Use this after updating ``base`` (e.g. an optimiser step): the
+        capacitance factorisation is a cache of the base and does not follow
+        leaf updates. Costs the ``|C|`` base solves of construction.
+
+        Args:
+            base: The new ``(N, N)`` base operator.
+            null_vector: Right null vector of a singular ``base``. As in the
+                constructor, it is derived automatically for a singular
+                diagonalised base; the old one is *not* reused, since the
+                update may change (or remove) the null space.
+            left_null_vector: Left null vector of a singular non-symmetric
+                ``base``; defaults to ``null_vector``.
+
+        Returns:
+            A new `MaskedOperator` over ``base`` with the same masks, tags and
+            coupling indices.
+        """
+        if self.capacitance is None:
+            return MaskedOperator(base, self.row_mask, self.col_mask, tags=self.tags)
         return MaskedOperator(
-            self.base.T,
-            self.col_mask,
+            base,
             self.row_mask,
+            self.col_mask,
+            tags=self.tags,
+            coupling_indices=self.capacitance.boundary_indices,
+            null_vector=null_vector,
+            left_null_vector=left_null_vector,
+        )
+
+    def transpose(self) -> MaskedOperator:
+        # Built field by field rather than through ``__init__``, which needs
+        # concrete masks (so it can run under a trace, e.g. in lineax's solve
+        # VJP). ``(B[m][:, m])ᵀ = (Bᵀ)[m][:, m]``, and the capacitance of
+        # ``Bᵀ`` is the transposed factorisation of ``B``'s.
+        return _replace_fields(
+            self,
+            base=self.base.T,
+            row_mask=self.col_mask,
+            col_mask=self.row_mask,
+            capacitance=(
+                None if self.capacitance is None else self.capacitance.transpose()
+            ),
+            _in_size=self._out_size,
+            _out_size=self._in_size,
             tags=lx.transpose_tags(self.tags),
         )
 
@@ -175,15 +241,41 @@ def _build_capacitance(
         raise ValueError(
             "coupling_indices requires a square mask (row_mask == col_mask)."
         )
+    traced_eigenvalues = None
     if null_vector is None:
         null_vector, left_null_vector = _derived_null_vectors(base)
-    return CapacitanceSolver(
+        if null_vector is None:
+            traced_eigenvalues = _traced_eigenvalues(base)
+    solver = CapacitanceSolver(
         ft.partial(solve, base),
         coupling_indices,
         base.in_size(),
         null_vector=null_vector,
         left_null_vector=left_null_vector,
+        keep_base_solve=False,
     )
+    if traced_eigenvalues is None:
+        return solver
+    # A traced singular base cannot have its null vector derived, and the
+    # unaugmented capacitance system would then solve the wrong problem.
+    # Guard the factorisation (which every solve reads) at run time.
+    lu, pivots = solver.capacitance_lu
+    lu = eqx.error_if(
+        lu,
+        jnp.any(traced_eigenvalues == 0),
+        "The base operator is singular, but its null vector cannot be derived "
+        "under tracing; pass null_vector (and left_null_vector) explicitly.",
+    )
+    return eqx.tree_at(lambda s: s.capacitance_lu, solver, (lu, pivots))
+
+
+def _traced_eigenvalues(base: lx.AbstractLinearOperator) -> Array | None:
+    """A diagonalised base's eigenvalues when they are traced, else ``None``."""
+    diagonalised = as_diagonalised(base)
+    if diagonalised is None:
+        return None
+    eigenvalues = diagonalised.eigenvalues_flat()
+    return eigenvalues if isinstance(eigenvalues, Tracer) else None
 
 
 def _derived_null_vectors(
