@@ -2,8 +2,10 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from gaussx import (
+    DAREResult,
     dare,
     infinite_horizon_filter,
     infinite_horizon_smoother,
@@ -187,3 +189,36 @@ def test_infinite_horizon_filter_woodbury_innovation_matches_dense(getkey):
 
     assert jnp.allclose(ref.filtered_means, got.filtered_means, atol=1e-5)
     assert jnp.allclose(ref.log_likelihood, got.log_likelihood, atol=1e-4)
+
+
+class TestNonConvergedDARE:
+    """gh-294: a non-converged steady state must not be used silently."""
+
+    @staticmethod
+    def _unconverged():
+        A, H = jnp.array([[0.999]]), jnp.array([[1.0]])
+        Q, R = jnp.array([[1e-4]]), jnp.array([[1.0]])
+        result = dare(A, H, Q, R)
+        bad = DAREResult(
+            P_inf=result.P_inf, K_inf=result.K_inf, converged=jnp.array(False)
+        )
+        y = jax.random.normal(jax.random.key(0), (5, 1))
+        return A, H, Q, R, y, bad
+
+    def test_filter_raises_under_jit(self):
+        A, H, Q, R, y, bad = self._unconverged()
+        run = jax.jit(lambda d: infinite_horizon_filter(A, H, Q, R, y, dare_result=d))
+        with pytest.raises(Exception, match="dare did not converge"):
+            jax.block_until_ready(run(bad).log_likelihood)
+
+    def test_smoother_raises_under_jit(self):
+        A, H, Q, R, y, bad = self._unconverged()
+        state = infinite_horizon_filter(A, H, Q, R, y)
+        run = jax.jit(lambda d: infinite_horizon_smoother(state, A, d, Q))
+        with pytest.raises(Exception, match="dare did not converge"):
+            jax.block_until_ready(run(bad))
+
+    def test_internal_dare_raises_when_max_iter_too_small(self):
+        A, H, Q, R, y, _ = self._unconverged()
+        with pytest.raises(Exception, match="dare did not converge"):
+            infinite_horizon_filter(A, H, Q, R, y, max_iter=2)

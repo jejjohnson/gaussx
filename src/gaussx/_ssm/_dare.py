@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._linalg._linalg import sandwich, solve_matrix
+from gaussx._einx import einsum, rearrange
+from gaussx._linalg._linalg import solve_matrix
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._utils import (
     _as_operator,
     _innovation_covariance,
@@ -44,37 +48,65 @@ def dare(
     solver: AbstractSolverStrategy | None = None,
     woodbury_innovation: bool = False,
 ) -> DAREResult:
-    """Discrete Algebraic Riccati Equation solver.
+    r"""Steady-state Kalman filter covariance and gain (the filtering DARE).
 
-    Iterates the Kalman predict-update equations until convergence:
+    Solves for the fixed point of the Kalman predict-update recursion,
 
         Predict:  P⁻ = A P Aᵀ + Q
         Update:   S = H P⁻ Hᵀ + R
                   K = P⁻ Hᵀ S⁻¹
                   P = (I - KH) P⁻
 
-    Convergence is declared when ``max|P_new - P_old| < tol``.
+    with the structure-preserving doubling algorithm (SDA; Chu, Fan & Lin,
+    2005) applied to the predicted-covariance Riccati equation
+    ``P⁻ = A P⁻ Aᵀ − A P⁻ Hᵀ (H P⁻ Hᵀ + R)⁻¹ H P⁻ Aᵀ + Q``. SDA converges
+    quadratically -- after ``k`` doublings the error is
+    ``O(rho^(2^k))`` for contraction rate ``rho`` -- so slowly mixing
+    dynamics (``A`` near the unit circle) need a dozen or so doublings
+    where iterating the recursion itself needs thousands (gh-294). Each
+    doubling costs a few ``D × D`` solves.
+
+    Convergence is declared when the doubling iterate changes by at most
+    ``tol`` relative to its largest entry; by quadratic convergence the
+    returned solution is then accurate to about ``tol²``. Check
+    ``converged`` when calling ``dare`` directly;
+    `infinite_horizon_filter` and `infinite_horizon_smoother` raise on a
+    non-converged result.
+
+    Requires ``R`` invertible and the usual stabilisability /
+    detectability conditions for a unique stabilising solution.
 
     Args:
         A: Transition matrix or operator, shape ``(D, D)``.
         H: Observation matrix or operator, shape ``(M, D)``.
         Q: Process noise covariance or operator, shape ``(D, D)``.
         R: Observation noise covariance or operator, shape ``(M, M)``.
-        P_init: Initial covariance guess, shape ``(D, D)``. Defaults to ``Q``.
-        max_iter: Maximum number of iterations.
-        tol: Convergence tolerance on the element-wise max absolute change.
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch.
+        P_init: Deprecated and ignored: the doubling algorithm needs no
+            initial guess.
+        max_iter: Maximum number of doubling steps.
+        tol: Convergence tolerance on the relative change of the iterate.
+        solver: Optional solver strategy for structured linear algebra
+            (``R`` solves and the final gain). When ``None``, falls back to
+            structural dispatch.
         woodbury_innovation: When ``True``, build ``S = H P⁻ Hᵀ + R``
             as a `gaussx.LowRankUpdate` so structured ``R`` uses
-            Woodbury solves.
+            Woodbury solves for the final gain.
 
     Returns:
-        A `DAREResult` containing the steady-state covariance,
+        A `DAREResult` containing the steady-state *filtered* covariance,
         Kalman gain, and convergence flag.
     """
+    if P_init is not None:
+        warnings.warn(
+            "dare(P_init=...) is deprecated and ignored: the doubling "
+            "algorithm needs no initial guess. It will be removed in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     A_op = _as_operator(A)
     H_op = _as_operator(H)
+    A_dense = A_op.as_matrix()
+    H_dense = H_op.as_matrix()
     Q_dense = _materialise(Q)
     # Keep ``R`` lazy when the Woodbury innovation path will consume the
     # operator directly — avoids an O(M²) allocation for large structured
@@ -85,43 +117,39 @@ def dare(
         else _materialise(R)
     )
 
-    if P_init is None:
-        P_init = Q_dense
+    # SDA on the control-form DARE with A_c = Aᵀ, B_c = Hᵀ: the iterate
+    # ``H_k`` converges to the predicted steady-state covariance P⁻.
+    dtype = jnp.result_type(A_dense, H_dense, Q_dense)
+    eye = jnp.eye(A_dense.shape[0], dtype=dtype)
+    Rinv_H = solve_matrix(_as_operator(R), H_dense, solver=solver)
+    G_0 = symmetrize(einsum(H_dense, Rinv_H, "m i, m j -> i j"))
+    A_0 = rearrange(A_dense, "i j -> j i")
 
-    def _step(
-        P: Float[Array, "D D"],
-    ) -> tuple[Float[Array, "D D"], Float[Array, "D M"]]:
-        """One predict-update step. Returns ``(P_new, K)``."""
-        P_op = lx.MatrixLinearOperator(P, lx.positive_semidefinite_tag)
-        P_pred = sandwich(A_op, P_op).as_matrix() + Q_dense
-        # K = P_pred @ H.T @ S⁻¹, computed via a single factorization
-        # on the matrix RHS for numerical stability and efficiency.
-        S_op = _innovation_covariance(
-            H_op, P_pred, R_for_innovation, woodbury=woodbury_innovation
-        )
-        HP_pred = _left_matmul(H_op, P_pred)
-        K = solve_matrix(S_op, HP_pred, solver=solver).T
-        P_new = P_pred - K @ HP_pred
-        return P_new, K
-
-    def _cond(
-        state: tuple[Float[Array, "D D"], int, Bool[Array, ""]],
-    ) -> Bool[Array, ""]:
-        _, i, converged = state
+    def _cond(state):
+        *_, i, converged = state
         return (i < max_iter) & (~converged)
 
-    def _body(
-        state: tuple[Float[Array, "D D"], int, Bool[Array, ""]],
-    ) -> tuple[Float[Array, "D D"], int, Bool[Array, ""]]:
-        P_old, i, _ = state
-        P_new, _ = _step(P_old)
-        converged = jnp.max(jnp.abs(P_new - P_old)) < tol
-        return P_new, i + 1, converged
+    def _body(state):
+        A_k, G_k, H_k, i, _ = state
+        W = eye + G_k @ H_k
+        Winv_A = jnp.linalg.solve(W, A_k)
+        Winv_G = jnp.linalg.solve(W, G_k)
+        A_next = A_k @ Winv_A
+        G_next = symmetrize(G_k + A_k @ Winv_G @ rearrange(A_k, "i j -> j i"))
+        H_next = symmetrize(H_k + rearrange(A_k, "i j -> j i") @ H_k @ Winv_A)
+        change = jnp.max(jnp.abs(H_next - H_k))
+        converged = change <= tol * jnp.max(jnp.abs(H_next))
+        return A_next, G_next, H_next, i + 1, converged
 
-    init_state = (P_init, 0, jnp.array(False))
-    P_inf, _, converged = jax.lax.while_loop(_cond, _body, init_state)
+    init_state = (A_0, G_0, Q_dense.astype(dtype), 0, jnp.array(False))
+    *_, P_pred, _, converged = jax.lax.while_loop(_cond, _body, init_state)
 
-    # Compute the final gain from the converged covariance.
-    _, K_inf = _step(P_inf)
+    # Filtered covariance and gain from the steady-state prediction.
+    S_op = _innovation_covariance(
+        H_op, P_pred, R_for_innovation, woodbury=woodbury_innovation
+    )
+    HP_pred = _left_matmul(H_op, P_pred)
+    K_inf = solve_matrix(S_op, HP_pred, solver=solver).T
+    P_inf = symmetrize(P_pred - K_inf @ HP_pred)
 
     return DAREResult(P_inf=P_inf, K_inf=K_inf, converged=converged)
