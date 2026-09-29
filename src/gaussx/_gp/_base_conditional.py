@@ -17,9 +17,13 @@ def base_conditional(
     K_mm: Float[Array, "M M"],
     K_mn: Float[Array, "M N"],
     K_nn: Float[Array, "N N"] | Float[Array, " N"],
-    f: Float[Array, "M R"],
+    f: Float[Array, "M R"] | Float[Array, " M"],
     *,
-    q_sqrt: Float[Array, "R M M"] | Float[Array, "M R"] | None = None,
+    q_sqrt: Float[Array, "R M M"]
+    | Float[Array, "M R"]
+    | Float[Array, "M M"]
+    | Float[Array, " M"]
+    | None = None,
     white: bool = False,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "N R"], Float[Array, ...]]:
@@ -47,9 +51,11 @@ def base_conditional(
         K_mm: Prior covariance at inducing points, shape ``(M, M)``.
         K_mn: Cross-covariance, shape ``(M, N)``.
         K_nn: Test-point covariance.  Full ``(N, N)`` or diagonal ``(N,)``.
-        f: Inducing function values, shape ``(M, R)``.
+        f: Inducing function values, shape ``(M, R)``, or ``(M,)`` for a
+            single output (the outputs then drop their trailing ``R`` axis).
         q_sqrt: Optional variational Cholesky factor.
-            Full: ``(R, M, M)``, diagonal: ``(M, R)``, or ``None``.
+            Full: ``(R, M, M)``, diagonal: ``(M, R)``, or ``None``. With a
+            1-D ``f`` also full ``(M, M)`` or diagonal ``(M,)``.
         white: If ``True``, ``f`` and ``q_sqrt`` are in whitened space
             (prior is ``N(0, I)``).
         solver: Optional solver strategy for structured linear algebra.
@@ -59,9 +65,19 @@ def base_conditional(
 
     Returns:
         ``(mean, var)`` where ``mean`` has shape ``(N, R)`` and ``var``
-        has shape ``(N, N, R)`` (full K_nn) or ``(N, R)`` (diagonal K_nn).
+        has shape ``(N, N, R)`` (full K_nn) or ``(N, R)`` (diagonal K_nn);
+        without the trailing ``R`` for a 1-D ``f``. Diagonal variances are
+        clipped at 0 against round-off, as in `whitened_svgp_predict`; a
+        full covariance is returned unclipped and may be slightly
+        indefinite (add jitter to ``K_mm``, e.g. with `add_jitter`).
+
+    Raises:
+        ValueError: If ``f`` is not ``(M,)`` / ``(M, R)``, or ``q_sqrt``
+            does not match ``M`` and ``R``.
     """
     del solver  # cholesky does not accept a solver; parameter reserved for future use
+    single_output = f.ndim == 1
+    f, q_sqrt = _check_shapes(K_mm, f, q_sqrt)
     R = f.shape[1]
 
     # Cholesky of prior
@@ -218,4 +234,33 @@ def base_conditional(
         else:
             var = repeat(var_base, "N1 N2 -> N1 N2 R", R=R)
 
+    if is_diag_knn:
+        # K_nn - diag(Q_nn) can round below zero (gh-363).
+        var = jnp.maximum(var, 0.0)
+    if single_output:
+        return mean[:, 0], var[..., 0]
     return mean, var
+
+
+def _check_shapes(
+    K_mm: Float[Array, "M M"],
+    f: Float[Array, "M R"] | Float[Array, " M"],
+    q_sqrt: Array | None,
+) -> tuple[Float[Array, "M R"], Array | None]:
+    """Validate ``f`` / ``q_sqrt`` and promote the single-output layouts."""
+    M = K_mm.shape[0]
+    if f.ndim == 1:
+        f = f[:, None]
+        if q_sqrt is not None and q_sqrt.shape == (M,):
+            q_sqrt = q_sqrt[:, None]
+        elif q_sqrt is not None and q_sqrt.shape == (M, M):
+            q_sqrt = q_sqrt[None]
+    if f.ndim != 2 or f.shape[0] != M:
+        raise ValueError(f"f must have shape (M, R) or (M,) with M={M}, got {f.shape}.")
+    R = f.shape[1]
+    if q_sqrt is not None and q_sqrt.shape not in ((M, R), (R, M, M)):
+        raise ValueError(
+            f"q_sqrt must have shape (M, R)=({M}, {R}) or (R, M, M)=({R}, {M}, {M}) "
+            f"to match f, got {q_sqrt.shape}."
+        )
+    return f, q_sqrt
