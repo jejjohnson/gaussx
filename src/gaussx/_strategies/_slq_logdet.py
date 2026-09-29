@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -55,10 +56,10 @@ class SLQLogdet(AbstractLogdetStrategy):
             ``"sphere"``).
     """
 
-    num_probes: int = 20
-    lanczos_order: int = 30
-    seed: int = 0
-    sampler: SamplerName = "signs"
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
+    seed: int = eqx.field(static=True, default=0)
+    sampler: SamplerName = eqx.field(static=True, default="signs")
 
     def _integrand(self, n: int):
         order = min(self.lanczos_order, n)
@@ -131,11 +132,11 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
             ``"sphere"``).
     """
 
-    num_probes: int = 20
-    lanczos_order: int = 30
-    shift: float = 0.0
-    seed: int = 0
-    sampler: SamplerName = "signs"
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
+    shift: float = eqx.field(static=True, default=0.0)
+    seed: int = eqx.field(static=True, default=0)
+    sampler: SamplerName = eqx.field(static=True, default="signs")
 
     def _shifted_matvec(self, operator: lx.AbstractLinearOperator):
         shift = self.shift

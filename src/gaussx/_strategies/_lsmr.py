@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import lineax as lx
 import matfree.lstsq
@@ -37,14 +38,14 @@ class LSMRSolver(AbstractSolverStrategy):
         seed: Seed for probe vector generation.
     """
 
-    atol: float = 1e-6
-    btol: float = 1e-6
-    ctol: float = 1e-6
-    maxiter: int = 1000
-    damp: float = 0.0
-    num_probes: int = 20
-    lanczos_order: int = 30
-    seed: int = 0
+    atol: float = eqx.field(static=True, default=1e-6)
+    btol: float = eqx.field(static=True, default=1e-6)
+    ctol: float = eqx.field(static=True, default=1e-6)
+    maxiter: int = eqx.field(static=True, default=1000)
+    damp: float = eqx.field(static=True, default=0.0)
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
+    seed: int = eqx.field(static=True, default=0)
 
     def solve(
         self,

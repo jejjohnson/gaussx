@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -29,11 +30,11 @@ class CGSolver(AbstractSolverStrategy):
             inverse is passed to lineax CG to accelerate convergence.
     """
 
-    rtol: float = 1e-5
-    atol: float = 1e-5
-    max_steps: int = 1000
-    num_probes: int = 20
-    lanczos_order: int = 30
+    rtol: float = eqx.field(static=True, default=1e-5)
+    atol: float = eqx.field(static=True, default=1e-5)
+    max_steps: int = eqx.field(static=True, default=1000)
+    num_probes: int = eqx.field(static=True, default=20)
+    lanczos_order: int = eqx.field(static=True, default=30)
     preconditioner: AbstractPreconditioner | None = None
 
     def solve(

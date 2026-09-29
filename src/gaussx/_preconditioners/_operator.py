@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import equinox as eqx
 import lineax as lx
 
 from gaussx._preconditioners._base import AbstractPreconditioner
@@ -26,7 +27,7 @@ class OperatorPreconditioner(AbstractPreconditioner):
     """
 
     approx_inverse: lx.AbstractLinearOperator | Callable
-    in_structure: object = None
+    in_structure: object = eqx.field(static=True, default=None)
 
     def as_operator(
         self,
