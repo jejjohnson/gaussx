@@ -150,3 +150,21 @@ class TestNaturalsToSSM:
             jax.block_until_ready(
                 f(jnp.zeros((0, d, d)), 3.0 * jnp.eye(d)[None], jnp.ones(d), jnp.eye(d))
             )
+
+    @pytest.mark.parametrize(
+        "project",
+        [
+            lambda out: out[0],
+            lambda out: out[1].diagonal,
+            lambda out: out[1].sub_diagonal,
+        ],
+        ids=["theta_linear", "diagonal", "sub_diagonal"],
+    )
+    def test_rejects_mismatch_under_jit_for_every_output(self, project):
+        # Whichever single output a jitted caller keeps, the check stays live.
+        d = 2
+        A = jnp.stack([0.9 * jnp.eye(d)])
+        Q_bad = jnp.stack([3.0 * jnp.eye(d), 0.5 * jnp.eye(d)])
+        f = jax.jit(lambda *args: project(ssm_to_naturals(*args)))
+        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
+            jax.block_until_ready(f(A, Q_bad, jnp.ones(d), jnp.eye(d)))
