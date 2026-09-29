@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
 
-from gaussx._einx import rearrange
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
@@ -116,7 +116,13 @@ def _inv_low_rank_symmetric(
     Linv_U, C = _low_rank_capacitance(operator, solver)
     w, W = jnp.linalg.eigh(C)
     Z = Linv_U @ W
-    return LowRankUpdate(inv(operator.base, solver=solver), Z, -1.0 / w, Z)
+    return LowRankUpdate(
+        inv(operator.base, solver=solver),
+        Z,
+        -1.0 / w,
+        Z,
+        tags=_inverse_tags(operator),
+    )
 
 
 def _inv_low_rank_general(
@@ -125,26 +131,50 @@ def _inv_low_rank_general(
 ) -> LowRankUpdate:
     """Woodbury inverse of a general low-rank update, kept low-rank.
 
-    With the capacitance C = D^{-1} + V^T L^{-1} U,
+    With the scaled capacitance K = I + D V^T L^{-1} U (no D^{-1}, so zero
+    weights are fine),
 
-        (L + U D V^T)^{-1} = L^{-1} + (L^{-1} U) I (-L^{-T} V C^{-T})^T,
+        (L + U D V^T)^{-1} = L^{-1} - L^{-1} U K^{-1} D V^T L^{-1}
+                           = L^{-1} + (L^{-1} U) I (-L^{-T} V D K^{-T})^T,
 
     so the result is a ``LowRankUpdate`` with unit weights. Only the
-    k x k capacitance is ever factorised.
+    k x k matrix K is ever factorised. Like the structured ``solve``, this
+    needs an invertible base L.
     """
-    from gaussx._primitives._solve import _low_rank_capacitance, solve
+    from gaussx._primitives._solve import solve
 
-    Linv_U, C = _low_rank_capacitance(operator, solver)
-    base_T = operator.base.T
-    LinvT_V = jax.vmap(
-        lambda v: solve(base_T, v, solver=solver), in_axes=1, out_axes=1
-    )(operator.V)
-    # -L^{-T} V C^{-T} = -(C^{-1} (L^{-T} V)^T)^T
-    right = -rearrange(
-        jnp.linalg.solve(C, rearrange(LinvT_V, "n k -> k n")), "k n -> n k"
+    def solve_columns(base, M):
+        return jax.vmap(
+            lambda col: solve(base, col, solver=solver), in_axes=1, out_axes=1
+        )(M)
+
+    U, d, V = operator.U, operator.d, operator.V
+    Linv_U = solve_columns(operator.base, U)
+    LinvT_V = solve_columns(operator.base.T, V)
+    K = jnp.eye(operator.rank, dtype=Linv_U.dtype) + d[:, None] * einsum(
+        V, Linv_U, "n i, n j -> i j"
     )
-    ones = jnp.ones(operator.rank, dtype=C.dtype)
-    return LowRankUpdate(inv(operator.base, solver=solver), Linv_U, ones, right)
+    # -L^{-T} V D K^{-T} = -(K^{-1} D (L^{-T} V)^T)^T
+    scaled = d[:, None] * rearrange(LinvT_V, "n k -> k n")
+    right = -rearrange(jnp.linalg.solve(K, scaled), "k n -> n k")
+    ones = jnp.ones(operator.rank, dtype=K.dtype)
+    return LowRankUpdate(
+        inv(operator.base, solver=solver),
+        Linv_U,
+        ones,
+        right,
+        tags=_inverse_tags(operator),
+    )
+
+
+def _inverse_tags(operator: lx.AbstractLinearOperator) -> frozenset[object]:
+    """Tags that an operator's inverse inherits: symmetry and definiteness."""
+    queries = (
+        (lx.is_symmetric, lx.symmetric_tag),
+        (lx.is_positive_semidefinite, lx.positive_semidefinite_tag),
+        (lx.is_negative_semidefinite, lx.negative_semidefinite_tag),
+    )
+    return frozenset(tag for query, tag in queries if query(operator))
 
 
 def _is_square(operator: lx.AbstractLinearOperator) -> bool:

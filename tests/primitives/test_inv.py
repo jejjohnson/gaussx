@@ -132,3 +132,32 @@ def test_inv_low_rank_general_factors():
     assert jnp.allclose(
         inv(copy).as_matrix(), jnp.linalg.inv(copy.as_matrix()), atol=1e-10
     )
+
+
+def test_inv_low_rank_general_zero_weight():
+    # The scaled capacitance I + D Vᵀ L⁻¹ U needs no D⁻¹, so a zero weight
+    # (here the whole update vanishes: L + 0 = I) stays finite and exact.
+    n = 4
+    U = jr.normal(jr.key(0), (n, 2))
+    op = LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.ones(n)), U, jnp.array([0.0, 1.5]), U.copy()
+    )
+    result = inv(op)
+    assert isinstance(result, LowRankUpdate)
+    assert jnp.allclose(result.as_matrix(), jnp.linalg.inv(op.as_matrix()), atol=1e-10)
+
+
+def test_inv_low_rank_keeps_symmetry_and_definiteness_tags():
+    n = 5
+    U = jr.normal(jr.key(0), (n, 2))
+    psd_base = lx.TaggedLinearOperator(
+        lx.DiagonalLinearOperator(jnp.full(n, 2.0)), lx.positive_semidefinite_tag
+    )
+    # Symmetry claimed by the caller for distinct factors (general branch).
+    claimed = LowRankUpdate(psd_base, U, V=U.copy(), tags=lx.symmetric_tag)
+    assert lx.is_symmetric(inv(claimed))
+    # Shared factors, PSD base, unit weights: PSD (symmetric branch).
+    shared = LowRankUpdate(psd_base, U)
+    assert lx.is_positive_semidefinite(shared)
+    assert lx.is_positive_semidefinite(inv(shared))
+    assert lx.is_symmetric(inv(shared))
