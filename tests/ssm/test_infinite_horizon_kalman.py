@@ -117,7 +117,7 @@ class TestInfiniteHorizonSmoother:
             obs,
             dare_result=dare_result,
         )
-        s_means, s_covs = infinite_horizon_smoother(filt, A, dare_result, Q)
+        s_means, s_covs = infinite_horizon_smoother(filt, A, Q, dare_result=dare_result)
         assert s_means.shape == (T, D)
         assert s_covs.shape == (T, D, D)
 
@@ -141,7 +141,7 @@ class TestInfiniteHorizonSmoother:
 
         @jax.jit
         def smooth(filt):
-            return infinite_horizon_smoother(filt, A, dare_result, Q)
+            return infinite_horizon_smoother(filt, A, Q, dare_result=dare_result)
 
         s_means, _s_covs = smooth(filt)
         assert jnp.all(jnp.isfinite(s_means))
@@ -214,7 +214,7 @@ class TestNonConvergedDARE:
     def test_smoother_raises_under_jit(self):
         A, H, Q, R, y, bad = self._unconverged()
         state = infinite_horizon_filter(A, H, Q, R, y)
-        run = jax.jit(lambda d: infinite_horizon_smoother(state, A, d, Q))
+        run = jax.jit(lambda d: infinite_horizon_smoother(state, A, Q, dare_result=d))
         with pytest.raises(Exception, match="dare did not converge"):
             jax.block_until_ready(run(bad))
 

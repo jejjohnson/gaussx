@@ -427,7 +427,7 @@ class TestSmoother:
         A, H, Q, R, y, m0, P0 = _make_model(getkey())
         mask = _partial_mask(getkey(), y.shape[0], y.shape[1])
         filtered = kalman_filter(A, H, Q, R, y, m0, P0, mask=mask)
-        s_means, s_covs = rts_smoother(filtered, A, Q)
+        s_means, s_covs = rts_smoother(filtered, A)
 
         ref = _row_deleted_filter(A, H, Q, R, y, m0, P0, mask)
         ref_means, ref_covs = _rts_reference(ref, A)
@@ -439,7 +439,7 @@ class TestSmoother:
         T, M = y.shape
         mask = jnp.ones((T, M), dtype=bool).at[4].set(False)
         filtered = kalman_filter(A, H, Q, R, y, m0, P0, mask=mask)
-        s_means, s_covs = rts_smoother(filtered, A, Q)
+        s_means, s_covs = rts_smoother(filtered, A)
         assert jnp.isfinite(s_means).all()
         assert jnp.isfinite(s_covs).all()
 
@@ -447,9 +447,9 @@ class TestSmoother:
     def test_parallel_smoother_agrees(self, getkey):
         A, H, Q, R, y, m0, P0 = _make_model(getkey())
         mask = _partial_mask(getkey(), y.shape[0], y.shape[1])
-        seq = rts_smoother(kalman_filter(A, H, Q, R, y, m0, P0, mask=mask), A, Q)
+        seq = rts_smoother(kalman_filter(A, H, Q, R, y, m0, P0, mask=mask), A)
         par = parallel_rts_smoother(
-            parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask), A, Q
+            parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask), A
         )
         assert jnp.abs(seq[0] - par[0]).max() <= 1e-11
         assert jnp.abs(seq[1] - par[1]).max() <= 1e-11

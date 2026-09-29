@@ -16,7 +16,6 @@ from gaussx._ssm._discretise import (
 )
 from gaussx._ssm._emission import EmissionModel
 from gaussx._ssm._infinite_horizon_kalman import (
-    InfiniteHorizonState,
     infinite_horizon_filter,
     infinite_horizon_smoother,
 )
@@ -74,7 +73,6 @@ __all__ = [
     "EmissionModel",
     "FilterState",
     "GaussianSites",
-    "InfiniteHorizonState",
     "IntegratedWienerSDE",
     "MaternSDE",
     "PeriodicSDE",
@@ -120,3 +118,15 @@ __all__ = [
     "udl_from_ssm_params",
     "udl_to_ssm_params",
 ]
+
+
+def __getattr__(name: str):
+    # Deprecated aliases warn on access (gh-364).
+    from gaussx._ssm._infinite_horizon_kalman import (
+        _DEPRECATED_ALIASES,
+        _deprecated_alias,
+    )
+
+    if name in _DEPRECATED_ALIASES:
+        return _deprecated_alias(name)
+    raise AttributeError(f"module 'gaussx._ssm' has no attribute {name!r}")

@@ -20,6 +20,8 @@ combinator. See #165 for the latter.
 
 from __future__ import annotations
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
@@ -34,6 +36,7 @@ from gaussx._ssm._utils import (
     _masked_obs_inputs,
     _materialise,
     _normalise_tv_inputs,
+    _warn_unused_process_noise,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -215,11 +218,11 @@ def parallel_kalman_filter(
             and yields the exact marginal log-likelihood over the
             observed entries. Defaults to all-True. Not supported by
             ``form="sqrt"``.
-        solver: Accepted for API symmetry with `kalman_filter` but
-            not currently threaded through the per-element solves; the
-            covariance-form combinator uses unstructured dense solves.
-            The square-root form also uses dense solves for the affine
-            terms.
+        solver: Used only with ``woodbury_innovation=True``, which
+            delegates to `gaussx.kalman_filter`. The associative-scan
+            combinators use dense solves, so passing ``solver`` without
+            ``woodbury_innovation`` is deprecated (it warns, and will raise
+            in 0.5.0).
         woodbury_innovation: When ``True``, delegates to
             `gaussx.kalman_filter` with the same flag so structured
             ``R`` uses the Woodbury innovation path.
@@ -239,6 +242,15 @@ def parallel_kalman_filter(
         `FilterState` with filtered / predicted means and covs
         and the total log-likelihood.
     """
+    if solver is not None and not woodbury_innovation:
+        warnings.warn(
+            "parallel_kalman_filter(solver=...) has no effect unless "
+            "woodbury_innovation=True: the associative-scan combinators use "
+            "dense solves. Passing it otherwise is deprecated and will raise "
+            "in 0.5.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
     if form == "sqrt":
         from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt
 
@@ -269,8 +281,6 @@ def parallel_kalman_filter(
             solver=solver,
             woodbury_innovation=True,
         )
-
-    del solver  # not currently threaded through; see docstring + #165
 
     M_obs = observations.shape[-1]
     T = observations.shape[0]
@@ -397,7 +407,7 @@ def parallel_kalman_filter(
 def parallel_rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
+    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator | None = None,
     *,
     solver: AbstractSolverStrategy | None = None,
     form: str = "covariance",
@@ -411,8 +421,8 @@ def parallel_rts_smoother(
         filter_state: Output of `parallel_kalman_filter` or
             `gaussx.kalman_filter`.
         transition: State transition matrix or operator.
-        process_noise: Unused — kept for API symmetry with the sequential
-            smoother.
+        process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
+            it will be removed in 0.5.0.
         solver: Accepted for API symmetry; not currently threaded
             through.
         form: Either ``"covariance"`` (default) or ``"sqrt"``. The
@@ -427,19 +437,15 @@ def parallel_rts_smoother(
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
     """
+    _warn_unused_process_noise("parallel_rts_smoother", process_noise)
     if form == "sqrt":
         from gaussx._ssm._parallel_kalman_sqrt import parallel_rts_smoother_sqrt
 
-        return parallel_rts_smoother_sqrt(
-            filter_state,
-            transition,
-            process_noise,
-            solver=solver,
-        )
+        return parallel_rts_smoother_sqrt(filter_state, transition, solver=solver)
     if form != "covariance":
         raise ValueError("form must be 'covariance' or 'sqrt'.")
 
-    del process_noise, solver
+    del solver
 
     f_means = filter_state.filtered_means
     f_covs = filter_state.filtered_covs

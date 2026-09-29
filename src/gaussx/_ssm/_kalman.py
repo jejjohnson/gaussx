@@ -18,6 +18,7 @@ from gaussx._ssm._utils import (
     _materialise,
     _normalise_tv_inputs,
     _right_matmul_transpose,
+    _warn_unused_process_noise,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
@@ -288,14 +289,14 @@ def kalman_filter(
 def rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
+    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator | None = None,
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Rauch-Tung-Striebel backward smoother.
 
     Accepts the same time-invariant / time-varying / operator forms for
-    ``transition`` and ``process_noise`` as `kalman_filter`. When
+    ``transition`` as `kalman_filter`. When
     a step was masked off in the filter (``mask[t] == 0``), the
     smoother formula degenerates harmlessly because filtered ==
     predicted at that step.
@@ -303,15 +304,15 @@ def rts_smoother(
     Args:
         filter_state: Output of `kalman_filter`.
         transition: State transition matrix or operator.
-        process_noise: Process noise covariance or operator. (Not
-            currently used by the standard RTS recurrence — kept for
-            API symmetry with `kalman_filter`.)
+        process_noise: Deprecated and ignored: the RTS recurrence never
+            reads it, since the filter's predicted covariances already
+            include ``Q``. Passing it warns; it will be removed in 0.5.0.
         solver: Optional solver strategy.
 
     Returns:
         Tuple ``(smoothed_means, smoothed_covs)``.
     """
-    del process_noise  # not used in the standard RTS recurrence
+    _warn_unused_process_noise("rts_smoother", process_noise)
 
     T = filter_state.filtered_means.shape[0]
 

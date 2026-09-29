@@ -220,13 +220,9 @@ class MarkovGaussian(dist.Distribution):
     # Precision views
     # ------------------------------------------------------------------
 
-    def _Q_with_initial(self) -> Float[Array, "T d d"]:
-        """``Q`` in the ``Q[0] == P0`` layout used by the UDL helpers."""
-        return jnp.concatenate([self.P0[None], self.Q], axis=0)
-
     def udl(self) -> UDLDecomposition:
         r"""The chain's precision, already factorised as $U \tilde{D} U^{\top}$."""
-        return udl_from_ssm_params(self.A, self._Q_with_initial())
+        return udl_from_ssm_params(self.A, self.Q, self.P0)
 
     @property
     def precision(self) -> BlockTriDiag:

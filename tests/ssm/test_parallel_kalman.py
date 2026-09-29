@@ -64,8 +64,8 @@ def test_parallel_rts_matches_sequential(getkey, T):
     seq_state = kalman_filter(A, H, Q, R, obs, x0, P0)
     par_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
 
-    seq_means, seq_covs = rts_smoother(seq_state, A, Q)
-    par_means, par_covs = parallel_rts_smoother(par_state, A, Q)
+    seq_means, seq_covs = rts_smoother(seq_state, A)
+    par_means, par_covs = parallel_rts_smoother(par_state, A)
 
     assert tree_allclose(par_means, seq_means, rtol=1e-4)
     assert tree_allclose(par_covs, seq_covs, rtol=1e-4)
@@ -105,8 +105,8 @@ def test_parallel_rts_sqrt_matches_covariance_form(getkey):
     obs = jr.normal(getkey(), (64, 2))
     state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, form="sqrt")
 
-    cov_means, cov_covs = parallel_rts_smoother(state, A, Q)
-    sqrt_means, sqrt_covs = parallel_rts_smoother(state, A, Q, form="sqrt")
+    cov_means, cov_covs = parallel_rts_smoother(state, A)
+    sqrt_means, sqrt_covs = parallel_rts_smoother(state, A, form="sqrt")
 
     assert tree_allclose(sqrt_means, cov_means, rtol=1e-5)
     assert tree_allclose(sqrt_covs, cov_covs, rtol=1e-5)
@@ -147,7 +147,7 @@ def test_parallel_rts_rejects_unknown_form(getkey):
     state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
 
     with pytest.raises(ValueError, match="form"):
-        parallel_rts_smoother(state, A, Q, form="information")
+        parallel_rts_smoother(state, A, form="information")
 
 
 def test_parallel_rts_last_matches_filter(getkey):
@@ -155,7 +155,7 @@ def test_parallel_rts_last_matches_filter(getkey):
     T = 8
     obs = jr.normal(getkey(), (T, 2))
     state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
-    par_means, par_covs = parallel_rts_smoother(state, A, Q)
+    par_means, par_covs = parallel_rts_smoother(state, A)
     assert tree_allclose(par_means[-1], state.filtered_means[-1], rtol=1e-6)
     assert tree_allclose(par_covs[-1], state.filtered_covs[-1], rtol=1e-6)
 
@@ -170,7 +170,11 @@ def test_parallel_kf_with_dense_solver_matches_default(getkey):
     obs = jr.normal(getkey(), (6, 2))
 
     default_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
-    dense_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0, solver=DenseSolver())
+    # gh-364: solver has no effect on the associative scan, so it warns.
+    with pytest.warns(DeprecationWarning, match="solver"):
+        dense_state = parallel_kalman_filter(
+            A, H, Q, R, obs, x0, P0, solver=DenseSolver()
+        )
 
     assert tree_allclose(
         dense_state.filtered_means, default_state.filtered_means, rtol=1e-5
@@ -188,8 +192,8 @@ def test_parallel_rts_with_dense_solver_matches_default(getkey):
     obs = jr.normal(getkey(), (5, 2))
 
     state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
-    default_means, default_covs = parallel_rts_smoother(state, A, Q)
-    dense_means, dense_covs = parallel_rts_smoother(state, A, Q, solver=DenseSolver())
+    default_means, default_covs = parallel_rts_smoother(state, A)
+    dense_means, dense_covs = parallel_rts_smoother(state, A, solver=DenseSolver())
 
     assert tree_allclose(dense_means, default_means, rtol=1e-5)
     assert tree_allclose(dense_covs, default_covs, rtol=1e-5)
@@ -315,7 +319,7 @@ def test_parallel_rts_smoother_tv(getkey):
     A_seq = jnp.broadcast_to(A, (T, *A.shape))
     obs = jr.normal(getkey(), (T, 2))
     state = parallel_kalman_filter(A_seq, H, Q, R, obs, x0, P0)
-    s_means, _s_covs = parallel_rts_smoother(state, A_seq, Q)
+    s_means, _s_covs = parallel_rts_smoother(state, A_seq)
     assert tree_allclose(s_means[-1], state.filtered_means[-1], rtol=1e-6)
 
 
@@ -427,7 +431,7 @@ _TV_CASES = [
 @pytest.mark.parametrize(("mask_name", "form"), _TV_CASES)
 def test_tv_parity_random_params(mask_name, form):
     args, masks = _random_tv_model()
-    A, Q = args[0], args[2]
+    A = args[0]
     # Guard against regressing to broadcast (time-invariant) inputs.
     assert jnp.abs(A[0] - A[1]).max() > 0.01
     mask = masks[mask_name]
@@ -442,7 +446,7 @@ def test_tv_parity_random_params(mask_name, form):
         "predicted_covs",
     ):
         assert jnp.allclose(getattr(seq, field), getattr(par, field), **tol), field
-    m_seq, P_seq = rts_smoother(seq, A, Q)
-    m_par, P_par = parallel_rts_smoother(par, A, Q, form=form)
+    m_seq, P_seq = rts_smoother(seq, A)
+    m_par, P_par = parallel_rts_smoother(par, A, form=form)
     assert jnp.allclose(m_seq, m_par, **tol)
     assert jnp.allclose(P_seq, P_par, **tol)

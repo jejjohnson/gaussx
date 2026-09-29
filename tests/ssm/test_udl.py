@@ -111,7 +111,7 @@ class TestSSMExtraction:
         T, d = 6, 2
         A, Q = _make_ssm(jr.key(10), T, d)
         # ssm_to_naturals returns eta2 = -0.5 * Lambda.
-        _, theta_prec = ssm_to_naturals(A, Q, jnp.zeros(d), Q[0])
+        _, theta_prec = ssm_to_naturals(A, Q[1:], jnp.zeros(d), Q[0])
         prec = BlockTriDiag(-2.0 * theta_prec.diagonal, -2.0 * theta_prec.sub_diagonal)
 
         A_hat, Q_hat, chol_Q_hat = udl_to_ssm_params(udl_decomposition(prec))
@@ -123,7 +123,7 @@ class TestSSMExtraction:
         """udl_from_ssm_params builds the same factors udl_decomposition finds."""
         T, d = 5, 3
         A, Q = _make_ssm(jr.key(11), T, d)
-        direct = udl_from_ssm_params(A, Q)
+        direct = udl_from_ssm_params(A, Q[1:], Q[0])
         via_prec = udl_decomposition(direct.as_block_tridiag())
         assert jnp.allclose(direct.U_sub, via_prec.U_sub, atol=1e-8)
         assert jnp.allclose(direct.D_diag, via_prec.D_diag, atol=1e-8)
@@ -132,14 +132,14 @@ class TestSSMExtraction:
     def test_from_ssm_params_precision_matches_ssm_to_naturals(self):
         T, d = 5, 2
         A, Q = _make_ssm(jr.key(12), T, d)
-        _, theta_prec = ssm_to_naturals(A, Q, jnp.zeros(d), Q[0])
-        prec = udl_from_ssm_params(A, Q).as_block_tridiag()
+        _, theta_prec = ssm_to_naturals(A, Q[1:], jnp.zeros(d), Q[0])
+        prec = udl_from_ssm_params(A, Q[1:], Q[0]).as_block_tridiag()
         assert jnp.allclose(prec.as_matrix(), -2.0 * theta_prec.as_matrix(), atol=1e-8)
 
     def test_roundtrip_ssm_udl_ssm(self):
         T, d = 8, 2
         A, Q = _make_ssm(jr.key(13), T, d)
-        A_hat, Q_hat, _ = udl_to_ssm_params(udl_from_ssm_params(A, Q))
+        A_hat, Q_hat, _ = udl_to_ssm_params(udl_from_ssm_params(A, Q[1:], Q[0]))
         assert jnp.allclose(A_hat, A, atol=1e-10)
         assert jnp.allclose(Q_hat, Q, atol=1e-8)
 

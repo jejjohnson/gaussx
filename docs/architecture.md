@@ -415,9 +415,11 @@ Two API constraints worth knowing up front:
 
 - `kronecker_posterior_predictive(...)` needs exact test prior diagonals via
   `K_test_diag_factors=` for predictive variances.
-- `ssm_to_naturals(...)` expects `Q[0] == P_0` and raises on an inconsistent
-  initial covariance -- eagerly and at run time under `jax.jit` / `jax.vmap`
-  (an `EquinoxRuntimeError` via `equinox.error_if`).
+- `ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape
+  `(N-1, d, d)` and `P_0` separately, as `MarkovGaussian` does. The older
+  stacked layout (`Q[0] == P_0`) is deprecated until 0.5.0; with it, an
+  inconsistent initial covariance raises an `EquinoxRuntimeError` (via
+  `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
 
 ---
 

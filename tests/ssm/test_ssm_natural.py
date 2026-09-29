@@ -30,7 +30,7 @@ class TestSSMToNaturals:
         N, d = 5, 3
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
-        theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
+        theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
         assert theta_linear.shape == (N * d,)
         assert isinstance(theta_prec, BlockTriDiag)
         assert theta_prec._num_blocks == N
@@ -41,7 +41,7 @@ class TestSSMToNaturals:
         N, d = 3, 2
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
-        _, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
+        _, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
 
         # Build dense precision manually
         Q_inv = jnp.linalg.inv(Q)
@@ -64,6 +64,7 @@ class TestSSMToNaturals:
         expected = -0.5 * Lambda
         assert jnp.allclose(theta_prec.as_matrix(), expected, atol=1e-6)
 
+    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
     def test_rejects_mismatched_initial_covariance(self, getkey):
         """Q[0] and P_0 must agree for a consistent joint prior."""
         A, Q, mu_0, P_0 = _make_ssm(getkey, N=4, d=2)
@@ -73,6 +74,7 @@ class TestSSMToNaturals:
         with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
             ssm_to_naturals(A, Q, mu_0, bad_P_0)
 
+    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
     @pytest.mark.parametrize("transform", ["jit", "vmap"])
     def test_rejects_mismatched_initial_covariance_under_tracing(self, transform):
         # gh-359: the check used to be skipped silently under tracing.
@@ -97,7 +99,7 @@ class TestSSMToNaturals:
         mu_0 = jnp.array([1.0, -1.0])
         A = jnp.zeros((0, d, d))
         for f in (ssm_to_naturals, jax.jit(ssm_to_naturals)):
-            theta_linear, theta_prec = f(A, P_0[None], mu_0, P_0)
+            theta_linear, theta_prec = f(A, jnp.zeros((0, d, d)), mu_0, P_0)
             assert jnp.allclose(-2.0 * theta_prec.diagonal[0], jnp.linalg.inv(P_0))
             assert jnp.allclose(theta_linear, jnp.linalg.solve(P_0, mu_0))
 
@@ -108,8 +110,10 @@ class TestNaturalsToSSM:
         N, d = 4, 2
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
-        theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
+        theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
+        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(
+            theta_linear, theta_prec, initial_in_q=True
+        )
 
         assert tree_allclose(A_rec, A, rtol=1e-4)
         assert tree_allclose(Q_rec, Q, rtol=1e-4)
@@ -125,8 +129,10 @@ class TestNaturalsToSSM:
         mu_0 = jax.random.normal(getkey(), (d,))
         P_0 = Q[0]
 
-        theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, _P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
+        theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
+        A_rec, Q_rec, mu_0_rec, _P_0_rec = naturals_to_ssm(
+            theta_linear, theta_prec, initial_in_q=True
+        )
 
         assert tree_allclose(A_rec, A, rtol=1e-3)
         assert tree_allclose(Q_rec, Q, rtol=1e-3)
@@ -137,14 +143,17 @@ class TestNaturalsToSSM:
         N, d = 5, 3
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
-        theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
+        theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
+        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(
+            theta_linear, theta_prec, initial_in_q=True
+        )
 
         assert A_rec.shape == (N - 1, d, d)
         assert Q_rec.shape == (N, d, d)
         assert mu_0_rec.shape == (d,)
         assert P_0_rec.shape == (d, d)
 
+    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
     def test_rejects_mismatched_single_step_under_jit(self):
         # N = 1 leaves Q otherwise unused; the check must stay live.
         d = 2
@@ -154,6 +163,7 @@ class TestNaturalsToSSM:
                 f(jnp.zeros((0, d, d)), 3.0 * jnp.eye(d)[None], jnp.ones(d), jnp.eye(d))
             )
 
+    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
     @pytest.mark.parametrize(
         "project",
         [
@@ -199,8 +209,12 @@ def _pinned_ssm(N=6, d=2):
 @pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
 def test_naturals_to_ssm_factorisation_count():
     A, Q, mu_0, P_0 = _pinned_ssm()
-    theta_linear, theta_prec = ssm_to_naturals(A, Q, mu_0, P_0)
-    found = _lapack_factorisations(naturals_to_ssm, theta_linear, theta_prec)
+    theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
+    found = _lapack_factorisations(
+        lambda th1, th2: naturals_to_ssm(th1, th2, initial_in_q=False),
+        theta_linear,
+        theta_prec,
+    )
     # One d x d factorisation in the scan body (run N - 1 times) plus Q[0].
     assert found == [("dpotrf", "f64[2,2]"), ("dpotrf", "f64[2,2]")]
 
@@ -208,6 +222,8 @@ def test_naturals_to_ssm_factorisation_count():
 @pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
 def test_ssm_to_naturals_factorises_p0_once():
     A, Q, mu_0, _ = _pinned_ssm()
-    found = _lapack_factorisations(lambda A, Q: ssm_to_naturals(A, Q, mu_0, Q[0]), A, Q)
+    found = _lapack_factorisations(
+        lambda A, Q: ssm_to_naturals(A, Q[1:], mu_0, Q[0]), A, Q
+    )
     # P_0 once, plus one batched factorisation of the N - 1 transition noises.
     assert sorted(found) == [("dpotrf", "f64[2,2]"), ("dpotrf", "f64[5,2,2]")]

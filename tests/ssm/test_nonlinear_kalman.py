@@ -394,7 +394,7 @@ def test_smoother_linear_reduction():
     """With affine dynamics the smoother reproduces ``rts_smoother``."""
     integrator = FifthOrderCubatureIntegrator()
     reference_filter = kalman_filter(_A, _H, _Q, _R, _YS, _M0, _P0)
-    ref_means, ref_covs = rts_smoother(reference_filter, _A, _Q)
+    ref_means, ref_covs = rts_smoother(reference_filter, _A)
 
     filtered = nonlinear_kalman_filter(
         _linear_dynamics,
@@ -436,17 +436,18 @@ def test_smoothed_variances_do_not_exceed_filtered():
     assert bool(jnp.all(smoothed_var <= filtered_var + 1e-10))
 
 
-def test_smoother_accepts_process_noise_for_symmetry():
-    """``process_noise`` is accepted and ignored, as in ``rts_smoother``."""
+def test_smoother_process_noise_is_deprecated_and_ignored():
+    """``process_noise`` warns and is ignored, as in ``rts_smoother`` (gh-364)."""
     integrator = FifthOrderCubatureIntegrator()
     filtered = nonlinear_kalman_filter(
         _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0, integrator=integrator
     )
 
     without = nonlinear_rts_smoother(filtered, _linear_dynamics, integrator=integrator)
-    with_noise = nonlinear_rts_smoother(
-        filtered, _linear_dynamics, _Q, integrator=integrator
-    )
+    with pytest.warns(DeprecationWarning, match="process_noise"):
+        with_noise = nonlinear_rts_smoother(
+            filtered, _linear_dynamics, _Q, integrator=integrator
+        )
 
     assert tree_allclose(without[0], with_noise[0], atol=0.0)
 
