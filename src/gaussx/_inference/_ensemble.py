@@ -466,11 +466,27 @@ def _check_analysis_shapes(
             "particles and obs_particles must share the same ensemble size, "
             f"got J={n_ens} and J={obs_particles.shape[0]}."
         )
+    n_obs = _check_observation_shapes(obs_particles, observation, obs_noise)
+    return n_ens, n_state, n_obs
+
+
+def _check_observation_shapes(
+    obs_particles: Float[Array, "J M"],
+    observation: Float[Array, " M"],
+    obs_noise: lx.AbstractLinearOperator,
+    *,
+    observation_name: str = "observation",
+) -> int:
+    """Observation-space shape agreement. Returns ``M``."""
+    if obs_particles.ndim != 2:
+        raise ValueError(
+            f"obs_particles must have shape (J, M), got {obs_particles.shape}."
+        )
     n_obs = obs_particles.shape[1]
     if observation.shape != (n_obs,):
         raise ValueError(
-            f"observation must have shape ({n_obs},) to match obs_particles, "
-            f"got {observation.shape}."
+            f"{observation_name} must have shape ({n_obs},) to match "
+            f"obs_particles, got {observation.shape}."
         )
     # Without this an operator of the wrong size broadcasts against the (M, M)
     # empirical covariance instead of raising -- a (1, 1) R against M = 3 adds
@@ -480,7 +496,7 @@ def _check_analysis_shapes(
             f"obs_noise must be ({n_obs}, {n_obs}) to match obs_particles, got "
             f"({obs_noise.out_size()}, {obs_noise.in_size()})."
         )
-    return n_ens, n_state, n_obs
+    return n_obs
 
 
 def _check_localization_shapes(
@@ -903,8 +919,22 @@ def etkf_transform(
         ``transform`` has shape ``(J, J)``. Apply to forecast state
         perturbations ``Xp`` (shape ``(J, N)``) as
         ``x_bar^a = x_bar^f + w_mean @ Xp`` and ``X'^a = transform @ Xp``.
+
+    Raises:
+        ValueError: If ``J < 2`` (the prior term ``(J - 1) / lambda`` is then
+            zero and the ensemble-space precision singular), if ``y`` or
+            ``obs_noise`` do not match ``M``, or if a concrete ``inflation``
+            is not positive.
     """
+    _check_observation_shapes(obs_particles, y, obs_noise, observation_name="y")
     n_ens = obs_particles.shape[0]
+    if n_ens < 2:
+        raise ValueError(
+            "etkf_transform requires J >= 2 ensemble members (the prior term "
+            f"is (J - 1) / inflation); got J={n_ens}."
+        )
+    if isinstance(inflation, (int, float)) and inflation <= 0:
+        raise ValueError(f"inflation must be positive, got {inflation}.")
     obs_mean = jnp.mean(obs_particles, axis=0)
     obs_pert = obs_particles - obs_mean[None, :]  # (J, M), zero-mean rows
 
