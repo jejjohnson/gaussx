@@ -22,7 +22,7 @@ from gaussx._operators import (
 from gaussx._operators._block_tridiag import LowerBlockTriDiag, UpperBlockTriDiag
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._diag import diag
-from gaussx._primitives._inv import InverseOperator, inv
+from gaussx._primitives._inv import inv
 from gaussx._primitives._logdet import logdet
 from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import sqrt
@@ -64,13 +64,14 @@ class TestLowRankUpdateDispatch:
         assert isinstance(inverse, LowRankUpdate)
         assert tree_allclose(inverse.as_matrix(), jnp.linalg.inv(low_rank.as_matrix()))
 
-    def test_inv_nonsymmetric_falls_back(self, getkey):
+    def test_inv_nonsymmetric_stays_low_rank(self, getkey):
+        # gh-328: the general Woodbury branch replaces the dense fallback.
         base = lx.DiagonalLinearOperator(jnp.abs(jr.normal(getkey(), (5,))) + 1.0)
         U = jr.normal(getkey(), (5, 2))
         V = jr.normal(getkey(), (5, 2))
         op = LowRankUpdate(base, U, jnp.ones(2), V)
         inverse = inv(op)
-        assert isinstance(inverse, InverseOperator)
+        assert isinstance(inverse, LowRankUpdate)
         assert tree_allclose(inverse.as_matrix(), jnp.linalg.inv(op.as_matrix()))
 
 
