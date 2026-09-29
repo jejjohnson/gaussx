@@ -17,11 +17,12 @@ jobs:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
+          enable-cache: true
           python-version: "3.13"
       - name: Check uv.lock matches pyproject.toml
         run: uv lock --check
       - name: Install lint dependencies
-        run: uv sync --group lint
+        run: uv sync --locked --group lint
       - name: Run ruff check
         run: uv run --group lint ruff check .
       - name: Run ruff format check

@@ -1,0 +1,55 @@
+name: Latest Dependencies
+
+# Weekly: re-resolve the dependencies at their newest versions, and at their
+# declared floors, then run the fast lane. uv.lock pins one tested set; this
+# job is what reports that a new JAX/lineax/equinox release broke gaussx
+# (instead of an upper bound in pyproject.toml), and that the `>=` floors
+# still hold. The re-resolved lock is never committed.
+#   gh workflow run latest-deps.yml
+
+on:
+  schedule:
+    - cron: "43 4 * * 1"  # Monday 04:43 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - resolution: highest
+            python-version: "3.13"
+          - resolution: lowest-direct
+            python-version: "3.12"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+      - name: Re-resolve dependencies (${{ matrix.resolution }})
+        run: uv lock --upgrade --resolution ${{ matrix.resolution }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Show resolved versions
+        run: uv pip list | grep -E '^(jax|jaxlib|equinox|lineax|matfree|jaxtyping|einx|numpyro) '
+      - name: Run fast tests
+        run: uv run pytest -n auto -m "not slow and not integration"
+
+  report:
+    needs: test
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/report-scheduled-failure
+        with:
+          title: "ci: the weekly latest-dependencies run failed"
