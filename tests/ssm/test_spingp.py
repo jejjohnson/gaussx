@@ -1,9 +1,14 @@
 """Tests for SpInGP Kalman filter recipes."""
 
+import re
+
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
+import pytest
 
+from gaussx._einx import rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._ssm._spingp import spingp_log_likelihood, spingp_posterior
 
@@ -156,3 +161,99 @@ class TestSpInGPLogLikelihood:
         )
 
         assert jnp.allclose(ll_spingp, ll_dense, atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# gh-403: R is factorised once; values and gradients against a dense joint
+# ---------------------------------------------------------------------------
+
+
+def _lapack_factorisations(f, *args):
+    """``(routine, shape)`` of every LAPACK factorisation in ``jit(f)``."""
+    hlo = jax.jit(f).lower(*args).compile().as_text()
+    found = []
+    for line in hlo.splitlines():
+        match = re.search(r'custom_call_target="lapack_(\w+?)_ffi"', line)
+        if match and match.group(1) in ("dpotrf", "dgetrf"):
+            shape = re.search(r"=\s*\(?([a-z0-9]+\[[0-9,]*\])", line).group(1)
+            found.append((match.group(1), shape))
+    return found
+
+
+def _small_problem(per_step_h):
+    # Pinned: the checks are identities, any well-conditioned model will do.
+    N, d, M = 6, 2, 3
+    k1, k2, k3, k4, k5 = jr.split(jr.key(0), 5)
+    B = jr.normal(k1, (N, d, d))
+    diag_blocks = jax.vmap(lambda b: b @ b.T + 3 * jnp.eye(d))(B)
+    prior = BlockTriDiag(diag_blocks, 0.1 * jr.normal(k2, (N - 1, d, d)))
+    H = jr.normal(k3, (N, M, d) if per_step_h else (M, d))
+    C = jr.normal(k4, (M, M))
+    R = C @ C.T + jnp.eye(M)
+    y = jr.normal(k5, (N, M))
+    return prior, H, R, y
+
+
+def _dense_log_likelihood(prior, H, R, y):
+    N = y.shape[0]
+    H_steps = H if H.ndim == 3 else jnp.broadcast_to(H, (N, *H.shape))
+    H_full = jax.scipy.linalg.block_diag(*H_steps)
+    cov = H_full @ jnp.linalg.inv(prior.as_matrix()) @ H_full.T
+    cov = cov + jnp.kron(jnp.eye(N), R)
+    return jax.scipy.stats.multivariate_normal.logpdf(
+        rearrange(y, "N M -> (N M)"), jnp.zeros(y.size), cov
+    )
+
+
+@pytest.mark.parametrize("per_step_h", [False, True], ids=["shared_H", "per_step_H"])
+def test_log_likelihood_and_gradient_match_dense_joint(per_step_h):
+    prior, H, R, y = _small_problem(per_step_h)
+    N, d, M = prior.diagonal.shape[0], prior.diagonal.shape[1], R.shape[0]
+    # Symmetric parametrisations: a raw-matrix gradient depends on which
+    # triangle a Cholesky reads, the gradient through these does not.
+    C = jnp.linalg.cholesky(R - jnp.eye(M))
+    B = jax.vmap(jnp.linalg.cholesky)(prior.diagonal - 3 * jnp.eye(d))
+
+    def build(C, B):
+        prior_ = BlockTriDiag(
+            jax.vmap(lambda b: b @ b.T + 3 * jnp.eye(d))(B), prior.sub_diagonal
+        )
+        return prior_, C @ C.T + jnp.eye(M)
+
+    def structured(C, B):
+        prior_, R_ = build(C, B)
+        R_op = lx.MatrixLinearOperator(R_, lx.positive_semidefinite_tag)
+        return spingp_log_likelihood(prior_, H, R_op, y)
+
+    def dense(C, B):
+        prior_, R_ = build(C, B)
+        return _dense_log_likelihood(prior_, H, R_, y)
+
+    assert B.shape == (N, d, d)
+    assert jnp.allclose(structured(C, B), dense(C, B), rtol=1e-10)
+    g_struct = jax.grad(structured, argnums=(0, 1))(C, B)
+    g_dense = jax.grad(dense, argnums=(0, 1))(C, B)
+    for a, b in zip(g_struct, g_dense, strict=True):
+        assert jnp.allclose(a, b, rtol=1e-8, atol=1e-10)
+
+
+def test_diagonal_obs_noise_matches_dense():
+    prior, H, R, y = _small_problem(False)
+    r = jnp.diag(R)
+    got = spingp_log_likelihood(prior, H, lx.DiagonalLinearOperator(r), y)
+    assert jnp.allclose(got, _dense_log_likelihood(prior, H, jnp.diag(r), y))
+
+
+@pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
+def test_obs_noise_factorised_once():
+    prior, H, R, y = _small_problem(False)
+    M = R.shape[0]
+
+    def f(R):
+        R_op = lx.MatrixLinearOperator(R, lx.positive_semidefinite_tag)
+        return spingp_log_likelihood(prior, H, R_op, y)
+
+    found = _lapack_factorisations(f, R)
+    of_R = [call for call in found if call[1] == f"f64[{M},{M}]"]
+    assert of_R == [("dpotrf", f"f64[{M},{M}]")]
+    assert not any(routine == "dgetrf" for routine, _ in found)
