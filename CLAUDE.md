@@ -34,6 +34,7 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 | `src/gaussx/_testing.py` | Test utilities (random PD matrices, assertions) |
 | `tests/` | Test suite |
 | `docs/` | Documentation (MkDocs) |
+| `docs/notebooks/` | Example notebooks (jupytext `.py` + executed `.ipynb`) |
 | `notebooks/` | Jupyter notebooks |
 
 ### Key dependencies
@@ -78,7 +79,7 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 uv run --group docs mkdocs build --strict     # Docs — when docstrings, docs/ or mkdocs.yml change
 ```
 
-**Critical**: Always lint/format with `.` (repo root), not `src/gaussx/`. CI runs `ruff check .` which includes `tests/` and `scripts/`.
+**Critical**: Always lint/format with `.` (repo root), not `src/gaussx/`. CI runs `ruff check .` which includes `tests/` and `docs/notebooks/*.py`.
 
 `uv.lock` must match `pyproject.toml`: CI runs `uv lock --check`, so re-run `uv lock` and commit the lockfile with any dependency or version change. Release PRs bump the lockfile's own `gaussx` version through release-please's `extra-files`.
 

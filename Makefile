@@ -61,8 +61,8 @@ check-env-%:
 # ---------------------------------------------------------------------------
 # Phony declarations
 # ---------------------------------------------------------------------------
-.PHONY: help install lint format typecheck test test-cov test-slow \
-        precommit build clean version docs docs-serve docs-deploy
+.PHONY: help version install init lint format typecheck test test-fast \
+        test-slow test-cov precommit build clean docs docs-serve docs-deploy
 
 .DEFAULT_GOAL := help
 

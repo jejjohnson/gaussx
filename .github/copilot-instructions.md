@@ -4,7 +4,6 @@
 
 - **Python**: 3.12+
 - **Package Manager**: uv
-- **CLI Framework**: cyclopts
 - **Layout**: `src/` layout (`src/gaussx/`)
 - **Testing**: pytest
 - **Docs**: MkDocs + Material + mkdocstrings + mkdocs-jupyter
@@ -12,8 +11,11 @@
 ## Build & Test Commands
 
 ```bash
-make install     # Install all dependencies (uv sync --all-groups)
-make test        # Run tests (uv run pytest -v)
+make install     # Install all dependencies (uv sync --all-groups) + pre-commit hooks
+make test        # Full suite in parallel (uv run pytest -v -n auto)
+make test-fast   # Fast tests only (skips slow + integration; matches PR CI)
+make test-slow   # Only the slow + integration tests
+make test-cov    # Full suite with a coverage report
 make lint        # Lint code (ruff check)
 make format      # Format code (ruff format + ruff check --fix)
 make typecheck   # Type check (ty check)
@@ -29,7 +31,7 @@ make docs-serve  # Serve docs locally
 # 1. Tests — zero failures required
 uv run pytest -v
 
-# 2. Lint — run on the ENTIRE repo (includes tests/ and scripts/)
+# 2. Lint — run on the ENTIRE repo (includes tests/ and docs/notebooks/*.py)
 uv run --group lint ruff check .
 
 # 3. Format check — run on the ENTIRE repo
@@ -39,7 +41,7 @@ uv run --group lint ruff format --check .
 uv run --group typecheck ty check src/gaussx
 ```
 
-> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses import-sorting errors in `tests/` and `scripts/`. The CI workflow runs `ruff check .`. Always use `.` (repo root), not a subdirectory.
+> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses import-sorting errors in `tests/` and `docs/notebooks/*.py`. The CI workflow runs `ruff check .`. Always use `.` (repo root), not a subdirectory.
 
 ## Key Directories
 
@@ -48,8 +50,8 @@ uv run --group typecheck ty check src/gaussx
 | `src/gaussx/` | Main package source code |
 | `tests/` | Test suite |
 | `docs/` | Documentation (MkDocs) |
+| `docs/notebooks/` | Example notebooks (jupytext `.py` + executed `.ipynb`) |
 | `notebooks/` | Jupyter notebooks |
-| `scripts/` | Example scripts |
 
 ## Behavioral Guidelines
 

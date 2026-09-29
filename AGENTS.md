@@ -80,7 +80,7 @@ For multi-step tasks, state a brief plan:
 3. **Format** – `uv run --group lint ruff format --check .` must report no files to reformat.
 4. **Type checks** – `uv run --group typecheck ty check src/gaussx` (or `make typecheck`) must report no errors in changed files.
 
-> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses lint errors in `tests/` and `scripts/`. CI runs `ruff check .` on the entire repo — always use `.` (repo root), not a subdirectory.
+> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses lint errors in `tests/` and `docs/notebooks/*.py`. CI runs `ruff check .` on the entire repo — always use `.` (repo root), not a subdirectory.
 
 ## Development Environment
 
