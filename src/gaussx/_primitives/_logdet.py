@@ -57,6 +57,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     if isinstance(operator, Kronecker):
         return _logdet_kronecker(operator)
     if isinstance(operator, LowRankUpdate):
+        if operator.rank == 0:
+            return logdet(operator.base)
         return _logdet_low_rank(operator)
     if isinstance(operator, SumOfKroneckers):
         return _logdet_sum_of_kroneckers(operator)
@@ -114,18 +116,17 @@ def _logdet_kronecker(operator: Kronecker) -> Float[Array, ""]:
 
 
 def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
-    """Matrix determinant lemma: det(L + U D V^T) = det(C) det(D) det(L).
+    """Matrix determinant lemma: det(L + U D V^T) = det(L) det(K).
 
-    where C = D^{-1} + V^T L^{-1} U is the k x k capacitance matrix.
-    So: logdet = logdet(L) + logdet(C) + sum(log|d_i|).
+    where K = I + D V^T L^{-1} U is the k x k capacitance scaled by D, so
+    a zero weight needs no log(0) (gh-307).
     """
     from gaussx._primitives._solve import _low_rank_capacitance
 
     ld_base = logdet(operator.base)
-    _, C = _low_rank_capacitance(operator, solver=None)
-    _, ld_C = jnp.linalg.slogdet(C)
-    ld_d = jnp.sum(jnp.log(jnp.abs(operator.d)))
-    return ld_base + ld_C + ld_d
+    _, K = _low_rank_capacitance(operator, solver=None)
+    _, ld_K = jnp.linalg.slogdet(K)
+    return ld_base + ld_K
 
 
 def _logdet_sum_of_kroneckers(operator: SumOfKroneckers) -> Float[Array, ""]:

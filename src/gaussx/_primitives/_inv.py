@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
 
-from gaussx._einx import einsum, rearrange
+from gaussx._einx import rearrange
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
@@ -50,6 +50,8 @@ def inv(
     if isinstance(operator, Kronecker):
         return _inv_kronecker(operator)
     if isinstance(operator, LowRankUpdate) and _is_square(operator.base):
+        if operator.rank == 0:
+            return inv(operator.base, solver=solver)
         # Decided from static structure only (gh-328): a value check on
         # ``U == V`` is lost once the operator crosses a jit boundary.
         if lx.is_symmetric(operator) and operator.symmetric_factors:
@@ -102,24 +104,30 @@ def _inv_low_rank_symmetric(
 ) -> LowRankUpdate:
     """Woodbury inverse of a symmetric low-rank update, kept low-rank.
 
-    (L + U D U^T)^{-1} = L^{-1} - L^{-1} U C^{-1} U^T L^{-1} with the
-    symmetric capacitance C = D^{-1} + U^T L^{-1} U. Eigendecomposing
-    C = W diag(w) W^T turns the correction into a diagonal-middle
-    low-rank update, so the result is again a ``LowRankUpdate``:
+    With K = I + D U^T L^{-1} U (no D^{-1}, so zero weights are fine),
 
-        (L + U D U^T)^{-1} = L^{-1} + Z diag(-1/w) Z^T,  Z = L^{-1} U W.
+        (L + U D U^T)^{-1} = L^{-1} - L^{-1} U M U^T L^{-1},  M = K^{-1} D.
 
-    Only the k x k capacitance is ever eigendecomposed.
+    M = D (I + S D)^{-1} is symmetric by the push-through identity, so
+    eigendecomposing M = W diag(m) W^T turns the correction into a
+    diagonal-middle low-rank update and the result is again a
+    ``LowRankUpdate``:
+
+        (L + U D U^T)^{-1} = L^{-1} + Z diag(-m) Z^T,  Z = L^{-1} U W.
+
+    A zero weight gives a zero m, never a reciprocal (gh-307). Only k x k
+    matrices are ever factorised.
     """
     from gaussx._primitives._solve import _low_rank_capacitance
 
-    Linv_U, C = _low_rank_capacitance(operator, solver)
-    w, W = jnp.linalg.eigh(C)
+    Linv_U, K = _low_rank_capacitance(operator, solver)
+    M = jnp.linalg.solve(K, jnp.diag(operator.d))
+    m, W = jnp.linalg.eigh(0.5 * (M + rearrange(M, "i j -> j i")))
     Z = Linv_U @ W
     return LowRankUpdate(
         inv(operator.base, solver=solver),
         Z,
-        -1.0 / w,
+        -m,
         Z,
         tags=_inverse_tags(operator),
     )
@@ -141,21 +149,14 @@ def _inv_low_rank_general(
     k x k matrix K is ever factorised. Like the structured ``solve``, this
     needs an invertible base L.
     """
-    from gaussx._primitives._solve import solve
+    from gaussx._primitives._solve import _low_rank_capacitance, solve
 
-    def solve_columns(base, M):
-        return jax.vmap(
-            lambda col: solve(base, col, solver=solver), in_axes=1, out_axes=1
-        )(M)
-
-    U, d, V = operator.U, operator.d, operator.V
-    Linv_U = solve_columns(operator.base, U)
-    LinvT_V = solve_columns(operator.base.T, V)
-    K = jnp.eye(operator.rank, dtype=Linv_U.dtype) + d[:, None] * einsum(
-        V, Linv_U, "n i, n j -> i j"
-    )
+    Linv_U, K = _low_rank_capacitance(operator, solver)
+    LinvT_V = jax.vmap(
+        lambda col: solve(operator.base.T, col, solver=solver), in_axes=1, out_axes=1
+    )(operator.V)
     # -L^{-T} V D K^{-T} = -(K^{-1} D (L^{-T} V)^T)^T
-    scaled = d[:, None] * rearrange(LinvT_V, "n k -> k n")
+    scaled = operator.d[:, None] * rearrange(LinvT_V, "n k -> k n")
     right = -rearrange(jnp.linalg.solve(K, scaled), "k n -> n k")
     ones = jnp.ones(operator.rank, dtype=K.dtype)
     return LowRankUpdate(
