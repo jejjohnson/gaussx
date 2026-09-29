@@ -117,7 +117,6 @@ When reviewing dependency choices or suggesting alternatives, prefer these libra
 | Purpose | Preferred Package |
 |---------|-------------------|
 | Logging | `loguru` |
-| CLI | `cyclopts` |
 | Data containers | `dataclasses` (stdlib) or `attrs` |
 | Configuration | `hydra-core` / `omegaconf` |
 | Path handling | `pathlib` (stdlib) |
