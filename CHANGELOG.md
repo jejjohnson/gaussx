@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.1](https://github.com/jejjohnson/gaussx/compare/v0.3.0...v0.3.1) (2026-09-29)
+
+
+### Bug Fixes
+
+* **base_conditional:** accept a 1-D f, validate shapes, clip diagonal variances at 0 ([#363](https://github.com/jejjohnson/gaussx/issues/363)) ([#438](https://github.com/jejjohnson/gaussx/issues/438)) ([dc8e1d2](https://github.com/jejjohnson/gaussx/commit/dc8e1d2303d83a6a0098fca9017a215722727f6f))
+* **block_tridiag:** support a single block (N = 1) in mv, transpose, cholesky and solve ([#304](https://github.com/jejjohnson/gaussx/issues/304)) ([#429](https://github.com/jejjohnson/gaussx/issues/429)) ([9c4a5d8](https://github.com/jejjohnson/gaussx/commit/9c4a5d8f22dd51ec495fc58e96fff51ebd0cc710))
+* **diagonalised:** complex transpose is Aᵀ, and only real outputs are auto-tagged symmetric ([#330](https://github.com/jejjohnson/gaussx/issues/330)) ([#433](https://github.com/jejjohnson/gaussx/issues/433)) ([9b03a08](https://github.com/jejjohnson/gaussx/commit/9b03a089873ae3b740767d1a829a31cc798ee906))
+* **diagonalised:** reject a non-conjugate-even symbol for a real-output circulant ([#325](https://github.com/jejjohnson/gaussx/issues/325)) ([#432](https://github.com/jejjohnson/gaussx/issues/432)) ([0431898](https://github.com/jejjohnson/gaussx/commit/0431898dff0ea65136f194c9f939c34f288f98ff))
+* **ensemble:** validate etkf_transform inputs like its siblings ([#341](https://github.com/jejjohnson/gaussx/issues/341)) ([#435](https://github.com/jejjohnson/gaussx/issues/435)) ([43b9560](https://github.com/jejjohnson/gaussx/commit/43b95600f49f70668898fcd5289d04d50e06cb47))
+* **low_rank_update:** reciprocal-free Woodbury capacitance so zero weights stay exact ([#307](https://github.com/jejjohnson/gaussx/issues/307)) ([#430](https://github.com/jejjohnson/gaussx/issues/430)) ([0e00263](https://github.com/jejjohnson/gaussx/commit/0e00263995f3f8010fd2976ee07c7153019ba0f2))
+* **markov_gaussian:** support a single step (zero transitions) in log_prob and the precision views ([#348](https://github.com/jejjohnson/gaussx/issues/348)) ([#436](https://github.com/jejjohnson/gaussx/issues/436)) ([a3d6b02](https://github.com/jejjohnson/gaussx/commit/a3d6b02bd14bb1bee4983b14eab8d41c216885f8))
+* **natural_gradient:** gauss_newton_precision(J, base=prior) keeps the Woodbury structure ([#334](https://github.com/jejjohnson/gaussx/issues/334)) ([#434](https://github.com/jejjohnson/gaussx/issues/434)) ([b0a2bf0](https://github.com/jejjohnson/gaussx/commit/b0a2bf0a79785a989e80efd60038ac2be44a4091))
+* **sum_kronecker:** never whiten by a non-positive diagonal anchor factor ([#317](https://github.com/jejjohnson/gaussx/issues/317)) ([#431](https://github.com/jejjohnson/gaussx/issues/431)) ([51bb045](https://github.com/jejjohnson/gaussx/commit/51bb045d17ac8932d7f3a31a17352353cca158ef))
+* **tilted_moments:** pass a non-positive cavity variance through instead of returning NaN ([#357](https://github.com/jejjohnson/gaussx/issues/357)) ([#437](https://github.com/jejjohnson/gaussx/issues/437)) ([c732eac](https://github.com/jejjohnson/gaussx/commit/c732eac6ff16dd5b943fd4f34c794118ce85cecc))
+* **toeplitz:** reject a complex column at construction ([#368](https://github.com/jejjohnson/gaussx/issues/368)) ([#439](https://github.com/jejjohnson/gaussx/issues/439)) ([75dd026](https://github.com/jejjohnson/gaussx/commit/75dd026f1c4f32b8577a1532d71fbcbcbc0d571c))
+
 ## [0.3.0](https://github.com/jejjohnson/gaussx/compare/v0.2.0...v0.3.0) (2026-09-29)
 
 
