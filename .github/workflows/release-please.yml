@@ -13,6 +13,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # The release PR is pushed with GITHUB_TOKEN, and GitHub starts no
+      # workflows for events that token causes, so lint.yml's
+      # `uv lock --check` never runs on it. Check the release branch's
+      # lockfile (bumped by the uv.lock extra-file) here instead.
+      - name: Check out the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+      - uses: astral-sh/setup-uv@v7
+        if: steps.release.outputs.prs_created == 'true'
+        with:
+          enable-cache: true
+      - name: Check the release PR's uv.lock matches its pyproject.toml
+        if: steps.release.outputs.prs_created == 'true'
+        run: uv lock --check
