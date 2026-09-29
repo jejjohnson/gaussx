@@ -324,3 +324,53 @@ def test_kronecker_sum_nonsymmetric_factors_with_shift():
     dense = _dense_kron_sum(A - sigma * jnp.eye(7), B)
     rhs = jr.normal(jr.key(11), (42,))
     assert jnp.allclose(gaussx.solve(ks, rhs), jnp.linalg.solve(dense, rhs), atol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# gh-325: a real-output circulant needs a conjugate-even symbol
+# ---------------------------------------------------------------------------
+
+
+def test_non_conjugate_even_symbol_raises():
+    with pytest.raises(ValueError, match="not conjugate-even"):
+        gaussx.circulant_from_symbol(jnp.array([2.0, 5.0, 2.0]))
+
+
+def test_non_conjugate_even_traced_symbol_raises_at_run_time():
+    def run(symbol):
+        return gaussx.solve(gaussx.circulant_from_symbol(symbol), jnp.ones(3))
+
+    with pytest.raises(Exception, match="not conjugate-even"):
+        jax.block_until_ready(jax.jit(run)(jnp.array([2.0, 5.0, 2.0])))
+    good = jnp.array([2.0, 5.0, 5.0])
+    assert jnp.allclose(jax.jit(run)(good), run(good), atol=1e-12)
+
+
+def test_non_conjugate_even_symbol_allowed_without_real_output():
+    op = gaussx.circulant_from_symbol(jnp.array([2.0, 5.0, 2.0]), real_output=False)
+    M = op.as_matrix()
+    b = jnp.array([1.0, 2.0, 3.0], dtype=M.dtype)
+    assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=1e-12)
+
+
+def _accepted_symbols():
+    k1, k2 = jr.split(jr.key(0))
+    column = jr.normal(k1, (5, 4))
+    complex_even = jnp.fft.fftn(jr.normal(k2, (6,)))  # complex, conjugate-even
+    return {
+        "fd_1d": _fd_symbol(8) - 1.0,
+        "fd_1d_float32": (_fd_symbol(8) - 1.0).astype(jnp.float32),
+        "fd_2d": _fd_symbol(6)[:, None] + _fd_symbol(4)[None, :] - 1.0,
+        "complex_even": complex_even,
+        "circulant_column": jnp.fft.fftn(column),
+    }
+
+
+@pytest.mark.parametrize("name", list(_accepted_symbols()))
+def test_every_accepted_symbol_matches_its_matrix(name):
+    op = gaussx.circulant_from_symbol(_accepted_symbols()[name])
+    M = op.as_matrix().astype(jnp.float64)
+    b = jnp.arange(1.0, M.shape[0] + 1.0)
+    tol = 1e-4 if op.eigenvalues.dtype == jnp.float32 else 1e-10
+    assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=tol)
+    assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], atol=tol)
