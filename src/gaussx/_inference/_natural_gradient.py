@@ -91,30 +91,63 @@ def riemannian_psd_correction(
 
 def gauss_newton_precision(
     jacobian: Float[Array, "D_obs D_latent"],
+    *,
+    base: lx.AbstractLinearOperator | None = None,
 ) -> lx.AbstractLinearOperator:
-    r"""Gauss-Newton precision matrix ``J^T J``.
+    r"""Gauss-Newton precision matrix ``J^T J``, optionally plus a prior.
 
     For likelihoods with residual structure ``r(f)``, the Gauss-Newton
     Hessian approximation is ``-J_r^T J_r`` which gives precision
     ``\Lambda = J^T J`` (always PSD).
 
-    When ``D_{obs} < D_{latent}``, returns a `LowRankUpdate`
-    to enable efficient Woodbury-based solves downstream.
+    With ``base`` (a prior precision ``\Lambda_0``), returns the posterior
+    precision ``\Lambda_0 + J^T J`` as a `LowRankUpdate` on ``base``, for
+    any ``D_obs``. `gaussx.solve` and `gaussx.logdet` then use the Woodbury
+    identity and ``base``'s own structured solve. This is the form to use
+    whenever the precision will be solved against.
+
+    Without ``base``, ``J^T J`` has rank at most ``D_obs``. When
+    ``D_{obs} < D_{latent}`` it is returned as a `LowRankUpdate` on a zero
+    base, which is **singular**: it is meant as a summand or for ``mv``,
+    and `gaussx.solve` / `gaussx.logdet` on it are undefined (``NaN``).
+    Adding a prior afterwards (``gauss_newton_precision(J) + prior``) gives
+    a plain lineax sum that is solved densely; pass ``base=prior`` instead.
 
     Args:
         jacobian: Jacobian of the residual, shape ``(D_obs, D_latent)``.
+        base: Optional prior precision of shape ``(D_latent, D_latent)``.
+            Its symmetry and positive-semidefiniteness tags carry over to
+            the result.
 
     Returns:
         PSD precision operator of shape ``(D_latent, D_latent)``.
     """
     D_obs, D_latent = jacobian.shape
+    ones = jnp.ones(D_obs, dtype=jacobian.dtype)
+
+    if base is not None:
+        if base.in_size() != D_latent or base.out_size() != D_latent:
+            raise ValueError(
+                f"base must be ({D_latent}, {D_latent}) to match the Jacobian's "
+                f"D_latent, got ({base.out_size()}, {base.in_size()})."
+            )
+        # J^T J is PSD, so the sum keeps whatever the prior can claim.
+        tags = frozenset(
+            tag
+            for query, tag in (
+                (lx.is_symmetric, lx.symmetric_tag),
+                (lx.is_positive_semidefinite, lx.positive_semidefinite_tag),
+            )
+            if query(base)
+        )
+        return LowRankUpdate(base=base, U=jacobian.T, d=ones, tags=tags)
 
     if D_obs < D_latent:
-        base = lx.DiagonalLinearOperator(jnp.zeros(D_latent))
+        base = lx.DiagonalLinearOperator(jnp.zeros(D_latent, dtype=jacobian.dtype))
         return LowRankUpdate(
             base=base,
             U=jacobian.T,
-            d=jnp.ones(D_obs),
+            d=ones,
             tags=frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
         )
 

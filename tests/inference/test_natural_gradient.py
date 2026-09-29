@@ -3,7 +3,9 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
+import gaussx
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
@@ -132,3 +134,43 @@ class TestGaussNewtonPrecision:
         op = gauss_newton_precision(J)
         eigvals = jnp.linalg.eigvalsh(op.as_matrix())
         assert jnp.all(eigvals >= -1e-10)
+
+
+class TestGaussNewtonPrecisionWithBase:
+    """gh-334: a prior precision makes J^T J invertible and keeps Woodbury."""
+
+    @pytest.mark.parametrize("shape", [(2, 4), (5, 3)], ids=["wide", "tall"])
+    def test_matches_dense_posterior_precision(self, shape):
+        from gaussx._operators._low_rank_update import LowRankUpdate
+
+        J = jax.random.normal(jax.random.key(0), shape)
+        D_latent = shape[1]
+        prior = lx.DiagonalLinearOperator(2.0 * jnp.ones(D_latent))
+        op = gauss_newton_precision(J, base=prior)
+        assert isinstance(op, LowRankUpdate)
+        assert op.base is prior
+        assert lx.is_symmetric(op)
+        M = J.T @ J + 2.0 * jnp.eye(D_latent)
+        b = jnp.ones(D_latent)
+        assert jnp.allclose(op.as_matrix(), M, atol=1e-12)
+        assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=1e-12)
+        assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], atol=1e-12)
+
+    def test_psd_tag_follows_the_base(self):
+        J = jax.random.normal(jax.random.key(0), (2, 4))
+        tagged = lx.MatrixLinearOperator(2.0 * jnp.eye(4), lx.positive_semidefinite_tag)
+        assert lx.is_positive_semidefinite(gauss_newton_precision(J, base=tagged))
+        untagged = lx.MatrixLinearOperator(2.0 * jnp.eye(4))
+        assert not lx.is_positive_semidefinite(gauss_newton_precision(J, base=untagged))
+
+    def test_base_shape_mismatch_raises(self):
+        J = jax.random.normal(jax.random.key(0), (2, 4))
+        with pytest.raises(ValueError, match="base must be"):
+            gauss_newton_precision(J, base=lx.DiagonalLinearOperator(jnp.ones(3)))
+
+    def test_without_base_is_documented_singular(self):
+        # Pinned: rank D_obs < D_latent, so there is no inverse to compute.
+        J = jax.random.normal(jax.random.key(0), (2, 4))
+        op = gauss_newton_precision(J)
+        assert jnp.linalg.matrix_rank(op.as_matrix()) == 2
+        assert not jnp.all(jnp.isfinite(gaussx.solve(op, jnp.ones(4))))
