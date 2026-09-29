@@ -1,5 +1,6 @@
 """Tests for KroneckerSum operator."""
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -111,8 +112,16 @@ class TestKroneckerSum:
         A = lx.DiagonalLinearOperator(jnp.array([1.0, -3.0]))
         B = lx.DiagonalLinearOperator(jnp.array([0.5, 1.0]))
         # tag as symmetric since DiagonalLinearOperator already is
-        with pytest.raises(ValueError, match="positive semidefinite"):
+        # ``eqx.error_if`` raises EquinoxRuntimeError eagerly (gh-292).
+        with pytest.raises(Exception, match="positive semidefinite"):
             gaussx.KroneckerSumSqrt(A, B)
+
+    def test_sqrt_rejects_materially_negative_spectrum_under_jit(self):
+        A = lx.DiagonalLinearOperator(jnp.array([1.0, -3.0]))
+        B = lx.DiagonalLinearOperator(jnp.array([0.5, 1.0]))
+        v = jnp.ones(4)
+        with pytest.raises(Exception, match="positive semidefinite"):
+            jax.jit(lambda A, B: gaussx.KroneckerSumSqrt(A, B).mv(v))(A, B)
 
     def test_sqrt_rejects_non_square_factor(self):
         # A non-square factor cannot have a well-defined Kronecker sum
@@ -138,6 +147,23 @@ class TestKroneckerSum:
         B = lx.MatrixLinearOperator(jnp.eye(2))
         with pytest.raises(ValueError, match="square"):
             gaussx.KroneckerSum(A, B)
+
+
+@pytest.mark.parametrize(
+    "entry_point",
+    [
+        lambda K, v: gaussx.sqrt(K).mv(v),
+        lambda K, v: gaussx.KroneckerSumSqrt(K.A, K.B).mv(v),
+        lambda K, v: gaussx.kronecker_sum_sample(K.A, K.B, key=jax.random.key(0)),
+    ],
+    ids=["sqrt", "KroneckerSumSqrt", "kronecker_sum_sample"],
+)
+def test_sqrt_entry_points_run_under_jit(kron_sum, entry_point):
+    """gh-292: the PSD guard used ``bool()`` on a traced eigenvalue."""
+    v = jnp.arange(1.0, kron_sum.in_size() + 1.0)
+    eager = entry_point(kron_sum, v)
+    jitted = eqx.filter_jit(entry_point)(kron_sum, v)
+    assert jnp.allclose(jitted, eager, rtol=1e-12, atol=1e-12)
 
 
 def test_solve_untagged_nonsymmetric_factors_is_correct():

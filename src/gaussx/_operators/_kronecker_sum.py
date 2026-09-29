@@ -142,8 +142,9 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
         B: Symmetric PSD factor, shape ``(n_b, n_b)``.
 
     Raises:
-        ValueError: If either factor is non-square, untagged as symmetric, or
-            if ``A \oplus B`` is not positive semidefinite.
+        ValueError: If either factor is non-square or untagged as symmetric.
+        EquinoxRuntimeError: If ``A \oplus B`` is not positive semidefinite
+            (checked with `equinox.error_if`, so also under ``jax.jit``).
     """
 
     eigenvectors_a: Float[Array, "a a"]
@@ -195,13 +196,14 @@ class KroneckerSumSqrt(lx.AbstractLinearOperator):
             * jnp.finfo(eigenvalues.dtype).eps
             * jnp.sqrt(scale)
         )
-        min_eigenvalue = jnp.min(eigenvalues)
-        if bool(min_eigenvalue < threshold):
-            raise ValueError(
-                "A ⊕ B must be positive semidefinite; "
-                f"minimum eigenvalue {float(min_eigenvalue):.2e} is below "
-                f"threshold {float(threshold):.2e}."
-            )
+        # ``eqx.error_if`` rather than a Python branch, so the check also
+        # runs (at run time) when the factors are traced.
+        eigenvalues = eqx.error_if(
+            eigenvalues,
+            jnp.min(eigenvalues) < threshold,
+            "A ⊕ B must be positive semidefinite (minimum eigenvalue of the "
+            "Kronecker sum is below the round-off threshold).",
+        )
         sqrt_eigenvalues = jnp.sqrt(jnp.maximum(eigenvalues, 0.0))
 
         self.eigenvectors_a = evecs_a
