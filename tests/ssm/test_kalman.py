@@ -13,6 +13,7 @@ from gaussx import (
     BlockDiag,
     FilterState,
     LowRankUpdate,
+    MaternSDE,
     kalman_filter,
     kalman_gain,
     rts_smoother,
@@ -574,3 +575,27 @@ def test_kalman_filter_float32_with_partial_mask():
     assert state.filtered_means.dtype == f32
     assert state.log_likelihood.dtype == f32
     assert jnp.isfinite(state.log_likelihood)
+
+
+@pytest.mark.parametrize("woodbury", [False, True], ids=["dense", "woodbury"])
+def test_float32_covariances_exactly_symmetric(woodbury):
+    # gh-388: round-off (and the one-sided Woodbury update) left P slightly
+    # asymmetric, which numpyro's positive_definite constraint rejects.
+    kern = MaternSDE(
+        variance=jnp.array(1.0, dtype=jnp.float32),
+        lengthscale=jnp.array(0.3, dtype=jnp.float32),
+        order=2,
+    )
+    A, Q = kern.discretise(jnp.array(0.01, dtype=jnp.float32))
+    P0 = kern.sde_params().P_inf
+    H = jnp.array([[1.0, 0.0, 0.0]], dtype=jnp.float32)
+    R = jnp.array([[0.01]], dtype=jnp.float32)
+    # Any data shows the effect; the key is pinned for reproducibility.
+    y = jr.normal(jr.key(0), (100, 1), dtype=jnp.float32)
+    state = kalman_filter(
+        A, H, Q, R, y, jnp.zeros(3, jnp.float32), P0, woodbury_innovation=woodbury
+    )
+    smoothed = rts_smoother(state, A, Q)[1]
+    for P in (state.filtered_covs, state.predicted_covs, smoothed):
+        assert P.dtype == jnp.float32
+        assert jnp.array_equal(P, jnp.swapaxes(P, -1, -2))

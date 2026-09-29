@@ -10,6 +10,7 @@ from jaxtyping import Array, Bool, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._linalg import sandwich, solve_rows
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._utils import (
     _innovation_covariance,
     _left_matmul,
@@ -173,6 +174,9 @@ def kalman_filter(
             P_pred = sandwich(A_op, P_filt_op).as_matrix() + Q_t
         else:
             P_pred = A_t @ P_filt @ A_t.T + Q_t
+        # Round-off leaves P slightly asymmetric, and numpyro's
+        # positive_definite constraint checks symmetry exactly (gh-388).
+        P_pred = symmetrize(P_pred)
 
         # --- Update ---
         def _update(H_eff, R_eff, v, n_missing):
@@ -200,6 +204,9 @@ def kalman_filter(
                 P_upd = P_pred - K @ HP_pred
             else:
                 P_upd = P_pred - K @ S_op.as_matrix() @ K.T
+            # The Woodbury form (I - KH) P is not symmetric even in exact
+            # arithmetic unless K is exact.
+            P_upd = symmetrize(P_upd)
 
             Sinv_v = dispatch_solve(S_op, v, solver)
             ld = dispatch_logdet(S_op, solver)
@@ -320,7 +327,7 @@ def rts_smoother(
         G = solve_rows(P_pred_op, G, solver=solver)  # (N, N)
 
         x_smooth_new = x_filt + G @ (x_smooth - x_pred)
-        P_smooth_new = P_filt + G @ (P_smooth - P_pred) @ G.T
+        P_smooth_new = symmetrize(P_filt + G @ (P_smooth - P_pred) @ G.T)
 
         return (x_smooth_new, P_smooth_new), (x_smooth_new, P_smooth_new)
 
