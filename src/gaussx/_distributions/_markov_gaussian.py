@@ -179,6 +179,13 @@ class MarkovGaussian(dist.Distribution):
     def cross_covariances(self) -> Float[Array, "Tm1 d d"]:
         r"""$\mathrm{Cov}(x_{k+1}, x_k) = A_k P_k$ for each consecutive pair."""
         _, covs = self.marginals()
+        return self._cross(covs)
+
+    def _cross(self, covs: Float[Array, "T d d"]) -> Float[Array, "Tm1 d d"]:
+        if self.A.shape[0] == 0:
+            # One step, no transitions: einx cannot contract the empty
+            # transition axis (gh-348).
+            return self.A
         return einsum(self.A, covs[:-1], "T i j, T j k -> T i k")
 
     def pairwise_marginals(
@@ -192,8 +199,10 @@ class MarkovGaussian(dist.Distribution):
             `gaussx.pairwise_marginals`.
         """
         means, covs = self.marginals()
-        cross = einsum(self.A, covs[:-1], "T i j, T j k -> T i k")
-        return pairwise_marginals(means, covs, cross)
+        if self.A.shape[0] == 0:
+            d2 = 2 * self.state_dim
+            return jnp.zeros((0, d2), means.dtype), jnp.zeros((0, d2, d2), covs.dtype)
+        return pairwise_marginals(means, covs, self._cross(covs))
 
     @lazy_property
     def covariance_matrix(self) -> Float[Array, "Td Td"]:
@@ -267,7 +276,10 @@ class MarkovGaussian(dist.Distribution):
         T, d = precision._num_blocks, precision._block_size
         means = mean if mean.ndim == 2 else rearrange(mean, "(T d) -> T d", T=T, d=d)
         A, Q, _ = udl_to_ssm_params(udl_decomposition(precision))
-        b = means[1:] - einsum(A, means[:-1], "T i j, T j -> T i")
+        if T == 1:
+            b = means[1:]
+        else:
+            b = means[1:] - einsum(A, means[:-1], "T i j, T j -> T i")
         return cls(A, Q[1:], means[0], Q[0], b=b)
 
     # ------------------------------------------------------------------
@@ -281,8 +293,10 @@ class MarkovGaussian(dist.Distribution):
         r"""$\log \mathcal{N}(x_0; \mu_0, P_0)
         + \sum_k \log \mathcal{N}(x_{k+1}; A_k x_k + b_k, Q_k)$ at $O(T d^3)$."""
         chol_P0, chol_Q = self._chol_factors()
-        residuals = xs[1:] - einsum(self.A, xs[:-1], "T i j, T j -> T i") - self.b
         lp_0 = _chol_log_prob(chol_P0, xs[0] - self.mu0)
+        if self.A.shape[0] == 0:
+            return lp_0
+        residuals = xs[1:] - einsum(self.A, xs[:-1], "T i j, T j -> T i") - self.b
         lp_rest = jax.vmap(_chol_log_prob)(chol_Q, residuals)
         return lp_0 + jnp.sum(lp_rest)
 
