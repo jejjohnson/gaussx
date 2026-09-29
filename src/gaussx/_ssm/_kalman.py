@@ -26,6 +26,10 @@ from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 class FilterState(eqx.Module):
     """Output of ``kalman_filter``.
 
+    Row ``t`` refers to the state observed by ``observations[t]``. The
+    filters predict before each update, so ``predicted_means[0]`` is
+    ``A₀ m₀`` (one transition past the prior on x₀), not ``m₀``.
+
     Attributes:
         filtered_means: Shape ``(T, N)`` — filtered state estimates.
         filtered_covs: Shape ``(T, N, N)`` — filtered covariances.
@@ -62,6 +66,10 @@ def kalman_filter(
         x_t = A_t @ x_{t-1} + q_t,   q_t ~ N(0, Q_t)
         y_t = H_t @ x_t + r_t,        r_t ~ N(0, R_t)
 
+    with ``x₀ ~ N(init_mean, init_cov)`` and ``t = 1, …, T``: every step
+    predicts, then updates, so ``observations[0]`` is ``y₁`` (predict
+    first, as in `gaussx.LGSSM`).
+
     **Time-invariant inputs** (single ``(N, N)`` / ``(M, N)`` etc.) are
     automatically broadcast along the time axis. **Time-varying inputs**
     are passed as ``(T, …)`` stacks (e.g. from
@@ -86,8 +94,13 @@ def kalman_filter(
         obs_noise: Observation noise covariance ``R``. Shape ``(M, M)``,
             ``(T, M, M)``, or operator.
         observations: Observed data, shape ``(T, M)``.
-        init_mean: Initial state mean, shape ``(N,)``.
-        init_cov: Initial state covariance, shape ``(N, N)``.
+        init_mean: Mean of the prior on x₀, shape ``(N,)``.
+        init_cov: Covariance of the prior on x₀, shape ``(N, N)``.
+            The filter predicts before each update, so
+            ``observations[0]`` is scored against ``A₀ x₀`` -- it
+            observes x₁, not x₀. To observe the prior directly at step 0,
+            pass a time-varying transition with ``A₀ = I`` and
+            ``Q₀ = 0``.
         mask: Optional observation mask. Disambiguated by rank, so no
             extra keyword is needed (``M == 1`` is unambiguous either
             way, since a ``(T,)`` and a ``(T, 1)`` mask coincide).

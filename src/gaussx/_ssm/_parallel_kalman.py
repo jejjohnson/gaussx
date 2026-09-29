@@ -187,8 +187,10 @@ def parallel_kalman_filter(
 ) -> FilterState:
     """Parallel Kalman filter via `jax.lax.associative_scan`.
 
-    Numerically equivalent to `gaussx.kalman_filter` but with
-    ``O(log T)`` parallel depth on accelerators. Same generalised
+    Matches `gaussx.kalman_filter` to floating-point round-off for the
+    default ``solver=None`` (``solver`` is not threaded through), with
+    ``O(log T)`` parallel depth on accelerators. Same predict-first time
+    convention and generalised
     contract (TI / TV / operator-typed inputs, optional mask, scalar
     log-likelihood). Empty observation windows (``T == 0``) return a
     zero-length `FilterState` with ``log_likelihood == 0``.
@@ -199,8 +201,13 @@ def parallel_kalman_filter(
         process_noise: Process noise covariance or operator.
         obs_noise: Observation noise covariance or operator.
         observations: Observed data, shape ``(T, M)``.
-        init_mean: Initial state mean, shape ``(N,)``.
-        init_cov: Initial state covariance, shape ``(N, N)``.
+        init_mean: Mean of the prior on x₀, shape ``(N,)``.
+        init_cov: Covariance of the prior on x₀, shape ``(N, N)``.
+            The filter predicts before each update, so
+            ``observations[0]`` is scored against ``A₀ x₀`` -- it
+            observes x₁, not x₀. To observe the prior directly at step 0,
+            pass a time-varying transition with ``A₀ = I`` and
+            ``Q₀ = 0``.
         mask: Optional observation mask, dispatched on rank exactly as
             in `gaussx.kalman_filter`. Shape ``(T,)`` gates whole
             steps (``False`` runs predict-only and contributes 0 to the

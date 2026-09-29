@@ -79,6 +79,16 @@ def infinite_horizon_filter(
         Update:   vₜ  = yₜ − H x⁻ₜ
                   xₜ  = x⁻ₜ + K∞ vₜ
 
+    Like the other filters it predicts first: ``init_mean`` is the mean of
+    x₀ and ``observations[0]`` is scored against ``A x₀``.
+
+    Every step uses the steady-state innovation covariance S∞ and gain
+    K∞, so the log-likelihood equals `kalman_filter`'s only when that
+    filter starts at the DARE fixed point
+    (``init_cov = dare(...).P_inf``); from any other prior it
+    approximates the transient. There is no ``init_cov`` argument for
+    that reason.
+
     All four operator/array arguments accept either a raw JAX array or
     a `lineax.AbstractLinearOperator`. Operator inputs preserve
     their structural matvec inside the per-step scan; the sandwiches

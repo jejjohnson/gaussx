@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
+from jax.scipy.stats import multivariate_normal as mvn
 from jax.test_util import check_grads
 
 from gaussx import (
@@ -16,6 +17,8 @@ from gaussx import (
     MaternSDE,
     kalman_filter,
     kalman_gain,
+    nonlinear_kalman_filter,
+    parallel_kalman_filter,
     rts_smoother,
 )
 from gaussx._ssm._utils import _innovation_covariance
@@ -599,3 +602,56 @@ def test_float32_covariances_exactly_symmetric(woodbury):
     for P in (state.filtered_covs, state.predicted_covs, smoothed):
         assert P.dtype == jnp.float32
         assert jnp.array_equal(P, jnp.swapaxes(P, -1, -2))
+
+
+_PF_A = jnp.array([[0.5, 0.2], [0.0, 0.7]])
+_PF_H = jnp.array([[1.0, 0.0]])
+_PF_Q = 0.3 * jnp.eye(2)
+_PF_R = jnp.array([[0.1]])
+_PF_M0 = jnp.array([1.0, -1.0])
+_PF_P0 = jnp.eye(2)
+_PF_Y = jnp.array([[0.4]])
+
+_FILTERS = {
+    "kalman_filter": lambda A, Q: kalman_filter(
+        A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0
+    ),
+    "parallel_covariance": lambda A, Q: parallel_kalman_filter(
+        A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0
+    ),
+    "parallel_sqrt": lambda A, Q: parallel_kalman_filter(
+        A, _PF_H, Q, _PF_R, _PF_Y, _PF_M0, _PF_P0, form="sqrt"
+    ),
+}
+
+
+@pytest.mark.parametrize("name", [*_FILTERS, "nonlinear_kalman_filter"])
+def test_first_observation_sees_one_transition(name):
+    # gh-346: every filter predicts before it updates, so observations[0]
+    # is scored against H A x₀, not H x₀.
+    if name == "nonlinear_kalman_filter":
+        state = nonlinear_kalman_filter(
+            lambda x: _PF_A @ x,
+            lambda x: _PF_H @ x,
+            _PF_Q,
+            _PF_R,
+            _PF_Y,
+            _PF_M0,
+            _PF_P0,
+        )
+    else:
+        state = _FILTERS[name](_PF_A, _PF_Q)
+    P_pred = _PF_A @ _PF_P0 @ _PF_A.T + _PF_Q
+    expected = mvn.logpdf(
+        _PF_Y[0], _PF_H @ _PF_A @ _PF_M0, _PF_H @ P_pred @ _PF_H.T + _PF_R
+    )
+    assert jnp.allclose(state.log_likelihood, expected, rtol=1e-12, atol=1e-12)
+    assert jnp.allclose(state.predicted_means[0], _PF_A @ _PF_M0, atol=1e-12)
+
+
+@pytest.mark.parametrize("name", list(_FILTERS))
+def test_identity_first_transition_observes_the_prior(name):
+    # The documented recipe: A₀ = I, Q₀ = 0 scores observations[0] against x₀.
+    state = _FILTERS[name](jnp.eye(2)[None], jnp.zeros((1, 2, 2)))
+    expected = mvn.logpdf(_PF_Y[0], _PF_H @ _PF_M0, _PF_H @ _PF_P0 @ _PF_H.T + _PF_R)
+    assert jnp.allclose(state.log_likelihood, expected, rtol=1e-12, atol=1e-12)
