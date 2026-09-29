@@ -61,9 +61,9 @@ class PeriodicSDE(SDEKernel):
     to ``n_harmonics`` terms. State dimension is ``2 * n_harmonics``.
 
     Short lengthscales put more of the variance into high harmonics, so
-    they need more terms: use ``n_harmonics ≳ 3 / ℓ`` (with ``ℓ`` in units
-    of the period). At ``ℓ = 0.2`` the default 6 harmonics carry about 81%
-    of the variance, and 20 carry 99.99%.
+    they need more terms: use ``n_harmonics ≳ 3 / lengthscale`` (with the
+    lengthscale in units of the period). At ``lengthscale = 0.2`` the default
+    6 harmonics carry about 81% of the variance, and 20 carry 99.99%.
 
     Attributes:
         variance: Signal variance $\sigma^2$.
