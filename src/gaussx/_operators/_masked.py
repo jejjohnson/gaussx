@@ -13,7 +13,7 @@ import numpy as np
 from jaxtyping import Array, Bool, Float, Int
 
 from gaussx._operators._block_diag import _to_frozenset
-from gaussx._operators._capacitance import CapacitanceSolver
+from gaussx._operators._capacitance import CapacitanceSolver, _replace_fields
 from gaussx._operators._diagonalised import as_diagonalised
 
 
@@ -67,7 +67,10 @@ class MaskedOperator(lx.AbstractLinearOperator):
     Attributes:
         capacitance: The precomputed `gaussx.CapacitanceSolver` on the full
             index space, or ``None`` when no ``coupling_indices`` were given
-            (``solve`` then falls back to the dense path).
+            (``solve`` then falls back to the dense path). It stores no
+            ``base_solve``: ``solve`` builds one from ``base`` at call time,
+            so ``base`` stays a differentiable pytree leaf and ``solve`` is
+            differentiated implicitly (not through the cached factorisation).
     """
 
     base: lx.AbstractLinearOperator
@@ -104,8 +107,11 @@ class MaskedOperator(lx.AbstractLinearOperator):
         self.base = base
         self.row_mask = jnp.asarray(row_mask, dtype=bool)
         self.col_mask = jnp.asarray(col_mask, dtype=bool)
-        self._in_size = int(jnp.sum(col_mask))
-        self._out_size = int(jnp.sum(row_mask))
+        # Counted with NumPy so constant masks also work inside ``jit``
+        # (``jnp.sum`` would be staged); traced masks cannot give a static
+        # size and raise.
+        self._in_size = int(np.sum(np.asarray(col_mask)))
+        self._out_size = int(np.sum(np.asarray(row_mask)))
         struct = base.out_structure()
         leaves = jax.tree.leaves(struct)
         self._dtype = str(leaves[0].dtype)
@@ -139,10 +145,20 @@ class MaskedOperator(lx.AbstractLinearOperator):
         return full[jnp.ix_(row_indices, col_indices)]
 
     def transpose(self) -> MaskedOperator:
-        return MaskedOperator(
-            self.base.T,
-            self.col_mask,
-            self.row_mask,
+        # Built field by field rather than through ``__init__``, which needs
+        # concrete masks (so it can run under a trace, e.g. in lineax's solve
+        # VJP). ``(B[m][:, m])ᵀ = (Bᵀ)[m][:, m]``, and the capacitance of
+        # ``Bᵀ`` is the transposed factorisation of ``B``'s.
+        return _replace_fields(
+            self,
+            base=self.base.T,
+            row_mask=self.col_mask,
+            col_mask=self.row_mask,
+            capacitance=(
+                None if self.capacitance is None else self.capacitance.transpose()
+            ),
+            _in_size=self._out_size,
+            _out_size=self._in_size,
             tags=lx.transpose_tags(self.tags),
         )
 
@@ -183,6 +199,7 @@ def _build_capacitance(
         base.in_size(),
         null_vector=null_vector,
         left_null_vector=left_null_vector,
+        keep_base_solve=False,
     )
 
 

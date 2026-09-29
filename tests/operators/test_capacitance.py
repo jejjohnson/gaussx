@@ -204,3 +204,51 @@ def test_solver_works_under_plain_jit(masked_problem):
     assert jnp.allclose(
         eqx.filter_jit(lambda s, r: s(r))(solver, rhs), expected, atol=1e-12
     )
+
+
+def _nonsymmetric_singular(n=9):
+    k1, k2 = jr.split(jr.key(1))
+    V = jnp.eye(n) + 0.3 * jr.normal(k1, (n, n)) / jnp.sqrt(n)
+    lam = jnp.concatenate([jnp.zeros(1), jr.uniform(k2, (n - 1,), minval=1, maxval=3)])
+    B = (V * lam) @ jnp.linalg.inv(V)
+    return B, V[:, 0], jnp.linalg.inv(V)[0]
+
+
+@pytest.mark.parametrize("singular", [False, True], ids=["regular", "singular"])
+def test_transpose_matches_a_solver_built_for_the_transpose(singular):
+    # gh-290: transpose() reuses the factorisation (trans=1, swapped null
+    # vectors, flipped border sign) instead of N_b more base solves.
+    n = 9
+    B, r, ell = _nonsymmetric_singular(n)
+    if not singular:
+        B = B + 2.0 * jnp.eye(n)
+    B_pinv = jnp.linalg.pinv(B)
+    boundary = jnp.array([1, 5])
+    rhs = jr.normal(jr.key(2), (n,))
+    nulls = {"null_vector": r, "left_null_vector": ell} if singular else {}
+    swapped = {"null_vector": ell, "left_null_vector": r} if singular else {}
+
+    solver = CapacitanceSolver(lambda f: B_pinv @ f, boundary, n, **nulls)
+    fresh = CapacitanceSolver(lambda f: B_pinv.T @ f, boundary, n, **swapped)
+    transposed = solver.transpose()
+    assert transposed.base_solve is None
+    x = transposed(rhs, base_solve=lambda f: B_pinv.T @ f)
+    assert jnp.allclose(x, fresh(rhs), atol=1e-10)
+    back = transposed.transpose()(rhs, base_solve=lambda f: B_pinv @ f)
+    assert jnp.allclose(back, solver(rhs), atol=1e-10)
+
+
+def test_keep_base_solve_false_needs_a_call_time_solve(getkey):
+    n = 6
+    A = random_pd_matrix(getkey(), n)
+    A_inv = jnp.linalg.inv(A)
+    boundary = jnp.array([0, 3])
+    rhs = jr.normal(getkey(), (n,))
+    kept = CapacitanceSolver(lambda f: A_inv @ f, boundary, n)
+    detached = CapacitanceSolver(
+        lambda f: A_inv @ f, boundary, n, keep_base_solve=False
+    )
+    assert detached.base_solve is None
+    with pytest.raises(ValueError, match="base_solve"):
+        detached(rhs)
+    assert tree_allclose(detached(rhs, base_solve=lambda f: A_inv @ f), kept(rhs))

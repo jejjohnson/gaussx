@@ -29,6 +29,7 @@ standard bordered-system treatment of a singular base operator.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Callable
 
 import equinox as eqx
@@ -98,24 +99,34 @@ class CapacitanceSolver(eqx.Module):
         left_null_vector: Left null vector ``w`` of a singular base operator;
             defaults to ``null_vector`` (correct for symmetric ``B``). Ignored
             when ``null_vector`` is ``None``.
+        keep_base_solve: When ``False``, ``base_solve`` is only used to build
+            the capacitance matrix and is not stored; pass it to `__call__`
+            instead. A static closure over an operator hides the operator's
+            arrays from autodiff and makes every instance a new ``jit``
+            cache key, so `gaussx.MaskedOperator` keeps its base as a pytree
+            leaf and uses this.
 
     Attributes:
-        base_solve: The base inverse callable (static).
+        base_solve: The base inverse callable (static), or ``None`` when
+            built with ``keep_base_solve=False``.
         boundary_indices: The constrained indices.
         capacitance_lu: LU factorization ``(lu, pivots)`` of ``C``, or of the
             bordered ``(N_b + 1) × (N_b + 1)`` system when a null vector is
             given.
         null_vector: ``r``, or ``None``.
         left_null_vector: ``w``, or ``None``.
+        transposed: Whether this solver is the `transpose` of a built one
+            (it then solves with ``Bᵀ`` using the transposed factorisation).
     """
 
-    base_solve: Callable[[Float[Array, " n"]], Float[Array, " n"]] = eqx.field(
+    base_solve: Callable[[Float[Array, " n"]], Float[Array, " n"]] | None = eqx.field(
         static=True
     )
     boundary_indices: Int[Array, " Nb"]
     capacitance_lu: tuple[Float[Array, "m m"], Int[Array, " m"]]
     null_vector: Float[Array, " n"] | None
     left_null_vector: Float[Array, " n"] | None
+    transposed: bool = eqx.field(static=True)
 
     def __init__(
         self,
@@ -125,6 +136,7 @@ class CapacitanceSolver(eqx.Module):
         *,
         null_vector: Float[Array, " n"] | None = None,
         left_null_vector: Float[Array, " n"] | None = None,
+        keep_base_solve: bool = True,
     ):
         indices = jnp.asarray(boundary_indices)
         capacitance = _capacitance_matrix(base_solve, indices, n)
@@ -148,30 +160,91 @@ class CapacitanceSolver(eqx.Module):
                 ]
             )
 
-        self.base_solve = base_solve
+        self.base_solve = base_solve if keep_base_solve else None
         self.boundary_indices = indices
         self.capacitance_lu = jsl.lu_factor(system)
         self.null_vector = null_vector
         self.left_null_vector = left_null_vector
+        self.transposed = False
 
-    def __call__(self, rhs: Float[Array, " n"]) -> Float[Array, " n"]:
-        """Solve the constrained system for a flat right-hand side ``rhs``."""
-        u = self.base_solve(rhs)
+    def __call__(
+        self,
+        rhs: Float[Array, " n"],
+        *,
+        base_solve: Callable[[Float[Array, " n"]], Float[Array, " n"]] | None = None,
+    ) -> Float[Array, " n"]:
+        """Solve the constrained system for a flat right-hand side ``rhs``.
+
+        Args:
+            rhs: Flat right-hand side, shape ``(n,)``.
+            base_solve: The base inverse to use; overrides the stored one
+                and is required when the solver was built with
+                ``keep_base_solve=False``. For a solver returned by
+                `transpose` it must apply ``B^{-T}``.
+
+        Returns:
+            The constrained solution, shape ``(n,)``.
+        """
+        base_solve = self.base_solve if base_solve is None else base_solve
+        if base_solve is None:
+            raise ValueError(
+                "This CapacitanceSolver stores no base_solve; pass base_solve=."
+            )
+        # A transposed solver solves with the transposed factorisation. The
+        # bordered system for Bᵀ is D Sᵀ D with D = diag(1, …, 1, -1).
+        trans = 1 if self.transposed else 0
+        u = base_solve(rhs)
         u_b = u[self.boundary_indices]
         if self.null_vector is None:
-            alpha = jsl.lu_solve(self.capacitance_lu, u_b)
+            alpha = jsl.lu_solve(self.capacitance_lu, u_b, trans=trans)
             beta = None
         else:
             assert self.left_null_vector is not None
             load = jnp.dot(self.left_null_vector, rhs)
-            sol = jsl.lu_solve(self.capacitance_lu, jnp.append(u_b, load))
-            alpha, beta = sol[:-1], sol[-1]
-        sources = jnp.zeros_like(u).at[self.boundary_indices].set(alpha)
-        x = u - self.base_solve(sources)
+            sign = -1.0 if self.transposed else 1.0
+            sol = jsl.lu_solve(
+                self.capacitance_lu, jnp.append(u_b, sign * load), trans=trans
+            )
+            alpha, beta = sol[:-1], sign * sol[-1]
+        # Constrained indices are distinct; saying so keeps the scatter
+        # transposable (reverse mode through a solve).
+        sources = (
+            jnp.zeros_like(u).at[self.boundary_indices].set(alpha, unique_indices=True)
+        )
+        x = u - base_solve(sources)
         if beta is not None:
             assert self.null_vector is not None
             x = x + beta * self.null_vector
         return x
+
+    def transpose(self) -> CapacitanceSolver:
+        """The capacitance solver for ``Bᵀ``, reusing this factorisation.
+
+        ``Cᵀ`` is the capacitance matrix of ``Bᵀ`` on the same indices, and
+        ``Bᵀ``'s right/left null vectors are ``B``'s left/right ones, so no
+        base solve is needed. The result stores no ``base_solve``: pass
+        ``Bᵀ``'s inverse to `__call__`.
+        """
+        return _replace_fields(
+            self,
+            base_solve=None,
+            null_vector=self.left_null_vector,
+            left_null_vector=self.null_vector,
+            transposed=not self.transposed,
+        )
+
+
+def _replace_fields(module: eqx.Module, **changes):
+    """Copy an `equinox.Module`, replacing fields, without calling ``__init__``.
+
+    ``dataclasses.replace`` would re-run the custom ``__init__``; this is the
+    field-by-field construction equinox itself uses when unflattening.
+    """
+    new = object.__new__(type(module))
+    for field in dataclasses.fields(module):
+        value = changes.get(field.name, getattr(module, field.name))
+        object.__setattr__(new, field.name, value)
+    return new
 
 
 def _capacitance_matrix(
