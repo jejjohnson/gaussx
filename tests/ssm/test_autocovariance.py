@@ -2,8 +2,17 @@
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
+import pytest
 
-from gaussx import ConstantSDE, CosineSDE, MaternSDE, sde_autocovariance
+from gaussx import (
+    ConstantSDE,
+    CosineSDE,
+    MaternSDE,
+    PeriodicSDE,
+    QuasiPeriodicSDE,
+    sde_autocovariance,
+)
 
 
 class TestSDEAutocovariance:
@@ -52,3 +61,40 @@ class TestSDEAutocovariance:
         g_var, g_ell = grad_fn(jnp.array(1.0), jnp.array(1.0))
         assert jnp.isfinite(g_var)
         assert jnp.isfinite(g_ell)
+
+
+class TestPeriodicClosedForm:
+    """gh-289: the j = 0 (constant) harmonic was missing, so k(0) != σ²."""
+
+    @staticmethod
+    def _periodic(variance, ell, n_harmonics=10):
+        return PeriodicSDE(
+            variance=jnp.array(variance),
+            lengthscale=jnp.array(ell),
+            period=jnp.array(1.0),
+            n_harmonics=n_harmonics,
+        )
+
+    @pytest.mark.parametrize("ell", [0.5, 1.0, 2.0])
+    def test_matches_mackay_kernel(self, ell):
+        # The truncation tail 2σ² Σ_{j>10} I_j(x) e^{-x} is 3e-6·σ² at ell = 0.5.
+        variance = 2.0
+        taus = jnp.linspace(0.0, 1.0, 21)
+        k_sde = sde_autocovariance(self._periodic(variance, ell), taus)
+        expected = variance * jnp.exp(-2.0 * jnp.sin(jnp.pi * taus) ** 2 / ell**2)
+        assert jnp.allclose(k_sde, expected, rtol=0.0, atol=1e-5 * variance)
+        assert jnp.allclose(k_sde[0], variance, rtol=1e-5)
+
+    def test_quasi_periodic_zero_lag_is_product_of_variances(self):
+        matern = MaternSDE(
+            variance=jnp.array(1.5), lengthscale=jnp.array(10.0), order=0
+        )
+        kern = QuasiPeriodicSDE(kernel1=matern, kernel2=self._periodic(2.0, 1.0))
+        assert jnp.allclose(sde_autocovariance(kern, jnp.array([0.0])), 3.0, rtol=1e-6)
+
+    def test_sde_params_and_discretise_agree(self):
+        kern = self._periodic(2.0, 0.7, n_harmonics=4)
+        params = kern.sde_params()
+        A, Q = kern.discretise(jnp.array(0.13))
+        assert jnp.allclose(A, jsl.expm(params.F * 0.13), atol=1e-10)
+        assert jnp.allclose(A @ params.P_inf @ A.T + Q, params.P_inf, atol=1e-12)
