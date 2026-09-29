@@ -352,6 +352,12 @@ def _solve_lower_block_tridiag(
     d = operator._block_size
     from gaussx._einx import rearrange
 
+    if N == 1:
+        # Both lax.cond branches are traced, and the k > 0 one indexes the
+        # empty sub-diagonal (gh-304).
+        return jax.scipy.linalg.solve_triangular(
+            operator.diagonal[0], vector, lower=True
+        )
     b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 
     def body_fn(carry, k):
@@ -377,6 +383,11 @@ def _solve_upper_block_tridiag(
     d = operator._block_size
     from gaussx._einx import rearrange
 
+    if N == 1:
+        # Both lax.cond branches are traced; see _solve_lower_block_tridiag.
+        return jax.scipy.linalg.solve_triangular(
+            operator.diagonal[0], vector, lower=False
+        )
     b = rearrange(vector, "(N d) -> N d", N=N, d=d)
 
     def body_fn(carry, k):

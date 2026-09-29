@@ -12,6 +12,13 @@ from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import _to_frozenset
 
 
+def _transpose_blocks(blocks: Float[Array, "N d d"]) -> Float[Array, "N d d"]:
+    """Transpose each block; an empty stack passes through (einx rejects it)."""
+    if blocks.shape[0] == 0:
+        return blocks
+    return rearrange(blocks, "N i j -> N j i")
+
+
 class BlockTriDiag(lx.AbstractLinearOperator):
     r"""Symmetric block-tridiagonal operator.
 
@@ -86,6 +93,9 @@ class BlockTriDiag(lx.AbstractLinearOperator):
         x = rearrange(vector, "(N d) -> N d", N=N, d=d)
         # Dₖ xₖ for all k
         result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        if N == 1:
+            # einx cannot contract the empty (0, d, d) sub-diagonal (gh-304).
+            return rearrange(result, "N d -> (N d)")
         # Aₖ xₖ₋₁ for k = 1, ..., N-1 (sub-diagonal)
         sub_contrib = einsum(self.sub_diagonal, x[:-1], "N d1 d2, N d2 -> N d1")
         result = result.at[1:].add(sub_contrib)
@@ -210,6 +220,8 @@ class LowerBlockTriDiag(lx.AbstractLinearOperator):
         x = rearrange(vector, "(N d) -> N d", N=N, d=d)
         # Lₖ xₖ
         result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        if N == 1:
+            return rearrange(result, "N d -> (N d)")
         # Bₖ xₖ₋₁
         sub_contrib = einsum(self.sub_diagonal, x[:-1], "N d1 d2, N d2 -> N d1")
         result = result.at[1:].add(sub_contrib)
@@ -233,7 +245,7 @@ class LowerBlockTriDiag(lx.AbstractLinearOperator):
         """Transpose gives upper block-bidiagonal."""
         return UpperBlockTriDiag(
             rearrange(self.diagonal, "N i j -> N j i"),
-            rearrange(self.sub_diagonal, "N i j -> N j i"),
+            _transpose_blocks(self.sub_diagonal),
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
@@ -287,6 +299,8 @@ class UpperBlockTriDiag(lx.AbstractLinearOperator):
         x = rearrange(vector, "(N d) -> N d", N=N, d=d)
         # Uₖ xₖ
         result = einsum(self.diagonal, x, "N d1 d2, N d2 -> N d1")
+        if N == 1:
+            return rearrange(result, "N d -> (N d)")
         # Cₖ xₖ₊₁
         super_contrib = einsum(self.super_diagonal, x[1:], "N d1 d2, N d2 -> N d1")
         result = result.at[:-1].add(super_contrib)
@@ -309,7 +323,7 @@ class UpperBlockTriDiag(lx.AbstractLinearOperator):
     def transpose(self) -> LowerBlockTriDiag:
         return LowerBlockTriDiag(
             rearrange(self.diagonal, "N i j -> N j i"),
-            rearrange(self.super_diagonal, "N i j -> N j i"),
+            _transpose_blocks(self.super_diagonal),
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:

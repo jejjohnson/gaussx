@@ -1,11 +1,14 @@
 """Tests for BlockTriDiag and LowerBlockTriDiag operators."""
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._testing import random_pd_matrix
 
 
 def _make_spd_block_tridiag(N, d, key):
@@ -161,3 +164,65 @@ class TestLowerBlockTriDiag:
         x = gaussx.solve(U, b)
         residual = U.mv(x) - b
         assert jnp.allclose(residual, 0.0, atol=1e-4)
+
+
+class TestSingleBlock:
+    """gh-304: N = 1 is accepted by the constructor and is just the block D."""
+
+    @staticmethod
+    def _ops(d):
+        D = random_pd_matrix(jr.key(0), d) + jnp.eye(d)
+        L = jnp.linalg.cholesky(D)
+        empty = jnp.zeros((0, d, d))
+        return D, {
+            "full": gaussx.BlockTriDiag(D[None], empty),
+            "lower": gaussx.LowerBlockTriDiag(L[None], empty),
+            "upper": gaussx.UpperBlockTriDiag(L.T[None], empty),
+        }
+
+    @pytest.mark.parametrize("d", [1, 3])
+    @pytest.mark.parametrize("kind", ["full", "lower", "upper"])
+    @pytest.mark.parametrize("jit", [False, True], ids=["eager", "jit"])
+    def test_matches_dense(self, d, kind, jit):
+        _, ops = self._ops(d)
+        op = ops[kind]
+        M = op.as_matrix()
+        b = jnp.arange(1.0, d + 1.0)
+
+        def run(op, b):
+            return {
+                "mv": op.mv(b),
+                "T": op.T.as_matrix(),
+                "solve": gaussx.solve(op, b),
+                "logdet": gaussx.logdet(op),
+                "inv": gaussx.inv(op).as_matrix(),
+            }
+
+        out = eqx.filter_jit(run)(op, b) if jit else run(op, b)
+        expected = {
+            "mv": M @ b,
+            "T": M.T,
+            "solve": jnp.linalg.solve(M, b),
+            "logdet": jnp.linalg.slogdet(M)[1],
+            "inv": jnp.linalg.inv(M),
+        }
+        for name, value in expected.items():
+            assert jnp.allclose(out[name], value, rtol=1e-12, atol=1e-12), name
+
+    @pytest.mark.parametrize("d", [1, 3])
+    def test_cholesky(self, d):
+        D, ops = self._ops(d)
+        L = gaussx.cholesky(ops["full"])
+        assert isinstance(L, gaussx.LowerBlockTriDiag)
+        assert L.sub_diagonal.shape == (0, d, d)
+        assert jnp.allclose(L.as_matrix(), jnp.linalg.cholesky(D), atol=1e-12)
+
+    def test_spingp_log_likelihood_one_step(self):
+        D, ops = self._ops(2)
+        H = jnp.array([[1.0, 0.0]])
+        R = lx.MatrixLinearOperator(jnp.array([[0.1]]))
+        y = jnp.array([[0.3]])
+        S = H @ jnp.linalg.inv(D) @ H.T + R.as_matrix()
+        expected = jax.scipy.stats.multivariate_normal.logpdf(y[0], jnp.zeros(1), S)
+        got = gaussx.spingp_log_likelihood(ops["full"], H, R, y)
+        assert jnp.allclose(got, expected, rtol=1e-12)
