@@ -6,8 +6,11 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy.linalg as jsla
+import lineax as lx
+import pytest
 
 from gaussx._gp._base_conditional import base_conditional
+from gaussx._gp._svgp import whitened_svgp_predict
 from gaussx._testing import tree_allclose
 
 
@@ -44,13 +47,15 @@ class TestPriorConditional:
         expected = K_mn.T @ jnp.linalg.solve(K_mm, f)
         assert tree_allclose(mean, expected, rtol=1e-4)
 
-    def test_var_diagonal_knn(self, getkey):
+    def test_var_diagonal_knn(self):
         """Variance with diagonal K_nn."""
         M, N = 4, 6
-        K_mm = _make_pd(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-        f = jr.normal(getkey(), (M, 1))
+        # Slice a PD joint so the true conditional variances are positive
+        # (a random K_mn gives negative ones, which are now clipped).
+        joint = _make_pd(jr.key(0), M + N)
+        K_mm, K_mn = joint[:M, :M], joint[:M, M:]
+        K_nn_diag = jnp.diag(joint[M:, M:])
+        f = jr.normal(jr.key(1), (M, 1))
 
         _, var = base_conditional(K_mm, K_mn, K_nn_diag, f)
 
@@ -214,3 +219,85 @@ class TestGradient:
         g = jax.grad(loss)(f)
         assert jnp.all(jnp.isfinite(g))
         assert g.shape == (M, 1)
+
+
+# ---------------------------------------------------------------------------
+# gh-363: 1-D f, shape validation and non-negative diagonal variances
+# ---------------------------------------------------------------------------
+
+
+def _ill_conditioned_float32():
+    """RBF on a fine grid without jitter: K_nn - Q_nn rounds below 0."""
+
+    def rbf(a, b):
+        return jnp.exp(-0.5 * (a[:, None] - b[None, :]) ** 2 / 0.5**2)
+
+    Z = jnp.linspace(0.0, 1.0, 8, dtype=jnp.float32)
+    X = jnp.linspace(-0.1, 1.1, 50, dtype=jnp.float32)
+    return rbf(Z, Z), rbf(Z, X), jnp.ones(50, dtype=jnp.float32)
+
+
+@pytest.mark.parametrize("white", [True, False])
+@pytest.mark.parametrize("q", ["none", "diag", "full"])
+def test_single_output_f_matches_two_d(white, q):
+    K_mm, K_mn, K_nn = _ill_conditioned_float32()
+    K_mm = K_mm.astype(jnp.float64) + 1e-6 * jnp.eye(8)
+    K_mn, K_nn = K_mn.astype(jnp.float64), K_nn.astype(jnp.float64)
+    u = jnp.linspace(-1.0, 1.0, 8)
+    q_1d = {"none": None, "diag": 0.1 * jnp.ones(8), "full": 0.1 * jnp.eye(8)}[q]
+    q_2d = {
+        "none": None,
+        "diag": 0.1 * jnp.ones((8, 1)),
+        "full": 0.1 * jnp.eye(8)[None],
+    }[q]
+    for knn in (K_nn, jnp.diag(K_nn)):
+        mean, var = base_conditional(K_mm, K_mn, knn, u, q_sqrt=q_1d, white=white)
+        mean2, var2 = base_conditional(
+            K_mm, K_mn, knn, u[:, None], q_sqrt=q_2d, white=white
+        )
+        assert mean.shape == (50,)
+        assert jnp.array_equal(mean, mean2[:, 0])
+        assert jnp.array_equal(var, var2[..., 0])
+
+
+@pytest.mark.parametrize(
+    ("f_shape", "q_shape", "match"),
+    [
+        ((8, 2, 1), None, "f must have shape"),
+        ((7, 1), None, "f must have shape"),
+        ((8, 2), (8, 3), "q_sqrt must have shape"),
+        ((8, 2), (3, 8, 8), "q_sqrt must have shape"),
+    ],
+)
+def test_shape_validation(f_shape, q_shape, match):
+    K_mm, K_mn, K_nn = _ill_conditioned_float32()
+    q_sqrt = None if q_shape is None else jnp.ones(q_shape)
+    with pytest.raises(ValueError, match=match):
+        base_conditional(K_mm, K_mn, K_nn, jnp.zeros(f_shape), q_sqrt=q_sqrt)
+
+
+def test_diagonal_variance_clipped_like_whitened_svgp_predict():
+    K_mm, K_mn, K_nn = _ill_conditioned_float32()
+    u = jnp.zeros(8, dtype=jnp.float32)
+    _, var_bc = base_conditional(K_mm, K_mn, K_nn, u, white=True)
+    _, var_sv = whitened_svgp_predict(
+        lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag),
+        K_mn.T,
+        u,
+        jnp.zeros((8, 8), dtype=jnp.float32),
+        K_nn,
+    )
+    assert var_bc.dtype == jnp.float32
+    assert jnp.min(var_bc) >= 0.0
+    assert jnp.allclose(var_bc, var_sv, atol=1e-6)
+
+
+def test_full_covariance_is_not_clipped():
+    K_mm, K_mn, K_nn = _ill_conditioned_float32()
+    u = jnp.zeros((8, 1), dtype=jnp.float32)
+    _, var = base_conditional(K_mm, K_mn, jnp.diag(K_nn), u, white=True)
+    L = jnp.linalg.cholesky(K_mm)
+    A = jsla.solve_triangular(L, K_mn, lower=True)
+    assert jnp.allclose(var[..., 0], jnp.diag(K_nn) - A.T @ A, atol=1e-6)
+    # The same round-off the diagonal branch clips is left in place here.
+    assert jnp.min(jnp.diagonal(var[..., 0])) < 0.0
