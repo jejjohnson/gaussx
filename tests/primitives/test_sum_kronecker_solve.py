@@ -22,6 +22,7 @@ import pytest
 
 from gaussx._operators import Kronecker, SumOfKroneckers, SumOperator
 from gaussx._operators._sum_kronecker import (
+    _DiagonalWhitener,
     _is_eigen_reducible,
     _kronecker_terms,
     _sum_of_kroneckers_eigen,
@@ -364,3 +365,73 @@ class TestAnchorEligibility:
         solution = solve(operator, _rhs(jr.key(1)))
         assert jnp.all(jnp.isfinite(solution))
         _assert_matches_dense(operator, _rhs(jr.key(1)))
+
+
+def _signed_diagonal_sum(diagonal, scale=1.0):
+    """``A ⊗ B + diag(diagonal) ⊗ (scale I)`` with a PD first term (gh-317)."""
+    return SumOfKroneckers(
+        _psd_kronecker(jr.key(0)),
+        Kronecker(lx.DiagonalLinearOperator(diagonal), scale * _identity(N_B)),
+    )
+
+
+_NON_POSITIVE_ANCHORS = {
+    "negative_entry": ([1.0, -1.0, 2.0], 1.0),
+    "zero_entry": ([0.0, 1.0, 1.0], 1.0),
+    "negative_identity": ([1.0, 2.0, 3.0], -0.5),
+}
+
+
+class TestNonPositiveDiagonalAnchor:
+    """gh-317: a diagonal anchor is whitened by its square root."""
+
+    @pytest.mark.parametrize(
+        ("diagonal", "scale"),
+        list(_NON_POSITIVE_ANCHORS.values()),
+        ids=list(_NON_POSITIVE_ANCHORS),
+    )
+    def test_concrete_falls_back_to_the_pd_anchor(self, diagonal, scale):
+        operator = _signed_diagonal_sum(jnp.array(diagonal), scale)
+        # The full matrix is PD; only the diagonal whitening is invalid.
+        assert jnp.linalg.eigvalsh(operator.as_matrix()).min() > 0
+        factorization = _sum_of_kroneckers_eigen(operator)
+        assert factorization is not None
+        assert not isinstance(factorization.wa, _DiagonalWhitener)
+        _assert_matches_dense(operator, _rhs(jr.key(1)))
+
+    def test_positive_diagonal_keeps_the_diagonal_whitener(self):
+        operator = _signed_diagonal_sum(jnp.array([1.0, 3.0, 2.0]))
+        factorization = _sum_of_kroneckers_eigen(operator)
+        assert factorization is not None
+        assert isinstance(factorization.wa, _DiagonalWhitener)
+        _assert_matches_dense(operator, _rhs(jr.key(1)))
+
+    def test_only_anchor_non_positive_uses_the_dense_fallback(self):
+        # The other term is merely symmetric, so no Cholesky plan exists.
+        operator = SumOfKroneckers(
+            Kronecker(
+                _symmetric_operator(jr.key(0), N_A),
+                _symmetric_operator(jr.key(1), N_B),
+            ),
+            Kronecker(
+                lx.DiagonalLinearOperator(jnp.array([1.0, -1.0, 2.0])),
+                _identity(N_B),
+            ),
+        )
+        assert _is_eigen_reducible(operator)
+        assert _sum_of_kroneckers_eigen(operator) is None
+        _assert_matches_dense(operator, _rhs(jr.key(2)))
+
+    @pytest.mark.parametrize("primitive", ["solve", "logdet"])
+    def test_traced_non_positive_raises_instead_of_nan(self, primitive):
+        b = _rhs(jr.key(1))
+
+        def run(diagonal):
+            operator = _signed_diagonal_sum(diagonal)
+            return solve(operator, b) if primitive == "solve" else logdet(operator)
+
+        with pytest.raises(Exception, match="must be strictly positive"):
+            jax.block_until_ready(jax.jit(run)(jnp.array([1.0, -1.0, 2.0])))
+        # A valid traced diagonal is unaffected.
+        valid = jnp.array([1.0, 3.0, 2.0])
+        assert tree_allclose(jax.jit(run)(valid), run(valid), atol=1e-12)

@@ -11,6 +11,8 @@ import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
+from jax.core import Tracer
 from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
@@ -48,6 +50,13 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
         multiple-of-the-identity anchor is folded in as a shift and is never
         inverted at all. Beyond that the definiteness is the caller's to
         guarantee, exactly as it is for `gaussx.cholesky`.
+
+        A diagonal or scaled-identity anchor *factor* is whitened by its
+        square root, so each entry must be strictly positive. With concrete
+        values a non-positive one is skipped in favour of the other term, or
+        of the dense fallback. A traced one cannot be inspected, so it keeps
+        the diagonal whitening and raises an ``EquinoxRuntimeError`` at run
+        time rather than returning ``NaN``.
 
     Three or more terms have no closed form and keep the dense fallback.
     Drive the structured `mv` instead with
@@ -433,7 +442,16 @@ def _build_whitener(
     if kind is _IdentityWhitener:
         return _IdentityWhitener()
     if kind is _DiagonalWhitener:
-        return _DiagonalWhitener(jnp.sqrt(_anchor_diagonal(operator)))
+        diagonal = _anchor_diagonal(operator)
+        # Only a traced diagonal can reach here non-positive: a concrete one
+        # is filtered out by `_select_anchor` (gh-317).
+        diagonal = eqx.error_if(
+            diagonal,
+            ~jnp.all(diagonal > 0),
+            "SumOfKroneckers: a diagonal or scaled-identity anchor factor must "
+            "be strictly positive to whiten by its square root.",
+        )
+        return _DiagonalWhitener(jnp.sqrt(diagonal))
     from gaussx._primitives._cholesky import cholesky
 
     # ``operator`` unwrapped, so `cholesky` sees the tags and can dispatch.
@@ -536,13 +554,31 @@ class _AnchorPlan(NamedTuple):
         return 1 + max(_ANCHOR_PREFERENCE.index(kind) for kind in self.kinds)
 
 
-def _select_anchor(terms: tuple[_KroneckerTerm, ...]) -> _AnchorPlan | None:
-    """Pick the term to reduce by, and how — a static decision.
+def _is_concretely_nonpositive(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether a diagonal anchor factor has a known non-positive entry.
+
+    ``False`` for a traced diagonal: its values are unknown until run time.
+    """
+    diagonal = _anchor_diagonal(operator)
+    if isinstance(diagonal, Tracer):
+        return False
+    return bool(np.any(np.asarray(diagonal) <= 0))
+
+
+def _select_anchor(
+    terms: tuple[_KroneckerTerm, ...], *, check_values: bool = False
+) -> _AnchorPlan | None:
+    """Pick the term to reduce by, and how.
 
     Returns ``None`` when no exact two-term reduction applies. Where both
     terms qualify the safer plan wins, so a scalar or diagonal shift is
     never passed over for a tagged dense factor; ties go to the second
     term, since a noise or jitter shift is conventionally written last.
+
+    With ``check_values=False`` this is a static decision. With
+    ``check_values=True`` a diagonal whitening whose concrete diagonal has
+    a non-positive entry is dropped too (gh-317), since its square root is
+    ``NaN``; a traced diagonal is kept and checked at run time instead.
     """
     if len(terms) != 2:
         return None
@@ -560,8 +596,14 @@ def _select_anchor(terms: tuple[_KroneckerTerm, ...]) -> _AnchorPlan | None:
             continue
         kind_a = _whitener_kind(anchor[0])
         kind_b = _whitener_kind(anchor[1])
-        if kind_a is not None and kind_b is not None:
-            plans.append(_AnchorPlan(anchor_index, (kind_a, kind_b)))
+        if kind_a is None or kind_b is None:
+            continue
+        if check_values and any(
+            kind is _DiagonalWhitener and _is_concretely_nonpositive(factor)
+            for kind, factor in zip((kind_a, kind_b), anchor, strict=True)
+        ):
+            continue
+        plans.append(_AnchorPlan(anchor_index, (kind_a, kind_b)))
     if not plans:
         return None
     # ``min`` is stable, so equally safe plans keep the term-1-first order.
@@ -573,6 +615,8 @@ def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
 
     A purely structural query — operator types and lineax tags only, no
     array work — so it is safe to call from solver-strategy selection.
+    `_sum_of_kroneckers_eigen` can still decline an operator this accepts,
+    when a diagonal anchor factor is concretely non-positive.
 
     Args:
         operator: Any lineax operator.
@@ -607,7 +651,7 @@ def _sum_of_kroneckers_eigen(
     terms = _kronecker_terms(operator)
     if terms is None:
         return None
-    plan = _select_anchor(terms)
+    plan = _select_anchor(terms, check_values=True)
     if plan is None:
         return None
     main = terms[1 - plan.index]
@@ -667,7 +711,13 @@ def _eigen_solve(
     vector: Float[Array, " n"],
 ) -> Float[Array, " n"]:
     factorization = _sum_of_kroneckers_eigen(operator)
-    assert factorization is not None
+    if factorization is None:
+        # Structurally reducible, but the only plan whitens by a concretely
+        # non-positive diagonal (gh-317). The implicit JVP below does not
+        # depend on how the primal was computed.
+        from gaussx._primitives._solve import _solve_fallback
+
+        return _solve_fallback(operator, vector, None)
     return factorization.solve(vector)
 
 
