@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/jejjohnson/gaussx/compare/v0.2.0...v0.3.0) (2026-09-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **low_rank_update:** low_rank_plus_diag(diag, U, ...) is no longer PSD-tagged from the sign of diag (pass psd=True), and value-equal but distinct factors (V = U.copy()) are no longer inferred symmetric (pass V=U or tags=lx.symmetric_tag).
+
+### Bug Fixes
+
+* **inv:** keep inv(LowRankUpdate) structured under jit; general Woodbury branch ([#328](https://github.com/jejjohnson/gaussx/issues/328)) ([#423](https://github.com/jejjohnson/gaussx/issues/423)) ([5570352](https://github.com/jejjohnson/gaussx/commit/557035214329ada38af125792c8cf15205eefb2d))
+* **kronecker_sum:** finite gradients through solve/sqrt at repeated eigenvalues ([#295](https://github.com/jejjohnson/gaussx/issues/295)) ([#421](https://github.com/jejjohnson/gaussx/issues/421)) ([0fa19b3](https://github.com/jejjohnson/gaussx/commit/0fa19b32f38501cfd4c67278eaa3cbd5ab703659))
+* **kronecker_sum:** make the KroneckerSumSqrt PSD guard jit-safe ([#420](https://github.com/jejjohnson/gaussx/issues/420)) ([19a1ba2](https://github.com/jejjohnson/gaussx/commit/19a1ba2d3eae33343e031b1fd405e0de53b32495)), closes [#292](https://github.com/jejjohnson/gaussx/issues/292)
+* **low_rank_update:** infer tags from structure only, never array values ([#422](https://github.com/jejjohnson/gaussx/issues/422)) ([d7d891e](https://github.com/jejjohnson/gaussx/commit/d7d891e5ec7e06b04475b67086ca6cc10a4e9006)), closes [#343](https://github.com/jejjohnson/gaussx/issues/343)
+* **masked:** differentiable, cache-stable capacitance solve; trace-safe transpose ([#290](https://github.com/jejjohnson/gaussx/issues/290)) ([#427](https://github.com/jejjohnson/gaussx/issues/427)) ([ca6fc00](https://github.com/jejjohnson/gaussx/commit/ca6fc007ef5ce12e94e5f0fc55fbf7589450b9a5))
+* **ssm_natural:** check Q[0] == P_0 at run time so tracing cannot skip it ([#359](https://github.com/jejjohnson/gaussx/issues/359)) ([#426](https://github.com/jejjohnson/gaussx/issues/426)) ([4a328b2](https://github.com/jejjohnson/gaussx/commit/4a328b2161bd001513361cda694bddf79e31cb82))
+* **strategies:** make strategy and preconditioner config static pytree data ([#419](https://github.com/jejjohnson/gaussx/issues/419)) ([bfc4bf4](https://github.com/jejjohnson/gaussx/commit/bfc4bf4728054a318936e20670109e046676d0c2)), closes [#301](https://github.com/jejjohnson/gaussx/issues/301)
+
 ## [0.2.0](https://github.com/jejjohnson/gaussx/compare/v0.1.0...v0.2.0) (2026-09-25)
 
 
