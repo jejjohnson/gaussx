@@ -19,6 +19,18 @@ def _make_pd(key, M):
     return A @ A.T + 0.1 * jnp.eye(M)
 
 
+def _valid_diag_model(M, N, seed):
+    """``K_mm``, ``K_mn`` and ``diag(K_nn)`` sliced from one PD joint.
+
+    A random ``K_mn`` is not a valid cross-covariance, so its conditional
+    variances can be negative, and ``base_conditional`` clips those at 0
+    (gh-363). Slicing a PD joint keeps them positive. Pinned: the tests
+    check formulas, so any valid model will do.
+    """
+    joint = _make_pd(jr.key(seed), M + N)
+    return joint[:M, :M], joint[:M, M:], jnp.diag(joint[M:, M:])
+
+
 # ---------------------------------------------------------------------------
 # Prior conditional (no q_sqrt)
 # ---------------------------------------------------------------------------
@@ -108,13 +120,11 @@ class TestWhitened:
 
 
 class TestVariational:
-    def test_diagonal_q_sqrt(self, getkey):
+    def test_diagonal_q_sqrt(self):
         M, N, R = 5, 8, 2
-        K_mm = _make_pd(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-        f = jr.normal(getkey(), (M, R))
-        q_diag = jnp.abs(jr.normal(getkey(), (M, R))) + 0.1
+        K_mm, K_mn, K_nn_diag = _valid_diag_model(M, N, seed=2)
+        f = jr.normal(jr.key(20), (M, R))
+        q_diag = jnp.abs(jr.normal(jr.key(21), (M, R))) + 0.1
 
         mean, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
         assert mean.shape == (N, R)
@@ -162,14 +172,12 @@ class TestVariational:
         assert mean.shape == (N, R)
         assert var.shape == (N, N, R)
 
-    def test_variance_formula_diagonal(self, getkey):
+    def test_variance_formula_diagonal(self):
         """Verify the variance formula with diagonal q_sqrt."""
         M, N, R = 4, 6, 1
-        K_mm = _make_pd(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-        f = jr.normal(getkey(), (M, R))
-        q_diag = jnp.abs(jr.normal(getkey(), (M, R))) + 0.1
+        K_mm, K_mn, K_nn_diag = _valid_diag_model(M, N, seed=3)
+        f = jr.normal(jr.key(30), (M, R))
+        q_diag = jnp.abs(jr.normal(jr.key(31), (M, R))) + 0.1
 
         _, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
 
@@ -180,14 +188,12 @@ class TestVariational:
         expected = K_nn_diag - jnp.diag(schur) + var_adj
         assert tree_allclose(var[:, 0], expected, rtol=1e-4)
 
-    def test_variance_formula_diagonal_nonwhite(self, getkey):
+    def test_variance_formula_diagonal_nonwhite(self):
         """Non-whitened q_sqrt should include the prior solve."""
         M, N, R = 4, 6, 1
-        K_mm = _make_pd(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-        f = jr.normal(getkey(), (M, R))
-        q_diag = jnp.abs(jr.normal(getkey(), (M, R))) + 0.1
+        K_mm, K_mn, K_nn_diag = _valid_diag_model(M, N, seed=4)
+        f = jr.normal(jr.key(40), (M, R))
+        q_diag = jnp.abs(jr.normal(jr.key(41), (M, R))) + 0.1
 
         _, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
 
