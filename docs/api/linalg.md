@@ -37,7 +37,40 @@ recipes never re-derive them.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [woodbury_solve, schur_complement, conditional_variance, diag_conditional_variance, cov_transform, sandwich, trace_product, diag_inv]
+      members: [woodbury_solve, schur_complement, conditional_variance, diag_conditional_variance, cov_transform, sandwich, trace_product]
+
+## Marginal variances & selected inverses
+
+`diag_inv` returns $\operatorname{diag}(Q^{-1})$ — the marginal variances
+of a Gaussian with precision $Q$ — and dispatches on structure before
+falling back to dense Cholesky or Hutchinson:
+
+| Structure | Path | Cost |
+|---|---|---|
+| `BlockTriDiag` (rw1, rw2, ar1, temporal SDE priors) | block Takahashi recursion, `selected_inverse` | $O(N d^3)$ |
+| `Kronecker` $A \otimes B$ | $\operatorname{diag}(A^{-1}) \otimes \operatorname{diag}(B^{-1})$ | per factor |
+| `KroneckerSum` $A \oplus B$ (grid Laplacians, SPDE on a raster) | $(U_A \circ U_A)\,M\,(U_B \circ U_B)^\top$, $M_{ij} = 1/(\lambda^A_i + \lambda^B_j)$ | $O(H^2 W + H W^2)$ |
+| $A \otimes B + cI$ | same, with $M_{ij} = 1/(\lambda^A_i \lambda^B_j + c)$ | per factor |
+
+`pinv=True` drops the zero eigenvalues of an intrinsic precision on a
+grid. A factor that already carries its eigenbasis (`DiagonalisedOperator`,
+`KroneckerSum`) keeps it, so `solve`, `logdet` and `diag_inv` of a
+space-time $A \otimes B + cI$ never form the spatial factor $B$.
+
+```python
+# Posterior sd of an AR(1) trend under Gaussian noise: Q + σ⁻² I stays block-tridiagonal
+H = gaussx.BlockTriDiag(Q.diagonal + jnp.eye(1) / sigma**2, Q.sub_diagonal)
+sd = jnp.sqrt(gaussx.diag_inv(H))  # O(N), not O(N³)
+
+# Prior sd of an intrinsic field on an H × W grid: two small matrix products
+sd = jnp.sqrt(gaussx.diag_inv(gaussx.KroneckerSum(L_H, L_W), pinv=True))
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [diag_inv, selected_inverse]
 
 ## Matrix-RHS & batched solves
 

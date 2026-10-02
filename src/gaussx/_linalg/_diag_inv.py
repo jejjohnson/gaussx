@@ -7,9 +7,16 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._einx import reduce
+from gaussx._einx import einsum, rearrange, reduce
 from gaussx._linalg._safe_cholesky import safe_cholesky
+from gaussx._linalg._selected_inverse import selected_inverse
+from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._factored_eigen import factored_eigen
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._sum_kronecker import SumOfKroneckers, _shifted_kronecker_eigen
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
@@ -21,32 +28,89 @@ def diag_inv(
     num_probes: int = 30,
     key: jax.Array | None = None,
     solver: AbstractSolveStrategy | None = None,
+    pinv: bool = False,
 ) -> Float[Array, " N"]:
     """Compute the diagonal of the inverse of a linear operator.
 
-    Returns ``diag(A⁻¹)`` without forming the full inverse matrix.
+    Returns ``diag(A⁻¹)`` without forming the full inverse matrix — the
+    marginal variances of a Gaussian with precision ``A``.
+
+    With ``method="auto"`` the operator's structure picks an exact path
+    first:
+
+    - `BlockTriDiag` (symmetric): the diagonal blocks of
+      `gaussx.selected_inverse`, ``O(N d³)``.
+    - `Kronecker` ``A ⊗ B``: ``diag_inv(A) ⊗ diag_inv(B)``, each factor
+      dispatched in turn.
+    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalisedOperator`): with
+      ``A = U_A Λ_A U_Aᵀ``, ``B = U_B Λ_B U_Bᵀ``,
+      ``diag((A ⊕ B)⁻¹) = (U_A ∘ U_A) M (U_B ∘ U_B)ᵀ`` with
+      ``M_ij = 1/(λ^A_i + λ^B_j)`` — two small matrix products,
+      ``O(H²W + HW²)`` on an ``H × W`` grid. A factor that carries its own
+      eigenbasis keeps it; others are eigendecomposed individually.
+    - Shifted Kronecker products ``A ⊗ B + c·I`` (a `SumOfKroneckers` or the
+      equivalent lineax sum): the same formula with
+      ``M_ij = 1/(λ^A_i λ^B_j + c)``.
+
+    Anything else uses dense Cholesky for ``N ≤ 2048`` and Hutchinson above.
 
     Args:
         operator: A linear operator representing A.
         method: Algorithm to use. One of ``"cholesky"`` (exact via
             dense Cholesky), ``"solve"`` (exact via repeated solves),
             ``"hutchinson"`` (stochastic estimator),
-            or ``"auto"`` (cholesky for N ≤ 2048, hutchinson otherwise; for a
-            `SparseOperator` the cholesky limit is `AutoSolver`'s size
-            threshold, above which it has no Cholesky yet).
+            or ``"auto"`` (the structured paths above; otherwise cholesky
+            for N ≤ 2048, hutchinson above; for a `SparseOperator` the
+            cholesky limit is `AutoSolver`'s size threshold, above which it
+            has no Cholesky yet).
         num_probes: Number of Rademacher probe vectors for the
             hutchinson method.
         key: PRNG key for probe generation in the hutchinson method.
             When ``None``, defaults to ``jax.random.PRNGKey(0)``.
         solver: Optional solve strategy for ``"solve"`` and
             ``"hutchinson"`` methods.
+        pinv: Return the diagonal of the pseudo-inverse instead: eigenvalues
+            below ``max(n_k) · eps · max|λ|`` contribute nothing. For
+            intrinsic (singular) precisions on grids, e.g. the exact ICAR /
+            BYM2 scaling constant on a raster. Only the eigenvalue-based
+            paths (Kronecker sums and products of such operators, shifted
+            Kronecker products, `DiagonalisedOperator`) support it.
 
     Returns:
         1D array of shape ``(N,)`` with the diagonal entries of A⁻¹.
+
+    Raises:
+        ValueError: For an unknown ``method``, or ``pinv=True`` on an
+            operator without an eigenvalue-based path.
+
+    Examples:
+        ```python
+        import jax.numpy as jnp
+        import lineax as lx
+        import gaussx
+
+        # Prior sd of an intrinsic field on a 4 x 5 grid: L_H ⊕ L_W is
+        # singular (constants), so take the pseudo-inverse.
+        def path_laplacian(n):
+            off = -jnp.ones(n - 1)
+            L = jnp.diag(jnp.r_[1.0, 2.0 * jnp.ones(n - 2), 1.0])
+            L = L + jnp.diag(off, 1) + jnp.diag(off, -1)
+            return lx.MatrixLinearOperator(L, lx.symmetric_tag)
+
+        Q = gaussx.KroneckerSum(path_laplacian(4), path_laplacian(5))
+        variances = gaussx.diag_inv(Q, pinv=True)
+        dense = jnp.diag(jnp.linalg.pinv(Q.as_matrix()))
+        assert jnp.allclose(variances, dense, atol=1e-5)
+        ```
     """
     n = operator.in_size()
 
     if method == "auto":
+        structured = _diag_inv_structured(
+            operator, pinv=pinv, num_probes=num_probes, key=key, solver=solver
+        )
+        if structured is not None:
+            return structured
         # cholesky(SparseOperator) refuses to densify above AutoSolver's threshold.
         limit = 2048
         if isinstance(operator, SparseOperator):
@@ -54,6 +118,15 @@ def diag_inv(
 
             limit = min(limit, AutoSolver().size_threshold)
         method = "cholesky" if n <= limit else "hutchinson"
+
+    if pinv:
+        msg = (
+            "pinv=True needs an eigenvalue-based structure (KroneckerSum, "
+            "Kronecker, a shifted Kronecker product or DiagonalisedOperator) "
+            f"and method='auto'; got {type(operator).__name__} with "
+            f"method={method!r}."
+        )
+        raise ValueError(msg)
 
     if method == "cholesky":
         return _diag_inv_cholesky(operator)
@@ -69,6 +142,51 @@ def diag_inv(
         "'hutchinson', or 'auto'."
     )
     raise ValueError(msg)
+
+
+def _diag_inv_structured(
+    operator: lx.AbstractLinearOperator,
+    *,
+    pinv: bool,
+    num_probes: int,
+    key: jax.Array | None,
+    solver: AbstractSolveStrategy | None,
+) -> Float[Array, " N"] | None:
+    """The exact structural path for ``operator``, or ``None`` if none applies."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _diag_inv_structured(
+            operator.operator,
+            pinv=pinv,
+            num_probes=num_probes,
+            key=key,
+            solver=solver,
+        )
+    if isinstance(operator, BlockTriDiag):
+        if pinv or not operator.symmetric:
+            return None
+        blocks = selected_inverse(operator).diagonal
+        return rearrange(blocks, "N d d -> (N d)")
+    if isinstance(operator, Kronecker):
+        if any(op.in_size() != op.out_size() for op in operator.operators):
+            return None
+        result = None
+        for factor in operator.operators:
+            factor_diag = diag_inv(
+                factor, pinv=pinv, num_probes=num_probes, key=key, solver=solver
+            )
+            result = (
+                factor_diag
+                if result is None
+                else einsum(result, factor_diag, "a, b -> (a b)")
+            )
+        return result
+    if isinstance(operator, KroneckerSum | DiagonalisedOperator):
+        factorization = factored_eigen(operator)
+        return None if factorization is None else factorization.diag_inv(pinv=pinv)
+    if isinstance(operator, SumOfKroneckers | lx.AddLinearOperator):
+        factorization = _shifted_kronecker_eigen(operator)
+        return None if factorization is None else factorization.diag_inv(pinv=pinv)
+    return None
 
 
 def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> Float[Array, " N"]:

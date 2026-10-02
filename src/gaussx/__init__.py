@@ -106,6 +106,7 @@ from gaussx._linalg import (
     safe_cholesky as safe_cholesky,
     sandwich as sandwich,
     schur_complement as schur_complement,
+    selected_inverse as selected_inverse,
     solve_columns as solve_columns,
     solve_matrix as solve_matrix,
     solve_rows as solve_rows,
