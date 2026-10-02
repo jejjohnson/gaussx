@@ -31,6 +31,7 @@ from gaussx._inference._inference import (
     newton_update,
     trace_correction,
 )
+from gaussx._inference._laplace import LaplaceResult, laplace_mode
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
@@ -45,6 +46,7 @@ from gaussx._ssm._discretise import process_noise_covariance
 
 
 __all__ = [
+    "LaplaceResult",
     "blr_diag_update",
     "blr_full_update",
     "cavity_distribution",
@@ -66,6 +68,7 @@ __all__ = [
     "inflate_multiplicative",
     "inflate_rtpp",
     "inflate_rtps",
+    "laplace_mode",
     "localization_matrix",
     "localized_kalman_gain",
     "log_marginal_likelihood",

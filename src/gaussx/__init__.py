@@ -80,6 +80,7 @@ from gaussx._gp import (
     whitened_svgp_predict as whitened_svgp_predict,
 )
 from gaussx._inference import (
+    LaplaceResult as LaplaceResult,
     blr_diag_update as blr_diag_update,
     blr_full_update as blr_full_update,
     cavity_distribution as cavity_distribution,
@@ -101,6 +102,7 @@ from gaussx._inference import (
     inflate_multiplicative as inflate_multiplicative,
     inflate_rtpp as inflate_rtpp,
     inflate_rtps as inflate_rtps,
+    laplace_mode as laplace_mode,
     localization_matrix as localization_matrix,
     localized_kalman_gain as localized_kalman_gain,
     log_marginal_likelihood as log_marginal_likelihood,
@@ -209,6 +211,7 @@ from gaussx._quadrature import (
     AnalyticalPsiStatistics as AnalyticalPsiStatistics,
     AssumedDensityFilter as AssumedDensityFilter,
     BernoulliLikelihood as BernoulliLikelihood,
+    BinomialLikelihood as BinomialLikelihood,
     CubatureIntegrator as CubatureIntegrator,
     FifthOrderCubatureIntegrator as FifthOrderCubatureIntegrator,
     GaussHermiteIntegrator as GaussHermiteIntegrator,
@@ -217,6 +220,7 @@ from gaussx._quadrature import (
     HeteroscedasticGaussianLikelihood as HeteroscedasticGaussianLikelihood,
     MomentMatchResult as MomentMatchResult,
     MonteCarloIntegrator as MonteCarloIntegrator,
+    NegativeBinomialLikelihood as NegativeBinomialLikelihood,
     PoissonLikelihood as PoissonLikelihood,
     PropagationResult as PropagationResult,
     SLRResult as SLRResult,

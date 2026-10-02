@@ -36,13 +36,16 @@ control.
 ## Likelihoods
 
 Observation models with quadrature-friendly `log_prob` surfaces, shared by the
-expectation helpers and the SSM / CVI recipes.
+expectation helpers and the SSM / CVI recipes. Site-factorising likelihoods
+also give `site_derivatives`, the per-site gradient and Hessian diagonal that
+Newton-type inference (`newton_update`, `laplace_mode`) consumes; binomial and
+negative binomial supply closed forms.
 
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [AbstractLikelihood, GaussianLikelihood, HeteroscedasticGaussianLikelihood, BernoulliLikelihood, PoissonLikelihood, SoftmaxLikelihood, StudentTLikelihood]
+      members: [AbstractLikelihood, GaussianLikelihood, HeteroscedasticGaussianLikelihood, BernoulliLikelihood, BinomialLikelihood, PoissonLikelihood, NegativeBinomialLikelihood, SoftmaxLikelihood, StudentTLikelihood]
 
 ## Expectations & EP moments
 
