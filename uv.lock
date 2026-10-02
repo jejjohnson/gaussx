@@ -616,6 +616,7 @@ numpyro = [
 [package.dev-dependencies]
 dev = [
     { name = "beartype" },
+    { name = "jupytext" },
     { name = "numpyro" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -655,6 +656,7 @@ provides-extras = ["numpyro"]
 [package.metadata.requires-dev]
 dev = [
     { name = "beartype", specifier = ">=0.18" },
+    { name = "jupytext", specifier = ">=1.19.1" },
     { name = "numpyro", specifier = ">=0.21" },
     { name = "pre-commit", specifier = ">=3.7" },
     { name = "pytest", specifier = ">=8.0" },
