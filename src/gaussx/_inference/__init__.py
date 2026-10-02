@@ -38,7 +38,6 @@ from gaussx._inference._natural_gradient import (
     gauss_newton_precision,
     riemannian_psd_correction,
 )
-from gaussx._inference._vb_correction import vb_mean_correction
 
 # ``process_noise_covariance`` is a state-space concept and now lives in
 # ``gaussx._ssm``. Re-exported here so the historical import path keeps
@@ -83,12 +82,17 @@ __all__ = [
 ]
 
 
-# laplace_mode takes the numpyro-based GMRF priors (G6), so it needs the
-# optional ``numpyro`` dependency. As in ``gaussx._distributions``, resolve it
-# lazily (PEP 562) so importing ``gaussx._inference`` works in a base install.
+# laplace_mode and vb_mean_correction take the numpyro-based GMRF priors (G6),
+# so they need the optional ``numpyro`` dependency. As in
+# ``gaussx._distributions``, resolve them lazily (PEP 562) so importing
+# ``gaussx._inference`` works in a base install.
 def __getattr__(name: str) -> Any:
     if name in ("LaplaceResult", "laplace_mode"):
         from gaussx._inference import _laplace
 
         return getattr(_laplace, name)
+    if name == "vb_mean_correction":
+        from gaussx._inference._vb_correction import vb_mean_correction
+
+        return vb_mean_correction
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

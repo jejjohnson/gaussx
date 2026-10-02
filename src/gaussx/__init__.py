@@ -108,7 +108,6 @@ from gaussx._inference import (
     riemannian_psd_correction as riemannian_psd_correction,
     tikhonov_augment as tikhonov_augment,
     trace_correction as trace_correction,
-    vb_mean_correction as vb_mean_correction,
 )
 from gaussx._linalg import (
     EigenFactorization as EigenFactorization,
@@ -395,6 +394,9 @@ try:
     from gaussx._inference._laplace import (
         LaplaceResult as LaplaceResult,
         laplace_mode as laplace_mode,
+    )
+    from gaussx._inference._vb_correction import (
+        vb_mean_correction as vb_mean_correction,
     )
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":
