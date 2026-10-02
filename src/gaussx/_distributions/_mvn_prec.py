@@ -16,6 +16,7 @@ from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
 from gaussx._primitives._inv import inv as _inv
 from gaussx._primitives._solve import solve as _solve
+from gaussx._sparse._factor import SparseCholeskyFactor
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -104,6 +105,9 @@ class MultivariateNormalPrecision(dist.Distribution):
         eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]
 
         def _solve_one(z):
+            if isinstance(L, SparseCholeskyFactor):
+                # A SparseOperator's factor is of P Λ Pᵀ: x = Pᵀ L⁻ᵀ z.
+                return L.solve_lower_transpose(z)
             return _solve(L.T, z)
 
         eps_flat = rearrange(eps, "... D -> (...) D")

@@ -18,6 +18,96 @@ be wasted work. Both require `numpyro` to be installed.
       show_root_toc_entry: false
       members: [MultivariateNormal, MultivariateNormalPrecision]
 
+## Gaussian Markov random fields
+
+`GaussianMRF` is $\mathcal N(\mu, Q^{-1})$ with a structured precision, and
+`IntrinsicGMRF` the improper $\mathcal N(\mu, (\tau R)^+)$ of RW1 / RW2 /
+Besag (ICAR) priors, with a structure matrix $R$ and its null space. Every
+operation dispatches on the precision's structure
+([GMRF precision builders](gmrf.md) return the right one):
+
+- **sample**, in order: a factorisable precision (dense, `BlockTriDiag`, or
+  a `SparseOperator` through its sparse Cholesky factor) gives
+  $\mu + L^{-\top}z$; a Kronecker-structured one (`Kronecker`,
+  `KroneckerSum`, `SpectralFunction`) the symmetric root in its factor
+  eigenvectors; anything else with `precision_factors`
+  $Q = \sum_k F_k^\top F_k$ is sampled by **perturbation-optimisation**:
+  $x = Q^{-1}\sum_k F_k^\top z_k$ has covariance $Q^{-1}QQ^{-1} = Q^{-1}$,
+  one CG solve per draw and no factorisation (graph precisions come
+  factored, $B^\top\operatorname{diag}(w)B$ from an incidence matrix).
+- **log_prob**: $\tfrac12\log|Q| - \tfrac12(x-\mu)^\top Q(x-\mu) - \tfrac N2\log 2\pi$,
+  with $\log|Q|$ from `log_det_precision` when known in closed form (no
+  stochastic estimate inside an MCMC density), else `logdet_strategy`,
+  `solver` or the structural `logdet`. The intrinsic density is
+  $\tfrac{N-c}{2}\log\tau - \tfrac\tau2(x-\mu)^\top R(x-\mu)$, plus the
+  $\tau$-free $\tfrac12\log|R|_+$ ([`pseudo_logdet`](primitives.md)) with
+  `include_normalizer`.
+- **marginal variances**: `diag_inv` (Takahashi on a sparse or banded
+  factor, factor eigenvectors on a grid).
+- **observations** $y = Ax + \varepsilon$:
+  `condition_on_observations` returns the posterior GMRF,
+  $Q + A^\top\Lambda A$ (sparse on the union pattern for a sparse prior and
+  `A`, matrix-free for a grid prior) with its mean from one solve.
+- **constraints** $A_cx = e$: `condition_on_constraints` returns a
+  `ConstrainedGMRF`, conditioning by kriging (Rue & Held, 2005, §2.3.3):
+  $x^\ast = x - Q^{-1}A_c^\top(A_cQ^{-1}A_c^\top)^{-1}(A_cx - e)$ is an exact
+  draw from $x \mid A_cx = e$, with corrected marginal variances and the
+  constrained density. `IntrinsicGMRF` defaults to the hard constraint
+  `null_spaceᵀx = 0`; `constraint="soft"` puts a tight Gaussian on
+  `null_spaceᵀx` instead, for NUTS.
+
+An odd-length `rw2_structure(n)` has one decoupled padding node: build the
+`IntrinsicGMRF` on all `n + 1` nodes with `null_space` zero on it, and drop
+it from draws. All three require `numpyro` to be installed.
+
+```python
+import einx
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+import gaussx as gx
+
+# Gap-fill a cloudy sea-surface-temperature snapshot on an H × W grid
+H, W = 30, 40
+kappa, tau, alpha = gx.matern_spde_params(range=8.0, sigma=1.0, nu=1.0, d=2)
+prior = gx.GaussianMRF(
+    jnp.zeros(H * W), gx.spde_precision_grid((H, W), kappa, tau, alpha=alpha)
+)
+clear_idx = np.flatnonzero(np.random.default_rng(0).random(H * W) > 0.6)
+n_clear = clear_idx.size
+sst = jnp.sin(jnp.arange(H * W) / 50.0)  # stand-in for the measured field
+A = gx.SparseOperator.from_coo(
+    np.arange(n_clear), clear_idx, jnp.ones(n_clear), (n_clear, H * W)
+)
+post = prior.condition_on_observations(A, noise_precision=1 / 0.2**2, y=sst[clear_idx])
+filled = einx.id("(h w) -> h w", post.loc, h=H)
+sd = einx.id("(h w) -> h w", jnp.sqrt(post.marginal_variances()), h=H)
+draws = post.sample(jax.random.PRNGKey(0), (20,))  # 20 plausible gap-filled fields
+
+# An ICAR field with a hard sum-to-zero constraint per island group: the
+# mainland path 0 - 1 - 2 - 3 and the island pair 4 - 5
+senders, receivers = np.array([1, 2, 3, 5]), np.array([0, 1, 2, 4])
+degree = np.bincount(np.r_[senders, receivers], minlength=6).astype(float)
+R = gx.SparseOperator.from_coo(
+    np.r_[np.arange(6), senders],
+    np.r_[np.arange(6), receivers],
+    jnp.asarray(np.r_[degree, -np.ones(4)]),
+    (6, 6),
+    symmetric=True,
+)
+null_space = jnp.zeros((6, 2)).at[:4, 0].set(0.5).at[4:, 1].set(2**-0.5)
+icar = gx.IntrinsicGMRF(jnp.zeros(6), 2.0, R, null_space)  # kernellib: graph_null_space
+u = icar.sample(jax.random.PRNGKey(1))  # null_spaceᵀ u == 0 to machine precision
+lp = icar.log_prob(u)  # (N − c)/2 · log τ − τ/2 uᵀRu, with N − c = 4
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF]
+
 ## Sequential distributions
 
 The linear-Gaussian state-space model as a *density* rather than a set of
