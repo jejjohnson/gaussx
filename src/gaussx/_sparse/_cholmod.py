@@ -25,7 +25,7 @@ from gaussx._sparse._symbolic import SymbolicCholesky
 def require_cholmod() -> Any:
     """Import ``sksparse.cholmod``, or raise an informative `ImportError`."""
     try:
-        from sksparse import cholmod
+        from sksparse import cholmod  # ty: ignore[unresolved-import]
     except ImportError as err:
         raise ImportError(
             "The CHOLMOD backend and the 'amd' ordering need scikit-sparse "
