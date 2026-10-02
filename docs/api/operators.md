@@ -99,6 +99,20 @@ psi = gaussx.solve(helmholtz, f)                          # two FFTs, no matrix
       show_root_toc_entry: false
       members: [DiagonalisedOperator, Circulant, circulant_from_symbol, as_diagonalised]
 
+`SpectralFunction` is $f(A_1\oplus\cdots\oplus A_d)$ for symmetric factors,
+stored as the factor eigendecompositions plus the elementwise function $f$:
+`mv`, `solve`, `logdet`, `diag_inv` (also with `pinv=True`) and `sqrt_matmul`
+act one axis at a time through the shared eigenvectors. It is the operator
+behind the SPDE (Matérn) precision on a regular grid,
+[`spde_precision_grid`](gmrf.md), and as a factor of a shifted Kronecker
+product $A\otimes f(B) + cI$ it keeps its eigenbasis.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [SpectralFunction]
+
 ## Interpolated & masked operators
 
 Grid-interpolated (KISS-GP style) and masked operators, plus the grid and

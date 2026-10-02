@@ -16,6 +16,7 @@ from gaussx._operators._factored_eigen import factored_eigen
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import SumOfKroneckers, _shifted_kronecker_eigen
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -42,7 +43,8 @@ def diag_inv(
       `gaussx.selected_inverse`, ``O(N d³)``.
     - `Kronecker` ``A ⊗ B``: ``diag_inv(A) ⊗ diag_inv(B)``, each factor
       dispatched in turn.
-    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalisedOperator`): with
+    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalisedOperator`, or a
+      `SpectralFunction` ``f(A ⊕ B)``, with ``M_ij = 1/f(λ^A_i + λ^B_j)``): with
       ``A = U_A Λ_A U_Aᵀ``, ``B = U_B Λ_B U_Bᵀ``,
       ``diag((A ⊕ B)⁻¹) = (U_A ∘ U_A) M (U_B ∘ U_B)ᵀ`` with
       ``M_ij = 1/(λ^A_i + λ^B_j)`` — two small matrix products,
@@ -74,7 +76,8 @@ def diag_inv(
             intrinsic (singular) precisions on grids, e.g. the exact ICAR /
             BYM2 scaling constant on a raster. Only the eigenvalue-based
             paths (Kronecker sums and products of such operators, shifted
-            Kronecker products, `DiagonalisedOperator`) support it.
+            Kronecker products, `DiagonalisedOperator`, `SpectralFunction`)
+            support it.
 
     Returns:
         1D array of shape ``(N,)`` with the diagonal entries of A⁻¹.
@@ -180,7 +183,7 @@ def _diag_inv_structured(
                 else einsum(result, factor_diag, "a, b -> (a b)")
             )
         return result
-    if isinstance(operator, KroneckerSum | DiagonalisedOperator):
+    if isinstance(operator, KroneckerSum | DiagonalisedOperator | SpectralFunction):
         factorization = factored_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     if isinstance(operator, SumOfKroneckers | lx.AddLinearOperator):

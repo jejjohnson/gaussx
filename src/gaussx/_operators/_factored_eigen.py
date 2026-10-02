@@ -111,10 +111,11 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
     """The factored eigenbasis of ``operator``, or ``None`` if it has none.
 
     Kronecker sums and products recurse into their factors, so a factor that
-    carries its own basis (a `DiagonalisedOperator`, a nested `KroneckerSum`)
-    keeps it; a diagonal factor needs no basis at all. Any other factor must
-    be symmetric, and is materialised and eigendecomposed with ``eigh`` —
-    only that factor, never the joint operator.
+    carries its own basis (a `DiagonalisedOperator`, a nested `KroneckerSum`,
+    a `SpectralFunction` of one) keeps it; a diagonal factor needs no basis
+    at all. Any other factor must be symmetric, and is materialised and
+    eigendecomposed with ``eigh`` — only that factor, never the joint
+    operator.
 
     Args:
         operator: Any lineax operator.
@@ -123,10 +124,15 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
         The factorisation, or ``None`` for a non-symmetric operator with no
         known eigenbasis.
     """
+    from gaussx._operators._spectral_function import SpectralFunction
+
     if isinstance(operator, lx.TaggedLinearOperator) and isinstance(
-        operator.operator, KroneckerSum | Kronecker | DiagonalisedOperator
+        operator.operator,
+        KroneckerSum | Kronecker | DiagonalisedOperator | SpectralFunction,
     ):
         return factored_eigen(operator.operator)
+    if isinstance(operator, SpectralFunction):
+        return operator.factored_eigen()
     if isinstance(operator, lx.IdentityLinearOperator):
         dtype = operator.in_structure().dtype
         return FactoredEigen((None,), jnp.ones(operator.in_size(), dtype=dtype))

@@ -93,6 +93,7 @@ nav:
       - Primitives: api/primitives.md
       - Operators & Tags: api/operators.md
       - Sparse Operators: api/sparse.md
+      - GMRF Precision Builders: api/gmrf.md
       - Solvers & Preconditioners: api/solvers.md
       - Linear-Algebra Utilities: api/linalg.md
       - Sketching: api/sketching.md

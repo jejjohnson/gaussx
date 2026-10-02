@@ -39,6 +39,7 @@ from gaussx._operators._low_rank_update import (
 )
 from gaussx._operators._masked import MaskedOperator, grid_coupling_indices
 from gaussx._operators._sparse import SparseOperator, SparsityPattern
+from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumKronecker,
     SumOfKroneckers,
@@ -477,6 +478,7 @@ __all__ = [
     "ScaledOperator",
     "SparseOperator",
     "SparsityPattern",
+    "SpectralFunction",
     "SumKronecker",
     "SumOfKroneckers",
     "SumOperator",

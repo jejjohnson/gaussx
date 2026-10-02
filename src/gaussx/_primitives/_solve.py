@@ -27,6 +27,7 @@ from gaussx._operators._kronecker_sum import (
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
@@ -70,6 +71,8 @@ def solve(
     if isinstance(operator, KroneckerSum):
         return _solve_kronecker_sum(operator, vector, solver)
     if isinstance(operator, KroneckerSumSqrt):
+        return operator.solve(vector)
+    if isinstance(operator, SpectralFunction):
         return operator.solve(vector)
     if isinstance(operator, BlockTriDiag) and operator.symmetric:
         # Non-symmetric diagonal blocks take the dense LU fallback (gh-344).
