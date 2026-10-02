@@ -1,10 +1,13 @@
 name: Extended Tests
 
-# On-demand only. Trigger from the Actions tab or:
-#   gh workflow run tests-extended.yml                 # heavy lane (slow + integration)
-#   gh workflow run tests-extended.yml -f suite=full   # entire suite
-# Optionally target a branch:
-#   gh workflow run tests-extended.yml --ref my-branch -f suite=full
+# The slow + integration tests the PR fast lane skips. Runs:
+#   - weekly (Monday 04:17 UTC), full suite; a failure opens a `ci-failure` issue.
+#   - on a PR labelled `run-slow`, heavy lane (slow + integration only),
+#     re-running on every push while the label is on.
+#   - on demand, from the Actions tab or:
+#       gh workflow run tests-extended.yml                 # heavy lane (slow + integration)
+#       gh workflow run tests-extended.yml -f suite=full   # entire suite
+#       gh workflow run tests-extended.yml --ref my-branch -f suite=full
 
 on:
   workflow_dispatch:
@@ -16,16 +19,46 @@ on:
         options:
           - heavy   # only slow + integration tests
           - full    # entire suite
+  schedule:
+    - cron: "17 4 * * 1"
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
 
 permissions:
   contents: read
 
+# A new push supersedes a running PR run, so PR runs share a group per ref.
+# Everything else gets a group of its own:
+#   - concurrency applies before the job `if:`, so adding any other label
+#     would cancel a real run for one that then skips;
+#   - scheduled and dispatched runs all share `github.ref` (main), and a
+#     group keeps only one pending run, so sharing one would let a dispatch
+#     drop the pending weekly run (and its failure report) on the floor.
+concurrency:
+  group: >-
+    tests-extended-${{
+    (github.event_name == 'pull_request' &&
+     !(github.event.action == 'labeled' && github.event.label.name != 'run-slow'))
+    && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test-extended:
+    # On PRs, only with the `run-slow` label; for a `labeled` event, only
+    # when that label is the one just added.
+    if: >-
+      github.event_name != 'pull_request' ||
+      (contains(github.event.pull_request.labels.*.name, 'run-slow') &&
+       (github.event.action != 'labeled' || github.event.label.name == 'run-slow'))
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.12", "3.13"]
+    env:
+      # Dispatch picks the suite; scheduled runs take the full suite and
+      # labelled PRs the heavy lane.
+      SUITE: ${{ inputs.suite || (github.event_name == 'schedule' && 'full') || 'heavy' }}
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -35,8 +68,21 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --group dev
       - name: Run heavy lane (slow + integration)
-        if: inputs.suite == 'heavy'
+        if: env.SUITE == 'heavy'
         run: uv run pytest -v -n auto -m "slow or integration"
       - name: Run full suite
-        if: inputs.suite == 'full'
+        if: env.SUITE == 'full'
         run: uv run pytest -v -n auto
+
+  report:
+    needs: test-extended
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/report-scheduled-failure
+        with:
+          title: "ci: the weekly extended-tests run failed"
