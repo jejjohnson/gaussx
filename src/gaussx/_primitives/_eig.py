@@ -22,31 +22,54 @@ from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._randomized._svd import randomized_eigh
 
 
 def eig(
     operator: lx.AbstractLinearOperator,
     *,
     rank: int | None = None,
+    method: Literal["lanczos", "randomized"] = "lanczos",
     key: jax.Array | None = None,
 ) -> tuple[Array, Array]:
     """Compute eigenvalues and eigenvectors.
 
     For symmetric operators returns real eigenvalues via ``eigh``.
-    When ``rank`` is given, computes a partial eigendecomposition
-    via matfree Lanczos (symmetric) — no matrix materialization.
+    When ``rank`` is given (and the operator has no exploitable
+    structure), computes a partial eigendecomposition of a symmetric
+    operator without matrix materialization, by ``method``:
+
+    - ``"lanczos"`` (default): matfree Lanczos.
+    - ``"randomized"``: `randomized_eigh` with its defaults
+      (``oversample=10``, ``n_power_iter=2``, ``which="largest"``); call it
+      directly to tune them. Use ``n_power_iter >= 2`` for slowly decaying
+      spectra.
+
+    Randomized methods target the **top** of the spectrum (the eigenvalues
+    of largest magnitude).
 
     Args:
         operator: A square linear operator.
         rank: Number of eigenvalues to compute. If ``None``,
             computes the full eigendecomposition.
-        key: PRNG key for the initial random vector when using
-            partial eig. If ``None``, uses ``jax.random.PRNGKey(0)``.
+        method: Partial-eig algorithm, ``"lanczos"`` or ``"randomized"``.
+            Only used when ``rank`` is given.
+        key: PRNG key for the initial random vector (Lanczos) or the
+            Gaussian test matrix (randomized) when using partial eig.
+            If ``None``, uses ``jax.random.PRNGKey(0)``.
 
     Returns:
         Tuple ``(eigenvalues, eigenvectors)`` where eigenvalues has
         shape ``(K,)`` and eigenvectors has shape ``(N, K)``.
+
+    Raises:
+        ValueError: If ``method`` is invalid, or ``"randomized"`` without
+            ``rank``.
     """
+    if method not in ("lanczos", "randomized"):
+        raise ValueError(f"method must be 'lanczos' or 'randomized', got {method!r}.")
+    if method == "randomized" and rank is None:
+        raise ValueError("method='randomized' needs a rank.")
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _eig_diagonal(operator)
     if isinstance(operator, BlockDiag):
@@ -56,6 +79,8 @@ def eig(
     if isinstance(operator, KroneckerSum):
         return _eig_kronecker_sum(operator)
     if rank is not None:
+        if method == "randomized":
+            return randomized_eigh(operator, rank, key=key)
         return _eig_partial(operator, rank, key)
     return _eig_dense(operator)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools as ft
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -15,33 +16,55 @@ from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
+from gaussx._randomized._svd import randomized_svd
 
 
 def svd(
     operator: lx.AbstractLinearOperator,
     *,
     rank: int | None = None,
+    method: Literal["lanczos", "randomized"] = "lanczos",
     key: jax.Array | None = None,
 ) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
     """Compute the singular value decomposition ``A = U diag(s) V^T``.
 
-    When ``rank`` is given, computes a partial (truncated) SVD via
-    matfree's Golub-Kahan bidiagonalization — no matrix materialization.
+    When ``rank`` is given, computes a partial (truncated) SVD without
+    materializing the operator, by ``method``:
+
+    - ``"lanczos"`` (default): matfree's Golub-Kahan bidiagonalization.
+    - ``"randomized"``: `randomized_svd` with its defaults
+      (``oversample=10``, ``n_power_iter=2``); call it directly to tune
+      them. Use ``n_power_iter >= 2`` for slowly decaying spectra.
+
+    Both target the **top** of the spectrum (the largest singular values).
 
     Args:
         operator: A linear operator.
         rank: Number of singular values to compute. If ``None``,
             computes the full SVD (requires materialization).
-        key: PRNG key for the initial random vector when using
-            partial SVD. If ``None``, uses ``jax.random.PRNGKey(0)``.
+        method: Partial-SVD algorithm, ``"lanczos"`` or ``"randomized"``.
+            Only used when ``rank`` is given.
+        key: PRNG key for the initial random vector (Lanczos) or the
+            Gaussian test matrix (randomized) when using partial SVD.
+            If ``None``, uses ``jax.random.PRNGKey(0)``.
 
     Returns:
         Tuple ``(U, s, Vt)`` where U has shape ``(M, K)``,
         s has shape ``(K,)``, and Vt has shape ``(K, N)``.
+
+    Raises:
+        ValueError: If ``method`` is invalid, or ``"randomized"`` without
+            ``rank``.
     """
+    if method not in ("lanczos", "randomized"):
+        raise ValueError(f"method must be 'lanczos' or 'randomized', got {method!r}.")
+    if method == "randomized" and rank is None:
+        raise ValueError("method='randomized' needs a rank.")
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _svd_diagonal(operator)
     if rank is not None:
+        if method == "randomized":
+            return randomized_svd(operator, rank, key=key)
         return _svd_partial(operator, rank, key)
     if isinstance(operator, Kronecker):
         return _svd_kronecker(operator)
