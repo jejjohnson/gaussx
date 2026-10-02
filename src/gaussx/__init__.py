@@ -209,6 +209,7 @@ from gaussx._quadrature import (
     AnalyticalPsiStatistics as AnalyticalPsiStatistics,
     AssumedDensityFilter as AssumedDensityFilter,
     BernoulliLikelihood as BernoulliLikelihood,
+    BinomialLikelihood as BinomialLikelihood,
     CubatureIntegrator as CubatureIntegrator,
     FifthOrderCubatureIntegrator as FifthOrderCubatureIntegrator,
     GaussHermiteIntegrator as GaussHermiteIntegrator,
@@ -217,6 +218,7 @@ from gaussx._quadrature import (
     HeteroscedasticGaussianLikelihood as HeteroscedasticGaussianLikelihood,
     MomentMatchResult as MomentMatchResult,
     MonteCarloIntegrator as MonteCarloIntegrator,
+    NegativeBinomialLikelihood as NegativeBinomialLikelihood,
     PoissonLikelihood as PoissonLikelihood,
     PropagationResult as PropagationResult,
     SLRResult as SLRResult,
@@ -388,6 +390,10 @@ try:
     from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
     from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,
+    )
+    from gaussx._inference._laplace import (
+        LaplaceResult as LaplaceResult,
+        laplace_mode as laplace_mode,
     )
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":

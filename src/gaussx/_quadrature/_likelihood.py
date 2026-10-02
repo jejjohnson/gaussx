@@ -5,6 +5,7 @@ from __future__ import annotations
 import abc
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -35,6 +36,30 @@ class AbstractLikelihood(eqx.Module):
             Scalar log-likelihood.
         """
         ...
+
+    def site_derivatives(
+        self,
+        f: Float[Array, " N"],
+    ) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
+        r"""Per-site gradient and Hessian diagonal of ``log p(y | f)`` in ``f``.
+
+        For a likelihood that factorises over sites,
+        $\log p(y\mid f) = \sum_i \log p(y_i\mid f_i)$, the Hessian is
+        diagonal and this returns ``(∂ log p / ∂f_i, ∂² log p / ∂f_i²)``, the
+        inputs of `gaussx.newton_update`'s diagonal path and of
+        `gaussx.laplace_mode`. The default differentiates ``log_prob``: one
+        reverse pass for the gradient and one forward pass of it along
+        ``1`` for the diagonal (exact only when the Hessian is diagonal, so
+        not for `SoftmaxLikelihood` or `HeteroscedasticGaussianLikelihood`).
+        Subclasses may override it with closed forms.
+
+        Args:
+            f: Latent function values, shape ``(N,)``.
+
+        Returns:
+            Tuple ``(gradient, hessian_diagonal)``, each shape ``(N,)``.
+        """
+        return jax.jvp(jax.grad(self.log_prob), (f,), (jnp.ones_like(f),))
 
     def has_analytical_ell(self) -> bool:
         """Whether this likelihood supports closed-form ELL."""

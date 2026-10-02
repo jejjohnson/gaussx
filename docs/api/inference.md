@@ -28,6 +28,78 @@ on the manifold.
       show_root_toc_entry: false
       members: [newton_update, damped_natural_update, gauss_newton_precision, ggn_diagonal, hutchinson_hessian_diag, riemannian_psd_correction, cavity_distribution, trace_correction]
 
+## Precision-form Laplace (INLA)
+
+`laplace_mode` is the inner loop of INLA: the Gaussian approximation
+$\mathcal N(\hat x, H^{-1})$ of a latent Gaussian model at fixed
+hyperparameters $\theta$, computed entirely in precision form. With
+$\eta = Ax + o$, $g = \partial_\eta\log p(y\mid\eta)$ and
+$W = -\operatorname{diag}(\partial^2_\eta\log p)$, each Newton step solves
+
+$$
+(Q + A^\top WA)\,x_{t+1} = Q\mu + A^\top(g + WAx_t),
+$$
+
+with a matrix whose structure never changes: an identity or row-selection
+projector keeps a `BlockTriDiag` prior banded, and anything else becomes a
+`SparseOperator` on a pattern whose sparse Cholesky analysis is shared by every
+step and every $\theta$. Hard sum-to-zero (null-space) constraints of an
+`IntrinsicGMRF` are applied by kriging each solve. At the mode,
+
+$$
+\log\tilde\pi(y\mid\theta) = \log p(y\mid A\hat x + o)
+  - \tfrac12(\hat x-\mu)^\top Q(\hat x-\mu) + \tfrac12\log|Q| - \tfrac12\log|H|,
+$$
+
+with the constraint corrections of Rue et al. (2009) for intrinsic priors. The
+mode is differentiated implicitly ($\partial_\theta\hat x =
+H^{-1}\partial_\theta\nabla\ell$, via `jax.lax.custom_root`) and the
+log-determinants through their structured or sparse (Takahashi) VJPs, so
+`jax.grad` and the reverse-over-reverse Hessian that `theta_design` uses are
+exact.
+
+```python
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+import gaussx as gx
+
+# Poisson counts with an RW2 seasonal effect; θ = log τ
+n_days = 364  # even: rw2_structure(n) pads odd n with one node (see below)
+t = jnp.arange(n_days, dtype=float)
+counts = jnp.asarray(np.random.default_rng(0).poisson(np.exp(1 + np.sin(t / 58))))
+rw2_null = jnp.column_stack([jnp.ones(n_days), t - t.mean()])
+
+
+def log_marginal(log_tau):
+    prior = gx.IntrinsicGMRF(
+        jnp.zeros(n_days),
+        jnp.exp(log_tau),
+        gx.rw2_structure(n_days),
+        null_space=rw2_null,
+        constraint="hard",
+    )
+    result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts))
+    return result.log_marginal  # H stays BlockTriDiag
+
+
+value, grad = jax.value_and_grad(log_marginal)(0.0)  # exact: implicit diff + block Cholesky
+```
+
+The likelihood holds the observations, so `laplace_mode(prior, likelihood)`
+takes no separate `y`. For an odd number of nodes `rw2_structure(n)` returns
+`n + 1` rows (a decoupled padding node): build the field on `n + 1` nodes with
+`null_space` zero on the padding row, observe the first `n` through a row
+selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, n + 1))`
+(which keeps $H$ banded), and drop `mode[n]`.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [laplace_mode, LaplaceResult]
+
 ## Ensemble covariances, gain & analysis
 
 Bessel-corrected empirical (cross-)covariances from ensemble members, the

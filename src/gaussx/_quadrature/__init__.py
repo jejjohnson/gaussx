@@ -24,7 +24,9 @@ from gaussx._quadrature._integrator import AbstractIntegrator, moment_transform
 from gaussx._quadrature._likelihood import AbstractLikelihood, GaussianLikelihood
 from gaussx._quadrature._likelihoods import (
     BernoulliLikelihood,
+    BinomialLikelihood,
     HeteroscedasticGaussianLikelihood,
+    NegativeBinomialLikelihood,
     PoissonLikelihood,
     SoftmaxLikelihood,
     StudentTLikelihood,
@@ -55,6 +57,7 @@ __all__ = [
     "AnalyticalPsiStatistics",
     "AssumedDensityFilter",
     "BernoulliLikelihood",
+    "BinomialLikelihood",
     "CubatureIntegrator",
     "FifthOrderCubatureIntegrator",
     "GaussHermiteIntegrator",
@@ -63,6 +66,7 @@ __all__ = [
     "HeteroscedasticGaussianLikelihood",
     "MomentMatchResult",
     "MonteCarloIntegrator",
+    "NegativeBinomialLikelihood",
     "PoissonLikelihood",
     "PropagationResult",
     "SLRResult",

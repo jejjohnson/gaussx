@@ -41,6 +41,115 @@ class PoissonLikelihood(AbstractLikelihood):
         return jnp.sum(self.y * f - jnp.exp(f) - jax.scipy.special.gammaln(self.y + 1))
 
 
+class BinomialLikelihood(AbstractLikelihood):
+    r"""Binomial likelihood with logit link.
+
+    $y_i \sim \operatorname{Bin}(n_i, \sigma(f_i))$, so
+
+    $$
+    \log p(y\mid f) = \sum_i \log\binom{n_i}{y_i} + y_i\log\sigma(f_i)
+        + (n_i - y_i)\log\sigma(-f_i),
+    $$
+
+    with site gradient $y_i - n_i\sigma(f_i)$ and Hessian
+    $-n_i\sigma(f_i)\sigma(-f_i)$ (log-concave). ``n_trials = 1`` is
+    `BernoulliLikelihood`.
+
+    Attributes:
+        y: Success counts, shape ``(N,)``.
+        n_trials: Numbers of trials $n_i$, a scalar or shape ``(N,)``.
+
+    Examples:
+        ```python
+        import jax.numpy as jnp
+        import gaussx as gx
+
+        lik = gx.BinomialLikelihood(jnp.array([3.0, 0.0, 5.0]), n_trials=5.0)
+        lp = lik.log_prob(jnp.zeros(3))
+        grad, hess = lik.site_derivatives(jnp.zeros(3))  # [0.5, -2.5, 2.5], -1.25
+        ```
+    """
+
+    y: Float[Array, " N"]
+    n_trials: Float[Array, " N"] | float
+
+    def log_prob(self, f: Float[Array, " N"]) -> Float[Array, ""]:
+        """Evaluate the binomial log-likelihood with logit link."""
+        y, n = self.y, self.n_trials
+        gammaln = jax.scipy.special.gammaln
+        log_binom = gammaln(n + 1.0) - gammaln(y + 1.0) - gammaln(n - y + 1.0)
+        return jnp.sum(
+            log_binom + y * jax.nn.log_sigmoid(f) + (n - y) * jax.nn.log_sigmoid(-f)
+        )
+
+    def site_derivatives(
+        self, f: Float[Array, " N"]
+    ) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
+        """Closed-form ``(y − nσ(f), −nσ(f)σ(−f))``."""
+        p = jax.nn.sigmoid(f)
+        return self.y - self.n_trials * p, -self.n_trials * p * jax.nn.sigmoid(-f)
+
+
+class NegativeBinomialLikelihood(AbstractLikelihood):
+    r"""Negative-binomial likelihood with log link (NB2, a gamma-Poisson mixture).
+
+    $y_i$ has mean $\mu_i = e^{f_i}$ and variance $\mu_i + \mu_i^2/r$, with
+    $r$ the ``concentration`` (R-INLA's ``size``; numpyro's
+    ``NegativeBinomial2`` concentration). $r$ is the dispersion
+    hyperparameter: a leaf, so it can be traced and differentiated as part
+    of $\theta$. With $s_i = \sigma(f_i - \log r) = \mu_i/(r + \mu_i)$,
+
+    $$
+    \log p(y\mid f) = \sum_i \log\frac{\Gamma(y_i + r)}{\Gamma(r)\,y_i!}
+        + r\log r + y_if_i - (r + y_i)\log(r + e^{f_i}),
+    $$
+
+    with site gradient $y_i - (r + y_i)s_i$ and Hessian
+    $-(r + y_i)s_i(1 - s_i)$ (log-concave). $r\to\infty$ is
+    `PoissonLikelihood`.
+
+    Attributes:
+        y: Count observations, shape ``(N,)``.
+        concentration: $r > 0$, a scalar or shape ``(N,)``.
+
+    Examples:
+        ```python
+        import jax.numpy as jnp
+        import gaussx as gx
+
+        lik = gx.NegativeBinomialLikelihood(jnp.array([0.0, 4.0]), concentration=2.0)
+        lp = lik.log_prob(jnp.log(jnp.array([1.0, 3.0])))
+        grad, hess = lik.site_derivatives(jnp.zeros(2))
+        ```
+    """
+
+    y: Float[Array, " N"]
+    concentration: Float[Array, " N"] | float
+
+    def log_prob(self, f: Float[Array, " N"]) -> Float[Array, ""]:
+        """Evaluate the negative-binomial log-likelihood with log link."""
+        y, r = self.y, self.concentration
+        gammaln = jax.scipy.special.gammaln
+        log_r = jnp.log(r)
+        return jnp.sum(
+            gammaln(y + r)
+            - gammaln(r)
+            - gammaln(y + 1.0)
+            + r * log_r
+            + y * f
+            - (r + y) * jnp.logaddexp(log_r, f)
+        )
+
+    def site_derivatives(
+        self, f: Float[Array, " N"]
+    ) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
+        """Closed-form ``(y − (r + y)s, −(r + y)s(1 − s))``, ``s = σ(f − log r)``."""
+        y, r = self.y, self.concentration
+        shifted = f - jnp.log(r)
+        s = jax.nn.sigmoid(shifted)
+        return y - (r + y) * s, -(r + y) * s * jax.nn.sigmoid(-shifted)
+
+
 class StudentTLikelihood(AbstractLikelihood):
     r"""Student-t likelihood for robust regression.
 
