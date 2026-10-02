@@ -494,6 +494,18 @@ class TestPrimitives:
         x = gaussx.solve(small_laplacian, b, solver=cg)
         assert jnp.allclose(x, expected, atol=1e-8)
 
+    def test_diag_inv_auto_avoids_refused_cholesky(self):
+        # Between AutoSolver's threshold and diag_inv's dense limit (2048),
+        # "auto" must not pick the Cholesky that cholesky(SparseOperator) refuses.
+        n = AutoSolver().size_threshold + 1
+        d = jnp.linspace(1.0, 2.0, n)
+        op = SparseOperator.from_coo(
+            np.arange(n), np.arange(n), d, (n, n), tags=frozenset({PSD})
+        )
+        out = gaussx.diag_inv(op)
+        assert out.shape == (n,)
+        assert jnp.all(jnp.isfinite(out))
+
     @pytest.mark.slow
     def test_cg_solve_large_psd(self):
         # Above AutoSolver's threshold a PSD operator goes to CG.
