@@ -230,6 +230,15 @@ from gaussx._quadrature import (
     uncertain_svgp_predict as uncertain_svgp_predict,
     uncertain_vgp_predict as uncertain_vgp_predict,
 )
+from gaussx._sketching import (
+    AbstractSketch as AbstractSketch,
+    GaussianSketch as GaussianSketch,
+    OrthonormalSketch as OrthonormalSketch,
+    RowSamplingSketch as RowSamplingSketch,
+    SparseSignSketch as SparseSignSketch,
+    SRHTSketch as SRHTSketch,
+    hadamard_transform as hadamard_transform,
+)
 from gaussx._solve_frontend import (
     as_linear_operator as as_linear_operator,
     linear_solve as linear_solve,
