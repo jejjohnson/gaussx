@@ -395,6 +395,9 @@ try:
         LaplaceResult as LaplaceResult,
         laplace_mode as laplace_mode,
     )
+    from gaussx._inference._vb_correction import (
+        vb_mean_correction as vb_mean_correction,
+    )
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":
         raise

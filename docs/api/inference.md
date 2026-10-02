@@ -100,6 +100,75 @@ selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, 
       show_root_toc_entry: false
       members: [laplace_mode, LaplaceResult]
 
+## Low-rank VB mean correction (INLA)
+
+Under a skewed likelihood (Bernoulli, Poisson with small counts) the Laplace
+mode is a biased estimate of the posterior mean. `vb_mean_correction`
+(Van Niekerk & Rue, 2024; R-INLA's default `control.vb` correction) keeps the
+Laplace covariance $H^{-1}$ and shifts the mean within a $p$-dimensional
+subspace, $\bar x = \hat x + H^{-1}S\delta$, with $\delta$ maximising
+
+$$
+\mathcal L(\delta) = \sum_i\mathbb E_{\eta_i\sim\mathcal N(m_i(\delta),\,v_i)}
+  \big[\log p(y_i\mid\eta_i)\big]
+  - \tfrac12(\bar x-\mu)^\top Q(\bar x-\mu),
+$$
+
+$m = A\bar x + o$, $v_i = [AH^{-1}A^\top]_{ii}$. The expectations are 1-D
+Gauss-Hermite per site, the predictor variances come from the same Takahashi
+selected inverse as the marginal variances, and the Newton steps on $\delta$
+are $p$-dimensional, so it costs $p$ solves with the Laplace factor. For a
+Gaussian likelihood the correction is exactly zero. Typically $S$ spans the
+fixed effects:
+
+```python
+import jax.numpy as jnp
+import numpy as np
+
+import gaussx as gx
+
+# Rare detections along a transect: logit p_i = β₀ + u_i, u an RW2 under
+# Σu = Σ(t − t̄)u = 0 and β₀ ~ N(0, 10³); latent x = (u, β₀)
+n = 40
+t = np.arange(n, dtype=float)
+p_true = 1 / (1 + np.exp(2 - np.sin(t / 5)))
+detected = jnp.asarray(np.random.default_rng(0).random(n) < p_true, float)
+R = np.asarray(gx.rw2_structure(n).as_matrix())
+rows, cols = np.nonzero(np.tril(R))
+Q = gx.SparseOperator.from_coo(
+    np.r_[rows, n],
+    np.r_[cols, n],
+    jnp.r_[2.0 * R[rows, cols], 1e-3],
+    (n + 1, n + 1),
+    symmetric=True,
+)
+V = jnp.zeros((n + 1, 2)).at[:n, 0].set(1.0).at[:n, 1].set(t - t.mean())
+prior = gx.IntrinsicGMRF(jnp.zeros(n + 1), 1.0, Q, V)
+A = gx.SparseOperator.from_coo(  # η = u + β₀
+    np.r_[np.arange(n), np.arange(n)],
+    np.r_[np.arange(n), np.full(n, n)],
+    jnp.ones(2 * n),
+    (n, n + 1),
+)
+detection = gx.BernoulliLikelihood(detected)
+
+res = gx.laplace_mode(prior, detection, projector=A)
+fixed_effect_idx = jnp.array([n])
+mean_vb = gx.vb_mean_correction(
+    res, prior, detection, projector=A, subspace=fixed_effect_idx
+)
+```
+
+As with `laplace_mode`, the likelihood holds the observations, so there is no
+separate `y` argument; pass the same `projector` and `offset` as to
+`laplace_mode`.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [vb_mean_correction]
+
 ## Ensemble covariances, gain & analysis
 
 Bessel-corrected empirical (cross-)covariances from ensemble members, the
