@@ -7,7 +7,10 @@ import jax
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._preconditioners import PartialCholeskyPreconditioner
+from gaussx._preconditioners import (
+    AbstractPreconditioner,
+    PartialCholeskyPreconditioner,
+)
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -18,22 +21,32 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
 
     Uses `gaussx.PartialCholeskyPreconditioner`'s guarded pivoted
     partial Cholesky to build a rank-k preconditioner, then solves
-    ``(sI + LL^T)^{-1} v`` via the Woodbury identity inside lineax CG.
+    ``(σ² I + F Fᵀ)⁻¹ v`` via the Woodbury identity inside lineax CG.
 
-    For operators of the form ``K + sigma^2 I``, preconditioning
+    For operators of the form ``K + σ² I``, preconditioning
     dramatically reduces the number of CG iterations.
 
+    Pass a ``preconditioner`` built once with
+    `gaussx.PartialCholeskyPreconditioner.from_operator` (on ``K``, with
+    ``shift=σ²``) to reuse it across solves. Otherwise a rank
+    ``preconditioner_rank`` factor of ``A − shift · I`` is rebuilt from the
+    system operator ``A`` at every solve, so the noise is never counted
+    twice (#345).
+
     Attributes:
-        preconditioner_rank: Rank of the partial Cholesky. Set to 0
-            to disable preconditioning (falls back to plain CG).
-        shift: Diagonal shift ``s`` for the preconditioner.
-            Typically the noise variance ``sigma^2``.
+        preconditioner_rank: Rank of the partial Cholesky built per solve.
+            Set to 0 to disable preconditioning (falls back to plain CG).
+            Ignored when ``preconditioner`` is given.
+        shift: The noise variance ``σ²`` in the system ``A = K + σ² I``,
+            for the preconditioner built per solve. Must not exceed the
+            noise actually in ``A``. Ignored when ``preconditioner`` is given.
         rtol: Relative tolerance for CG.
         atol: Absolute tolerance for CG.
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Lanczos iterations for SLQ logdet.
         seed: Seed for probe vector generation.
+        preconditioner: A prebuilt preconditioner, used for every solve.
     """
 
     preconditioner_rank: int = eqx.field(static=True, default=50)
@@ -44,6 +57,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
+    preconditioner: AbstractPreconditioner | None = None
 
     def solve(
         self,
@@ -59,9 +73,11 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         Returns:
             The solution x.
         """
-        preconditioner = PartialCholeskyPreconditioner(
-            rank=self.preconditioner_rank, shift=self.shift
-        )
+        preconditioner = self.preconditioner
+        if preconditioner is None:
+            preconditioner = PartialCholeskyPreconditioner(
+                rank=self.preconditioner_rank, shift=self.shift
+            )
         return CGSolver(
             rtol=self.rtol,
             atol=self.atol,

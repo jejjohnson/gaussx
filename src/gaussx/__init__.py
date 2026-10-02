@@ -231,6 +231,7 @@ from gaussx._quadrature import (
     uncertain_svgp_predict as uncertain_svgp_predict,
     uncertain_vgp_predict as uncertain_vgp_predict,
 )
+from gaussx._randomized import rp_cholesky as rp_cholesky
 from gaussx._sketching import (
     AbstractSketch as AbstractSketch,
     GaussianSketch as GaussianSketch,

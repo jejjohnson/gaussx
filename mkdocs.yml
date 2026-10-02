@@ -96,6 +96,7 @@ nav:
       - Solvers & Preconditioners: api/solvers.md
       - Linear-Algebra Utilities: api/linalg.md
       - Sketching: api/sketching.md
+      - Randomized Linear Algebra: api/randomized.md
       - Distributions & Exponential Family: api/distributions.md
       - Gaussian Processes: api/gp.md
       - Quadrature & Moment Matching: api/quadrature.md
