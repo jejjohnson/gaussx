@@ -12,12 +12,18 @@ permissions:
 jobs:
   typecheck:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install typecheck dependencies
         run: uv sync --group typecheck
       - name: Run ty check
-        run: uv run --group typecheck ty check src/gaussx
+        # [tool.ty.environment] pins 3.12 as the local default; CI checks each
+        # supported version explicitly.
+        run: uv run --group typecheck ty check --python-version ${{ matrix.python-version }} src/gaussx
