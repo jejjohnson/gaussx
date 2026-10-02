@@ -1,5 +1,5 @@
 ---
-applyTo: "src/**/*.py,tests/**/*.py,scripts/**/*.py"
+applyTo: "src/**/*.py,tests/**/*.py,docs/notebooks/**/*.py"
 ---
 
 # Python Coding Standards
@@ -24,7 +24,6 @@ applyTo: "src/**/*.py,tests/**/*.py,scripts/**/*.py"
 | Purpose | Preferred Package |
 |---------|-------------------|
 | Logging | `loguru` |
-| CLI | `cyclopts` |
 | Data containers | `dataclasses` (stdlib) or `attrs` |
 | Configuration | `hydra-core` / `omegaconf` |
 | Path handling | `pathlib` (stdlib) |

@@ -50,8 +50,10 @@ RESET  := \033[0m
 # ---------------------------------------------------------------------------
 # Guard pattern — usage: add check-env-VARNAME as a prerequisite
 # Example:  my-target: check-env-MY_VAR
+# A pattern rule cannot be .PHONY (Make reads .PHONY names literally), so the
+# FORCE prerequisite keeps a file named check-env-X from skipping the check.
 # ---------------------------------------------------------------------------
-check-env-%:
+check-env-%: FORCE
 	@if [ -z "$($*)" ]; then \
 		printf "$(RED)❌  $* is not set.$(RESET)\n"; \
 		printf "$(YELLOW)   Add it to .env or pass inline: make <target> $*=value$(RESET)\n"; \
@@ -61,8 +63,11 @@ check-env-%:
 # ---------------------------------------------------------------------------
 # Phony declarations
 # ---------------------------------------------------------------------------
-.PHONY: help install lint format typecheck test test-cov test-slow \
-        precommit build clean version docs docs-serve docs-deploy
+.PHONY: help version install init lint format typecheck test test-fast \
+        test-slow test-cov precommit build clean docs docs-serve docs-deploy \
+        FORCE
+
+FORCE:
 
 .DEFAULT_GOAL := help
 
