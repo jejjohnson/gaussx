@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0](https://github.com/jejjohnson/gaussx/compare/v0.5.0...v0.6.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sparse:** cholesky(SparseOperator) now returns a SparseCholeskyFactor of the permuted matrix (solve, logdet, solve_lower_transpose, selected_inverse, diag_inv) instead of a dense lx.MatrixLinearOperator, and no longer raises above AutoSolver's size threshold.
+* **randomized:** NystromPreconditioner.from_operator now requires a keyword-only shift (μ, e.g. the noise variance σ²) and its operator is the PSD part A (e.g. K), not the system A + μI; build it from K and pass σ² instead of building it from K + σ²I. Its fields are now basis, eigenvalues and shift (the old scale field is gone), and as_operator ignores its argument. For the old Rayleigh–Ritz projection use gaussx.randomized_eigh(op, rank, n_power_iter=0), which projects onto orth(AΩ) rather than orth(Ω) and so is more accurate, not identical.
+
+### Features
+
+* **distributions:** add GaussianMRF, IntrinsicGMRF and ConstrainedGMRF (G6) ([#505](https://github.com/jejjohnson/gaussx/issues/505)) ([99d39f5](https://github.com/jejjohnson/gaussx/commit/99d39f55ad45424d2aa57d917e4726841c40c68e))
+* **gmrf:** add precision builders, SPDE on meshes and grids, fem_matrices, fem_projector and SpectralFunction (G7) ([#502](https://github.com/jejjohnson/gaussx/issues/502)) ([b888637](https://github.com/jejjohnson/gaussx/commit/b888637b8daca76e4d73947f82c72d888fd8d933))
+* **inference:** add laplace_mode with implicit gradients, and binomial and negative-binomial likelihoods (G8) ([0c64f4e](https://github.com/jejjohnson/gaussx/commit/0c64f4ed3df36161818775467574fd49f5dd0830))
+* **inference:** add vb_mean_correction, the low-rank variational-Bayes correction of the Laplace mean (G10) ([c65d82f](https://github.com/jejjohnson/gaussx/commit/c65d82f2f66f9c2ea5a10d4f9ded7ebed49e5f1f))
+* **primitives:** add pseudo_logdet; theta_design's default Hessian works through sparse log-determinants (G5) ([#504](https://github.com/jejjohnson/gaussx/issues/504)) ([0018e75](https://github.com/jejjohnson/gaussx/commit/0018e7509c1d243ad4a9086ad1c43e517ff9bcfe))
+* **randomized:** add randomized_nystrom and rebuild NystromPreconditioner on it with an explicit shift (G13) ([#501](https://github.com/jejjohnson/gaussx/issues/501)) ([46b248b](https://github.com/jejjohnson/gaussx/commit/46b248be96de942dd54983d7053e6b5b48c015b0))
+* **randomized:** add range_finder, qb, randomized_svd and randomized_eigh with method="randomized" on svd/eig (G12) ([#500](https://github.com/jejjohnson/gaussx/issues/500)) ([a7a5ab2](https://github.com/jejjohnson/gaussx/commit/a7a5ab2b7d65c7a5468161f1882917c3e1f7bc03))
+* **sparse:** add sparse cholesky with cached symbolic analysis, takahashi selected inverse and exact vjps (G4) ([a15380c](https://github.com/jejjohnson/gaussx/commit/a15380c7258d025fe94307bff2a9cc1050cf71b4))
+
+
+### Bug Fixes
+
+* **gmrf:** generalized_variance_scale takes diag(S⁻¹) and its correction from one sparse factor (G4) ([a15380c](https://github.com/jejjohnson/gaussx/commit/a15380c7258d025fe94307bff2a9cc1050cf71b4))
+* **inference:** import gaussx without numpyro; laplace_mode sits behind the optional-numpyro guard (G8) ([0c64f4e](https://github.com/jejjohnson/gaussx/commit/0c64f4ed3df36161818775467574fd49f5dd0830))
+* **inference:** vb_mean_correction sits behind the optional-numpyro guard too (G10) ([c65d82f](https://github.com/jejjohnson/gaussx/commit/c65d82f2f66f9c2ea5a10d4f9ded7ebed49e5f1f))
+* **sparse:** second-order gradients through the sparse logdet and solve are correct (G4) ([a15380c](https://github.com/jejjohnson/gaussx/commit/a15380c7258d025fe94307bff2a9cc1050cf71b4))
+* **sparse:** typecheck without the optional scikit-sparse installed (G4) ([a15380c](https://github.com/jejjohnson/gaussx/commit/a15380c7258d025fe94307bff2a9cc1050cf71b4))
+
 ## [0.5.0](https://github.com/jejjohnson/gaussx/compare/v0.4.1...v0.5.0) (2026-10-02)
 
 
