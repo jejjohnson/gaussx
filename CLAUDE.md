@@ -84,7 +84,10 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 ## Test Speed Tiers
 
 CI (PRs and pushes to `main`) runs only unmarked (fast) tests:
-`-m "not slow and not integration"`. Slow and integration tests never run
+`-m "not slow and not integration"`, with coverage. A PR fails if total
+coverage drops below `fail_under` in `pyproject.toml`, a ratchet
+(currently 95%) that is raised as coverage rises and never lowered to
+make a PR pass. Slow and integration tests never run
 automatically — trigger them on demand with the "Extended Tests" workflow:
 `gh workflow run tests-extended.yml` (heavy lane) or
 `gh workflow run tests-extended.yml -f suite=full` (entire suite), or run

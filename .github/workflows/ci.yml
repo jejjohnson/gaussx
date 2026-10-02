@@ -15,7 +15,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Every PR: single Python version, fast unit tests only, no coverage.
+  # Every PR: single Python version, fast unit tests only, with coverage so
+  # `fail_under` in pyproject.toml gates the PR rather than main after merge.
   # Slow numerics and end-to-end integration tests run on demand via the
   # "Extended Tests" workflow (workflow_dispatch).
   test-fast:
@@ -28,8 +29,8 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: uv sync --group dev
-      - name: Run fast tests
-        run: uv run pytest -n auto -m "not slow and not integration"
+      - name: Run fast tests with coverage
+        run: uv run pytest -n auto -m "not slow and not integration" --cov=src/gaussx --cov-report=term-missing:skip-covered
 
   # Pushes to main: fast tests across the version matrix, with coverage.
   test-main:

@@ -99,4 +99,7 @@ omit = ["tests/*"]
 
 [tool.coverage.report]
 show_missing = true
-fail_under = 80
+# Ratchet: a little below the fast lane's measured total (97.1% at 0.4.0),
+# so a real drop fails the PR. Raise it as coverage rises; never lower it
+# to make a PR pass.
+fail_under = 95
