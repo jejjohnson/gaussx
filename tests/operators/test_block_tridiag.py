@@ -8,6 +8,7 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._einx import einsum
 from gaussx._testing import random_pd_matrix
 
 
@@ -226,3 +227,73 @@ class TestSingleBlock:
         expected = jax.scipy.stats.multivariate_normal.logpdf(y[0], jnp.zeros(1), S)
         got = gaussx.spingp_log_likelihood(ops["full"], H, R, y)
         assert jnp.allclose(got, expected, rtol=1e-12)
+
+
+class TestSymmetryAndTags:
+    """gh-344: a truthful symmetric_tag, and tags kept through the algebra."""
+
+    @staticmethod
+    def _nonsymmetric():
+        N, d = 3, 2
+        kD, kA = jr.split(jr.key(0))
+        D = jr.normal(kD, (N, d, d)) + 4.0 * jnp.eye(d)
+        A = 0.3 * jr.normal(kA, (N - 1, d, d))
+        return D, A
+
+    @staticmethod
+    def _psd():
+        D, A = TestSymmetryAndTags._nonsymmetric()
+        Ds = einsum(D, D, "n i j, n k j -> n i k") + 4.0 * jnp.eye(D.shape[-1])
+        return gaussx.BlockTriDiag(Ds, A, tags=lx.positive_semidefinite_tag)
+
+    def test_nonsymmetric_blocks_raise(self):
+        D, A = self._nonsymmetric()
+        with pytest.raises(ValueError, match="not symmetric"):
+            gaussx.BlockTriDiag(D, A)
+
+    def test_symmetric_false_solve_and_logdet_match_dense(self):
+        D, A = self._nonsymmetric()
+        op = gaussx.BlockTriDiag(D, A, symmetric=False)
+        M = op.as_matrix()
+        b = jnp.arange(1.0, op.in_size() + 1)
+        assert not lx.is_symmetric(op)
+        assert jnp.allclose(gaussx.solve(op, b), jnp.linalg.solve(M, b), atol=1e-10)
+        assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(M)[1], atol=1e-10)
+        assert jnp.allclose(op.T.as_matrix(), M.T)
+        assert not lx.is_symmetric(op.T)
+
+    def test_roundoff_asymmetry_is_accepted(self):
+        op = self._psd()
+        noise = 1e-12 * jr.normal(jr.key(1), op.diagonal.shape)
+        assert lx.is_symmetric(
+            gaussx.BlockTriDiag(op.diagonal + noise, op.sub_diagonal)
+        )
+
+    def test_psd_tags_propagate(self):
+        psd = self._psd()
+        assert lx.is_positive_semidefinite(psd + psd)
+        assert lx.is_positive_semidefinite(2.0 * psd)
+        assert lx.is_negative_semidefinite(-psd)
+        assert lx.is_negative_semidefinite((-1.0) * psd)
+        assert not lx.is_positive_semidefinite(psd - psd)
+        assert not lx.is_positive_semidefinite((-1.0) * psd)
+        for op in (psd + psd, psd - psd, -psd, 2.0 * psd):
+            assert lx.is_symmetric(op)
+
+    def test_nonsymmetric_operand_drops_symmetry(self):
+        D, A = self._nonsymmetric()
+        nonsym = gaussx.BlockTriDiag(D, A, symmetric=False)
+        assert not lx.is_symmetric(self._psd() + nonsym)
+
+    def test_tags_under_jit(self):
+        psd = self._psd()
+
+        @eqx.filter_jit
+        def run(op, scale):
+            # A traced scale has no known sign, so it drops definiteness.
+            return op + op, scale * op
+
+        total, scaled = run(psd, jnp.asarray(2.0))
+        assert lx.is_positive_semidefinite(total)
+        assert lx.is_symmetric(scaled)
+        assert not lx.is_positive_semidefinite(scaled)

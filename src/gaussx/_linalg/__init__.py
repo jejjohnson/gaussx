@@ -18,6 +18,7 @@ from gaussx._linalg._lyapunov import discrete_lyapunov_solve
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._linalg._schur import conditional_variance, schur_complement
+from gaussx._linalg._selected_inverse import selected_inverse
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._linalg._tridiagonal import (
     solve_tridiagonal,
@@ -37,6 +38,7 @@ __all__ = [
     "safe_cholesky",
     "sandwich",
     "schur_complement",
+    "selected_inverse",
     "solve_columns",
     "solve_matrix",
     "solve_rows",

@@ -71,7 +71,8 @@ def solve(
         return _solve_kronecker_sum(operator, vector, solver)
     if isinstance(operator, KroneckerSumSqrt):
         return operator.solve(vector)
-    if isinstance(operator, BlockTriDiag):
+    if isinstance(operator, BlockTriDiag) and operator.symmetric:
+        # Non-symmetric diagonal blocks take the dense LU fallback (gh-344).
         return _solve_block_tridiag(operator, vector)
     if isinstance(operator, SparseOperator):
         return _solve_sparse(operator, vector, solver)

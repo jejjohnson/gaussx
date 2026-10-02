@@ -7,6 +7,7 @@ import functools as ft
 from operator import add as operator_add
 from typing import NamedTuple
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -17,6 +18,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
+from gaussx._operators._factored_eigen import FactoredEigen, kronecker_eigen
 from gaussx._operators._kronecker import Kronecker
 
 
@@ -630,7 +632,7 @@ def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
 
 def _sum_of_kroneckers_eigen(
     operator: lx.AbstractLinearOperator,
-) -> _SumOfKroneckersEigen | None:
+) -> _SumOfKroneckersEigen | FactoredEigen | None:
     r"""Factorize a two-term sum of Kronecker products, if one applies.
 
     Recognizes ``A₁ ⊗ B₁ + A₂ ⊗ B₂`` — written as a `SumOfKroneckers`, or as
@@ -657,27 +659,53 @@ def _sum_of_kroneckers_eigen(
     main = terms[1 - plan.index]
     anchor = terms[plan.index]
 
-    A1 = main[0].as_matrix()
-    B1 = main[1].as_matrix()
     if plan.kinds is None:
-        wa = _IdentityWhitener()
-        wb = wa
-        scalar_a = _scaled_identity(anchor[0])
-        scalar_b = _scaled_identity(anchor[1])
-        assert scalar_a is not None and scalar_b is not None
-        shift = scalar_a * scalar_b
-    else:
-        kind_a, kind_b = plan.kinds
-        wa = _build_whitener(kind_a, anchor[0])
-        wb = _build_whitener(kind_b, anchor[1])
-        A1 = wa.conjugate(A1)
-        B1 = wb.conjugate(B1)
-        shift = jnp.ones(())
+        return _shifted_factorization(main, anchor)
+    kind_a, kind_b = plan.kinds
+    wa = _build_whitener(kind_a, anchor[0])
+    wb = _build_whitener(kind_b, anchor[1])
+    A1 = wa.conjugate(main[0].as_matrix())
+    B1 = wb.conjugate(main[1].as_matrix())
 
     evals_a, U = jnp.linalg.eigh(A1)
     evals_b, V = jnp.linalg.eigh(B1)
-    evals = evals_a[:, None] * evals_b[None, :] + shift
+    evals = einx.multiply("a, b -> a b", evals_a, evals_b) + jnp.ones(
+        (), dtype=evals_a.dtype
+    )
     return _SumOfKroneckersEigen(wa=wa, wb=wb, U=U, V=V, evals=evals)
+
+
+def _shifted_factorization(
+    main: _KroneckerTerm, anchor: _KroneckerTerm
+) -> FactoredEigen:
+    r"""``A ⊗ B + c·I`` in the joint eigenbasis of its factors (G3).
+
+    ``(A ⊗ B + cI)⁻¹ = (U_A ⊗ U_B)(Λ_A ⊗ Λ_B + c)⁻¹(U_A ⊗ U_B)ᵀ``. Each
+    factor keeps an eigenbasis it already carries (`DiagonalisedOperator`,
+    `KroneckerSum`, a diagonal), so a space-time ``AR(1) ⊗ grid + cI`` never
+    forms the spatial factor; any other (symmetric) factor is decomposed
+    densely with ``eigh``.
+    """
+    scalar_a = _scaled_identity(anchor[0])
+    scalar_b = _scaled_identity(anchor[1])
+    assert scalar_a is not None and scalar_b is not None
+    factorization = kronecker_eigen(*main)
+    # `_select_anchor` admits only symmetric main factors, which always have one.
+    assert factorization is not None
+    return factorization.shifted(scalar_a * scalar_b)
+
+
+def _shifted_kronecker_eigen(
+    operator: lx.AbstractLinearOperator,
+) -> FactoredEigen | None:
+    """`_shifted_factorization` of ``operator`` if it is ``A ⊗ B + c·I``."""
+    terms = _kronecker_terms(operator)
+    if terms is None:
+        return None
+    plan = _select_anchor(terms)
+    if plan is None or plan.kinds is not None:
+        return None
+    return _shifted_factorization(terms[1 - plan.index], terms[plan.index])
 
 
 def _sum_of_kroneckers_solve(

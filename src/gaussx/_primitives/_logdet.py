@@ -65,7 +65,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return _logdet_sum_of_kroneckers(operator)
     if isinstance(operator, KroneckerSum):
         return _logdet_kronecker_sum(operator)
-    if isinstance(operator, BlockTriDiag):
+    if isinstance(operator, BlockTriDiag) and operator.symmetric:
+        # Non-symmetric diagonal blocks take the dense slogdet (gh-344).
         return _logdet_block_tridiag(operator)
     if isinstance(operator, LowerBlockTriDiag | UpperBlockTriDiag):
         return _logdet_block_bidiagonal(operator)
