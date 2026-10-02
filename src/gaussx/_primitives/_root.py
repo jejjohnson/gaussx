@@ -16,6 +16,7 @@ from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._eig import eig
 from gaussx._primitives._inv import inv
 from gaussx._primitives._svd import svd
+from gaussx._randomized._rpcholesky import rp_cholesky
 
 
 RootMethod = Literal["cholesky", "lanczos", "pivoted_cholesky", "svd"]
@@ -255,6 +256,9 @@ def guarded_pivoted_cholesky(
 ) -> Float[Array, "N k"]:
     """Greedy pivoted partial Cholesky with a numerical-rank guard.
 
+    A thin wrapper around `gaussx.rp_cholesky` with ``pivoting="greedy"``
+    that drops the pivots.
+
     Needs only the diagonal and a ``column(k)`` callable returning column
     ``k`` of the matrix, so it serves a dense matrix and a matrix-free
     operator (one matvec per pivot) alike.
@@ -277,18 +281,5 @@ def guarded_pivoted_cholesky(
         Factor ``L`` of shape ``(N, rank)`` with ``L Lᵀ`` approximating the
         matrix; columns past its numerical rank are exactly zero.
     """
-    # LAPACK ?pstrf stopping criterion: n * eps * max diagonal entry.
-    tol = diagonal.shape[0] * jnp.finfo(diagonal.dtype).eps * jnp.max(jnp.abs(diagonal))
-
-    def body(i, L):
-        residual = diagonal - jnp.sum(L * L, axis=1)
-        k = jnp.argmax(residual)
-        pivot = residual[k]
-        ok = pivot > tol
-        # Double-where keeps the sqrt's gradient finite when guarded.
-        denom = jnp.sqrt(jnp.where(ok, pivot, 1.0))
-        col = (column(k) - L @ L[k, :]) / denom
-        return L.at[:, i].set(jnp.where(ok, col, 0.0))
-
-    L0 = jnp.zeros((diagonal.shape[0], rank), dtype=diagonal.dtype)
-    return jax.lax.fori_loop(0, rank, body, L0)
+    factor, _ = rp_cholesky(diagonal, column, rank, pivoting="greedy")
+    return factor
