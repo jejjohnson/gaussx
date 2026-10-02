@@ -81,6 +81,8 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 
 `uv.lock` must match `pyproject.toml`: CI runs `uv lock --check`, so re-run `uv lock` and commit the lockfile with any dependency or version change. Release PRs bump the lockfile's own `gaussx` version through release-please's `extra-files`.
 
+Runtime dependencies take `>=` floors and no upper bounds. Instead, the weekly "Latest Dependencies" workflow (`latest-deps.yml`) re-resolves at the newest versions and at the declared floors (`lowest-direct`) and runs the fast lane. A failure opens a `ci-failure` issue.
+
 ## Test Speed Tiers
 
 CI (PRs and pushes to `main`) runs only unmarked (fast) tests:
