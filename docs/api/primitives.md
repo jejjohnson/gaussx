@@ -22,6 +22,48 @@ for free.
       show_root_toc_entry: false
       members: [solve, logdet, cholesky, cholesky_logdet]
 
+## Pseudo-determinant
+
+`pseudo_logdet` is $\log|A|_+ = \sum_{\lambda_i>0}\log\lambda_i$ for a
+symmetric PSD $A$: half of it is the normalising constant of an intrinsic GMRF
+(Besag / ICAR, RW1, RW2), whose structure matrix is singular. Each structure
+takes its cheapest exact path:
+
+| Operator | Path |
+|---|---|
+| `structure="laplacian"` on a `SparseOperator` or a `1 × 1`-block `BlockTriDiag` (Besag, RW1) | Matrix-tree theorem: $\log\operatorname{pdet}(L) = \sum_c(\log n_c + \log\lvert L_c^{(-k_c)}\rvert)$ over connected components, one sparse (or banded) Cholesky in all, sparsity kept |
+| `null_space=B` (any basis of $\ker A$) | $\log\lvert A + BB^\top\rvert - \log\lvert B^\top B\rvert$; the sum is matvec-only, so `strategy=SLQLogdet()` estimates it matrix-free |
+| `KroneckerSum` (a grid Laplacian) | Factor eigenvalues, all pairwise sums $\lambda^H_i + \lambda^W_j$; no factorisation |
+| anything else | dense `eigvalsh` |
+
+The eigenvalue paths drop $\lambda \le$ `rcond` $\cdot\,\lambda_{\max}$. The
+matrix-tree theorem says every principal minor of a connected weighted
+Laplacian equals the weighted spanning-tree count $\tau_w(G)$ and
+$\operatorname{pdet}(L) = N\,\tau_w(G)$. $\log|R|_+$ does not depend on the
+precision scale $\tau$ ($\log|\tau R|_+ = \operatorname{rank}(R)\log\tau +
+\log|R|_+$), so compute it once and cache it.
+
+```python
+import jax.numpy as jnp
+import lineax as lx
+import gaussx
+
+# ICAR normalising constant for model comparison: computed once, cached
+R = gaussx.besag_structure(laplacian)  # a SparseOperator graph Laplacian
+half_log_pdet = 0.5 * gaussx.pseudo_logdet(R, structure="laplacian")
+
+# On a grid: no factorisation, sum the logs of the non-zero λ^H_i + λ^W_j
+L_H = lx.MatrixLinearOperator(gaussx.rw1_structure(512).as_matrix(), lx.symmetric_tag)
+L_W = lx.MatrixLinearOperator(gaussx.rw1_structure(512).as_matrix(), lx.symmetric_tag)
+half_log_pdet_grid = 0.5 * gaussx.pseudo_logdet(gaussx.KroneckerSum(L_H, L_W))
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [pseudo_logdet]
+
 ## Trace & diagonal
 
 Exact where structure allows; stochastic (Hutchinson / XTrace probing) for
