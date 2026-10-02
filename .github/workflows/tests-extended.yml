@@ -27,14 +27,19 @@ on:
 permissions:
   contents: read
 
-# A new push supersedes a running PR run. Concurrency applies before the job
-# `if:`, so adding any other label would cancel a real run for one that then
-# skips; those events get a group of their own.
+# A new push supersedes a running PR run, so PR runs share a group per ref.
+# Everything else gets a group of its own:
+#   - concurrency applies before the job `if:`, so adding any other label
+#     would cancel a real run for one that then skips;
+#   - scheduled and dispatched runs all share `github.ref` (main), and a
+#     group keeps only one pending run, so sharing one would let a dispatch
+#     drop the pending weekly run (and its failure report) on the floor.
 concurrency:
   group: >-
-    tests-extended-${{ github.ref }}${{
-    (github.event.action == 'labeled' && github.event.label.name != 'run-slow')
-    && format('-{0}', github.run_id) || '' }}
+    tests-extended-${{
+    (github.event_name == 'pull_request' &&
+     !(github.event.action == 'labeled' && github.event.label.name != 'run-slow'))
+    && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
