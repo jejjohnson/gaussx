@@ -18,8 +18,10 @@ from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import SumOfKroneckers, _shifted_kronecker_eigen
+from gaussx._sparse._factor import SparseCholeskyFactor
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
+from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
 
 def diag_inv(
@@ -53,8 +55,12 @@ def diag_inv(
     - Shifted Kronecker products ``A ⊗ B + c·I`` (a `SumOfKroneckers` or the
       equivalent lineax sum): the same formula with
       ``M_ij = 1/(λ^A_i λ^B_j + c)``.
+    - `SparseOperator` with ``solver=SparseCholeskySolver(...)``: Takahashi's
+      selected inverse through the sparse Cholesky factor, exact at
+      ``O(Σ_j |struct(L_{:,j})|²)``, at any size.
 
-    Anything else uses dense Cholesky for ``N ≤ 2048`` and Hutchinson above.
+    Anything else uses Cholesky for ``N ≤ 2048`` (the sparse factor for a
+    `SparseOperator`, dense otherwise) and Hutchinson above.
 
     Args:
         operator: A linear operator representing A.
@@ -62,9 +68,8 @@ def diag_inv(
             dense Cholesky), ``"solve"`` (exact via repeated solves),
             ``"hutchinson"`` (stochastic estimator),
             or ``"auto"`` (the structured paths above; otherwise cholesky
-            for N ≤ 2048, hutchinson above; for a `SparseOperator` the
-            cholesky limit is `AutoSolver`'s size threshold, above which it
-            has no Cholesky yet).
+            for N ≤ 2048, hutchinson above). ``"cholesky"`` on a
+            `SparseOperator` is the sparse factor's Takahashi sweep.
         num_probes: Number of Rademacher probe vectors for the
             hutchinson method.
         key: PRNG key for probe generation in the hutchinson method.
@@ -114,13 +119,7 @@ def diag_inv(
         )
         if structured is not None:
             return structured
-        # cholesky(SparseOperator) refuses to densify above AutoSolver's threshold.
-        limit = 2048
-        if isinstance(operator, SparseOperator):
-            from gaussx._strategies._auto import AutoSolver
-
-            limit = min(limit, AutoSolver().size_threshold)
-        method = "cholesky" if n <= limit else "hutchinson"
+        method = "cholesky" if n <= 2048 else "hutchinson"
 
     if pinv:
         msg = (
@@ -132,6 +131,8 @@ def diag_inv(
         raise ValueError(msg)
 
     if method == "cholesky":
+        if isinstance(operator, SparseOperator):
+            return _sparse_factor(operator, solver).diag_inv()
         return _diag_inv_cholesky(operator)
     if method == "solve":
         return _diag_inv_solve(operator, solver=solver)
@@ -164,6 +165,10 @@ def _diag_inv_structured(
             key=key,
             solver=solver,
         )
+    if isinstance(operator, SparseOperator):
+        if pinv or not isinstance(solver, SparseCholeskySolver):
+            return None
+        return solver.diag_inv(operator)
     if isinstance(operator, BlockTriDiag):
         if pinv or not operator.symmetric:
             return None
@@ -190,6 +195,15 @@ def _diag_inv_structured(
         factorization = _shifted_kronecker_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     return None
+
+
+def _sparse_factor(
+    operator: SparseOperator, solver: AbstractSolveStrategy | None
+) -> SparseCholeskyFactor:
+    """The sparse factor, with ``solver``'s ordering and backend if it has them."""
+    if not isinstance(solver, SparseCholeskySolver):
+        solver = SparseCholeskySolver()
+    return solver.factor(operator)
 
 
 def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> Float[Array, " N"]:

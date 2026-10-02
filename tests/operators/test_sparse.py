@@ -481,8 +481,12 @@ class TestPrimitives:
         assert jnp.allclose(
             gaussx.logdet(small_laplacian), jnp.linalg.slogdet(dense)[1]
         )
-        L = gaussx.cholesky(small_laplacian).as_matrix()
-        assert jnp.allclose(L @ rearrange(L, "i j -> j i"), dense)
+        # cholesky returns the sparse factor of the permuted matrix (G4).
+        factor = gaussx.cholesky(small_laplacian)
+        sym = factor.symbolic
+        L = jnp.zeros((12, 12)).at[sym.rowidx, sym.colidx].set(factor.values)
+        permuted = dense[sym.perm][:, sym.perm]
+        assert jnp.allclose(L @ rearrange(L, "i j -> j i"), permuted)
 
     def test_cg_solve_against_dense(self, small_laplacian):
         # PSD Laplacian plus a shift, through the CG strategy and lineax CG.
@@ -494,17 +498,14 @@ class TestPrimitives:
         x = gaussx.solve(small_laplacian, b, solver=cg)
         assert jnp.allclose(x, expected, atol=1e-8)
 
-    def test_diag_inv_auto_avoids_refused_cholesky(self):
-        # Between AutoSolver's threshold and diag_inv's dense limit (2048),
-        # "auto" must not pick the Cholesky that cholesky(SparseOperator) refuses.
+    def test_diag_inv_auto_above_threshold_is_exact(self):
+        # Above AutoSolver's threshold "auto" still takes the (sparse) Cholesky.
         n = AutoSolver().size_threshold + 1
         d = jnp.linspace(1.0, 2.0, n)
         op = SparseOperator.from_coo(
             np.arange(n), np.arange(n), d, (n, n), tags=frozenset({PSD})
         )
-        out = gaussx.diag_inv(op)
-        assert out.shape == (n,)
-        assert jnp.all(jnp.isfinite(out))
+        assert jnp.allclose(gaussx.diag_inv(op), 1 / d)
 
     @pytest.mark.slow
     def test_cg_solve_large_psd(self):
@@ -527,13 +528,14 @@ class TestPrimitives:
         # CG stops at rtol = 1e-5 on the residual; cond(op) <= 8.5 / 0.5.
         assert jnp.linalg.norm(x - expected) <= 1e-3 * jnp.linalg.norm(expected)
 
-    def test_cholesky_refuses_above_threshold(self):
+    def test_cholesky_above_threshold_is_sparse(self):
         n = AutoSolver().size_threshold + 1
         op = SparseOperator.from_coo(
-            np.arange(n), np.arange(n), jnp.ones(n), (n, n), tags=PSD
+            np.arange(n), np.arange(n), jnp.full(n, 2.0), (n, n), tags=PSD
         )
-        with pytest.raises(NotImplementedError, match="sparse Cholesky"):
-            gaussx.cholesky(op)
+        factor = gaussx.cholesky(op)
+        assert isinstance(factor, gaussx.SparseCholeskyFactor)
+        assert jnp.allclose(factor.logdet(), n * jnp.log(2.0))
 
     def test_lanczos_eig_against_dense(self, small_laplacian):
         dense = small_laplacian.as_matrix()
