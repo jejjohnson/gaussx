@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/jejjohnson/gaussx/compare/v0.4.0...v0.4.1) (2026-10-02)
+
+
+### Bug Fixes
+
+* **release:** bump uv.lock's gaussx version in release PRs and check the lock in CI ([#458](https://github.com/jejjohnson/gaussx/issues/458)) ([aa8fdf7](https://github.com/jejjohnson/gaussx/commit/aa8fdf7d9edd6133cdcbf30c4dc51a64a4e9084b))
+
 ## [0.4.0](https://github.com/jejjohnson/gaussx/compare/v0.3.1...v0.4.0) (2026-09-29)
 
 
