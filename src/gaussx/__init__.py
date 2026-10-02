@@ -169,6 +169,7 @@ from gaussx._primitives import (
     cholesky_logdet as cholesky_logdet,
     diag as diag,
     eig as eig,
+    eigh_generalized as eigh_generalized,
     eigvals as eigvals,
     estimate_spectral_bounds as estimate_spectral_bounds,
     frobenius_norm as frobenius_norm,

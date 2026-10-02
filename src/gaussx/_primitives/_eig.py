@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 import functools as ft
+import warnings
+from typing import Literal
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import matfree.decomp
 import matfree.eig
-from jax.scipy.linalg import block_diag as _block_diag
-from jaxtyping import Array
+import numpy as np
+from jax.core import Tracer
+from jax.scipy.linalg import block_diag as _block_diag, cho_solve, solve_triangular
+from jaxtyping import Array, Float, PRNGKeyArray
 
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
@@ -183,3 +189,227 @@ def _eigvals_dense(operator: lx.AbstractLinearOperator) -> Array:
     if lx.is_symmetric(operator):
         return jnp.linalg.eigvalsh(mat)
     return jnp.linalg.eigvals(mat)
+
+
+# ---------------------------------------------------------------------------
+# Generalised symmetric-definite eigenproblem A v = λ B v
+# ---------------------------------------------------------------------------
+
+
+def eigh_generalized(
+    A: lx.AbstractLinearOperator,
+    B: lx.AbstractLinearOperator,
+    *,
+    rank: int | None = None,
+    which: Literal["smallest", "largest"] = "smallest",
+    rcond: float | None = None,
+    key: PRNGKeyArray | None = None,
+) -> tuple[Float[Array, " K"], Float[Array, "N K"]]:
+    r"""Solve $A v = \lambda B v$ for symmetric $A$ and symmetric PSD $B$.
+
+    The eigenvectors are $B$-orthonormal, $V^\top B V = I$, so the
+    smallest $K$ of them minimise $\operatorname{tr}(Y^\top A Y)$ subject
+    to $Y^\top B Y = I$ (graph embeddings, LPP, manifold alignment).
+    Dispatch is on the structure of $B$:
+
+    - `lineax.DiagonalLinearOperator` with positive entries: scale,
+      $S = B^{-1/2} A B^{-1/2}$, $v = B^{-1/2} u$. This is matrix-free in
+      $A$: with `rank=` it runs Lanczos on $x \mapsto B^{-1/2} A B^{-1/2} x$
+      and never materialises $A$. A diagonal with zero entries (only
+      checked outside `jit`) is sent to the singular path below.
+    - Positive definite, i.e. tagged `lineax.positive_semidefinite_tag`
+      (lineax's tag for Cholesky-factorisable operators): Cholesky
+      whitening $C^{-1} A C^{-\top}$ with $B = C C^\top$.
+    - Otherwise $B$ is treated as PSD and possibly singular. $B$ is
+      eigendecomposed, $B = U_+ S_+ U_+^\top$, and directions with
+      eigenvalue $\le$ `rcond` $\cdot \max$ span $\ker B$. Writing
+      $A_{\cdot\cdot}$ for the blocks of $U^\top A U$, the $\ker B$ rows give
+      $v_0 = -A_{00}^{-1} A_{0+} v_+$, and the finite eigenpairs solve the
+      Schur-complement pencil
+      $(A_{++} - A_{+0} A_{00}^{-1} A_{0+}) v_+ = \lambda S_+ v_+$.
+      $A_{00}$ must be positive definite, otherwise the trace minimisation
+      is unbounded along $\ker B$ and a `ValueError` is raised. At most
+      $\operatorname{rank}(B)$ finite eigenpairs exist; asking for more
+      warns and returns fewer. The numerical rank decides output shapes,
+      so this path cannot run under `jax.jit` (tag $B$ positive definite
+      for a traceable path).
+
+    Krylov subspaces are shift-invariant, so the Lanczos path needs no
+    spectral shift for `which="smallest"`: it runs an oversampled Krylov
+    space of dimension `min(N, max(2 * rank + 1, rank + 20))` and keeps
+    the `rank` extreme Ritz pairs at the requested end.
+
+    Args:
+        A: Symmetric `(N, N)` operator.
+        B: Symmetric positive semidefinite `(N, N)` operator.
+        rank: Number of eigenpairs $K$. `None` returns all finite ones.
+        which: `"smallest"` or `"largest"` eigenvalues.
+        rcond: Relative threshold on $B$'s eigenvalues below which a
+            direction counts as $\ker B$ (singular path only). `None`
+            means `N * eps` of $B$'s dtype.
+        key: PRNG key for the Lanczos start vector (diagonal path with
+            `rank=` only). `None` means `jax.random.PRNGKey(0)`.
+
+    Returns:
+        `(eigenvalues, eigenvectors)` of shapes `(K,)` and `(N, K)`,
+        eigenvalues in ascending order, eigenvectors $B$-orthonormal.
+
+    Raises:
+        ValueError: If `which` is invalid, `rank < 1`, $B$ is zero, or
+            $A_{00}$ is not positive definite.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> # Laplacian eigenmaps on a path graph: L y = λ D y.
+        >>> # Its eigenvalues are 1 - cos(πk/4); rank= runs Lanczos.
+        >>> W = jnp.diag(jnp.ones(4), 1) + jnp.diag(jnp.ones(4), -1)
+        >>> degree = W @ jnp.ones(5)
+        >>> L = lx.MatrixLinearOperator(jnp.diag(degree) - W, lx.symmetric_tag)
+        >>> D = lx.DiagonalLinearOperator(degree)
+        >>> lam, Y = gaussx.eigh_generalized(L, D, rank=2, which="smallest")
+        >>> bool(jnp.allclose(lam, 1 - jnp.cos(jnp.pi * jnp.arange(2) / 4), atol=1e-5))
+        True
+        >>> # A singular B: one finite eigenpair fewer than N.
+        >>> B = lx.MatrixLinearOperator(jnp.diag(jnp.array([1.0, 2.0, 0.0])))
+        >>> A = lx.MatrixLinearOperator(jnp.eye(3) + 0.5 * jnp.ones((3, 3)))
+        >>> lam, V = gaussx.eigh_generalized(A, B)
+        >>> lam.shape
+        (2,)
+    """
+    if which not in ("smallest", "largest"):
+        msg = f"which must be 'smallest' or 'largest', got {which!r}."
+        raise ValueError(msg)
+    if rank is not None and rank < 1:
+        msg = f"rank must be a positive integer, got {rank}."
+        raise ValueError(msg)
+    if A.in_size() != B.in_size() or A.in_size() != A.out_size():
+        msg = (
+            f"A and B must be square and of the same size, got A "
+            f"{A.out_size()}x{A.in_size()} and B {B.out_size()}x{B.in_size()}."
+        )
+        raise ValueError(msg)
+
+    if isinstance(B, lx.DiagonalLinearOperator):
+        d = lx.diagonal(B)
+        if isinstance(d, Tracer) or bool(jnp.min(d) > _null_tol(d, rcond, d.shape[0])):
+            return _eigh_generalized_diagonal(A, d, rank, which, key)
+    elif lx.is_positive_semidefinite(B):
+        return _eigh_generalized_cholesky(A, B, rank, which)
+    return _eigh_generalized_singular(A, B, rank, which, rcond)
+
+
+def _null_tol(s: Array, rcond: float | None, n: int) -> Array:
+    """Absolute threshold below which an eigenvalue of ``B`` counts as zero."""
+    if rcond is None:
+        rcond = n * float(jnp.finfo(s.dtype).eps)
+    return rcond * jnp.max(jnp.abs(s))
+
+
+def _select(vals: Array, vecs: Array, k: int, which: str) -> tuple[Array, Array]:
+    """Keep the ``k`` eigenpairs at the requested end of ascending ``vals``."""
+    if which == "smallest":
+        return vals[:k], vecs[:, :k]
+    n = vals.shape[0]
+    return vals[n - k :], vecs[:, n - k :]
+
+
+def _eigh_generalized_diagonal(
+    A: lx.AbstractLinearOperator,
+    d: Array,
+    rank: int | None,
+    which: str,
+    key: PRNGKeyArray | None,
+) -> tuple[Array, Array]:
+    """Positive diagonal ``B``: eig of ``B^{-1/2} A B^{-1/2}``, then rescale."""
+    n = d.shape[0]
+    s = 1.0 / jnp.sqrt(d)
+    if rank is None:
+        S = einx.multiply(
+            "i, i j -> i j", s, einx.multiply("i j, j -> i j", A.as_matrix(), s)
+        )
+        lam, U = jnp.linalg.eigh(S)
+        k = n
+    else:
+        k = min(rank, n)
+        if key is None:
+            key = jr.PRNGKey(0)
+        depth = min(n, max(2 * k + 1, k + 20))
+        v0 = jr.normal(key, (n,), dtype=s.dtype)
+        eigh_fn = matfree.eig.eigh_partial(
+            matfree.decomp.tridiag_sym(depth, reortho="full")
+        )
+        lam, U = eigh_fn(lambda x: s * A.mv(s * x), v0)
+        U = rearrange(U, "k n -> n k")
+    lam, U = _select(lam, U, k, which)
+    return lam, einx.multiply("i, i k -> i k", s, U)
+
+
+def _eigh_generalized_cholesky(
+    A: lx.AbstractLinearOperator,
+    B: lx.AbstractLinearOperator,
+    rank: int | None,
+    which: str,
+) -> tuple[Array, Array]:
+    """Positive definite ``B = C Cᵀ``: eig of ``C⁻¹ A C⁻ᵀ``, ``v = C⁻ᵀ u``."""
+    n = B.in_size()
+    C = jnp.linalg.cholesky(B.as_matrix())
+    X = solve_triangular(C, A.as_matrix(), lower=True)  # C⁻¹ A
+    M = solve_triangular(C, rearrange(X, "i j -> j i"), lower=True)  # C⁻¹ A C⁻ᵀ
+    lam, U = jnp.linalg.eigh(M)
+    lam, U = _select(lam, U, n if rank is None else min(rank, n), which)
+    return lam, solve_triangular(C, U, lower=True, trans="T")
+
+
+def _eigh_generalized_singular(
+    A: lx.AbstractLinearOperator,
+    B: lx.AbstractLinearOperator,
+    rank: int | None,
+    which: str,
+    rcond: float | None,
+) -> tuple[Array, Array]:
+    """PSD, possibly singular ``B``: Schur-complement elimination of ``ker B``."""
+    n = B.in_size()
+    Am = A.as_matrix()
+    s, Ub = jnp.linalg.eigh(B.as_matrix())
+    pos = np.asarray(s > _null_tol(s, rcond, n))
+    r = int(pos.sum())
+    if r == 0:
+        msg = "B is numerically zero: the pencil has no finite eigenvalues."
+        raise ValueError(msg)
+    k = r if rank is None else min(rank, r)
+    if rank is not None and rank > r:
+        warnings.warn(
+            f"eigh_generalized: B has numerical rank {r} < rank={rank}, so "
+            f"only {r} finite eigenpairs exist; returning {r}.",
+            stacklevel=2,
+        )
+
+    Up, sp = Ub[:, pos], s[pos]
+    S = einsum(Up, Am, Up, "i a, i j, j b -> a b")
+    if r < n:
+        U0 = Ub[:, ~pos]
+        A00 = einsum(U0, Am, U0, "i a, i j, j b -> a b")
+        A0p = einsum(U0, Am, Up, "i a, i j, j b -> a b")
+        e00 = jnp.linalg.eigvalsh(A00)
+        if not bool(e00[0] > _null_tol(e00, None, n - r)):
+            msg = (
+                "eigh_generalized: A restricted to ker B (A₀₀) is not positive "
+                f"definite (smallest eigenvalue {float(e00[0]):.3e}), so "
+                "tr(Yᵀ A Y) s.t. Yᵀ B Y = I is unbounded below along ker B."
+            )
+            raise ValueError(msg)
+        Z = cho_solve((jnp.linalg.cholesky(A00), True), A0p)  # A₀₀⁻¹ A₀₊
+        S = S - einsum(A0p, Z, "a p, a q -> p q")
+
+    w = 1.0 / jnp.sqrt(sp)
+    M = einx.multiply("p, p q -> p q", w, einx.multiply("p q, q -> p q", S, w))
+    lam, W = jnp.linalg.eigh(M)
+    lam, W = _select(lam, W, k, which)
+    vp = einx.multiply("p, p k -> p k", w, W)
+    V = Up @ vp
+    if r < n:
+        V = V - U0 @ (Z @ vp)  # v₀ = −A₀₀⁻¹ A₀₊ v₊
+    return lam, V
