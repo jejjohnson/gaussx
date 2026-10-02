@@ -108,6 +108,7 @@ from gaussx._inference import (
     riemannian_psd_correction as riemannian_psd_correction,
     tikhonov_augment as tikhonov_augment,
     trace_correction as trace_correction,
+    vb_mean_correction as vb_mean_correction,
 )
 from gaussx._linalg import (
     EigenFactorization as EigenFactorization,

@@ -38,6 +38,7 @@ from gaussx._inference._natural_gradient import (
     gauss_newton_precision,
     riemannian_psd_correction,
 )
+from gaussx._inference._vb_correction import vb_mean_correction
 
 # ``process_noise_covariance`` is a state-space concept and now lives in
 # ``gaussx._ssm``. Re-exported here so the historical import path keeps
@@ -78,6 +79,7 @@ __all__ = [
     "riemannian_psd_correction",
     "tikhonov_augment",
     "trace_correction",
+    "vb_mean_correction",
 ]
 
 
