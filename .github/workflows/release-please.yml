@@ -7,12 +7,59 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  checks: write
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # The release PR is pushed with GITHUB_TOKEN, and GitHub starts no
+      # workflows for events that token causes, so lint.yml's
+      # `uv lock --check` never runs on it. Check the release branch's
+      # lockfile (bumped by the uv.lock extra-file) here instead.
+      - name: Check out the release PR
+        if: steps.release.outputs.prs_created == 'true'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+      - uses: astral-sh/setup-uv@v7
+        if: steps.release.outputs.prs_created == 'true'
+        with:
+          enable-cache: true
+      - name: Check the release PR's uv.lock matches its pyproject.toml
+        id: lock
+        if: steps.release.outputs.prs_created == 'true'
+        run: uv lock --check
+
+      # This run is attached to the push to main, not to the release PR, so
+      # a failure above would never show on the PR. Publish the verdict as a
+      # check run on the PR's head commit as well, so it is visible there and
+      # can be made a required check.
+      - name: Publish the lock check on the release PR
+        if: ${{ !cancelled() && steps.lock.outcome != 'skipped' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.lock.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ "$OUTCOME" = success ]; then
+            conclusion=success
+            summary="uv.lock matches pyproject.toml on the release branch."
+          else
+            conclusion=failure
+            summary="uv lock --check failed on the release branch; see $RUN_URL."
+          fi
+          gh api "repos/${{ github.repository }}/check-runs" \
+            -f name="uv lock --check (release PR)" \
+            -f head_sha="$(git rev-parse HEAD)" \
+            -f status=completed \
+            -f conclusion="$conclusion" \
+            -f "output[title]=uv lock --check" \
+            -f "output[summary]=$summary" \
+            -f details_url="$RUN_URL" > /dev/null

@@ -79,6 +79,8 @@ uv run --group typecheck ty check src/gaussx  # Typecheck — package only
 
 **Critical**: Always lint/format with `.` (repo root), not `src/gaussx/`. CI runs `ruff check .` which includes `tests/` and `scripts/`.
 
+`uv.lock` must match `pyproject.toml`: CI runs `uv lock --check`, so re-run `uv lock` and commit the lockfile with any dependency or version change. Release PRs bump the lockfile's own `gaussx` version through release-please's `extra-files`.
+
 ## Test Speed Tiers
 
 CI (PRs and pushes to `main`) runs only unmarked (fast) tests:

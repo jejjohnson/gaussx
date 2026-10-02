@@ -18,6 +18,8 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
+      - name: Check uv.lock matches pyproject.toml
+        run: uv lock --check
       - name: Install lint dependencies
         run: uv sync --group lint
       - name: Run ruff check
