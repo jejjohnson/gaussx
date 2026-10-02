@@ -43,6 +43,7 @@ from gaussx._quadrature._quadrature import (
 )
 from gaussx._quadrature._slr import SLRResult, statistical_linear_regression
 from gaussx._quadrature._taylor import TaylorIntegrator
+from gaussx._quadrature._theta_design import theta_design
 from gaussx._quadrature._tilted_moments import ep_tilted_moments
 from gaussx._quadrature._types import GaussianState, PropagationResult
 from gaussx._quadrature._unscented import UnscentedIntegrator
@@ -85,6 +86,7 @@ __all__ = [
     "moment_transform",
     "sigma_points",
     "statistical_linear_regression",
+    "theta_design",
     "uncertain_bgplvm_predict",
     "uncertain_gp_predict",
     "uncertain_gp_predict_mc",

@@ -224,6 +224,7 @@ from gaussx._quadrature import (
     moment_transform as moment_transform,
     sigma_points as sigma_points,
     statistical_linear_regression as statistical_linear_regression,
+    theta_design as theta_design,
     uncertain_bgplvm_predict as uncertain_bgplvm_predict,
     uncertain_gp_predict as uncertain_gp_predict,
     uncertain_gp_predict_mc as uncertain_gp_predict_mc,
