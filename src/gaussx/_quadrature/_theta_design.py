@@ -82,7 +82,10 @@ def theta_design(
         method: ``"eb"``, ``"grid"`` or ``"ccd"``. ``None`` (default)
             picks ``"grid"`` for ``m <= 2`` and ``"ccd"`` for ``m > 2``.
         hessian: Hessian of `log_post` at `mode`, shape ``(m, m)``
-            (negative definite). Computed with `jax.hessian` if ``None``.
+            (negative definite). If ``None``, computed reverse-over-reverse
+            (``jax.jacrev(jax.jacrev(log_post))``), which also differentiates
+            through custom-VJP-only code such as the sparse Cholesky
+            log-determinant (`jax.hessian` is forward-over-reverse).
         grid_step: Step size in $z$ for ``"grid"``.
         grid_threshold: Log-density drop from the mode beyond which
             ``"grid"`` stops and discards points.
@@ -120,7 +123,7 @@ def theta_design(
         return rearrange(mode, "m -> 1 m"), jnp.zeros((1,), dtype=dtype)
 
     if hessian is None:
-        hessian = jax.hessian(log_post)(mode)
+        hessian = jax.jacrev(jax.jacrev(log_post))(mode)
     evals, evecs = jnp.linalg.eigh(-jnp.asarray(hessian, dtype=dtype))
     # theta(z) = mode + V Lambda^{-1/2} z
     scale = einx.multiply("i j, j -> i j", evecs, jax.lax.rsqrt(evals))
