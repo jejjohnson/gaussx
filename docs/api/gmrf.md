@@ -25,7 +25,10 @@ fmesher, pygmsh or meshio.
   $x_{i+1}-2x_i+x_{i-1}$) are $\mathcal N(0,\tau^{-1})$; the structure matrix
   has null space $\{\mathbf 1\}$ ($\{\mathbf 1, t\}$). RW2 is stored with
   $2\times 2$ blocks, so an odd $n$ gets one decoupled unit-precision padding
-  node; strip it from results.
+  node; strip it from results. Their normalising constant
+  $\tfrac12\log|R|_+$ (and Besag's) is
+  [`pseudo_logdet`](primitives.md#pseudo-determinant); the padding node's
+  eigenvalue 1 adds nothing to it.
 - **AR(1).**
   $Q = \frac{\tau}{1-\rho^2}\operatorname{tridiag}(-\rho,\ 1+\rho^2,\ -\rho)$
   with 1 in the corners: every marginal variance is $1/\tau$.

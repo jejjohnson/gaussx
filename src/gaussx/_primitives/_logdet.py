@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import functools as ft
+from typing import TYPE_CHECKING, Literal
 
+import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Float
+import numpy as np
+from jaxtyping import Array, ArrayLike, Float
 
+from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import (
     BlockTriDiag,
@@ -19,12 +23,16 @@ from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalise
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
-from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._sparse import _PLAN_CACHE_SIZE, SparseOperator, SparsityPattern
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_eigen,
 )
+
+
+if TYPE_CHECKING:
+    from gaussx._strategies._base import AbstractLogdetStrategy
 
 
 def cholesky_logdet(L: Float[Array, "N N"]) -> Float[Array, ""]:
@@ -215,3 +223,262 @@ def _logdet_dense(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     mat = operator.as_matrix()
     _, ld = jnp.linalg.slogdet(mat)
     return ld
+
+
+def pseudo_logdet(
+    operator: lx.AbstractLinearOperator,
+    *,
+    null_space: Float[ArrayLike, "N c"] | Float[ArrayLike, " N"] | None = None,
+    structure: Literal["laplacian"] | None = None,
+    rcond: float | None = None,
+    strategy: AbstractLogdetStrategy | None = None,
+) -> Float[Array, ""]:
+    r"""Log pseudo-determinant: the log of the product of the non-zero eigenvalues.
+
+    For a symmetric positive-semidefinite ``A``,
+    $\log|A|_+ = \sum_{\lambda_i > 0}\log\lambda_i$. Intrinsic GMRFs (Besag /
+    ICAR, RW1, RW2) have singular structure matrices ``R``, and
+    $\tfrac12\log|R|_+$ is their normalising constant. Paths, cheapest first:
+
+    - ``structure="laplacian"`` (a weighted graph Laplacian, e.g. Besag or
+      RW1): the matrix-tree theorem. Every principal $(n_c-1)$-minor of a
+      connected component's Laplacian $L_c$ equals its weighted spanning-tree
+      count, and $\operatorname{pdet}(L_c) = n_c$ times it, so
+      $\log|L|_+ = \sum_c (\log n_c + \log|L_c^{(-k_c)}|)$. The minors are
+      taken by replacing one node per component with a unit diagonal, which
+      keeps the sparsity pattern, so it is **one** sparse Cholesky
+      (`SparseCholeskySolver` by default; G4) for a `SparseOperator`, or one
+      banded Cholesky for a `BlockTriDiag` with ``1 × 1`` blocks (a path, as
+      from `rw1_structure`). Components are found from the sparsity pattern
+      on the host (once per pattern), so every stored off-diagonal weight
+      must be non-zero. Gradients are exact. A `KroneckerSum` (a grid
+      Laplacian) takes the eigenvalue path below instead.
+    - ``null_space`` given: $\operatorname{pdet}(A) = \det(A + NN^\top)$
+      for orthonormal $N$ spanning $\ker A$ (each zero eigenvalue becomes
+      1). Any basis $B$ of the kernel works, since
+      $\det(A + BB^\top) = \operatorname{pdet}(A)\det(B^\top B)$ and the
+      second factor is subtracted. ``A + BBᵀ`` is a matvec-only lineax sum,
+      so ``strategy=gaussx.SLQLogdet()`` estimates it matrix-free; the
+      default is `gaussx.logdet` of it (dense). The matrix determinant lemma
+      does not apply because ``A`` is singular.
+    - A `KroneckerSum` (recursively, with dense, diagonal or
+      `DiagonalisedOperator` factors) or a `DiagonalisedOperator`: all
+      pairwise sums of the factor eigenvalues, with no factorisation of the
+      full operator.
+    - Anything else: dense ``eigvalsh``.
+
+    The eigenvalue paths drop eigenvalues ``≤ rcond · λ_max``.
+
+    **Constants are constant.** ``log|τR|_+ = rank(R) log τ + log|R|_+``, so
+    ``log|R|_+`` never depends on hyperparameters: compute it once, outside
+    any θ loop, and keep it.
+
+    Args:
+        operator: Symmetric positive-semidefinite operator ``A``.
+        null_space: A basis of ``ker A``, shape ``(N, c)`` (or ``(N,)`` for
+            ``c = 1``); for a connected graph Laplacian, ``1/√N``. kernellib's
+            ``graph_null_space`` gives one column per connected component.
+        structure: ``"laplacian"`` to use the matrix-tree theorem on a
+            weighted graph Laplacian (`SparseOperator`, ``1 × 1``-block
+            `BlockTriDiag` or `KroneckerSum`).
+        rcond: Relative cut-off for the eigenvalue paths. Defaults to
+            ``n · eps`` of the dtype, with ``n`` the largest dense
+            eigenproblem solved (a factor's size for a `KroneckerSum`), as in
+            ``numpy.linalg.matrix_rank``.
+        strategy: Log-determinant strategy for the null-space path (of
+            ``A + BBᵀ``) and the Laplacian path (of the minor). Not used by
+            the eigenvalue paths.
+
+    Returns:
+        Scalar $\log|A|_+$.
+
+    Raises:
+        ValueError: If both ``null_space`` and ``structure`` are given, if
+            ``strategy`` is given for an eigenvalue path, if ``structure`` is
+            unknown, or if ``null_space`` has the wrong number of rows.
+        TypeError: If ``structure="laplacian"`` is given an operator it has
+            no Laplacian path for.
+
+    Examples:
+        ```python
+        import jax.numpy as jnp
+        import lineax as lx
+        import numpy as np
+        import gaussx
+
+        # ICAR normalising constant on the path graph 0 - 1 - 2 - 3 (computed once)
+        n = 4
+        R = gaussx.SparseOperator.from_coo(
+            np.r_[np.arange(n), np.arange(1, n)],
+            np.r_[np.arange(n), np.arange(n - 1)],
+            jnp.r_[jnp.array([1.0, 2.0, 2.0, 1.0]), -jnp.ones(n - 1)],
+            (n, n),
+            symmetric=True,
+        )
+        half_log_pdet = 0.5 * gaussx.pseudo_logdet(R, structure="laplacian")
+        # pdet(R) = n · (one spanning tree) = 4
+        assert jnp.allclose(2 * half_log_pdet, jnp.log(4.0))
+
+        # The same through its null space, constants / √n
+        ones = jnp.ones(n) / jnp.sqrt(n)
+        assert jnp.allclose(gaussx.pseudo_logdet(R, null_space=ones), jnp.log(4.0))
+
+        # On a grid there is no factorisation: Σ log of the non-zero λ^H_i + λ^W_j
+        L = gaussx.rw1_structure(5).as_matrix()
+        grid = gaussx.KroneckerSum(
+            lx.MatrixLinearOperator(L, lx.symmetric_tag),
+            lx.MatrixLinearOperator(L, lx.symmetric_tag),
+        )
+        half_log_pdet_grid = 0.5 * gaussx.pseudo_logdet(grid)
+        ```
+    """
+    if structure not in (None, "laplacian"):
+        raise ValueError(f"structure must be None or 'laplacian', got {structure!r}.")
+    if null_space is not None and structure is not None:
+        raise ValueError("Pass either null_space or structure, not both.")
+    if isinstance(operator, lx.TaggedLinearOperator):
+        operator = operator.operator
+    if null_space is not None:
+        return _pseudo_logdet_null_space(operator, null_space, strategy)
+    if structure == "laplacian":
+        if isinstance(operator, SparseOperator):
+            return _pseudo_logdet_laplacian_sparse(operator, strategy)
+        if isinstance(operator, BlockTriDiag):
+            return _pseudo_logdet_laplacian_banded(operator, strategy)
+        if not isinstance(operator, KroneckerSum | DiagonalisedOperator):
+            raise TypeError(
+                "structure='laplacian' needs a SparseOperator, a BlockTriDiag "
+                "with 1 x 1 blocks or a KroneckerSum, got "
+                f"{type(operator).__name__}; pass null_space instead."
+            )
+    if strategy is not None:
+        raise ValueError(
+            "strategy is used by the null_space and structure='laplacian' "
+            "paths only; the eigenvalue paths are exact."
+        )
+    eigenvalues, size = _spectrum(operator)
+    if rcond is None:
+        rcond = size * float(jnp.finfo(eigenvalues.dtype).eps)
+    keep = eigenvalues > rcond * jnp.max(eigenvalues)
+    logs = jnp.log(jnp.where(keep, eigenvalues, 1))
+    return jnp.sum(jnp.where(keep, logs, 0))
+
+
+def _spectrum(operator: lx.AbstractLinearOperator) -> tuple[Float[Array, " n"], int]:
+    """Real eigenvalues of a symmetric operator, and the largest ``eigh`` size."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _spectrum(operator.operator)
+    if isinstance(operator, KroneckerSum):
+        a, n_a = _spectrum(operator.A)
+        b, n_b = _spectrum(operator.B)
+        pairs = einx.add("i, j -> i j", a, b)
+        return rearrange(pairs, "i j -> (i j)"), max(n_a, n_b)
+    if isinstance(operator, DiagonalisedOperator):
+        return jnp.real(operator.eigenvalues_flat()), 1
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return lx.diagonal(operator), 1
+    return jnp.linalg.eigvalsh(operator.as_matrix()), operator.in_size()
+
+
+def _pseudo_logdet_null_space(
+    operator: lx.AbstractLinearOperator,
+    null_space: Float[ArrayLike, "N c"] | Float[ArrayLike, " N"],
+    strategy: AbstractLogdetStrategy | None,
+) -> Float[Array, ""]:
+    """``log det(A + B Bᵀ) − log det(Bᵀ B)`` for a kernel basis ``B``."""
+    dtype = operator.in_structure().dtype
+    B = jnp.asarray(null_space, dtype=dtype)
+    if B.ndim == 1:
+        B = rearrange(B, "n -> n 1")
+    if B.ndim != 2 or B.shape[0] != operator.in_size():
+        raise ValueError(
+            f"null_space must have shape ({operator.in_size()}, c), got {B.shape}."
+        )
+
+    def project(v: Float[Array, " N"]) -> Float[Array, " N"]:
+        return einsum(B, einsum(B, v, "n c, n -> c"), "n c, c -> n")
+
+    tags = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    low_rank = lx.FunctionLinearOperator(project, operator.in_structure(), tags)
+    shifted = lx.TaggedLinearOperator(lx.AddLinearOperator(operator, low_rank), tags)
+    ld = logdet(shifted) if strategy is None else strategy.logdet(shifted)
+    _, ld_gram = jnp.linalg.slogdet(einsum(B, B, "n c, n d -> c d"))
+    return ld - ld_gram
+
+
+@ft.lru_cache(maxsize=_PLAN_CACHE_SIZE)
+def _laplacian_plan(
+    pattern: SparsityPattern,
+) -> tuple[np.ndarray, np.ndarray, float]:
+    """Per stored value: keep it, or the minor's unit diagonal; and ``Σ log n_c``.
+
+    Connected components by hooking and pointer jumping over the pattern
+    (each node ends up pointing at the smallest index in its component, its
+    root); the roots are the nodes removed from each component.
+    """
+    n = pattern.shape[0]
+    rows, cols = pattern.rows, pattern.cols
+    parent = np.arange(n)
+    while True:
+        hooked = parent.copy()
+        np.minimum.at(hooked, parent[rows], parent[cols])
+        np.minimum.at(hooked, parent[cols], parent[rows])
+        while not np.array_equal(hooked[hooked], hooked):
+            hooked = hooked[hooked]
+        if np.array_equal(hooked, parent):
+            break
+        parent = hooked
+    is_root = parent == np.arange(n)
+    touches_root = is_root[rows] | is_root[cols]
+    unit = touches_root & (rows == cols)
+    log_sizes = float(np.sum(np.log(np.bincount(parent, minlength=n)[is_root])))
+    return ~touches_root, unit, log_sizes
+
+
+def _pseudo_logdet_laplacian_sparse(
+    operator: SparseOperator, strategy: AbstractLogdetStrategy | None
+) -> Float[Array, ""]:
+    """Matrix-tree theorem: ``Σ_c log n_c + log|minor|`` by one sparse Cholesky."""
+    from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
+
+    if operator.pattern.shape[0] != operator.pattern.shape[1]:
+        raise ValueError(f"A Laplacian must be square, got {operator.pattern.shape}.")
+    keep, unit, log_sizes = _laplacian_plan(operator.pattern)
+    values = operator.values
+    minor_values = jnp.where(
+        jnp.asarray(keep), values, jnp.asarray(unit, dtype=values.dtype)
+    )
+    minor = SparseOperator(
+        minor_values,
+        operator.pattern,
+        tags=operator.tags | {lx.positive_semidefinite_tag},
+    )
+    solver = SparseCholeskySolver() if strategy is None else strategy
+    return solver.logdet(minor) + jnp.asarray(log_sizes, dtype=values.dtype)
+
+
+def _pseudo_logdet_laplacian_banded(
+    operator: BlockTriDiag, strategy: AbstractLogdetStrategy | None
+) -> Float[Array, ""]:
+    """Matrix-tree theorem on a path: ``log n + log|L with the last node removed|``.
+
+    The minor is the band with the last node replaced by a unit diagonal, so
+    it is one banded Cholesky.
+    """
+    n, d, _ = operator.diagonal.shape
+    if d != 1:
+        raise ValueError(
+            "structure='laplacian' on a BlockTriDiag needs 1 x 1 blocks (a "
+            f"weighted path graph), got {d} x {d}; use a SparseOperator or "
+            "null_space."
+        )
+    diagonal = operator.diagonal.at[-1].set(1)
+    sub_diagonal = operator.sub_diagonal.at[n - 2 :].set(0)
+    minor = BlockTriDiag(
+        diagonal,
+        sub_diagonal,
+        symmetric=operator.symmetric,
+        tags=operator.tags | {lx.positive_semidefinite_tag},
+    )
+    ld = logdet(minor) if strategy is None else strategy.logdet(minor)
+    return ld + jnp.log(jnp.asarray(n, dtype=diagonal.dtype))

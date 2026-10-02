@@ -1,8 +1,10 @@
 """Tests for theta_design: eb / grid / ccd integration designs over theta."""
 
+import functools as ft
 import itertools
 
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -165,3 +167,51 @@ class TestDesign:
     def test_rejects_unknown_method(self):
         with pytest.raises(ValueError, match="method"):
             gaussx.theta_design(_std_normal, jnp.zeros(2), method="bogus")
+
+
+def _sparse_log_post():
+    """θ log-posterior with a sparse log|Q(θ)| and a sparse solve, as in INLA."""
+    n = 8
+    rows = np.r_[np.arange(n), np.arange(1, n)]
+    cols = np.r_[np.arange(n), np.arange(n - 1)]
+    degree = jnp.r_[jnp.array([1.0]), jnp.full(n - 2, 2.0), jnp.array([1.0])]
+    R = gaussx.SparseOperator.from_coo(
+        rows, cols, jnp.r_[degree, -jnp.ones(n - 1)], (n, n), symmetric=True
+    )
+    y = jnp.linspace(-1.0, 1.0, n)
+
+    def precision(theta):
+        Q = eqx.tree_at(lambda op: op.values, R, jnp.exp(theta[0]) * R.values)
+        return Q.add_diagonal(jnp.full(n, jnp.exp(theta[1])))
+
+    def log_post(theta, *, sparse):
+        Q = precision(theta)
+        if sparse:
+            solver = gaussx.SparseCholeskySolver()
+            ld, x = solver.logdet(Q), solver.solve(Q, y)
+        else:
+            ld = jnp.linalg.slogdet(Q.as_matrix())[1]
+            x = jnp.linalg.solve(Q.as_matrix(), y)
+        return 0.5 * ld - 0.5 * y @ x - 2.0 * theta @ theta
+
+    return log_post
+
+
+@pytest.mark.slow  # seconds: compiles second-order sparse Cholesky / Takahashi scans
+def test_default_hessian_through_sparse_cholesky():
+    # G4's sparse logdet / solve define custom VJPs only, so the default
+    # Hessian must be reverse-over-reverse; it must also see how the
+    # Takahashi / adjoint cotangents of their backward passes depend on θ.
+    # Reference: jax.hessian of the same log-posterior through dense algebra.
+    log_post = _sparse_log_post()
+    sparse = jax.jit(ft.partial(log_post, sparse=True))
+    mode = jnp.array([0.3, -0.2])
+    expected = jax.jit(jax.hessian(ft.partial(log_post, sparse=False)))(mode)
+    assert jnp.allclose(jax.jit(jax.jacrev(jax.jacrev(sparse)))(mode), expected)
+
+    pts, logw = gaussx.theta_design(sparse, mode, method="ccd")
+    ref_pts, ref_logw = gaussx.theta_design(
+        sparse, mode, hessian=expected, method="ccd"
+    )
+    assert jnp.allclose(pts, ref_pts)
+    assert jnp.allclose(logw, ref_logw)

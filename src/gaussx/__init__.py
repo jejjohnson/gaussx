@@ -191,6 +191,7 @@ from gaussx._primitives import (
     inv as inv,
     inv_quad_logdet as inv_quad_logdet,
     logdet as logdet,
+    pseudo_logdet as pseudo_logdet,
     root_decomposition as root_decomposition,
     root_inv_decomposition as root_inv_decomposition,
     solve as solve,

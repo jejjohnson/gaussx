@@ -6,7 +6,7 @@ from gaussx._primitives._eig import eig, eigh_generalized, eigvals
 from gaussx._primitives._frobenius import frobenius_norm
 from gaussx._primitives._inv import InverseOperator, inv
 from gaussx._primitives._inv_quad_logdet import inv_quad_logdet
-from gaussx._primitives._logdet import cholesky_logdet, logdet
+from gaussx._primitives._logdet import cholesky_logdet, logdet, pseudo_logdet
 from gaussx._primitives._root import (
     RootDecomposition,
     root_decomposition,
@@ -41,6 +41,7 @@ __all__ = [
     "inv",
     "inv_quad_logdet",
     "logdet",
+    "pseudo_logdet",
     "root_decomposition",
     "root_inv_decomposition",
     "solve",
