@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/jejjohnson/gaussx/compare/v0.4.1...v0.5.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **randomized:** PartialCholeskyPreconditioner(rank, shift).as_operator(op) now treats op as the system K + shift·I and factors op − shift·I (fixes #345). To factor a noiseless K directly, use PartialCholeskyPreconditioner.from_operator(K, rank, shift=σ²), which also builds the preconditioner once ([#371](https://github.com/jejjohnson/gaussx/issues/371)).
+
+### Features
+
+* **linalg:** structured selected inverses and shifted-Kronecker diag_inv; fix BlockTriDiag tags (G3) ([#489](https://github.com/jejjohnson/gaussx/issues/489)) ([6529589](https://github.com/jejjohnson/gaussx/commit/6529589b8360a433adf33489d4551912e19bfecb))
+* **operators:** add SparseOperator with a static SparsityPattern (G1) ([#488](https://github.com/jejjohnson/gaussx/issues/488)) ([56799a0](https://github.com/jejjohnson/gaussx/commit/56799a0a0f5673f310d9fbc4a607c26c77b81aaa))
+* **primitives:** add eigh_generalized with a schur-complement path for singular b (G2) ([#490](https://github.com/jejjohnson/gaussx/issues/490)) ([80db3c5](https://github.com/jejjohnson/gaussx/commit/80db3c5ebd7862fd9efe5f31a11099b59e8005fe)), closes [#471](https://github.com/jejjohnson/gaussx/issues/471)
+* **quadrature:** add theta_design with eb, grid and ccd designs (G9) ([#492](https://github.com/jejjohnson/gaussx/issues/492)) ([f691dd4](https://github.com/jejjohnson/gaussx/commit/f691dd4649069a8a35ad2b149b5f82b066184bfc))
+* **randomized:** add rp_cholesky and a build-once PartialCholeskyPreconditioner; stop counting noise twice (G14) ([14ea1f1](https://github.com/jejjohnson/gaussx/commit/14ea1f12ab3f01e38d59042fa6fed2df5e2fd9f5))
+* **sketching:** add sketching operators and move hadamard_transform from kernellib (G11) ([#491](https://github.com/jejjohnson/gaussx/issues/491)) ([7275881](https://github.com/jejjohnson/gaussx/commit/72758814468d6f4b195c80ca13538ada79e241b1))
+
 ## [0.4.1](https://github.com/jejjohnson/gaussx/compare/v0.4.0...v0.4.1) (2026-10-02)
 
 
