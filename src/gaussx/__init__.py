@@ -403,6 +403,16 @@ except ModuleNotFoundError as _e:
         raise
 
 
+_NUMPYRO_NAMES = frozenset({
+    "MultivariateNormal",
+    "MultivariateNormalPrecision",
+    "MarkovGaussian",
+    "LGSSM",
+    "MaskedLGSSM",
+    "LGSSMFactory",
+})
+
+
 def __getattr__(name: str):
     # Deprecated aliases warn on access (gh-364).
     from gaussx._ssm._infinite_horizon_kalman import (
@@ -412,4 +422,10 @@ def __getattr__(name: str):
 
     if name in _DEPRECATED_ALIASES:
         return _deprecated_alias(name)
+    if name in _NUMPYRO_NAMES:
+        raise AttributeError(
+            f"module 'gaussx' has no attribute {name!r}. "
+            f"This feature requires the 'numpyro' extra. "
+            f"Install it with: pip install 'gaussx[numpyro]'"
+        )
     raise AttributeError(f"module 'gaussx' has no attribute {name!r}")
