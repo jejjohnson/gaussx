@@ -92,6 +92,7 @@ nav:
       - Overview: api/index.md
       - Primitives: api/primitives.md
       - Operators & Tags: api/operators.md
+      - Sparse Operators: api/sparse.md
       - Solvers & Preconditioners: api/solvers.md
       - Linear-Algebra Utilities: api/linalg.md
       - Distributions & Exponential Family: api/distributions.md

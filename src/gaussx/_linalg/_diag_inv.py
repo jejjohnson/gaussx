@@ -9,6 +9,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import reduce
 from gaussx._linalg._safe_cholesky import safe_cholesky
+from gaussx._operators._sparse import SparseOperator
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
@@ -30,7 +31,9 @@ def diag_inv(
         method: Algorithm to use. One of ``"cholesky"`` (exact via
             dense Cholesky), ``"solve"`` (exact via repeated solves),
             ``"hutchinson"`` (stochastic estimator),
-            or ``"auto"`` (cholesky for N ≤ 2048, hutchinson otherwise).
+            or ``"auto"`` (cholesky for N ≤ 2048, hutchinson otherwise; for a
+            `SparseOperator` the cholesky limit is `AutoSolver`'s size
+            threshold, above which it has no Cholesky yet).
         num_probes: Number of Rademacher probe vectors for the
             hutchinson method.
         key: PRNG key for probe generation in the hutchinson method.
@@ -44,7 +47,13 @@ def diag_inv(
     n = operator.in_size()
 
     if method == "auto":
-        method = "cholesky" if n <= 2048 else "hutchinson"
+        # cholesky(SparseOperator) refuses to densify above AutoSolver's threshold.
+        limit = 2048
+        if isinstance(operator, SparseOperator):
+            from gaussx._strategies._auto import AutoSolver
+
+            limit = min(limit, AutoSolver().size_threshold)
+        method = "cholesky" if n <= limit else "hutchinson"
 
     if method == "cholesky":
         return _diag_inv_cholesky(operator)
