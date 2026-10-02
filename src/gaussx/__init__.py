@@ -38,6 +38,20 @@ from gaussx._expfam import (
     to_expectation as to_expectation,
     to_natural as to_natural,
 )
+from gaussx._gmrf import (
+    ar1_precision as ar1_precision,
+    besag_structure as besag_structure,
+    bym2_precision as bym2_precision,
+    fem_matrices as fem_matrices,
+    fem_projector as fem_projector,
+    generalized_variance_scale as generalized_variance_scale,
+    iid_precision as iid_precision,
+    matern_spde_params as matern_spde_params,
+    rw1_structure as rw1_structure,
+    rw2_structure as rw2_structure,
+    spde_precision as spde_precision,
+    spde_precision_grid as spde_precision_grid,
+)
 from gaussx._gp import (
     LOOResult as LOOResult,
     LOVECache as LOVECache,
@@ -134,6 +148,7 @@ from gaussx._operators import (
     ScaledOperator as ScaledOperator,
     SparseOperator as SparseOperator,
     SparsityPattern as SparsityPattern,
+    SpectralFunction as SpectralFunction,
     SumKronecker as SumKronecker,
     SumOfKroneckers as SumOfKroneckers,
     SumOperator as SumOperator,

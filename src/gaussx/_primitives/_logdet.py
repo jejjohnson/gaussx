@@ -20,6 +20,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_eigen,
@@ -65,6 +66,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return _logdet_sum_of_kroneckers(operator)
     if isinstance(operator, KroneckerSum):
         return _logdet_kronecker_sum(operator)
+    if isinstance(operator, SpectralFunction):
+        return operator.logdet()
     if isinstance(operator, BlockTriDiag) and operator.symmetric:
         # Non-symmetric diagonal blocks take the dense slogdet (gh-344).
         return _logdet_block_tridiag(operator)
