@@ -27,7 +27,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     dramatically reduces the number of CG iterations.
 
     Pass a ``preconditioner`` built once with
-    `gaussx.PartialCholeskyPreconditioner.from_operator` (on ``K``, with
+    `gaussx.PartialCholeskyPreconditioner.from_operator` or
+    `gaussx.NystromPreconditioner.from_operator` (on ``K``, with
     ``shift=σ²``) to reuse it across solves. Otherwise a rank
     ``preconditioner_rank`` factor of ``A − shift · I`` is rebuilt from the
     system operator ``A`` at every solve, so the noise is never counted

@@ -8,7 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx import PartialCholeskyPreconditioner
+from gaussx import NystromPreconditioner, PartialCholeskyPreconditioner
 from gaussx._strategies import PreconditionedCGSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -119,6 +119,21 @@ def test_solver_uses_a_prebuilt_preconditioner():
     system = kernel + noise * jnp.eye(n)
     pre = PartialCholeskyPreconditioner.from_operator(
         lx.MatrixLinearOperator(kernel, psd), rank=20, shift=noise
+    )
+    solver = PreconditionedCGSolver(preconditioner=pre, rtol=1e-10, atol=1e-10)
+    b = jr.normal(jr.key(2), (n,))
+    x = solver.solve(lx.MatrixLinearOperator(system, psd), b)
+    assert tree_allclose(x, jnp.linalg.solve(system, b), rtol=1e-6)
+
+
+def test_solver_uses_a_prebuilt_nystrom_preconditioner():
+    # Built on K with shift σ², passed to the solver of K + σ²I (#345).
+    kernel, noise = _rbf_system()
+    n = kernel.shape[0]
+    psd = lx.positive_semidefinite_tag
+    system = kernel + noise * jnp.eye(n)
+    pre = NystromPreconditioner.from_operator(
+        lx.MatrixLinearOperator(kernel, psd), rank=30, shift=noise, key=jr.key(0)
     )
     solver = PreconditionedCGSolver(preconditioner=pre, rtol=1e-10, atol=1e-10)
     b = jr.normal(jr.key(2), (n,))

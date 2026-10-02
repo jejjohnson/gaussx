@@ -1,49 +1,95 @@
-"""Randomized Nyström preconditioner."""
+"""Randomized Nyström preconditioner (Frangella, Tropp & Udell, 2023)."""
 
 from __future__ import annotations
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
-from gaussx._linalg._symmetrize import symmetrize
 from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._randomized._nystrom import randomized_nystrom
 
 
 class NystromPreconditioner(AbstractPreconditioner):
-    r"""Low-rank approximate inverse from randomized operator probing.
+    r"""Randomized Nyström preconditioner for ``A + μ I``.
 
-    Builds a rank-``k`` Nyström approximation of a symmetric positive
-    semidefinite operator ``A`` and uses it as an approximate inverse. Good when
-    ``A`` is available only through matvecs and a handful of probes captures its
-    dominant spectrum.
+    For a system ``A + μ I`` with ``A`` PSD (e.g. ``K + σ² I``), it builds a
+    rank-``l`` randomized Nyström approximation ``Â = U Λ̂ Uᵀ`` of the PSD
+    part ``A`` alone (`gaussx.randomized_nystrom`) and applies (Frangella,
+    Tropp & Udell, 2023)
 
-    Algorithm (for PSD ``A``):
+    $$
+    P^{-1}x = (\hat\lambda_\ell + \mu)\,U(\hat\Lambda + \mu I)^{-1}U^\top x
+    + (x - UU^\top x).
+    $$
 
-    1. Draw a Gaussian probe matrix ``Omega in R^{n x k}`` and orthonormalise it
-       via QR to get ``Q``.
-    2. Form ``Y = A Q`` (``k`` matvecs) and the small matrix ``B = Q^T Y``.
-    3. Eigendecompose ``B = U S U^T`` and set ``W = Q U`` (orthonormal columns).
-    4. The approximate inverse is
-       ``M^{-1} x = a x + W ((s_inv - a) (W^T x))``,
-       where ``s_inv = 1 / |eig(B)|`` and the scalar fallback ``a`` keeps
-       directions outside the captured subspace near the inverse of the smallest
-       captured eigenvalue (so CG does not falsely converge in the
-       preconditioned norm).
+    On ``range(U)`` the preconditioned operator is ``≈ λ̂_l + μ``; on the
+    complement it is ``A + μ I`` itself, with eigenvalues in
+    ``[μ, λ_{l+1} + μ]``. So
 
-    Construct via `from_operator`.
+    $$
+    \kappa\big(P^{-1/2}(A+\mu I)P^{-1/2}\big)
+    \le \frac{\hat\lambda_\ell + \mu + \|A - \hat A\|}{\mu},
+    $$
+
+    which is ``O(1)`` once ``l ≳ d_eff(μ) = tr(A (A + μ I)⁻¹)``, the
+    effective dimension. With ``l = 2⌈1.5 d_eff(μ)⌉ + 1`` the expected
+    condition number is below 28, so CG needs a number of iterations that
+    does not grow with ``n``.
+
+    Build it once with `from_operator` on the PSD part ``A`` and an explicit
+    ``shift=μ``, like `gaussx.PartialCholeskyPreconditioner`: ``A`` must not
+    already contain ``μ``, or the noise is counted twice (#345). The
+    factors are stored as arrays, so `as_operator` ignores its argument and
+    repeated solves cost no further matvecs.
+
+    **Covariance form only.** ``Â`` captures the *top* of ``A``'s spectrum,
+    which is right for ``K + σ² I``. It is not a good preconditioner for a
+    precision-form GMRF system ``Q + Aᵀ W A``, whose hard directions are its
+    smallest eigenvalues; use an exact sparse factorisation or
+    Jacobi-preconditioned CG there.
+
+    Up to gaussx 0.4 this class was a randomized Rayleigh-Ritz projection
+    onto a random subspace, which made CG *slower* below full rank (#354).
+    For a Rayleigh-Ritz eigendecomposition use
+    ``gaussx.randomized_eigh(op, rank, n_power_iter=0)``; it projects onto
+    ``orth(AΩ)`` rather than ``orth(Ω)``, which is more accurate, so it is not
+    numerically identical to the old preconditioner.
 
     Attributes:
-        basis: Orthonormal basis ``W``, shape ``(n, k)``.
-        scale: Per-direction extra scaling ``s_inv - a``, shape ``(k,)``.
-        shift: Scalar fallback ``a`` applied to the full space.
+        basis: Orthonormal ``U``, shape ``(n, l)``.
+        eigenvalues: ``Λ̂``, descending, shape ``(l,)``.
+        shift: ``μ`` (e.g. the noise variance ``σ²``).
+
+    Examples:
+        A GP with n = 200k and a Matérn-3/2 kernel is solved by preconditioned
+        CG in tens of iterations, not thousands::
+
+            K_op = kl.to_operator(kernel, X, implicit=True)
+            P = gx.NystromPreconditioner.from_operator(
+                K_op, rank=500, shift=noise_var, key=key
+            )
+            A_op = K_op + lx.DiagonalLinearOperator(jnp.full(n, noise_var))
+            alpha = gx.PreconditionedCGSolver(preconditioner=P).solve(A_op, y)
+
+        A small runnable version:
+
+        >>> import einx, jax.numpy as jnp, jax.random as jr, lineax as lx
+        >>> import gaussx as gx
+        >>> x = jnp.linspace(0.0, 10.0, 100)
+        >>> K = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+        >>> psd = lx.positive_semidefinite_tag
+        >>> P = gx.NystromPreconditioner.from_operator(
+        ...     lx.MatrixLinearOperator(K, psd), rank=30, shift=0.1, key=jr.key(0)
+        ... )
+        >>> A = lx.MatrixLinearOperator(K + 0.1 * jnp.eye(100), psd)
+        >>> alpha = gx.PreconditionedCGSolver(preconditioner=P).solve(A, jnp.ones(100))
     """
 
-    basis: Float[Array, "n k"]
-    scale: Float[Array, " k"]
+    basis: Float[Array, "n l"]
+    eigenvalues: Float[Array, " l"]
     shift: Float[Array, ""]
 
     @classmethod
@@ -51,62 +97,54 @@ class NystromPreconditioner(AbstractPreconditioner):
         cls,
         operator: lx.AbstractLinearOperator,
         rank: int = 50,
+        *,
+        shift: float | Float[Array, ""],
+        oversample: int = 0,
         key: jax.Array | None = None,
     ) -> NystromPreconditioner:
-        """Build a Nyström preconditioner by probing *operator*.
+        """Sketch the PSD part once and store the preconditioner.
 
         Args:
-            operator: A symmetric PSD operator ``A``.
-            rank: Number of probe vectors (approximation rank).
-            key: PRNG key for the probe matrix. Defaults to
+            operator: The PSD part ``A`` (e.g. a kernel matrix ``K``),
+                **not** ``A + μ I``. May be matrix-free.
+            rank: Sketch size ``l`` (``rank`` matvecs of ``A``), clamped to
+                the operator size. Aim for ``l ≳ 2⌈1.5 d_eff(μ)⌉ + 1``.
+            shift: ``μ``, e.g. the noise variance ``σ²``; the preconditioner
+                targets ``A + μ I``. Must be positive.
+            oversample: Extra sketch columns, discarded after the
+                approximation (see `gaussx.randomized_nystrom`).
+            key: PRNG key for the test matrix. ``None`` means
                 ``jax.random.PRNGKey(0)``.
 
         Returns:
-            A ready-to-use `NystromPreconditioner`.
+            A built `NystromPreconditioner`.
+
+        Raises:
+            ValueError: If ``rank < 1`` or a concrete ``shift`` is not
+                positive.
         """
-        if key is None:
-            key = jax.random.PRNGKey(0)
-
-        n = operator.in_size()
-        k = min(rank, n)
-
-        omega = jax.random.normal(key, (n, k))
-        q, _ = jnp.linalg.qr(omega)
-
-        y = eqx.filter_vmap(operator.mv, in_axes=1, out_axes=1)(q)
-        b = einsum(q, y, "n k, n j -> k j")
-        # Symmetrize before the eigendecomposition: b is symmetric in exact
-        # arithmetic, but floating-point asymmetry in the off-diagonals can
-        # perturb eigh. (Matches the convention in _distributions/_conditional.)
-        b = symmetrize(b)
-        eigvals, u = jnp.linalg.eigh(b)
-
-        abs_eigvals = jnp.abs(eigvals)
-        eps = jnp.finfo(abs_eigvals.dtype).eps * n
-        s_inv = jnp.where(abs_eigvals > eps, 1.0 / abs_eigvals, 0.0)
-
-        w = einsum(q, u, "n k, k j -> n j")
-        # Fallback for uncaptured directions: random probing captures the
-        # largest eigenvalues, so uncaptured directions have smaller eigenvalues
-        # and larger inverses. The largest captured inverse is the best
-        # available proxy and keeps the preconditioned spectrum near 1.
-        shift = jnp.max(s_inv)
-        scale = s_inv - shift
-        return cls(basis=w, scale=scale, shift=shift)
+        if isinstance(shift, (int, float)) and shift <= 0:
+            raise ValueError(f"shift must be positive, got {shift}.")
+        approx = randomized_nystrom(operator, rank, oversample=oversample, key=key)
+        return cls(
+            basis=approx.U,
+            eigenvalues=approx.d,
+            shift=jnp.asarray(shift, dtype=approx.d.dtype),
+        )
 
     def as_operator(
         self,
         operator: lx.AbstractLinearOperator | None = None,
     ) -> lx.AbstractLinearOperator:
-        """Return the rank-``k`` approximate inverse as a PSD operator."""
-        w = self.basis
-        scale = self.scale
-        shift = self.shift
-        structure = jax.ShapeDtypeStruct((w.shape[0],), w.dtype)
+        """Return ``P⁻¹`` as a PSD operator; *operator* is ignored."""
+        U, mu = self.basis, self.shift
+        # P⁻¹ = I + U diag((λ̂_l + μ)/(λ̂ + μ) − 1) Uᵀ.
+        scale = (self.eigenvalues[-1] + mu) / (self.eigenvalues + mu) - 1.0
+        structure = jax.ShapeDtypeStruct((U.shape[0],), U.dtype)
 
         def matvec(x: Float[Array, " n"]) -> Float[Array, " n"]:
-            coeffs = einsum(w, x, "n k, n -> k")
-            return shift * x + einsum(w, scale * coeffs, "n k, k -> n")
+            coeffs = einsum(U, x, "n l, n -> l")
+            return x + einsum(U, scale * coeffs, "n l, l -> n")
 
         return lx.FunctionLinearOperator(
             matvec, structure, lx.positive_semidefinite_tag
