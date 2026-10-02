@@ -1,5 +1,7 @@
 """GaussX inference updates -- variational, natural-gradient, BLR, EnKF."""
 
+from typing import Any
+
 from gaussx._inference._blr import (
     blr_diag_update,
     blr_full_update,
@@ -31,7 +33,6 @@ from gaussx._inference._inference import (
     newton_update,
     trace_correction,
 )
-from gaussx._inference._laplace import LaplaceResult, laplace_mode
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
@@ -78,3 +79,14 @@ __all__ = [
     "tikhonov_augment",
     "trace_correction",
 ]
+
+
+# laplace_mode takes the numpyro-based GMRF priors (G6), so it needs the
+# optional ``numpyro`` dependency. As in ``gaussx._distributions``, resolve it
+# lazily (PEP 562) so importing ``gaussx._inference`` works in a base install.
+def __getattr__(name: str) -> Any:
+    if name in ("LaplaceResult", "laplace_mode"):
+        from gaussx._inference import _laplace
+
+        return getattr(_laplace, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

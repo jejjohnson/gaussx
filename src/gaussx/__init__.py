@@ -80,7 +80,6 @@ from gaussx._gp import (
     whitened_svgp_predict as whitened_svgp_predict,
 )
 from gaussx._inference import (
-    LaplaceResult as LaplaceResult,
     blr_diag_update as blr_diag_update,
     blr_full_update as blr_full_update,
     cavity_distribution as cavity_distribution,
@@ -102,7 +101,6 @@ from gaussx._inference import (
     inflate_multiplicative as inflate_multiplicative,
     inflate_rtpp as inflate_rtpp,
     inflate_rtps as inflate_rtps,
-    laplace_mode as laplace_mode,
     localization_matrix as localization_matrix,
     localized_kalman_gain as localized_kalman_gain,
     log_marginal_likelihood as log_marginal_likelihood,
@@ -392,6 +390,10 @@ try:
     from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
     from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,
+    )
+    from gaussx._inference._laplace import (
+        LaplaceResult as LaplaceResult,
+        laplace_mode as laplace_mode,
     )
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":
