@@ -234,6 +234,7 @@ from gaussx._quadrature import (
 from gaussx._randomized import (
     qb as qb,
     randomized_eigh as randomized_eigh,
+    randomized_nystrom as randomized_nystrom,
     randomized_svd as randomized_svd,
     range_finder as range_finder,
     rp_cholesky as rp_cholesky,

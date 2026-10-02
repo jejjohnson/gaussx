@@ -97,7 +97,11 @@ def randomized_eigh(
 
     Use ``n_power_iter >= 2`` for slowly decaying spectra (Matérn-½ Gram
     matrices, most geophysical fields). With ``n_power_iter=0`` this is the
-    one-pass randomized Rayleigh-Ritz projection. For PSD operators,
+    one-pass randomized Rayleigh-Ritz projection, the successor of the
+    algorithm behind `NystromPreconditioner` up to gaussx 0.4; it projects
+    onto $\operatorname{orth}(A\Omega)$ rather than
+    $\operatorname{orth}(\Omega)$, which is more accurate, so it is not
+    numerically identical. For PSD operators,
     `randomized_nystrom` is strictly more accurate for the same number of
     matvecs (Tropp et al., 2017).
 

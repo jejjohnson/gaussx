@@ -40,6 +40,25 @@ eofs, pcs = U, einx.multiply("k, k t -> k t", s, Vt)
       show_root_toc_entry: false
       members: [range_finder, qb, randomized_svd, randomized_eigh]
 
+## Randomized Nyström
+
+For a PSD operator, `randomized_nystrom` returns the Nyström approximation
+$\hat A = (A\Omega)(\Omega^\top A\Omega)^{+}(A\Omega)^\top$ from one pass of
+$\ell$ matvecs (Tropp, Yurtsever, Udell & Cevher, 2017, Algorithm 3). It
+satisfies $0 \preceq \hat A \preceq A$ and, for the same $\ell$, is more
+accurate than the Rayleigh–Ritz projection of `randomized_eigh`. The result
+is an orthonormal [`LowRankUpdate`](operators.md#gaussx.LowRankUpdate)
+$U\hat\Lambda U^\top$, so the same factors on a $\sigma^2 I$ base solve and
+take log-determinants of $\hat A + \sigma^2 I$ through the Woodbury rules. It
+is also the sketch behind
+[`NystromPreconditioner`](solvers.md#gaussx.NystromPreconditioner).
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [randomized_nystrom]
+
 ## Randomly pivoted Cholesky
 
 `rp_cholesky` builds a partial Cholesky factor from the diagonal and a

@@ -59,6 +59,16 @@ solvers above. Pass them via the `preconditioner=` argument of
 [`linear_solve`](#gaussx.linear_solve), [`CGSolver`](#gaussx.CGSolver), or
 [`PreconditionedCGSolver`](#gaussx.PreconditionedCGSolver).
 
+For a covariance-form system $K + \sigma^2 I$, build
+[`NystromPreconditioner`](#gaussx.NystromPreconditioner) or
+[`PartialCholeskyPreconditioner`](#gaussx.PartialCholeskyPreconditioner) once
+with `from_operator(K, rank, shift=σ²)`: the operator is the PSD part $K$ only
+and the noise is passed separately, so it is never counted twice. With a
+Nyström rank $\ell \gtrsim 2\lceil 1.5\,d_{\text{eff}}(\sigma^2)\rceil + 1$,
+$d_{\text{eff}}(\mu) = \operatorname{tr}\big(K(K + \mu I)^{-1}\big)$, CG
+needs a number of iterations that does not grow with $n$ (Frangella, Tropp &
+Udell, 2023).
+
 ::: gaussx
     options:
       show_root_heading: false

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import itertools
+
 import einx
 import jax
 import jax.numpy as jnp
@@ -16,7 +18,10 @@ from gaussx import (
     OperatorPreconditioner,
     PartialCholeskyPreconditioner,
     linear_solve,
+    randomized_nystrom,
 )
+from gaussx._einx import einsum
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -59,45 +64,176 @@ def test_solve_with_jacobi(getkey):
     assert tree_allclose(x, jnp.linalg.solve(mat, b), rtol=1e-4)
 
 
-def test_nystrom_from_operator_solves(getkey):
-    mat, op = _psd_operator(getkey(), 40)
-    b = jr.normal(getkey(), (40,))
-    pre = NystromPreconditioner.from_operator(op, rank=20, key=getkey())
-    assert lx.is_positive_semidefinite(pre.as_operator(op))
-    x = linear_solve(op, b, solver=CGSolver(rtol=1e-8, atol=1e-8), preconditioner=pre)
-    assert tree_allclose(x, jnp.linalg.solve(mat, b), rtol=1e-4)
+def test_nystrom_from_operator_solves():
+    mat = random_pd_matrix(jr.key(0), 40)
+    noise = 0.1
+    system = lx.MatrixLinearOperator(
+        mat + noise * jnp.eye(40), lx.positive_semidefinite_tag
+    )
+    b = jr.normal(jr.key(1), (40,))
+    pre = NystromPreconditioner.from_operator(
+        lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag),
+        rank=20,
+        shift=noise,
+        key=jr.key(2),
+    )
+    assert lx.is_positive_semidefinite(pre.as_operator())
+    x = linear_solve(
+        system, b, solver=CGSolver(rtol=1e-10, atol=1e-10), preconditioner=pre
+    )
+    assert tree_allclose(x, jnp.linalg.solve(mat + noise * jnp.eye(40), b), rtol=1e-6)
 
 
-def test_nystrom_reduces_iterations():
-    """A (near-)full-rank Nyström preconditioner slashes CG iterations.
-
-    Deterministic by construction (fixed keys). A full-rank Nyström sketch of an
-    SPD operator is an essentially exact inverse, so the preconditioned system
-    is ``~ I`` and CG converges in a handful of steps regardless of the original
-    conditioning. (CG-iteration *counts* on a partially-captured spectrum are a
-    noisy proxy and were previously flaky; full rank gives a guaranteed margin.)
-    """
-    n = 40
-    q, _ = jnp.linalg.qr(jr.normal(jr.PRNGKey(0), (n, n)))
-    # Geometrically spread spectrum -> ill-conditioned (kappa ~ 1e3).
-    eigs = jnp.logspace(0, 3, n)
-    mat = (q * eigs) @ q.T
+def test_nystrom_matches_the_ftu_formula():
+    # P⁻¹ = (λ̂_l + μ) U (Λ̂ + μI)⁻¹ Uᵀ + (I − UUᵀ), with U, Λ̂ from
+    # randomized_nystrom on the PSD part only.
+    mat = random_pd_matrix(jr.key(0), 30)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
-    b = jr.normal(jr.PRNGKey(1), (n,))
+    pre = NystromPreconditioner.from_operator(op, rank=10, shift=0.5, key=jr.key(1))
+    approx = randomized_nystrom(op, 10, key=jr.key(1))
+    U, lam = approx.U, approx.d
+    expected = (lam[-1] + 0.5) * einsum(U / (lam + 0.5), U, "i k, j k -> i j") + (
+        jnp.eye(30) - einsum(U, U, "i k, j k -> i j")
+    )
+    assert tree_allclose(pre.basis, U) and tree_allclose(pre.eigenvalues, lam)
+    assert tree_allclose(pre.as_operator().as_matrix(), expected, rtol=1e-10)
 
-    def cg_steps(preconditioner):
-        solver = lx.CG(rtol=1e-6, atol=1e-6, max_steps=2000)
-        options = {}
-        if preconditioner is not None:
-            options["preconditioner"] = preconditioner.as_operator(op)
-        sol = lx.linear_solve(op, b, solver, options=options, throw=False)
-        return sol.stats["num_steps"]
 
-    plain = cg_steps(None)
-    pre = NystromPreconditioner.from_operator(op, rank=n, key=jr.PRNGKey(2))
-    preconditioned = cg_steps(pre)
-    assert preconditioned < plain
-    assert preconditioned <= 10
+def test_nystrom_full_rank_is_a_scaled_exact_inverse():
+    # #345: built from K with shift σ², at full rank P⁻¹ (K + σ²I) is
+    # (λ̂_n + σ²) I, so the noise is not counted twice.
+    n, noise = 40, 1e-2
+    q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n)))
+    kernel = einsum(q * jnp.logspace(-3, 3, n), q, "i k, j k -> i j")
+    pre = NystromPreconditioner.from_operator(
+        lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag),
+        rank=n,
+        shift=noise,
+        key=jr.key(1),
+    )
+    product = pre.as_operator().as_matrix() @ (kernel + noise * jnp.eye(n))
+    scale = pre.eigenvalues[-1] + noise
+    assert tree_allclose(product / scale, jnp.eye(n), atol=1e-8)
+
+
+def _cg_steps(system, b, pre, tol=1e-8):
+    options = {} if pre is None else {"preconditioner": pre.as_operator()}
+    sol = lx.linear_solve(
+        system,
+        b,
+        lx.CG(rtol=tol, atol=tol, max_steps=20000),
+        options=options,
+        throw=False,
+    )
+    return int(sol.stats["num_steps"])
+
+
+def _issue_354_system(name):
+    """The three spectra of the #354 reproduction, split as (K, σ²)."""
+    n = 200
+    q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n)))
+
+    def spectral(ev):
+        return symmetrize(einsum(q * ev, q, "i k, j k -> i j"))
+
+    if name == "logspace":
+        return spectral(jnp.logspace(0, 4, n) - 1.0), 1.0
+    if name == "exp":
+        return spectral(1e3 * jnp.exp(-0.25 * jnp.arange(n))), 1e-2
+    x = jnp.sort(jr.uniform(jr.key(3), (n,)) * 10)
+    return jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2), 1e-2
+
+
+@pytest.mark.parametrize(
+    ("name", "rank", "bound"),
+    # #354 acceptance criteria (None: at most the unpreconditioned count).
+    # The old Rayleigh-Ritz version took 776-826, 2251-2640, 9231-10026 and
+    # 199-203 steps on these spectra (to 1e-8, keys 0-2). The rewrite takes
+    # 567-585 (plain 678), 121-127 (plain 465), 24-26 and 5 (plain 43).
+    [("logspace", 20, None), ("exp", 20, 150), ("exp", 40, 60), ("rbf", 20, 40)],
+)
+def test_nystrom_below_full_rank_never_slows_cg(name, rank, bound):
+    kernel, noise = _issue_354_system(name)
+    n = kernel.shape[0]
+    psd = lx.positive_semidefinite_tag
+    system = lx.MatrixLinearOperator(kernel + noise * jnp.eye(n), psd)
+    b = jr.normal(jr.key(1), (n,))
+    plain = _cg_steps(system, b, None)
+    for seed in range(3):
+        pre = NystromPreconditioner.from_operator(
+            lx.MatrixLinearOperator(kernel, psd), rank, shift=noise, key=jr.key(seed)
+        )
+        assert _cg_steps(system, b, pre) <= (plain if bound is None else bound)
+
+
+def test_nystrom_builds_once():
+    # The build applies K at construction; as_operator never again.
+    n, rank = 30, 10
+    x = jnp.linspace(0.0, 15.0, n)
+    kernel = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+    count = [0]
+    K = _counting_operator(kernel, count)
+    pre = NystromPreconditioner.from_operator(K, rank=rank, shift=1e-2)
+    assert count[0] == rank
+    count[0] = 0
+    pre.as_operator(K).mv(jnp.ones(n))
+    assert count[0] == 0
+
+
+def test_nystrom_jit_and_float32():
+    x = jnp.linspace(0.0, 10.0, 200, dtype=jnp.float32)
+    kernel = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+    op = lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag)
+    pre = jax.jit(
+        lambda o: NystromPreconditioner.from_operator(
+            o, 40, shift=jnp.float32(1e-2), key=jr.key(0)
+        )
+    )(op)
+    assert pre.basis.dtype == jnp.float32 and pre.shift.dtype == jnp.float32
+    applied = pre.as_operator().mv(jnp.ones(200, dtype=jnp.float32))
+    assert applied.dtype == jnp.float32 and bool(jnp.all(jnp.isfinite(applied)))
+
+
+@pytest.mark.parametrize("shift", [0.0, -1.0])
+def test_nystrom_rejects_a_non_positive_shift(shift):
+    op = lx.MatrixLinearOperator(jnp.eye(4), lx.positive_semidefinite_tag)
+    with pytest.raises(ValueError, match="shift"):
+        NystromPreconditioner.from_operator(op, 2, shift=shift)
+
+
+def _matern32(n, lengthscale=1.0):
+    x = jnp.sort(jr.uniform(jr.key(0), (n,)) * 10)
+    r = jnp.sqrt(3.0) * jnp.abs(einx.subtract("i, j -> i j", x, x)) / lengthscale
+    return (1 + r) * jnp.exp(-r)
+
+
+@pytest.mark.slow
+def test_nystrom_cg_iterations_on_matern32_do_not_grow_below_full_rank():
+    # #354 regression (roadmap §6, G13): on K + σ²I for a Matérn-3/2 kernel
+    # with n = 5000, CG iterations are non-increasing in rank and below the
+    # unpreconditioned count at every rank (d_eff(σ²) ≈ 113). To 1e-6, plain
+    # CG takes 469 steps; ranks 25-400 take 102, 41, 16, 8, 5. The old
+    # Rayleigh-Ritz version (built from the system K + σ²I) took 3211, 4999,
+    # 7397, 10653, 12694, so it fails both assertions.
+    n, noise = 5000, 1e-2
+    kernel = _matern32(n)
+    psd = lx.positive_semidefinite_tag
+    system = lx.MatrixLinearOperator(kernel + noise * jnp.eye(n), psd)
+    b = jr.normal(jr.key(1), (n,))
+    plain = _cg_steps(system, b, None, tol=1e-6)
+    steps = [
+        _cg_steps(
+            system,
+            b,
+            NystromPreconditioner.from_operator(
+                lx.MatrixLinearOperator(kernel, psd), rank, shift=noise, key=jr.key(0)
+            ),
+            tol=1e-6,
+        )
+        for rank in (25, 50, 100, 200, 400)
+    ]
+    assert all(s < plain for s in steps)
+    assert all(a >= b for a, b in itertools.pairwise(steps))
 
 
 def test_partial_cholesky_disabled_returns_none(getkey):

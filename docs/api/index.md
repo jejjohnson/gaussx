@@ -14,7 +14,7 @@ package's layered architecture rather than dumped as one flat page:
 | [Solvers & Preconditioners](solvers.md) | 1.5 | Solver strategy objects (`DenseSolver`, `CGSolver`, `BBMMSolver`, SLQ logdets), the `linear_solve` front door, and preconditioners |
 | [Linear-Algebra Utilities](linalg.md) | — | `safe_cholesky`, `symmetrize`, Woodbury and Schur identities, matrix-RHS solves, tridiagonal solves |
 | [Sketching](sketching.md) | — | Random subspace embeddings: Gaussian, orthonormal, sparse-sign, SRHT and row-sampling sketches; `hadamard_transform` |
-| [Randomized Linear Algebra](randomized.md) | — | Randomly pivoted Cholesky (`rp_cholesky`) with landmark pivots |
+| [Randomized Linear Algebra](randomized.md) | — | Range finder, randomized SVD / eigh, randomized Nyström (`randomized_nystrom`), randomly pivoted Cholesky (`rp_cholesky`) with landmark pivots |
 | [Distributions & Exponential Family](distributions.md) | 2 | `MultivariateNormal` / `MultivariateNormalPrecision`, Gaussian sugar ops, KL divergences, natural-parameter conversions |
 | [Gaussian Processes](gp.md) | 3 | Conditioning, whitening, prediction caches, Matheron updates, ELBOs, LOVE / LOO, OILMM projections |
 | [Quadrature & Moment Matching](quadrature.md) | 3 | Integrators (Gauss-Hermite, unscented, Taylor, MC), likelihoods, kernel expectations, uncertain-input GP prediction |
