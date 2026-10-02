@@ -91,6 +91,7 @@ nav:
       - Sparse Operators: api/sparse.md
       - Solvers & Preconditioners: api/solvers.md
       - Linear-Algebra Utilities: api/linalg.md
+      - Sketching: api/sketching.md
       - Distributions & Exponential Family: api/distributions.md
       - Gaussian Processes: api/gp.md
       - Quadrature & Moment Matching: api/quadrature.md
