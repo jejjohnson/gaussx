@@ -8,6 +8,13 @@ cotangents never run backwards through the factorisation:
 - ``log|A|``: ``Ā = Z = A⁻¹`` on the pattern, one Takahashi sweep;
 - ``z = A⁻¹ y``: ``ȳ = A⁻¹ z̄`` and ``Ā = −ȳ zᵀ``, symmetrised on the pattern.
 
+``L`` gets a symbolic-zero cotangent (``None``), so the first-order backward
+pass never runs through the factorisation either. Second order
+(reverse-over-reverse, e.g. a θ Hessian) differentiates these backward
+passes, whose Takahashi sweep and solves depend on ``L``; with the JAX
+backend ``L`` carries that dependence. ``jax.hessian`` (forward-over-reverse)
+is not available: a ``custom_vjp`` has no JVP.
+
 These are cotangents per matrix *entry*. One lower-triangle value sets both
 ``A_kl`` and ``A_lk``, so `_entry_to_lower` maps an entry cotangent to the
 lower values by doubling off the diagonal -- in this one place, for both
@@ -54,7 +61,7 @@ def _logdet_fwd(sym, a, L):
 
 def _logdet_bwd(sym, L, g):
     Z = takahashi(sym, L)
-    return g * _entry_to_lower(sym, Z), jnp.zeros_like(L)
+    return g * _entry_to_lower(sym, Z), None
 
 
 logdet.defvjp(_logdet_fwd, _logdet_bwd)
@@ -82,7 +89,7 @@ def _solve_bwd(sym, residuals, z_bar):
     rows = jnp.asarray(sym.rowidx)
     cols = jnp.asarray(sym.colidx)
     entry = -0.5 * (y_bar[rows] * z[cols] + y_bar[cols] * z[rows])
-    return _entry_to_lower(sym, entry), jnp.zeros_like(L), y_bar
+    return _entry_to_lower(sym, entry), None, y_bar
 
 
 solve.defvjp(_solve_fwd, _solve_bwd)

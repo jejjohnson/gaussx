@@ -68,8 +68,14 @@ class SparseCholeskyFactor(eqx.Module):
     symbolic: SymbolicCholesky = eqx.field(static=True)
 
     def _L(self) -> Array:
-        # logdet and solve route their cotangents to ``matrix_values``.
-        return jax.lax.stop_gradient(self.values)
+        # logdet and solve route their first-order cotangents to
+        # ``matrix_values`` and give ``L`` none. ``L`` stays differentiable on
+        # the JAX backend so that reverse-over-reverse (a Hessian) sees how
+        # the Takahashi / adjoint cotangents in their backward passes move
+        # with the values. CHOLMOD's callback has no derivative.
+        if self.symbolic.backend == "cholmod":
+            return jax.lax.stop_gradient(self.values)
+        return self.values
 
     def solve(self, b: Float[Array, " n"]) -> Float[Array, " n"]:
         """``Q⁻¹ b = Pᵀ L⁻ᵀ L⁻¹ P b``.

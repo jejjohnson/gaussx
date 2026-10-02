@@ -136,3 +136,29 @@ def test_vmap_of_grad(grid):
     # log|s Q| = n log s + log|Q|, so d/ds = n / s.
     scales = jnp.array([0.5, 1.0, 3.0])
     np.testing.assert_allclose(jax.vmap(jax.grad(logdet))(scales), 9 / scales)
+
+
+@pytest.mark.parametrize("banded", [True, False])
+def test_reverse_over_reverse_hessian_matches_dense(grid, symbolic_for, banded):
+    # A θ Hessian (INLA's θ-design) differentiates the custom backward passes.
+    # It was silently wrong while L carried stop_gradient.
+    op = grid(3, 3)
+    sym = symbolic_for(op, "rcm", banded=banded)
+    on_diagonal = jnp.asarray(op.pattern.rows == op.pattern.cols, op.values.dtype)
+    b = jr.normal(jr.key(3), (op.in_size(),))
+
+    def values(theta):
+        return jnp.exp(theta[0]) * op.values + jnp.exp(theta[1]) * on_diagonal
+
+    def f(theta):
+        factor = gaussx.sparse_cholesky(SparseOperator(values(theta), op.pattern), sym)
+        return factor.logdet() + jnp.dot(b, factor.solve(b))
+
+    def f_dense(theta):
+        Q = _dense(op, values(theta))
+        return jnp.linalg.slogdet(Q)[1] + jnp.dot(b, jnp.linalg.solve(Q, b))
+
+    theta = jnp.array([0.3, -0.7])
+    np.testing.assert_allclose(
+        jax.jacrev(jax.jacrev(f))(theta), jax.hessian(f_dense)(theta), atol=1e-9
+    )
