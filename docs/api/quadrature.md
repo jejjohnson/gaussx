@@ -73,6 +73,41 @@ point-based integrator.
       show_root_toc_entry: false
       members: [moment_match, MomentMatchResult, statistical_linear_regression, SLRResult]
 
+## Hyperparameter designs (INLA)
+
+`theta_design` turns a hyperparameter log-posterior
+$\log\tilde\pi(\theta \mid y)$ and its mode $\theta^\ast$ into a small set of
+integration points $\theta_k$ and normalised log-weights, the way R-INLA
+integrates over $\theta$ (Rue, Martino & Chopin, 2009, §6.5). Points are laid
+out in the standardised coordinates $\theta(z) = \theta^\ast + V\Lambda^{-1/2}z$,
+where $-\nabla^2\log\tilde\pi(\theta^\ast) = V\Lambda V^\top$ (exact, from
+`jax.hessian`), and each design weight is corrected by the evaluated
+log-posterior:
+
+- `"eb"` — empirical Bayes, the mode alone;
+- `"grid"` — an axis-wise grid in $z$, truncated `grid_threshold` log-units
+  below the mode (the default for $m \le 2$);
+- `"ccd"` — a central composite design: centre, $2m$ axial points and a
+  resolution-V fractional factorial on the sphere of radius $f_0\sqrt m$,
+  $O(m^2)$ points (15 at $m = 3$, 27 at $m = 5$) against $3^m$ for a grid
+  (the default for $m > 2$).
+
+The design is a pure function of any callable, so mode-finding stays with the
+caller. A typical INLA step fits one Laplace approximation per design point in
+a single `vmap` (`laplace_mode` lands with G8):
+
+```python
+pts, logw = gaussx.theta_design(log_post, theta_star, method="ccd")  # (15, 3), (15,)
+fits = jax.vmap(lambda th: gaussx.laplace_mode(prior_at(th), lik, y))(pts)
+post_mean = einx.dot("k, k n -> n", jnp.exp(logw), fits.mode)
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [theta_design]
+
 ## Kernel expectations & uncertain-input GPs
 
 The $\Psi$-statistics $\Psi_0 = \mathbb{E}[k(x,x)]$, $\Psi_1 = \mathbb{E}[k(x,
