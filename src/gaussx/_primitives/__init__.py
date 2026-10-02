@@ -2,7 +2,7 @@
 
 from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
 from gaussx._primitives._diag import diag
-from gaussx._primitives._eig import eig, eigvals
+from gaussx._primitives._eig import eig, eigh_generalized, eigvals
 from gaussx._primitives._frobenius import frobenius_norm
 from gaussx._primitives._inv import InverseOperator, inv
 from gaussx._primitives._inv_quad_logdet import inv_quad_logdet
@@ -34,6 +34,7 @@ __all__ = [
     "cholesky_logdet",
     "diag",
     "eig",
+    "eigh_generalized",
     "eigvals",
     "estimate_spectral_bounds",
     "frobenius_norm",

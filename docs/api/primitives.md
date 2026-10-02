@@ -46,6 +46,22 @@ for partial (Krylov) decompositions.
       show_root_toc_entry: false
       members: [inv, sqrt, eig, eigvals, svd, frobenius_norm, submatrix]
 
+## Generalised eigenproblems
+
+`eigh_generalized` solves $A v = \lambda B v$ for symmetric $A$ and PSD $B$,
+returning $B$-orthonormal eigenvectors (the minimisers of
+$\operatorname{tr}(Y^\top A Y)$ s.t. $Y^\top B Y = I$ behind Laplacian
+eigenmaps, LPP and manifold alignment). It dispatches on $B$: a positive
+diagonal stays matrix-free (Lanczos with `rank=`), a tagged positive-definite
+$B$ is Cholesky-whitened, and a singular $B$ has its null space eliminated by a
+Schur complement.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [eigh_generalized]
+
 ## Matrix-free square-root products
 
 $A^{\pm 1/2}b$ for an operator too large to factorise, via the
