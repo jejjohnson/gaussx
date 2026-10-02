@@ -4,6 +4,10 @@ site_author: J. Emmanuel Johnson
 repo_url: https://github.com/jejjohnson/gaussx
 repo_name: jejjohnson/gaussx
 
+# Any warning (a broken cross-reference, an unresolvable `::: gaussx.X`, a
+# bad nav entry) fails `build`, `serve` and `gh-deploy`.
+strict: true
+
 theme:
   name: material
   features:

@@ -68,13 +68,14 @@ make docs-serve           # Local docs server
 uv run pytest tests/test_example.py::TestClass::test_method -v
 ```
 
-### Pre-commit checklist (all four must pass)
+### Pre-commit checklist (all must pass)
 
 ```bash
 uv run pytest -v                              # Tests
 uv run --group lint ruff check .              # Lint — ENTIRE repo, not just src/gaussx/
 uv run --group lint ruff format --check .     # Format — ENTIRE repo
 uv run --group typecheck ty check src/gaussx  # Typecheck — package only
+uv run --group docs mkdocs build --strict     # Docs — when docstrings, docs/ or mkdocs.yml change
 ```
 
 **Critical**: Always lint/format with `.` (repo root), not `src/gaussx/`. CI runs `ruff check .` which includes `tests/` and `scripts/`.
