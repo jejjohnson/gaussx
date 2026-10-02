@@ -54,6 +54,32 @@ jobs:
       - name: Build docs (strict)
         run: uv run mkdocs build --strict
 
+  # Every PR and push: build the wheel and sdist and check what they ship.
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Build wheel and sdist
+        run: uv build
+      - name: Check artifact contents
+        run: |
+          unzip -l dist/*.whl | grep -q 'gaussx/py.typed' \
+            || { echo "::error::the wheel has no gaussx/py.typed (PEP 561)"; exit 1; }
+          size=$(stat -c %s dist/*.tar.gz)
+          [ "$size" -lt 1000000 ] \
+            || { echo "::error::the sdist is $size bytes, over the 1 MB budget"; exit 1; }
+          if tar tzf dist/*.tar.gz \
+              | grep -E '\.ipynb$|/\.github/|/\.claude/|/uv\.lock$|/CLAUDE\.md$|/AGENTS\.md$|/\.env\.example$'; then
+            echo "::error::the sdist ships the files listed above; see [tool.hatch.build.targets.sdist]"
+            exit 1
+          fi
+      - name: Install the sdist and import it
+        run: uv run --isolated --no-project --with dist/*.tar.gz python -c "import gaussx; print(gaussx.__version__)"
+
   # Pushes to main: fast tests across the version matrix, with coverage.
   test-main:
     if: github.event_name == 'push'

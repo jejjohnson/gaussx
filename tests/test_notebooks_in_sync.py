@@ -18,6 +18,9 @@ import pytest
 jupytext = pytest.importorskip("jupytext")
 
 NOTEBOOK_DIR = Path(__file__).resolve().parents[1] / "docs" / "notebooks"
+if not NOTEBOOK_DIR.is_dir():
+    # The sdist ships tests/ but not the notebooks.
+    pytest.skip("docs/notebooks/ is not present", allow_module_level=True)
 SOURCES = sorted(NOTEBOOK_DIR.glob("*.py"))
 
 # Committed outputs must not show a warning (any category: "TqdmWarning: ...",
