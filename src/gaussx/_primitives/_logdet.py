@@ -19,6 +19,7 @@ from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalise
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_eigen,
@@ -68,6 +69,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return _logdet_block_tridiag(operator)
     if isinstance(operator, LowerBlockTriDiag | UpperBlockTriDiag):
         return _logdet_block_bidiagonal(operator)
+    if isinstance(operator, SparseOperator):
+        return _logdet_sparse(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return logdet(operator.operator)
     if isinstance(operator, lx.MulLinearOperator):
@@ -88,6 +91,22 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         factorization = _sum_of_kroneckers_eigen(operator)
         if factorization is not None:
             return factorization.logdet()
+    return _logdet_dense(operator)
+
+
+def _logdet_sparse(operator: SparseOperator) -> Float[Array, ""]:
+    """`SLQLogdet` when large and PSD (`AutoSolver` threshold), dense otherwise.
+
+    The SLQ estimate uses the strategy's default fixed key. A sparse Cholesky
+    is planned (G4).
+    """
+    from gaussx._strategies._auto import AutoSolver
+    from gaussx._strategies._slq_logdet import SLQLogdet
+
+    if operator.in_size() > AutoSolver().size_threshold and (
+        lx.is_positive_semidefinite(operator)
+    ):
+        return SLQLogdet().logdet(operator)
     return _logdet_dense(operator)
 
 

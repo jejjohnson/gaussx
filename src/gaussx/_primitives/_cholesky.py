@@ -10,6 +10,7 @@ import lineax as lx
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 
 
@@ -43,6 +44,8 @@ def cholesky(
         return _cholesky_block_tridiag(operator)
     if isinstance(operator, SumOfKroneckers):
         return _cholesky_sum_kronecker(operator)
+    if isinstance(operator, SparseOperator):
+        return _cholesky_sparse(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return cholesky(operator.operator)
     return _cholesky_dense(operator)
@@ -107,6 +110,24 @@ def _cholesky_sum_kronecker(operator: SumOfKroneckers) -> lx.MatrixLinearOperato
         DenseFallbackWarning,
         stacklevel=2,
     )
+    return _cholesky_dense(operator)
+
+
+def _cholesky_sparse(operator: SparseOperator) -> lx.MatrixLinearOperator:
+    """Dense Cholesky up to `AutoSolver`'s size threshold; refuse above it."""
+    from gaussx._strategies._auto import AutoSolver
+
+    threshold = AutoSolver().size_threshold
+    n = operator.in_size()
+    if n > threshold:
+        raise NotImplementedError(
+            f"cholesky(SparseOperator) of size {n} > {threshold} would densify "
+            "an O(n^2) matrix, and a sparse Cholesky is not available yet. Use "
+            "gaussx.solve (CG for PSD operators), SLQLogdet for the "
+            "log-determinant, diag_inv(method='hutchinson') for marginal "
+            "variances, or densify explicitly with "
+            "cholesky(lx.MatrixLinearOperator(op.as_matrix()))."
+        )
     return _cholesky_dense(operator)
 
 

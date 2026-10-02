@@ -131,6 +131,8 @@ from gaussx._operators import (
     MaskedOperator as MaskedOperator,
     ProductOperator as ProductOperator,
     ScaledOperator as ScaledOperator,
+    SparseOperator as SparseOperator,
+    SparsityPattern as SparsityPattern,
     SumKronecker as SumKronecker,
     SumOfKroneckers as SumOfKroneckers,
     SumOperator as SumOperator,

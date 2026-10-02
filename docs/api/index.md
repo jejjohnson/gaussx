@@ -10,6 +10,7 @@ package's layered architecture rather than dumped as one flat page:
 |---------|-------|---------------|
 | [Primitives](primitives.md) | 0 | Pure functions with structural dispatch — `solve`, `logdet`, `cholesky`, `trace`, `diag`, `sqrt`, `inv`, `eig`, `svd`, root decompositions |
 | [Operators & Tags](operators.md) | 1 | `Kronecker`, `BlockDiag`, `LowRankUpdate`, `Toeplitz`, block-tridiagonal, interpolated and masked operators, grid helpers, plus the structural tags that drive dispatch |
+| [Sparse Operators](sparse.md) | 1 | `SparseOperator` on a static, hashable `SparsityPattern`: traced values, host-side symbolic pattern algebra (`union`, `congruence`) |
 | [Solvers & Preconditioners](solvers.md) | 1.5 | Solver strategy objects (`DenseSolver`, `CGSolver`, `BBMMSolver`, SLQ logdets), the `linear_solve` front door, and preconditioners |
 | [Linear-Algebra Utilities](linalg.md) | — | `safe_cholesky`, `symmetrize`, Woodbury and Schur identities, matrix-RHS solves, tridiagonal solves |
 | [Distributions & Exponential Family](distributions.md) | 2 | `MultivariateNormal` / `MultivariateNormalPrecision`, Gaussian sugar ops, KL divergences, natural-parameter conversions |

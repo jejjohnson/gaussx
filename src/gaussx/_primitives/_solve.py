@@ -26,6 +26,7 @@ from gaussx._operators._kronecker_sum import (
 )
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._masked import MaskedOperator
+from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
@@ -72,6 +73,8 @@ def solve(
         return operator.solve(vector)
     if isinstance(operator, BlockTriDiag):
         return _solve_block_tridiag(operator, vector)
+    if isinstance(operator, SparseOperator):
+        return _solve_sparse(operator, vector, solver)
     if isinstance(operator, LowerBlockTriDiag):
         return _solve_lower_block_tridiag(operator, vector)
     if isinstance(operator, UpperBlockTriDiag):
@@ -448,6 +451,27 @@ def _solve_tagged(
     )
     if isinstance(operator.operator, structured):
         return solve(operator.operator, vector, solver=solver)
+    return _solve_fallback(operator, vector, solver)
+
+
+def _solve_sparse(
+    operator: SparseOperator,
+    vector: Float[Array, " n"],
+    solver: lx.AbstractLinearSolver | None,
+) -> Float[Array, " n"]:
+    """`AutoSolver` rules: CG when large and PSD, dense otherwise.
+
+    An explicit ``solver`` always wins. A sparse Cholesky is planned (G4).
+    """
+    from gaussx._strategies._auto import AutoSolver
+    from gaussx._strategies._cg import CGSolver
+
+    if (
+        solver is None
+        and operator.in_size() > AutoSolver().size_threshold
+        and lx.is_positive_semidefinite(operator)
+    ):
+        return CGSolver().solve(operator, vector)
     return _solve_fallback(operator, vector, solver)
 
 
