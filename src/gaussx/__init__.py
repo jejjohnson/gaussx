@@ -267,6 +267,12 @@ from gaussx._solve_frontend import (
     as_linear_operator as as_linear_operator,
     linear_solve as linear_solve,
 )
+from gaussx._sparse import (
+    SparseCholeskyFactor as SparseCholeskyFactor,
+    SymbolicCholesky as SymbolicCholesky,
+    sparse_cholesky as sparse_cholesky,
+    symbolic_cholesky as symbolic_cholesky,
+)
 from gaussx._ssm import (
     ConstantSDE as ConstantSDE,
     CosineSDE as CosineSDE,
@@ -334,6 +340,7 @@ from gaussx._strategies import (
     MINRESSolver as MINRESSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,
     SLQLogdet as SLQLogdet,
+    SparseCholeskySolver as SparseCholeskySolver,
 )
 from gaussx._tags import (
     block_diagonal_tag as block_diagonal_tag,

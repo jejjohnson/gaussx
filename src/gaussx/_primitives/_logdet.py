@@ -101,8 +101,8 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
 def _logdet_sparse(operator: SparseOperator) -> Float[Array, ""]:
     """`SLQLogdet` when large and PSD (`AutoSolver` threshold), dense otherwise.
 
-    The SLQ estimate uses the strategy's default fixed key. A sparse Cholesky
-    is planned (G4).
+    The SLQ estimate uses the strategy's default fixed key. The exact sparse
+    Cholesky path is the `SparseCholeskySolver` strategy, passed explicitly.
     """
     from gaussx._strategies._auto import AutoSolver
     from gaussx._strategies._slq_logdet import SLQLogdet

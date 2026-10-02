@@ -32,6 +32,7 @@ from gaussx._operators._sparse import (
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._primitives._diag import diag
 from gaussx._primitives._solve import solve
+from gaussx._sparse._factor import sparse_cholesky
 
 
 _PSD = frozenset({lx.positive_semidefinite_tag})
@@ -197,10 +198,17 @@ def generalized_variance_scale(
         else:
             eps_value = jnp.asarray(eps, dtype=dtype)
         S = _add_ridge(structure, eps_value)
-        W = jax.vmap(lambda v: solve(S, v), in_axes=1, out_axes=1)(V)
+        # diag(S⁻¹) and the correction are both O(1/ε) and cancel to O(1), so
+        # they must come from the same factorisation for the rounding to cancel.
+        if isinstance(S, SparseOperator):
+            factor = sparse_cholesky(S)
+            solve_S, diag_inv_S = factor.solve, factor.diag_inv
+        else:
+            solve_S, diag_inv_S = ft.partial(solve, S), ft.partial(diag_inv, S)
+        W = jax.vmap(solve_S, in_axes=1, out_axes=1)(V)
         M = einsum(V, W, "i a, i b -> a b")
         correction = einsum(W, jnp.linalg.inv(M), W, "i a, a b, i b -> i")
-        variances = diag_inv(S) - correction
+        variances = diag_inv_S() - correction
     return jnp.exp(jnp.mean(jnp.log(variances[:n])))
 
 

@@ -14,6 +14,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import numpy as np
 import pytest
 
 import gaussx
@@ -93,7 +94,20 @@ def test_distribution_leaves_are_only_arrays():
     ids=_id,
 )
 def test_jax_jit_log_prob_with_distribution_argument(cls, strategy):
-    dist = cls(jnp.zeros(3), _pd_operator(), solver=strategy)
+    op = _pd_operator()
+    if isinstance(strategy, gaussx.SparseCholeskySolver):
+        # A sparse factorisation needs a SparseOperator: the same matrix,
+        # stored as its (dense) lower triangle.
+        rows, cols = np.tril_indices(3)
+        op = gaussx.SparseOperator.from_coo(
+            rows,
+            cols,
+            op.as_matrix()[rows, cols],
+            (3, 3),
+            symmetric=True,
+            tags=lx.positive_semidefinite_tag,
+        )
+    dist = cls(jnp.zeros(3), op, solver=strategy)
     x = jnp.ones(3)
     jitted = jax.jit(lambda d, x: d.log_prob(x))(dist, x)
     assert jnp.allclose(jitted, dist.log_prob(x), rtol=1e-10, atol=1e-10)

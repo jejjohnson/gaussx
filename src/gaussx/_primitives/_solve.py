@@ -465,7 +465,8 @@ def _solve_sparse(
 ) -> Float[Array, " n"]:
     """`AutoSolver` rules: CG when large and PSD, dense otherwise.
 
-    An explicit ``solver`` always wins. A sparse Cholesky is planned (G4).
+    An explicit ``solver`` always wins. The exact sparse Cholesky path is the
+    `SparseCholeskySolver` strategy, which callers pass explicitly.
     """
     from gaussx._strategies._auto import AutoSolver
     from gaussx._strategies._cg import CGSolver

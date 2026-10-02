@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, overload
+
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
@@ -14,23 +16,39 @@ from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 
 
+if TYPE_CHECKING:
+    from gaussx._sparse._factor import SparseCholeskyFactor
+
+
 class DenseFallbackWarning(UserWarning):
     """Warning emitted when a structured primitive materialises an operator."""
 
 
+@overload
+def cholesky(operator: SparseOperator) -> SparseCholeskyFactor: ...
+
+
+@overload
+def cholesky(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator: ...
+
+
 def cholesky(
     operator: lx.AbstractLinearOperator,
-) -> lx.AbstractLinearOperator:
+) -> lx.AbstractLinearOperator | SparseCholeskyFactor:
     """Compute Cholesky factor L such that A = L L^T.
 
     Returns a linear operator (not a raw array). For structured
-    operators, the result preserves structure.
+    operators, the result preserves structure. A `SparseOperator` returns a
+    `SparseCholeskyFactor` of the fill-reducing permutation, ``P A Pᵀ = L Lᵀ``
+    (`gaussx.sparse_cholesky` on the cached symbolic analysis of its
+    pattern), with ``solve``, ``logdet``, ``solve_lower_transpose`` and
+    ``diag_inv``.
 
     Args:
         operator: A positive-definite linear operator.
 
     Returns:
-        Lower-triangular operator L.
+        Lower-triangular operator L, or a `SparseCholeskyFactor`.
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator
@@ -113,22 +131,11 @@ def _cholesky_sum_kronecker(operator: SumOfKroneckers) -> lx.MatrixLinearOperato
     return _cholesky_dense(operator)
 
 
-def _cholesky_sparse(operator: SparseOperator) -> lx.MatrixLinearOperator:
-    """Dense Cholesky up to `AutoSolver`'s size threshold; refuse above it."""
-    from gaussx._strategies._auto import AutoSolver
+def _cholesky_sparse(operator: SparseOperator) -> SparseCholeskyFactor:
+    """Sparse Cholesky on the cached symbolic analysis (RCM, JAX backend)."""
+    from gaussx._sparse._factor import sparse_cholesky
 
-    threshold = AutoSolver().size_threshold
-    n = operator.in_size()
-    if n > threshold:
-        raise NotImplementedError(
-            f"cholesky(SparseOperator) of size {n} > {threshold} would densify "
-            "an O(n^2) matrix, and a sparse Cholesky is not available yet. Use "
-            "gaussx.solve (CG for PSD operators), SLQLogdet for the "
-            "log-determinant, diag_inv(method='hutchinson') for marginal "
-            "variances, or densify explicitly with "
-            "cholesky(lx.MatrixLinearOperator(op.as_matrix()))."
-        )
-    return _cholesky_dense(operator)
+    return sparse_cholesky(operator)
 
 
 def _cholesky_dense(

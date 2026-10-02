@@ -38,7 +38,7 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver]
+      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, SparseCholeskySolver]
 
 ## Logdet strategies
 

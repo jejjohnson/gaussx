@@ -10,7 +10,7 @@ package's layered architecture rather than dumped as one flat page:
 |---------|-------|---------------|
 | [Primitives](primitives.md) | 0 | Pure functions with structural dispatch — `solve`, `logdet`, `cholesky`, `trace`, `diag`, `sqrt`, `inv`, `eig`, `svd`, root decompositions |
 | [Operators & Tags](operators.md) | 1 | `Kronecker`, `BlockDiag`, `LowRankUpdate`, `Toeplitz`, block-tridiagonal, interpolated and masked operators, grid helpers, plus the structural tags that drive dispatch |
-| [Sparse Operators](sparse.md) | 1 | `SparseOperator` on a static, hashable `SparsityPattern`: traced values, host-side symbolic pattern algebra (`union`, `congruence`) |
+| [Sparse Operators](sparse.md) | 1 | `SparseOperator` on a static, hashable `SparsityPattern`: traced values, host-side symbolic pattern algebra (`union`, `congruence`); sparse Cholesky with a cached symbolic analysis, Takahashi selected inverse and exact gradients |
 | [GMRF Precision Builders](gmrf.md) | 1 | Precisions for latent Gaussian models: iid, RW1 / RW2, AR(1), Besag / BYM2 with `generalized_variance_scale`, SPDE Matérn on meshes and grids, `fem_matrices`, `fem_projector` |
 | [Solvers & Preconditioners](solvers.md) | 1.5 | Solver strategy objects (`DenseSolver`, `CGSolver`, `BBMMSolver`, SLQ logdets), the `linear_solve` front door, and preconditioners |
 | [Linear-Algebra Utilities](linalg.md) | — | `safe_cholesky`, `symmetrize`, Woodbury and Schur identities, matrix-RHS solves, tridiagonal solves |

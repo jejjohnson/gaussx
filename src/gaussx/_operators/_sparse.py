@@ -194,9 +194,9 @@ class SparseOperator(lx.AbstractLinearOperator):
     pattern; `gaussx.solve` uses CG for large positive semidefinite operators
     (`AutoSolver` rules) and a dense solve otherwise; `gaussx.logdet` uses
     `SLQLogdet` for large PSD operators; `gaussx.eig` with ``rank=`` runs
-    Lanczos on the matvec; `gaussx.cholesky` densifies below
-    ``AutoSolver.size_threshold`` and raises `NotImplementedError` above it
-    (a sparse Cholesky is planned).
+    Lanczos on the matvec; `gaussx.cholesky` returns a sparse
+    `SparseCholeskyFactor`. For exact solves, log-determinants and marginal
+    variances through that factor, pass `SparseCholeskySolver`.
 
     Args:
         values: Stored non-zeros in the pattern's canonical order, shape

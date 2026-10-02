@@ -7,7 +7,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange
-from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 
 
 def selected_inverse(operator: BlockTriDiag) -> BlockTriDiag:
@@ -71,16 +71,20 @@ def selected_inverse(operator: BlockTriDiag) -> BlockTriDiag:
 
     from gaussx._primitives._cholesky import _cholesky_block_tridiag
 
-    factor = _cholesky_block_tridiag(operator)
-    d = operator._block_size
+    return _block_takahashi(_cholesky_block_tridiag(operator))
+
+
+def _block_takahashi(factor: LowerBlockTriDiag) -> BlockTriDiag:
+    """The band of ``Σ = (L Lᵀ)⁻¹`` from a lower block-bidiagonal factor ``L``."""
+    d = factor._block_size
     eye = jnp.eye(d, dtype=factor.diagonal.dtype)
     factor_inv = jax.vmap(
         lambda block: jax.scipy.linalg.solve_triangular(block, eye, lower=True)
     )(factor.diagonal)
     last = einsum(factor_inv[-1], factor_inv[-1], "j i, j m -> i m")
     last_block = rearrange(last, "i j -> 1 i j")
-    if operator._num_blocks == 1:
-        return BlockTriDiag(last_block, operator.sub_diagonal)
+    if factor._num_blocks == 1:
+        return BlockTriDiag(last_block, factor.sub_diagonal)
 
     def step(
         sigma_next: Float[Array, "d d"],

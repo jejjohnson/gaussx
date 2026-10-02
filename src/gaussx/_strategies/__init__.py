@@ -18,6 +18,7 @@ from gaussx._strategies._slq_logdet import (
     IndefiniteSLQLogdet,
     SLQLogdet,
 )
+from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
 
 __all__ = [
@@ -35,4 +36,5 @@ __all__ = [
     "MINRESSolver",
     "PreconditionedCGSolver",
     "SLQLogdet",
+    "SparseCholeskySolver",
 ]
