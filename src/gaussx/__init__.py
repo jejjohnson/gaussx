@@ -403,14 +403,16 @@ except ModuleNotFoundError as _e:
         raise
 
 
-_NUMPYRO_NAMES = frozenset({
-    "MultivariateNormal",
-    "MultivariateNormalPrecision",
-    "MarkovGaussian",
-    "LGSSM",
-    "MaskedLGSSM",
-    "LGSSMFactory",
-})
+_NUMPYRO_NAMES = frozenset(
+    {
+        "MultivariateNormal",
+        "MultivariateNormalPrecision",
+        "MarkovGaussian",
+        "LGSSM",
+        "MaskedLGSSM",
+        "LGSSMFactory",
+    }
+)
 
 
 def __getattr__(name: str):
