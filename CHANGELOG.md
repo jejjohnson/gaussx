@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.1](https://github.com/jejjohnson/gaussx/compare/v0.6.0...v0.6.1) (2026-10-03)
+
+
+### Bug Fixes
+
+* add helpful error message for numpyro extras ([#512](https://github.com/jejjohnson/gaussx/issues/512)) ([a2870e1](https://github.com/jejjohnson/gaussx/commit/a2870e11ce094b27a2c5b3b18a5ec338c762e3d2))
+* **distributions:** add BYM2GMRF, the BYM2 pair with its exact density and draws ([#518](https://github.com/jejjohnson/gaussx/issues/518)) ([e9f3201](https://github.com/jejjohnson/gaussx/commit/e9f3201b7c1f8c315d5e2bdf866d52188558bcad)), closes [#508](https://github.com/jejjohnson/gaussx/issues/508)
+* **primitives:** inv_quad_logdet's default is exact for structured operators ([#517](https://github.com/jejjohnson/gaussx/issues/517)) ([2360f45](https://github.com/jejjohnson/gaussx/commit/2360f455c099253a496abee342c0eb4d4a733889)), closes [#340](https://github.com/jejjohnson/gaussx/issues/340)
+* **strategies:** AutoSolver keeps every structured operator on its exact path ([#514](https://github.com/jejjohnson/gaussx/issues/514)) ([dfb0b89](https://github.com/jejjohnson/gaussx/commit/dfb0b89c6a9a940fa7b0014db89128ae464bb6cb)), closes [#321](https://github.com/jejjohnson/gaussx/issues/321)
+* **strategies:** differentiate CG solves through data-dependent preconditioners ([#513](https://github.com/jejjohnson/gaussx/issues/513)) ([0da6c41](https://github.com/jejjohnson/gaussx/commit/0da6c416d690dafa790058be936e6eaa1f20d1b3))
+
 ## [0.6.0](https://github.com/jejjohnson/gaussx/compare/v0.5.0...v0.6.0) (2026-10-02)
 
 
