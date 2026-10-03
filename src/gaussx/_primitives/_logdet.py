@@ -106,6 +106,63 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     return _logdet_dense(operator)
 
 
+def _has_structural_logdet(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether `logdet` (and `gaussx.solve`) take an exact structural path.
+
+    Mirrors `logdet`'s dispatch: ``True`` when the operator, after unwrapping
+    `lineax.TaggedLinearOperator` / ``MulLinearOperator`` /
+    ``DivLinearOperator`` / ``NegLinearOperator`` (and composing square
+    factors), is one whose log-determinant is computed without materialising
+    it and without a stochastic estimate. A large `SparseOperator`'s default
+    logdet is a stochastic SLQ estimate, and a `Toeplitz` or a non-reducible
+    sum of Kronecker products is materialised, so those are ``False``.
+
+    Kept beside `logdet` so the two lists cannot drift apart; `AutoSolver`
+    and `inv_quad_logdet` route on it.
+
+    Args:
+        operator: The linear operator.
+
+    Returns:
+        Whether the structural path applies.
+    """
+    if isinstance(
+        operator,
+        lx.IdentityLinearOperator
+        | lx.DiagonalLinearOperator
+        | DiagonalisedOperator
+        | BlockDiag
+        | Kronecker
+        | LowRankUpdate
+        | KroneckerSum
+        | SpectralFunction
+        | LowerBlockTriDiag
+        | UpperBlockTriDiag,
+    ):
+        return True
+    if isinstance(operator, BlockTriDiag):
+        return operator.symmetric
+    if isinstance(operator, SumOfKroneckers | lx.AddLinearOperator):
+        return _sum_of_kroneckers_eigen(operator) is not None
+    if isinstance(
+        operator,
+        lx.TaggedLinearOperator
+        | lx.MulLinearOperator
+        | lx.DivLinearOperator
+        | lx.NegLinearOperator,
+    ):
+        return _has_structural_logdet(operator.operator)
+    if isinstance(operator, lx.ComposedLinearOperator):
+        first, second = operator.operator1, operator.operator2
+        return (
+            first.in_size() == first.out_size()
+            and second.in_size() == second.out_size()
+            and _has_structural_logdet(first)
+            and _has_structural_logdet(second)
+        )
+    return False
+
+
 def _logdet_sparse(operator: SparseOperator) -> Float[Array, ""]:
     """`SLQLogdet` when large and PSD (`AutoSolver` threshold), dense otherwise.
 
