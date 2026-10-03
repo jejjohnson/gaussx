@@ -21,7 +21,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
 from gaussx._operators._diagonalised import as_diagonalised
-from gaussx._primitives._logdet import logdet as _logdet
+from gaussx._primitives._logdet import _has_structural_logdet, logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
 from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
 from gaussx._strategies._auto import AutoSolver
@@ -52,10 +52,11 @@ def inv_quad_logdet(
     $$
 
     which together with the $-\tfrac{N}{2}\log 2\pi$ constant make up the
-    Gaussian log-density. With the default `gaussx.BBMMSolver` strategy both
-    come out of one modified-batched-CG pass over ``[rhs | probes]``, so a
-    marginal-likelihood step costs roughly half the matvecs of a separate
-    `gaussx.solve` plus `gaussx.logdet`.
+    Gaussian log-density. For a structured operator with an exact
+    log-determinant the default is the exact structural pair. Otherwise, with
+    `gaussx.BBMMSolver`, both come out of one modified-batched-CG pass over
+    ``[rhs | probes]``, so a marginal-likelihood step costs roughly half the
+    matvecs of a separate `gaussx.solve` plus `gaussx.logdet`.
 
     Passing a ``preconditioner`` $P \approx A$ applies the variance reduction
     of Artemev et al. (2021): the same CG pass then produces the Lanczos
@@ -68,9 +69,14 @@ def inv_quad_logdet(
     Args:
         operator: Square symmetric positive-definite operator $A$.
         rhs: Right-hand side $R$ of shape ``(N, C)``.
-        strategy: Solver strategy. `gaussx.BBMMSolver` (the default when
-            ``None``) takes the shared-work path; any other strategy falls
-            back to its own `solve` per column plus its own `logdet`.
+        strategy: Solver strategy. ``None`` (the default) takes the exact
+            structural path (`gaussx.solve` per column plus `gaussx.logdet`)
+            when the operator has one (diagonal, `Kronecker`, `BlockDiag`,
+            `LowRankUpdate`, `BlockTriDiag`, `KroneckerSum`, ... and scalar
+            or tagged wrappers of them), and `gaussx.BBMMSolver` otherwise.
+            `gaussx.BBMMSolver` takes the shared-work path; any other
+            strategy falls back to its own `solve` per column plus its own
+            `logdet`.
         reduce_inv_quad: Whether to sum the per-column quadratic forms into
             the trace. When ``False`` the first return value is the ``(C,)``
             vector of $r_c^{\top} A^{-1} r_c$.
@@ -94,8 +100,11 @@ def inv_quad_logdet(
         raise ValueError(
             f"rhs has {rhs.shape[0]} rows but operator has size {operator.in_size()}"
         )
-    if strategy is None and as_diagonalised(operator) is not None:
-        # Exact and cheap: one transform-pair solve per column plus Σ log|λ|.
+    if strategy is None and (
+        as_diagonalised(operator) is not None or _has_structural_logdet(operator)
+    ):
+        # Exact and cheap: a structural solve per column plus the structural
+        # log-determinant, instead of BBMM's stochastic one (gh-340).
         columns = jnp.sum(
             rhs * jax.vmap(ft.partial(_solve, operator), 1, 1)(rhs), axis=0
         )

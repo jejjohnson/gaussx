@@ -527,3 +527,78 @@ def test_rejects_mismatched_right_hand_side() -> None:
     operator = random_pd_operator(jr.key(24), 5)
     with pytest.raises(ValueError, match="rows but operator has size"):
         gaussx.inv_quad_logdet(operator, jnp.ones((4, 1)))
+
+
+# -- gh-340: strategy=None takes the exact structural path when the operator
+# has one. Keys pinned: the property is about the operator type, not a draw.
+
+_PSD = lx.positive_semidefinite_tag
+
+
+def _pd(seed, n):
+    X = jr.normal(jr.key(seed), (n, n))
+    return X @ X.T + n * jnp.eye(n)
+
+
+def _structured(scale):
+    """``name -> operator`` with every leaf multiplied by ``scale``."""
+    A = lx.MatrixLinearOperator(scale * _pd(0, 3), _PSD)
+    B = lx.MatrixLinearOperator(scale * _pd(1, 4), _PSD)
+    U = jr.normal(jr.key(2), (12, 2))
+    return {
+        "kronecker": gaussx.Kronecker(A, B),
+        "block_diag": gaussx.BlockDiag(A, B),
+        "low_rank": LowRankUpdate(
+            lx.MatrixLinearOperator(scale * _pd(3, 12), _PSD), U, jnp.ones(2), U
+        ),
+        "block_tridiag": gaussx.BlockTriDiag(
+            scale * jnp.tile(4.0 * jnp.eye(2), (6, 1, 1)),
+            scale * jnp.tile(-1.0 * jnp.eye(2), (5, 1, 1)),
+            tags=_PSD,
+        ),
+        "kronecker_sum": gaussx.KroneckerSum(A, B, tags=_PSD),
+    }
+
+
+_WRAP = {
+    "bare": lambda op: op,
+    "tagged": lambda op: lx.TaggedLinearOperator(op, _PSD),
+    "scaled": lambda op: 2.0 * op,
+}
+
+
+@pytest.mark.parametrize("wrap", list(_WRAP))
+@pytest.mark.parametrize("name", list(_structured(1.0)))
+def test_default_is_exact_for_structured_operators(name, wrap) -> None:
+    op = _WRAP[wrap](_structured(1.0)[name])
+    rhs = jr.normal(jr.key(4), (op.in_size(), 2))
+    M = op.as_matrix()
+    inv_quad, ld = gaussx.inv_quad_logdet(op, rhs)
+    assert jnp.allclose(inv_quad, jnp.sum(rhs * jnp.linalg.solve(M, rhs)), atol=1e-10)
+    assert jnp.allclose(ld, jnp.linalg.slogdet(M)[1], atol=1e-10)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("name", list(_structured(1.0)))
+def test_default_gradients_match_dense(name) -> None:
+    rhs = jr.normal(jr.key(5), (_structured(1.0)[name].in_size(), 2))
+
+    def structured(scale):
+        quad, ld = gaussx.inv_quad_logdet(_structured(scale)[name], rhs)
+        return quad + ld
+
+    def dense(scale):
+        M = _structured(scale)[name].as_matrix()
+        return jnp.sum(rhs * jnp.linalg.solve(M, rhs)) + jnp.linalg.slogdet(M)[1]
+
+    assert jnp.allclose(jax.grad(structured)(1.3), jax.grad(dense)(1.3), rtol=1e-8)
+
+
+@pytest.mark.slow
+def test_unstructured_operators_still_take_bbmm() -> None:
+    op = lx.MatrixLinearOperator(_pd(6, 20), _PSD)
+    rhs = jr.normal(jr.key(7), (20, 2))
+    default = gaussx.inv_quad_logdet(op, rhs)
+    bbmm = gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver())
+    assert jnp.array_equal(default[1], bbmm[1])
+    assert jnp.allclose(default[0], bbmm[0])
