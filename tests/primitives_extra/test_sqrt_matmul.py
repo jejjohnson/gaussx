@@ -149,6 +149,7 @@ def test_wrapped_block_diagonals_use_their_exact_spectrum(wrap) -> None:
     assert jnp.allclose(lam_max, exact[-1])
 
 
+@pytest.mark.slow
 def test_lanczos_stops_at_breakdown_for_low_rank_plus_identity() -> None:
     # I + UU^T with rank(U) = 3 exhausts its Krylov space after four steps;
     # running on normalises rounding noise into Ritz values outside the
@@ -219,6 +220,7 @@ def test_spectral_bounds_rejects_rectangular_operator() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_sqrt_inv_matmul_matches_dense_symmetric_root() -> None:
     operator = random_pd_operator(jr.key(1), 25)
     rhs = jr.normal(jr.key(2), (25, 3))
@@ -237,6 +239,7 @@ def test_sqrt_matmul_matches_dense_symmetric_root() -> None:
     assert jnp.allclose(result, _dense_power(operator, 0.5) @ rhs, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_sqrt_round_trip_recovers_the_right_hand_side() -> None:
     operator = random_pd_operator(jr.key(5), 20)
     rhs = jr.normal(jr.key(6), (20, 2))
@@ -268,6 +271,7 @@ def test_two_forward_roots_equal_one_matvec() -> None:
     assert jnp.allclose(twice, applied, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_batched_columns_are_independent() -> None:
     operator = random_pd_operator(jr.key(11), 15)
     rhs = jr.normal(jr.key(12), (15, 4))
@@ -299,6 +303,7 @@ def test_scaled_identity_roots_are_exact(scale: float) -> None:
     assert jnp.allclose(root, rhs * jnp.sqrt(scale), atol=1e-12)
 
 
+@pytest.mark.slow
 def test_low_rank_update_keeps_its_structure_under_a_shift() -> None:
     # A shifted diagonal-plus-low-rank operator must stay a LowRankUpdate so
     # each quadrature node takes the Woodbury path instead of a dense solve.
@@ -401,6 +406,7 @@ def test_explicit_spectral_bounds_skip_the_lanczos_estimate() -> None:
     assert jnp.allclose(result[:, 0], rhs[:, 0] * diagonal**-0.5, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_jit_matches_eager() -> None:
     operator = random_pd_operator(jr.key(14), 15)
     rhs = jr.normal(jr.key(15), (15, 2))

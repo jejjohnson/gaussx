@@ -151,6 +151,7 @@ class TestGaussianConjugate:
         assert jnp.allclose(result.log_marginal, evidence, atol=1e-9)
         assert jnp.allclose(result.hessian.as_matrix(), H, atol=1e-10)
 
+    @pytest.mark.slow
     def test_banded_prior_with_identity_projector_stays_banded(self):
         n = 8
         y = jnp.linspace(-1.0, 1.0, n)
@@ -171,6 +172,7 @@ class TestGaussianConjugate:
 
 
 class TestModes:
+    @pytest.mark.slow
     def test_poisson_rw2_matches_dense_newton(self):
         n = 16
         counts = rw2_counts(n)
@@ -355,6 +357,7 @@ class TestStructures:
             atol=1e-9,
         )
 
+    @pytest.mark.slow
     def test_structure_classes(self):
         n = 8
         priors = self._priors(n)
@@ -604,6 +607,7 @@ class TestGradients:
 
 
 class TestOptions:
+    @pytest.mark.slow
     def test_non_converged_is_reported(self):
         n = 12
         counts = rw2_counts(n) * 10.0

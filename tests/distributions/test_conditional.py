@@ -16,6 +16,7 @@ def _make_psd_mat(key, n):
 
 
 class TestConditional:
+    @pytest.mark.slow
     def test_conditional_mean(self):
         """Conditional mean matches closed-form for a known case."""
         # Joint: N([0,0], [[1, 0.5], [0.5, 1]])
@@ -32,6 +33,7 @@ class TestConditional:
         # Sigma_0|1 = 1 - 0.5^2 / 1 = 0.75
         assert jnp.allclose(cond_cov.as_matrix(), jnp.array([[0.75]]), atol=1e-5)
 
+    @pytest.mark.slow
     def test_conditional_recovers_marginal(self):
         """Conditioning on nothing should return something close to prior."""
         n = 5
@@ -49,6 +51,7 @@ class TestConditional:
         free_idx = jnp.array([0, 2, 4])
         assert jnp.allclose(cond_mean, mu[free_idx], atol=1e-4)
 
+    @pytest.mark.slow
     def test_conditional_cov_psd(self):
         """Conditional covariance should be PSD."""
         n = 6
@@ -64,6 +67,7 @@ class TestConditional:
         eigs = jnp.linalg.eigvalsh(cond_cov.as_matrix())
         assert jnp.all(eigs > -1e-6)
 
+    @pytest.mark.slow
     def test_conditional_reduces_variance(self):
         """Conditional variance <= marginal variance."""
         n = 4

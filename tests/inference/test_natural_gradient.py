@@ -49,6 +49,7 @@ class TestDampedNaturalUpdate:
         assert jnp.allclose(nat1_new, nat1_target)
         assert jnp.allclose(nat2_new, nat2_target)
 
+    @pytest.mark.slow
     def test_block_tridiag_preserved(self, getkey):
         """BlockTriDiag structure should be preserved."""
         nat1_old = jax.random.normal(getkey(), (6,))

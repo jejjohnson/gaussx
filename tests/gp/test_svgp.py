@@ -3,11 +3,13 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._gp._svgp import whitened_svgp_predict
 
 
 class TestWhitenedSVGPPredict:
+    @pytest.mark.slow
     def test_basic_shapes(self, getkey):
         """Output shapes should match number of test points."""
         M, N = 5, 10
@@ -23,6 +25,7 @@ class TestWhitenedSVGPPredict:
         assert f_loc.shape == (N,)
         assert f_var.shape == (N,)
 
+    @pytest.mark.slow
     def test_nonnegative_variance(self, getkey):
         """Predictive variances should be non-negative."""
         M, N = 4, 8
@@ -67,6 +70,7 @@ class TestWhitenedSVGPPredict:
         # Variance should be less than prior
         assert jnp.all(f_var <= K_xx_diag + 1e-6)
 
+    @pytest.mark.slow
     def test_jit(self, getkey):
         """Should be JIT-compatible."""
         M, N = 3, 5

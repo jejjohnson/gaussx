@@ -6,6 +6,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._primitives._diag import diag
 from gaussx._primitives._eig import eig, eigvals
@@ -23,6 +24,7 @@ class LazyPSD(lx.MatrixLinearOperator):
 # --- Partial SVD ---
 
 
+@pytest.mark.slow
 def test_svd_partial_singular_values(getkey):
     """Partial SVD should recover some singular values accurately."""
     mat = random_pd_matrix(getkey(), 10)
@@ -50,6 +52,7 @@ def test_svd_partial_shapes(getkey):
 # --- Partial Eig ---
 
 
+@pytest.mark.slow
 def test_eig_partial_eigenvalues(getkey):
     """Partial eig should recover some eigenvalues accurately."""
     mat = random_pd_matrix(getkey(), 10)
@@ -112,6 +115,7 @@ def test_sqrt_lanczos_matvec(getkey):
     assert tree_allclose(result, expected, rtol=0.1)
 
 
+@pytest.mark.slow
 def test_sqrt_lanczos_lazy_operator(getkey):
     """Lanczos sqrt should not require dense materialization of the input op."""
     mat = random_pd_matrix(getkey(), 6)

@@ -52,6 +52,7 @@ def test_jacobi_needs_diagonal_or_operator():
         JacobiPreconditioner().as_operator(None)
 
 
+@pytest.mark.slow
 def test_solve_with_jacobi(getkey):
     mat, op = _psd_operator(getkey(), 12)
     b = jr.normal(getkey(), (12,))
@@ -64,6 +65,7 @@ def test_solve_with_jacobi(getkey):
     assert tree_allclose(x, jnp.linalg.solve(mat, b), rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_nystrom_from_operator_solves():
     mat = random_pd_matrix(jr.key(0), 40)
     noise = 0.1
@@ -84,6 +86,7 @@ def test_nystrom_from_operator_solves():
     assert tree_allclose(x, jnp.linalg.solve(mat + noise * jnp.eye(40), b), rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_nystrom_matches_the_ftu_formula():
     # P⁻¹ = (λ̂_l + μ) U (Λ̂ + μI)⁻¹ Uᵀ + (I − UUᵀ), with U, Λ̂ from
     # randomized_nystrom on the PSD part only.
@@ -144,6 +147,7 @@ def _issue_354_system(name):
     return jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2), 1e-2
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "rank", "bound"),
     # #354 acceptance criteria (None: at most the unpreconditioned count).
@@ -242,6 +246,7 @@ def test_partial_cholesky_disabled_returns_none(getkey):
     assert pre.as_operator(op) is None
 
 
+@pytest.mark.slow
 def test_partial_cholesky_matches_the_woodbury_inverse_at_full_rank():
     # At full rank F Fᵀ = K exactly, so the preconditioner is (σ²I + K)⁻¹,
     # whether built once from K or lazily from the system K + σ²I (#345).
@@ -331,6 +336,7 @@ def _counting_operator(mat, counter):
     )
 
 
+@pytest.mark.slow
 def test_partial_cholesky_from_operator_builds_once():
     # #371: the build applies K at construction; as_operator never again.
     n, rank, noise = 30, 10, 1e-2
@@ -386,6 +392,7 @@ def test_partial_cholesky_built_solves_skip_the_rebuild():
     assert lazy_solves - built_solves >= 2 * rank
 
 
+@pytest.mark.slow
 def test_partial_cholesky_built_is_a_jittable_pytree():
     mat = random_pd_matrix(jr.key(4), 10)
     psd = lx.positive_semidefinite_tag
@@ -409,6 +416,7 @@ def test_partial_cholesky_from_operator_needs_positive_rank():
         PartialCholeskyPreconditioner.from_operator(op, rank=0, shift=1.0)
 
 
+@pytest.mark.slow
 def test_operator_preconditioner_callable(getkey):
     mat, op = _psd_operator(getkey(), 15)
     b = jr.normal(getkey(), (15,))

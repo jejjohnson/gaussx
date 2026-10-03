@@ -91,6 +91,7 @@ def test_ensemble_cross_covariance_matches_bessel_reference(getkey):
     assert tree_allclose(C, expected, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_ensemble_kalman_gain_matches_dense_linear_gaussian(getkey):
     J, N, M = 16, 5, 3
     particles = jr.normal(getkey(), (J, N))

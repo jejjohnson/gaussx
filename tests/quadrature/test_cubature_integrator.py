@@ -55,6 +55,7 @@ def test_not_exact_at_degree_four():
     assert not bool(jnp.allclose(fourth, 3.0, atol=1e-6))
 
 
+@pytest.mark.slow
 def test_linear_function_is_exact(getkey):
     """Affine maps are degree 1, so all three moments are exact."""
     dim = 3
@@ -100,6 +101,7 @@ def test_matches_unscented_without_a_centre_point(getkey):
     assert tree_allclose(cubature.cross_cov, unscented.cross_cov, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_jit_vmap_grad(getkey):
     """Traceable and differentiable."""
     dim = 2

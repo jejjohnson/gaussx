@@ -109,6 +109,7 @@ class TestMv:
 
 
 class TestCirculantCholesky:
+    @pytest.mark.slow
     def test_factor_reconstructs_dense_toeplitz(self):
         n = 8
         column = jnp.exp(-jnp.arange(n, dtype=jnp.float32) / 2.0)

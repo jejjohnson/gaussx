@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, LowRankUpdate
 from gaussx._primitives import solve
@@ -25,6 +26,7 @@ def test_solve_diagonal(getkey):
     assert tree_allclose(solve(op, v), dense_solve(op, v))
 
 
+@pytest.mark.slow
 def test_solve_block_diag(getkey):
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 2 * jnp.eye(2))
     B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3))

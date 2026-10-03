@@ -13,6 +13,7 @@ from gaussx._strategies import DenseSolver
 
 
 class TestDiagInv:
+    @pytest.mark.slow
     def test_cholesky_matches_dense(self, getkey):
         """Cholesky method matches jnp.diag(jnp.linalg.inv(A))."""
         N = 12
@@ -107,6 +108,7 @@ def _dense_diag_inv(operator):
 
 
 class TestStructuredDiagInv:
+    @pytest.mark.slow
     @pytest.mark.parametrize("d", [1, 2, 3])
     def test_block_tridiag(self, d):
         N = 5

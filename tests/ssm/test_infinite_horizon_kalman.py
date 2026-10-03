@@ -23,6 +23,7 @@ class TestInfiniteHorizonFilter:
         R = 0.5 * jnp.eye(M)
         return A, H, Q, R
 
+    @pytest.mark.slow
     def test_output_shapes(self, getkey):
         """Output shapes match time steps and state dimension."""
         A, H, Q, R = self._stable_system(getkey)
@@ -43,6 +44,7 @@ class TestInfiniteHorizonFilter:
         state = infinite_horizon_filter(A, H, Q, R, obs)
         assert jnp.isfinite(state.log_likelihood)
 
+    @pytest.mark.slow
     def test_matches_standard_kf_at_convergence(self, getkey):
         """Filtered means converge to standard KF for long sequences."""
         A, H, Q, R = self._stable_system(getkey)
@@ -100,6 +102,7 @@ class TestInfiniteHorizonFilter:
 
 
 class TestInfiniteHorizonSmoother:
+    @pytest.mark.slow
     def test_output_shapes(self, getkey):
         """Smoothed outputs have correct shapes."""
         D, M, T = 3, 2, 50
@@ -147,6 +150,7 @@ class TestInfiniteHorizonSmoother:
         assert jnp.all(jnp.isfinite(s_means))
 
 
+@pytest.mark.slow
 def test_infinite_horizon_filter_obs_noise_diagonal_operator(getkey):
     """infinite_horizon_filter with operator-typed R matches the array form."""
     import lineax as lx
@@ -165,6 +169,7 @@ def test_infinite_horizon_filter_obs_noise_diagonal_operator(getkey):
     assert jnp.allclose(ref.log_likelihood, op.log_likelihood, atol=1e-4)
 
 
+@pytest.mark.slow
 def test_infinite_horizon_filter_woodbury_innovation_matches_dense(getkey):
     """Woodbury innovation path matches dense steady-state innovations."""
     import lineax as lx
@@ -205,6 +210,7 @@ class TestNonConvergedDARE:
         y = jax.random.normal(jax.random.key(0), (5, 1))
         return A, H, Q, R, y, bad
 
+    @pytest.mark.slow
     def test_filter_raises_under_jit(self):
         A, H, Q, R, y, bad = self._unconverged()
         run = jax.jit(lambda d: infinite_horizon_filter(A, H, Q, R, y, dare_result=d))

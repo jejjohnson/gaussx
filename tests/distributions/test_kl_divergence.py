@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 import gaussx
 
@@ -15,6 +16,7 @@ def _make_psd_op(key, n):
 
 
 class TestDistKLDivergence:
+    @pytest.mark.slow
     def test_kl_same_distribution(self):
         """KL(p || p) = 0."""
         n = 4
@@ -24,6 +26,7 @@ class TestDistKLDivergence:
         kl = gaussx.dist_kl_divergence(mu, cov, mu, cov)
         assert jnp.allclose(kl, 0.0, atol=1e-4)
 
+    @pytest.mark.slow
     def test_kl_positive(self):
         """KL is non-negative."""
         n = 5

@@ -25,6 +25,7 @@ def _make_psd(key, n):
 
 
 class TestLogProb:
+    @pytest.mark.slow
     def test_matches_manual(self, getkey):
         n = 5
         mu = jr.normal(getkey(), (n,))
@@ -44,6 +45,7 @@ class TestLogProb:
 
         assert tree_allclose(lp, lp_expected, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_matches_numpyro(self, getkey):
         import numpyro.distributions as dist
 
@@ -58,6 +60,7 @@ class TestLogProb:
 
         assert tree_allclose(lp_ours, lp_numpyro, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_batched_loc_matches_numpyro(self, getkey):
         import numpyro.distributions as dist
 
@@ -100,6 +103,7 @@ class TestSample:
         samples = d.sample(getkey(), sample_shape=(100,))
         assert samples.shape == (100, n)
 
+    @pytest.mark.slow
     def test_sample_statistics(self, getkey):
         n = 3
         mu = jnp.array([1.0, -0.5, 2.0])
@@ -134,6 +138,7 @@ class TestSample:
         sample = d.sample(getkey())
         assert sample.shape == (batch, n)
 
+    @pytest.mark.slow
     def test_log_prob_multi_sample_shape_matches_numpyro(self, getkey):
         import numpyro.distributions as dist
 
@@ -204,6 +209,7 @@ class TestProperties:
 
 
 class TestStructuredOperators:
+    @pytest.mark.slow
     def test_kronecker(self, getkey):
         A = _make_psd(getkey(), 2)
         B = _make_psd(getkey(), 3)
@@ -248,6 +254,7 @@ class TestStructuredOperators:
 
         assert tree_allclose(lp, lp_expected, rtol=1e-4)
 
+    @pytest.mark.slow
     def test_low_rank_update(self, getkey):
         n = 5
         d_vals = jnp.abs(jr.normal(getkey(), (n,))) + 1.0
@@ -332,6 +339,7 @@ class TestVmapVsNumpyro:
         lp_ours = jax.vmap(single_lp)(mu_batch, x_batch)
         assert tree_allclose(lp_ours, lp_np, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_vmap_log_prob_batched_covariances(self, getkey):
         import numpyro.distributions as dist
 
@@ -371,6 +379,7 @@ class TestVmapVsNumpyro:
         h_ours = jax.vmap(single_h)(Sigmas)
         assert tree_allclose(h_ours, h_np, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_vmap_grad_log_prob(self, getkey):
         import numpyro.distributions as dist
 

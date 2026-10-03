@@ -307,6 +307,7 @@ def test_symmetry_requires_identity_not_equality(getkey):
     assert shared.symmetric_factors is True
 
 
+@pytest.mark.slow
 def test_svd_style_low_rank_update_supports_solve_and_logdet():
     n, k = 6, 3
     diag = jnp.ones(n) * 2.0
@@ -556,6 +557,7 @@ def test_zero_weight_gradients_match_dense(nonsymmetric):
     assert jnp.allclose(eqx.filter_jit(jax.grad(structured))(d0), grad, rtol=1e-12)
 
 
+@pytest.mark.slow
 def test_zero_weight_float32():
     op = _zero_weight_operator(jnp.array([1.0, 0.0], jnp.float32), dtype=jnp.float32)
     M = op.as_matrix().astype(jnp.float64)

@@ -198,6 +198,7 @@ def _mvn_logpdf(x, mu, Sigma):
 class TestRowDeletedEquivalence:
     """The masked filter must reproduce a row-deleted filter exactly."""
 
+    @pytest.mark.slow
     def test_filtered_means(self, getkey):
         A, H, Q, R, y, m0, P0 = _make_model(getkey())
         mask = _partial_mask(getkey(), y.shape[0], y.shape[1])
@@ -305,6 +306,7 @@ class TestEdgeCases:
         assert jnp.allclose(out.filtered_means[3], out.predicted_means[3])
         assert jnp.allclose(out.filtered_covs[3], out.predicted_covs[3])
 
+    @pytest.mark.slow
     def test_all_true_channel_mask_matches_unmasked(self, getkey):
         A, H, Q, R, y, m0, P0 = _make_model(getkey())
         T, M = y.shape
@@ -314,6 +316,7 @@ class TestEdgeCases:
         assert jnp.array_equal(masked.filtered_means, unmasked.filtered_means)
         assert jnp.array_equal(masked.filtered_covs, unmasked.filtered_covs)
 
+    @pytest.mark.slow
     def test_broadcast_step_mask_matches_step_gate(self, getkey):
         """An all-False row is equivalent to a False entry in the (T,) form."""
         A, H, Q, R, y, m0, P0 = _make_model(getkey())

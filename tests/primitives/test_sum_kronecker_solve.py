@@ -81,6 +81,7 @@ def _assert_matches_dense(operator, vector, *, atol=1e-10):
 class TestExactTwoTermPaths:
     """Shapes the simultaneous diagonalization handles in closed form."""
 
+    @pytest.mark.slow
     def test_scalar_shift(self):
         """Case 1: ``B ⊗ C + σ² I``, the classical Kronecker-exact GP."""
         operator = SumOfKroneckers(

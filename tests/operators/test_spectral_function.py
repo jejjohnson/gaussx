@@ -46,6 +46,7 @@ def operator():
 
 
 class TestSpectralFunction:
+    @pytest.mark.slow
     def test_matches_dense(self, operator):
         dense = dense_function(operator.base.as_matrix(), operator.fn)
         b = jr.normal(jr.key(1), (12,))
@@ -66,6 +67,7 @@ class TestSpectralFunction:
         )
         assert jnp.allclose(inverse_root, jnp.linalg.solve(dense, b))
 
+    @pytest.mark.slow
     def test_three_axes_and_pinv(self):
         base = gaussx.KroneckerSum(
             path_laplacian(2), gaussx.KroneckerSum(path_laplacian(3), path_laplacian(4))
@@ -123,6 +125,7 @@ class _MatvecOnlySpectral(gaussx.SpectralFunction):
         raise AssertionError("the spectral factor was materialised")
 
 
+@pytest.mark.slow
 def test_shifted_kronecker_keeps_the_spectral_basis():
     """``A ⊗ f(B) + cI``: exact solve, logdet and diag_inv, B never formed."""
     c = 0.7

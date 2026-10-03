@@ -37,6 +37,7 @@ def _valid_diag_model(M, N, seed):
 
 
 class TestPriorConditional:
+    @pytest.mark.slow
     def test_mean_shape(self, getkey):
         M, N, R = 5, 8, 2
         K_mm = _make_pd(getkey(), M)
@@ -59,6 +60,7 @@ class TestPriorConditional:
         expected = K_mn.T @ jnp.linalg.solve(K_mm, f)
         assert tree_allclose(mean, expected, rtol=1e-4)
 
+    @pytest.mark.slow
     def test_var_diagonal_knn(self):
         """Variance with diagonal K_nn."""
         M, N = 4, 6
@@ -77,6 +79,7 @@ class TestPriorConditional:
         expected = K_nn_diag - schur_diag
         assert tree_allclose(var[:, 0], expected, rtol=1e-4)
 
+    @pytest.mark.slow
     def test_var_full_knn(self, getkey):
         """Variance with full K_nn."""
         M, N = 4, 6

@@ -3,11 +3,13 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._gp._love import love_cache, love_variance
 
 
 class TestLOVECache:
+    @pytest.mark.slow
     def test_cache_shapes(self, getkey):
         """Cache should have correct shapes."""
         N = 20
@@ -20,6 +22,7 @@ class TestLOVECache:
         assert cache.Q.shape == (N, k)
         assert cache.inv_eigvals.shape == (k,)
 
+    @pytest.mark.slow
     def test_cache_order_clamped(self, getkey):
         """Lanczos order should be clamped to N."""
         N = 5
@@ -33,6 +36,7 @@ class TestLOVECache:
 
 
 class TestLOVEVariance:
+    @pytest.mark.slow
     def test_approximates_true_variance(self, getkey):
         """LOVE variance should approximate k^T K^{-1} k."""
         N = 30
@@ -49,6 +53,7 @@ class TestLOVEVariance:
         exact = k_star @ K_inv @ k_star
         assert jnp.allclose(approx, exact, rtol=0.05)
 
+    @pytest.mark.slow
     def test_nonnegative(self, getkey):
         """LOVE variance should be non-negative."""
         N = 15
@@ -61,6 +66,7 @@ class TestLOVEVariance:
         v = love_variance(cache, k_star)
         assert v >= -1e-6  # Allow small numerical error
 
+    @pytest.mark.slow
     def test_full_rank_exact(self, getkey):
         """With full Lanczos order, should be exact."""
         N = 8

@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import (
     cavity_distribution,
@@ -17,6 +18,7 @@ from gaussx import (
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_log_marginal_likelihood_matches_log_prob(getkey):
     """MLL should equal gaussian_log_prob."""
     from gaussx import gaussian_log_prob
@@ -58,6 +60,7 @@ def test_gaussian_expected_log_lik(getkey):
     assert tree_allclose(ell, lp, atol=1e-3)
 
 
+@pytest.mark.slow
 def test_trace_correction_positive(getkey):
     """Trace correction should be non-negative for valid kernels."""
     N, M = 8, 3

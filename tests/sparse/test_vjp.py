@@ -85,6 +85,7 @@ def test_logdet_gradient_is_selected_inverse_with_storage_factor(grid, symmetric
     np.testing.assert_allclose(grad, factor * Z[rows, cols], atol=1e-12)
 
 
+@pytest.mark.slow
 def test_solve_gradient_wrt_rhs(grid):
     op = grid(3, 4)
     factor = gaussx.sparse_cholesky(op)
@@ -125,6 +126,7 @@ def test_autodiff_through_factorisation(grid, symbolic_for, banded):
         )
 
 
+@pytest.mark.slow
 def test_vmap_of_grad(grid):
     op = grid(3, 3)
     sym = gaussx.symbolic_cholesky(op.pattern)
@@ -138,6 +140,7 @@ def test_vmap_of_grad(grid):
     np.testing.assert_allclose(jax.vmap(jax.grad(logdet))(scales), 9 / scales)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("banded", [True, False])
 def test_reverse_over_reverse_hessian_matches_dense(grid, symbolic_for, banded):
     # A θ Hessian (INLA's θ-design) differentiates the custom backward passes.

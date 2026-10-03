@@ -25,6 +25,7 @@ def _make_prior_precision(key, N, d):
 
 
 class TestSpInGPPosterior:
+    @pytest.mark.slow
     def test_basic_shapes(self, getkey):
         """Posterior mean and precision should have correct shapes."""
         N, d, d_obs = 5, 2, 1
@@ -38,6 +39,7 @@ class TestSpInGPPosterior:
         assert post_prec._num_blocks == N
         assert post_prec._block_size == d
 
+    @pytest.mark.slow
     def test_posterior_precision_larger_than_prior(self, getkey):
         """Posterior precision should be >= prior (added info)."""
         N, d, d_obs = 4, 2, 1
@@ -54,6 +56,7 @@ class TestSpInGPPosterior:
             eigvals = jnp.linalg.eigvalsh(diff[k])
             assert jnp.all(eigvals >= -1e-10)
 
+    @pytest.mark.slow
     def test_no_observations_recovers_prior(self, getkey):
         """With infinite noise, posterior should approach prior."""
         N, d, d_obs = 3, 2, 1
@@ -66,6 +69,7 @@ class TestSpInGPPosterior:
         _, post_prec = spingp_posterior(prior_prec, H, R, y)
         assert jnp.allclose(post_prec.diagonal, prior_prec.diagonal, atol=1e-6)
 
+    @pytest.mark.slow
     def test_prior_mean(self, getkey):
         """A nonzero prior mean enters as Lambda_prior @ mu_prior."""
         N, d, d_obs = 4, 2, 1
@@ -112,6 +116,7 @@ class TestSpInGPLogLikelihood:
         assert ll.shape == ()
         assert jnp.isfinite(ll)
 
+    @pytest.mark.slow
     def test_more_noise_lower_ll(self, getkey):
         """Higher obs noise changes log-likelihood."""
         N, d, d_obs = 4, 2, 1
@@ -129,6 +134,7 @@ class TestSpInGPLogLikelihood:
         assert jnp.isfinite(ll_small)
         assert jnp.isfinite(ll_large)
 
+    @pytest.mark.slow
     def test_consistent_with_dense(self, getkey):
         """SpInGP log-likelihood should match dense GP log-likelihood."""
         N, d, d_obs = 3, 2, 1
@@ -205,6 +211,7 @@ def _dense_log_likelihood(prior, H, R, y):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("per_step_h", [False, True], ids=["shared_H", "per_step_H"])
 def test_log_likelihood_and_gradient_match_dense_joint(per_step_h):
     prior, H, R, y = _small_problem(per_step_h)

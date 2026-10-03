@@ -6,12 +6,14 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import Kronecker
 from gaussx._strategies import CGSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_solve_psd(getkey):
     cg = CGSolver(rtol=1e-8, atol=1e-8)
     mat = random_pd_matrix(getkey(), 5)
@@ -32,6 +34,7 @@ def test_solve_diagonal(getkey):
     assert tree_allclose(cg.solve(op, v), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_logdet_psd(getkey):
     """Stochastic logdet should be within ~10% for moderate-size PSD."""
     cg = CGSolver(num_probes=50, lanczos_order=20)
@@ -44,6 +47,7 @@ def test_logdet_psd(getkey):
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
 
+@pytest.mark.slow
 def test_logdet_diagonal(getkey):
     """Stochastic logdet on diagonal should be reasonably accurate."""
     cg = CGSolver(num_probes=50, lanczos_order=10)

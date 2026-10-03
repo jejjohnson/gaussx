@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._gp._kronecker_gp import (
     kronecker_mll,
@@ -22,6 +23,7 @@ def _rbf_kernel(x, y, lengthscale=1.0):
 
 
 class TestKroneckerMLL:
+    @pytest.mark.slow
     def test_matches_dense(self, getkey):
         """Kronecker MLL should match dense computation."""
         n1, n2 = 4, 3
@@ -71,6 +73,7 @@ class TestKroneckerMLL:
         mll = kronecker_mll([K1_op, K2_op], y, 0.1, (n1, n2))
         assert mll < 0
 
+    @pytest.mark.slow
     def test_three_factors(self, getkey):
         """Should work with three Kronecker factors."""
         n1, n2, n3 = 3, 3, 2
@@ -96,6 +99,7 @@ class TestKroneckerMLL:
 
 
 class TestKroneckerPosteriorPredictive:
+    @pytest.mark.slow
     def test_matches_dense(self, getkey):
         """Kronecker posterior mean and variance should match dense GP."""
         n1, n2 = 4, 3

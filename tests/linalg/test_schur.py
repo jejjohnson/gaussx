@@ -5,11 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import conditional_variance, schur_complement
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_schur_complement_dense(getkey):
     """Schur complement should match K_XX - K_XZ K_ZZ^{-1} K_ZX."""
     N, M = 6, 3
@@ -26,6 +28,7 @@ def test_schur_complement_dense(getkey):
     assert tree_allclose(result.as_matrix(), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_schur_complement_returns_low_rank_update(getkey):
     """schur_complement should return a LowRankUpdate operator."""
     from gaussx._operators import LowRankUpdate
@@ -55,6 +58,7 @@ def test_schur_complement_diagonal_kzz(getkey):
     assert tree_allclose(result.as_matrix(), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_conditional_variance_no_su(getkey):
     """Without S_u, conditional_variance returns the Schur complement diagonal.
 

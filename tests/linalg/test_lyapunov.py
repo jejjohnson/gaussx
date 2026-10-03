@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from gaussx import discrete_lyapunov_solve
 from gaussx._testing import random_pd_matrix
@@ -17,6 +18,7 @@ def _stable_matrix(key, n, scale: float = 0.5):
 
 
 class TestDiscreteLyapunov:
+    @pytest.mark.slow
     def test_satisfies_equation(self, getkey):
         N = 5
         G = _stable_matrix(getkey(), N)
@@ -25,6 +27,7 @@ class TestDiscreteLyapunov:
         residual = P - G @ P @ G.T - Q
         assert jnp.allclose(residual, jnp.zeros_like(residual), atol=1e-8)
 
+    @pytest.mark.slow
     def test_matches_kronecker_form(self, getkey):
         """Solution must agree with the vectorized Kronecker formulation."""
         N = 4

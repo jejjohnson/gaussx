@@ -70,6 +70,7 @@ def torus(n_major: int = 12, n_minor: int = 8) -> tuple[np.ndarray, np.ndarray]:
 
 
 class TestFemMatrices:
+    @pytest.mark.slow
     def test_single_triangle(self):
         vertices = np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])
         C, G = gaussx.fem_matrices(vertices, np.array([[0, 1, 2]]))
@@ -77,6 +78,7 @@ class TestFemMatrices:
         expected = jnp.array([[1.0, -0.5, -0.5], [-0.5, 0.5, 0.0], [-0.5, 0.0, 0.5]])
         assert jnp.allclose(G.as_matrix(), expected)
 
+    @pytest.mark.slow
     def test_unit_square(self):
         C, G = gaussx.fem_matrices(UNIT_SQUARE, SQUARE_TRIANGLES)
         assert jnp.allclose(lx_diag(C), jnp.array([1, 0.5, 1, 0.5]) / 3.0)
@@ -107,6 +109,7 @@ class TestFemMatrices:
         assert jnp.allclose(C2.as_matrix(), C3.as_matrix())
         assert jnp.allclose(G2.as_matrix(), G3.as_matrix())
 
+    @pytest.mark.slow
     def test_sphere_area_and_null_space(self):
         vertices, triangles = icosphere(2)
         C, G = gaussx.fem_matrices(vertices, triangles)
@@ -142,6 +145,7 @@ class TestFemProjectorPlanar:
         assert A.pattern.shape == (1, 4)
         assert jnp.allclose(A.as_matrix(), jnp.array([[0.5, 0.25, 0.25, 0.0]]))
 
+    @pytest.mark.slow
     def test_reproduces_linear_functions(self):
         points = np.asarray(jr.uniform(jr.key(0), (50, 2)))
         A = gaussx.fem_projector(UNIT_SQUARE, SQUARE_TRIANGLES, points)
@@ -149,6 +153,7 @@ class TestFemProjectorPlanar:
         assert jnp.allclose(A.mv(f(UNIT_SQUARE)), f(points), atol=1e-12)
         assert jnp.allclose(A.mv(jnp.ones(4)), 1.0)
 
+    @pytest.mark.slow
     def test_vertices_and_edges(self):
         points = np.r_[UNIT_SQUARE, [[0.5, 0.5], [1.0, 0.5]]]
         A = gaussx.fem_projector(UNIT_SQUARE, SQUARE_TRIANGLES, points)
@@ -186,6 +191,7 @@ class TestFemProjectorSphere:
         assert A.pattern.shape == (n, n)
         assert jnp.allclose(A.as_matrix(), jnp.eye(n), atol=1e-10)
 
+    @pytest.mark.slow
     def test_linear_function_at_random_points(self):
         z = jr.normal(jr.key(0), (200, 3))
         norms = jnp.sqrt(einx.dot("n d, n d -> n", z, z))
@@ -211,6 +217,7 @@ class TestFemProjectorSphere:
         with pytest.raises(ValueError, match="triangle_index"):
             gaussx.fem_projector(vertices, triangles, vertices[:3])
 
+    @pytest.mark.slow
     def test_triangle_index_on_non_star_shaped_surface(self):
         vertices, triangles = torus()
         centroids = einx.mean("t k d -> t d", vertices[triangles])

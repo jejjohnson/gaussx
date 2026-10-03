@@ -34,6 +34,7 @@ def _make_ssm(key, T, d):
 
 
 class TestUDLDecomposition:
+    @pytest.mark.slow
     def test_shapes(self):
         T, d = 6, 3
         udl = udl_decomposition(_make_spd_block_tridiag(jr.key(0), T, d))
@@ -44,6 +45,7 @@ class TestUDLDecomposition:
         assert udl.num_blocks == T
         assert udl.block_size == d
 
+    @pytest.mark.slow
     def test_factors_reproduce_precision_densely(self):
         """Lambda == U D~ U^T with U unit upper block-bidiagonal."""
         T, d = 5, 2
@@ -79,6 +81,7 @@ class TestUDLDecomposition:
         udl = udl_decomposition(_make_spd_block_tridiag(jr.key(4), 4, 2))
         assert not jnp.allclose(udl.D_diag, jnp.eye(2)[None])
 
+    @pytest.mark.slow
     def test_solve_matches_dense(self):
         T, d = 20, 3
         prec = _make_spd_block_tridiag(jr.key(5), T, d)
@@ -87,6 +90,7 @@ class TestUDLDecomposition:
         expected = jnp.linalg.solve(prec.as_matrix(), rhs)
         assert jnp.allclose(x, expected, atol=1e-8)
 
+    @pytest.mark.slow
     def test_logdet_matches_dense(self):
         prec = _make_spd_block_tridiag(jr.key(7), 12, 2)
         ld = udl_decomposition(prec).logdet()
@@ -106,6 +110,7 @@ class TestUDLDecomposition:
 
 
 class TestSSMExtraction:
+    @pytest.mark.slow
     def test_extracts_chain_from_its_own_precision(self):
         """A_ssm = -U^T and Q = D~^{-1} recover the generating chain."""
         T, d = 6, 2
@@ -119,6 +124,7 @@ class TestSSMExtraction:
         assert jnp.allclose(Q_hat, Q, atol=1e-8)
         assert jnp.allclose(jax.vmap(lambda L: L @ L.T)(chol_Q_hat), Q_hat, atol=1e-10)
 
+    @pytest.mark.slow
     def test_from_ssm_params_matches_decomposition(self):
         """udl_from_ssm_params builds the same factors udl_decomposition finds."""
         T, d = 5, 3

@@ -80,6 +80,7 @@ def test_cholesky_primitive_returns_sparse_factor(grid):
     )
 
 
+@pytest.mark.slow
 def test_jit_and_vmap_over_values(grid):
     op = grid(4, 4)
     sym = gaussx.symbolic_cholesky(op.pattern)

@@ -90,6 +90,7 @@ def test_singular_base_null_vector_is_derived(disc_mask):
     assert jnp.allclose(r, r[0])  # the constant mode
 
 
+@pytest.mark.slow
 def test_edge_touching_mask_needs_periodic_coupling():
     """Regression for the spectraldiffx wrap bug: a mask touching the edge of
     a periodic grid couples to cells on the opposite edge."""
@@ -126,6 +127,7 @@ def test_capacitance_is_built_once(disc_mask, monkeypatch):
     assert len(calls) == 6
 
 
+@pytest.mark.slow
 def test_jit_and_vmap(disc_mask):
     masked = _masked(_laplacian(1.0), disc_mask)
     F = jr.normal(jr.key(3), (4, int(disc_mask.sum())))
@@ -136,6 +138,7 @@ def test_jit_and_vmap(disc_mask):
     assert jnp.allclose(batched[0], expected, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_without_coupling_falls_back_to_dense(disc_mask):
     flat = jnp.asarray(disc_mask.ravel())
     op = _laplacian(1.0)
@@ -147,6 +150,7 @@ def test_without_coupling_falls_back_to_dense(disc_mask):
     )
 
 
+@pytest.mark.slow
 def test_all_exterior_coupling_is_exact_for_dense_base():
     """With every masked-out index in C the method is exact for any base."""
     n = 10
@@ -229,6 +233,7 @@ def test_masked_solve_grad_wrt_matrix_base(symmetric, coupling):
     assert jnp.allclose(grad.base.matrix, _dense_small_grad(B), atol=1e-10)
 
 
+@pytest.mark.slow
 def test_masked_solve_grad_wrt_diagonalised_eigenvalues():
     n = 6
     k = 2.0 * jnp.pi * jnp.fft.fftfreq(n)

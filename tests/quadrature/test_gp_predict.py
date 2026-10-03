@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._quadrature._gp_predict import (
     kernel_expectations,
@@ -30,6 +31,7 @@ def _make_state_1d():
 
 
 class TestKernelExpectations:
+    @pytest.mark.slow
     def test_psi0_positive(self):
         """Psi_0 = E[k(x,x)] should be positive."""
         state = _make_state_1d()
@@ -41,6 +43,7 @@ class TestKernelExpectations:
         )
         assert Psi_0 > 0
 
+    @pytest.mark.slow
     def test_psi1_shape(self):
         """Psi_1 should have shape (N_train,)."""
         state = _make_state_1d()
@@ -62,6 +65,7 @@ class TestKernelExpectations:
 
 
 class TestUncertainGPPredict:
+    @pytest.mark.slow
     def test_returns_scalar_moments(self):
         """Should return scalar mean and variance."""
         state = _make_state_1d()

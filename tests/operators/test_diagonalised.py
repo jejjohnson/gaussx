@@ -201,6 +201,7 @@ def test_transpose_without_pair_raises():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_jit_vmap_grad(periodic_2d):
     op = periodic_2d - lx.IdentityLinearOperator(periodic_2d.in_structure())
     B = jr.normal(jr.key(4), (5, 256))
@@ -228,6 +229,7 @@ def test_jit_vmap_grad(periodic_2d):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_circulant_1d_matches_scipy():
     c = jr.normal(jr.key(5), (32,))
     op = gaussx.Circulant(c)
@@ -276,6 +278,7 @@ def _dense_kron_sum(*mats):
     return jnp.asarray(total)
 
 
+@pytest.mark.slow
 def test_kronecker_sum_of_diagonalised_solves_without_eigh(no_eigh):
     """Periodic (FFT, complex) × Dirichlet (DST, real) factors."""
     a = gaussx.circulant_from_symbol(_fd_symbol(10)) - 0.7 * lx.IdentityLinearOperator(
@@ -307,6 +310,7 @@ def _nonsymmetric(key, n: int):
     return (V * lam) @ jnp.linalg.inv(V)
 
 
+@pytest.mark.slow
 def test_kronecker_sum_nonsymmetric_factors_with_shift():
     """gh-263: ``solve(KroneckerSum(A − σI, B))`` with non-symmetric factors."""
     A = _nonsymmetric(jr.key(9), 7)

@@ -311,6 +311,7 @@ def test_trace_product_low_rank_matches_dense(base_kind):
     assert jnp.allclose(trace_product(A, B), expected, rtol=1e-10, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_trace_product_low_rank_is_jittable_and_differentiable():
     n = 7
     keys = jr.split(jr.key(1), 2)

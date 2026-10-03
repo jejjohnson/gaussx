@@ -39,6 +39,7 @@ def _make_op(n, scale=1.0):
 
 
 class TestPlate:
+    @pytest.mark.slow
     def test_plate_log_prob_shape(self):
         def model(obs=None):
             op = _make_op(3)

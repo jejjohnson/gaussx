@@ -281,6 +281,7 @@ def test_more_awkward_covariances_are_sampled_exactly(
     assert_sample_moments(samples, mean, covariance.as_matrix())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("structure", ["kronecker", "kronecker_sum"])
 def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -> None:
     # t I has one eigenvalue repeated three times; differentiating through
@@ -435,6 +436,7 @@ def test_an_empty_batch_keeps_the_represented_dtype() -> None:
     assert empty.dtype == full.dtype == jnp.float64
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "loss"),
     [

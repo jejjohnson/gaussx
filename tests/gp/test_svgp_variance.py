@@ -3,11 +3,13 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._gp._svgp_variance import svgp_variance_adjustment
 
 
 class TestSVGPVarianceAdjustment:
+    @pytest.mark.slow
     def test_basic_shape(self, getkey):
         """Output operator should have correct shape."""
         M = 5

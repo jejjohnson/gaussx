@@ -10,6 +10,7 @@ from gaussx import dare
 
 
 class TestDARE:
+    @pytest.mark.slow
     def test_converges_stable_system(self, getkey):
         """DARE converges for a stable system."""
         D, M = 3, 2

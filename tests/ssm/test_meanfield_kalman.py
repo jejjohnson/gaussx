@@ -45,6 +45,7 @@ def _block_system(key, L, d, m, T):
     return (A_b, H_b, Q_b, R_b, P0_b), (A, H, Q, R, P0), m0, y
 
 
+@pytest.mark.slow
 def test_meanfield_matches_full_filter_block_independent():
     """Spike check: mean-field == full filter on a decoupled system (1e-6)."""
     L, d, m, T = 3, 2, 2, 12
@@ -64,6 +65,7 @@ def test_meanfield_matches_full_filter_block_independent():
     assert tree_allclose(mf.log_likelihood, full.log_likelihood, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_single_block_reduces_to_full_filter():
     """``block_size == D`` runs one block: identical to the full filter."""
     D, M, T = 4, 3, 10
@@ -84,6 +86,7 @@ def test_single_block_reduces_to_full_filter():
     assert tree_allclose(mf.log_likelihood, full.log_likelihood, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_loglik_is_sum_of_per_block_logliks():
     """Total log-likelihood == sum of independently filtered block logliks."""
     L, d, m, T = 4, 2, 1, 8
@@ -107,6 +110,7 @@ def test_loglik_is_sum_of_per_block_logliks():
     assert tree_allclose(mf.log_likelihood, per_block, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_coupled_system_covs_are_block_diagonal():
     """Off-block posterior covariance entries are exact zeros (dropped)."""
     D, d, T = 6, 2, 6
@@ -127,6 +131,7 @@ def test_coupled_system_covs_are_block_diagonal():
     assert jnp.isfinite(mf.log_likelihood)
 
 
+@pytest.mark.slow
 def test_parallel_matches_sequential():
     """``parallel=True`` (associative scan per block) agrees with the scan."""
     L, d, m, T = 3, 2, 2, 12
@@ -159,6 +164,7 @@ def test_blockdiag_operator_inputs_match_dense():
     assert tree_allclose(op.log_likelihood, dense.log_likelihood, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_time_varying_inputs():
     """(T, ...) stacks are split per block and agree with the full filter."""
     L, d, m, T = 2, 2, 1, 8
@@ -180,6 +186,7 @@ def test_time_varying_inputs():
     assert tree_allclose(mf.log_likelihood, full.log_likelihood, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_step_mask_matches_full_filter():
     """A ``(T,)`` step mask gates every block and matches the full filter."""
     L, d, m, T = 2, 2, 2, 10
@@ -206,6 +213,7 @@ def test_channel_mask_matches_full_filter():
     assert tree_allclose(mf.log_likelihood, full.log_likelihood, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_meanfield_smoother_matches_full_rts():
     """Mean-field smoother == full RTS smoother on a decoupled system."""
     L, d, m, T = 3, 2, 2, 12
@@ -223,6 +231,7 @@ def test_meanfield_smoother_matches_full_rts():
     assert tree_allclose(mf_covs, full_covs, atol=1e-6)
 
 
+@pytest.mark.slow
 def test_smoother_parallel_matches_sequential():
     """Parallel smoother mode agrees with the sequential scan."""
     L, d, m, T = 2, 2, 2, 10
@@ -236,6 +245,7 @@ def test_smoother_parallel_matches_sequential():
     assert tree_allclose(par_covs, seq_covs, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_jit_and_grad():
     """The filter jits and differentiates through the log-likelihood."""
     L, d, m, T = 2, 2, 1, 6

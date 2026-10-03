@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._quadrature._gp_predict import (
     uncertain_bgplvm_predict,
@@ -38,6 +39,7 @@ def _make_Q_operator(K, S):
 
 
 class TestUncertainSVGPPredict:
+    @pytest.mark.slow
     def test_returns_scalar_moments(self):
         """Should return scalar mean and variance."""
         state = _make_state_1d()
@@ -57,6 +59,7 @@ class TestUncertainSVGPPredict:
         assert jnp.isfinite(mean)
         assert var >= 0
 
+    @pytest.mark.slow
     def test_zero_alpha_zero_mean(self):
         """With alpha=0, predictive mean should be zero."""
         state = _make_state_1d()

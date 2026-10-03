@@ -49,6 +49,7 @@ def test_gaspari_cohn_continuous_at_knots():
         assert jnp.abs(lo - hi) < 1e-2
 
 
+@pytest.mark.slow
 def test_gaspari_cohn_gradient_finite_at_zero():
     g = jax.grad(lambda x: gaspari_cohn(x, 2.0))(0.0)
     assert jnp.isfinite(g)
@@ -106,6 +107,7 @@ def test_localization_matrix_self_diagonal(getkey):
     assert tree_allclose(jnp.diag(rho), jnp.ones(6), atol=1e-6)
 
 
+@pytest.mark.slow
 def test_localized_gain_reduces_to_unlocalized(getkey):
     """rho == 1 everywhere (c -> inf) recovers ensemble_kalman_gain."""
     J, N, M = 12, 5, 3
@@ -121,6 +123,7 @@ def test_localized_gain_reduces_to_unlocalized(getkey):
     assert tree_allclose(k_loc, k_ref, rtol=1e-4, atol=1e-5)
 
 
+@pytest.mark.slow
 def test_localized_gain_suppresses_distant_updates(getkey):
     """Tapering zeros the gain where rho_xy is zero."""
     J, N, M = 16, 8, 2
@@ -179,6 +182,7 @@ def test_inflate_rtps_limits(getkey):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_etkf_preserves_mean(getkey):
     J, M = 14, 3
     obs_particles = jr.normal(getkey(), (J, M))
@@ -194,6 +198,7 @@ def test_etkf_preserves_mean(getkey):
     assert tree_allclose(analysis_pert.mean(0), jnp.zeros(5), atol=1e-6)
 
 
+@pytest.mark.slow
 def test_etkf_matches_kalman_filter(getkey):
     """ETKF analysis mean/cov equal the KF update for the sample prior."""
     J, N, M = 16, 4, 2

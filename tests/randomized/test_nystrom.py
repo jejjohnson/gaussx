@@ -34,6 +34,7 @@ def test_exact_for_a_low_rank_psd_matrix(rank, oversample):
     assert tree_allclose(approx.as_matrix(), A, rtol=1e-8, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_matrix_free_operator_matches_dense():
     A = random_pd_matrix(jr.key(0), 30)
     dense = randomized_nystrom(lx.MatrixLinearOperator(A, _PSD), 10, key=jr.key(1))
@@ -57,6 +58,7 @@ def test_returns_an_orthonormal_psd_low_rank_update():
     assert bool(jnp.all(jnp.diff(approx.d) <= 0)) and bool(jnp.all(approx.d >= 0))
 
 
+@pytest.mark.slow
 def test_is_dominated_by_the_operator():
     # 0 ⪯ Â ⪯ A (Tropp et al., 2017): A − Â is PSD up to round-off.
     A = random_pd_matrix(jr.key(0), 40)
@@ -65,6 +67,7 @@ def test_is_dominated_by_the_operator():
     assert float(jnp.min(gap)) > -1e-10 * float(jnp.max(jnp.abs(A)))
 
 
+@pytest.mark.slow
 def test_factors_plug_into_low_rank_update_solve_and_logdet():
     # The same factors on a σ²I base dispatch through the Woodbury rules.
     A = random_pd_matrix(jr.key(0), 40)
@@ -79,6 +82,7 @@ def test_factors_plug_into_low_rank_update_solve_and_logdet():
     assert tree_allclose(gaussx.logdet(noisy), jnp.linalg.slogdet(dense)[1])
 
 
+@pytest.mark.slow
 def test_jit_and_float32_stay_finite():
     # The stabilising shift keeps the small Cholesky finite in float32.
     x = jnp.linspace(0.0, 10.0, 300, dtype=jnp.float32)

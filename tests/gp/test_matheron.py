@@ -6,6 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy.linalg as jsla
 import lineax as lx
+import pytest
 
 import gaussx
 from gaussx._gp._matheron import matheron_update
@@ -52,6 +53,7 @@ def _ks_statistic(x, y):
     return jnp.max(jnp.abs(cdf_x - cdf_y))
 
 
+@pytest.mark.slow
 def test_matheron_update_matches_dense_formula(getkey):
     K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(getkey)
     prior_target = jr.normal(getkey(), (5, K_sm.shape[0]))
@@ -70,6 +72,7 @@ def test_matheron_update_matches_dense_formula(getkey):
     assert jnp.allclose(actual, expected, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_matheron_update_accepts_structured_conditioning_covariance(getkey):
     num_target, num_conditioning, num_rank = 3, 5, 2
     diag = jnp.linspace(1.0, 2.0, num_conditioning)
@@ -95,6 +98,7 @@ def test_matheron_update_accepts_structured_conditioning_covariance(getkey):
     assert jnp.allclose(actual, expected, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_matheron_samples_match_schur_posterior_moments(getkey):
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
         _joint_problem(getkey)
@@ -121,6 +125,7 @@ def test_matheron_samples_match_schur_posterior_moments(getkey):
     assert jnp.allclose(sample_cov, posterior_cov, rtol=5e-2, atol=1e-1)
 
 
+@pytest.mark.slow
 def test_matheron_marginals_match_dense_posterior_samples(getkey):
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
         _joint_problem(getkey)

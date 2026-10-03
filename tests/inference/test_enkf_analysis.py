@@ -151,6 +151,7 @@ def _small_problem(getkey, n_ens=64, n_state=4, n_obs=3):
     return prior, obs_prior, y, noise
 
 
+@pytest.mark.slow
 def test_same_key_is_deterministic(getkey):
     prior, obs_prior, y, noise = _small_problem(getkey)
     key = getkey()
@@ -238,6 +239,7 @@ def test_all_ones_localization_matches_no_localization(getkey):
     assert jnp.allclose(plain, localized, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_localization_suppresses_distant_updates(getkey):
     """A taper with a short radius must damp the far end of the state vector."""
     n_ens, n_state, n_obs = 128, 20, 1
@@ -301,6 +303,7 @@ def test_rejects_mismatched_perturbed_obs_shape(getkey):
         )
 
 
+@pytest.mark.slow
 def test_two_members_run_one_raises(getkey):
     prior, obs_prior, y, noise = _small_problem(getkey, n_ens=2)
     assert jnp.all(
@@ -431,6 +434,7 @@ def test_non_gaussian_bias_does_not_shrink_with_ensemble_size():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_diagonal_noise_is_not_materialised_in_the_low_rank_regime(getkey, monkeypatch):
     """With `J < M` the whole path must stay structure-preserving.
 
@@ -456,6 +460,7 @@ def test_diagonal_noise_is_not_materialised_in_the_low_rank_regime(getkey, monke
     assert jnp.all(jnp.isfinite(out))
 
 
+@pytest.mark.slow
 def test_structured_and_dense_noise_agree(getkey):
     """The structure-preserving factor must give the same draw as a dense one."""
     prior, obs_prior, y, _ = _small_problem(getkey, n_ens=32, n_state=5, n_obs=4)
@@ -644,6 +649,7 @@ def test_singular_block_of_structured_noise_stays_finite(getkey):
     assert jnp.all(jnp.isfinite(out))
 
 
+@pytest.mark.slow
 def test_gradient_through_isotropic_noise_is_finite(getkey):
     """``R = sigma^2 I`` is the commonest EnKF covariance -- and all repeated
     eigenvalues, where a naive eigendecomposition derivative is ``NaN``.

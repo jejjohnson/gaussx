@@ -60,6 +60,7 @@ def _dense_joint_filtered_mean(A, H, Q, R, y, m0, P0):
     return means[-1] + gain_rows @ jnp.linalg.solve(S, innovation)
 
 
+@pytest.mark.slow
 def test_kalman_filter_constant_state():
     """The last filtered mean is the exact conditional mean E[x_T | y]."""
     N, M, T = 2, 2, 5
@@ -116,6 +117,7 @@ def test_rts_smoother_basic(getkey):
     assert s_covs.shape == (T, N, N)
 
 
+@pytest.mark.slow
 def test_kalman_gain_basic(getkey):
     """Kalman gain should match manual computation."""
     N, M = 4, 2
@@ -136,6 +138,7 @@ def test_kalman_gain_basic(getkey):
     assert tree_allclose(K, expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_kalman_gain_shape(getkey):
     N, M = 5, 3
     P = lx.MatrixLinearOperator(random_pd_matrix(getkey(), N))
@@ -167,6 +170,7 @@ def test_innovation_covariance_woodbury_returns_low_rank_update(getkey):
     assert S.base is R
 
 
+@pytest.mark.slow
 def test_kalman_filter_woodbury_innovation_diagonal_matches_dense(getkey):
     A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
     R = jnp.diag(R_diag)
@@ -188,6 +192,7 @@ def test_kalman_filter_woodbury_innovation_diagonal_matches_dense(getkey):
     assert tree_allclose(got.log_likelihood, ref.log_likelihood, atol=1e-6, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_kalman_filter_woodbury_innovation_blockdiag_matches_dense(getkey):
     A, H, Q, R_diag, y, x0, P0 = _make_woodbury_test_model(getkey)
     R = jnp.diag(R_diag)
@@ -357,6 +362,7 @@ class TestTimeVarying:
         assert tree_allclose(ref.filtered_covs, tv.filtered_covs, rtol=1e-6)
         assert tree_allclose(ref.log_likelihood, tv.log_likelihood, rtol=1e-6)
 
+    @pytest.mark.slow
     def test_tv_per_step_matches_manual_loop(self, getkey):
         """TV path with per-step matrices matches a hand-rolled loop."""
         N, M, T = 2, 1, 5
@@ -392,6 +398,7 @@ class TestTimeVarying:
         assert tree_allclose(out.filtered_covs[-1], P, atol=1e-5)
         assert tree_allclose(out.log_likelihood, ll, atol=1e-4)
 
+    @pytest.mark.slow
     def test_mask_predict_only(self, getkey):
         """Masked steps should run predict only and contribute 0 log-likelihood."""
         N, M, T = 3, 2, 6
@@ -560,6 +567,7 @@ def test_mixed_numpy_3d_with_operator_raises(getkey):
         kalman_filter(A_seq_np, H, Q_op, R, y, jnp.zeros(N), jnp.eye(N))
 
 
+@pytest.mark.slow
 def test_kalman_filter_float32_inputs_stay_float32():
     """float32 inputs must survive the ``lax.cond`` gate under x64.
 
@@ -687,6 +695,7 @@ def test_identity_first_transition_observes_the_prior(name):
     assert jnp.allclose(state.log_likelihood, expected, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_kalman_filter_grad_matches_fd():
     # gh-412: a fast-tier gradient check on a genuinely time-varying model.
     T, N, M = 6, 3, 2

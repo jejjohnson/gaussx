@@ -88,6 +88,7 @@ class TestConstruction:
 
 
 class TestMoments:
+    @pytest.mark.slow
     def test_marginals_match_dense(self):
         chain = _make_chain(jr.key(1), 6, 2)
         mean_ref, cov_ref = _dense_moments(chain)
@@ -100,11 +101,13 @@ class TestMoments:
             assert jnp.allclose(covs[k], cov_ref[r : r + d, r : r + d], atol=1e-10)
         assert jnp.allclose(chain.variance, jnp.diagonal(covs, axis1=-2, axis2=-1))
 
+    @pytest.mark.slow
     def test_covariance_matrix_matches_dense(self):
         chain = _make_chain(jr.key(2), 5, 3)
         _, cov_ref = _dense_moments(chain)
         assert jnp.allclose(chain.covariance_matrix, cov_ref, atol=1e-8)
 
+    @pytest.mark.slow
     def test_pairwise_marginals_match_dense(self):
         chain = _make_chain(jr.key(3), 5, 2)
         mean_ref, cov_ref = _dense_moments(chain)
@@ -137,6 +140,7 @@ class TestPrecisionForm:
         _, cov_ref = _dense_moments(chain)
         assert jnp.allclose(prec.as_matrix() @ cov_ref, jnp.eye(12), atol=1e-8)
 
+    @pytest.mark.slow
     def test_roundtrip_is_identity(self):
         """SSM -> precision -> SSM recovers (A, b, Q, mu0, P0) to 1e-8."""
         chain = _make_chain(jr.key(6), 7, 3)
@@ -156,6 +160,7 @@ class TestPrecisionForm:
         assert jnp.allclose(back.A, chain.A, atol=1e-8)
         assert jnp.allclose(back.mean, chain.mean, atol=1e-8)
 
+    @pytest.mark.slow
     def test_spingp_posterior_matches_rts_smoother(self):
         """Precision-form posterior -> chain reproduces the RTS marginals.
 
@@ -202,6 +207,7 @@ class TestPrecisionForm:
 
 
 class TestDensityAndSampling:
+    @pytest.mark.slow
     def test_log_prob_matches_dense_mvn(self):
         chain = _make_chain(jr.key(10), 6, 2)
         mean_ref, cov_ref = _dense_moments(chain)
@@ -212,6 +218,7 @@ class TestDensityAndSampling:
         assert chain.log_prob(xs).shape == ()
         assert jnp.allclose(chain.log_prob(xs), expected, atol=1e-8)
 
+    @pytest.mark.slow
     def test_log_prob_batches(self):
         chain = _make_chain(jr.key(12), 5, 2)
         xs = chain.sample(jr.key(13), (3, 4))
@@ -220,6 +227,7 @@ class TestDensityAndSampling:
         assert lp.shape == (3, 4)
         assert jnp.allclose(lp[1, 2], chain.log_prob(xs[1, 2]))
 
+    @pytest.mark.slow
     def test_sample_moments(self):
         chain = _make_chain(jr.key(14), 5, 2)
         samples = chain.sample(jr.key(15), (4096,))

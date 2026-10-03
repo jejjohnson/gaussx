@@ -235,6 +235,7 @@ def test_each_sampling_branch_has_the_right_covariance(kind):
     assert_sample_moments(draws, loc, jnp.linalg.inv(dense))
 
 
+@pytest.mark.slow
 def test_condition_on_observations_sparse_matches_dense():
     op, _, _, dense = proper_precision("sparse", 4, 0.3)
     n = dense.shape[0]
@@ -256,6 +257,7 @@ def test_condition_on_observations_sparse_matches_dense():
     )
 
 
+@pytest.mark.slow
 def test_condition_on_observations_dense_fallback_and_factors():
     op, factors, _, dense = proper_precision("cg", 3, 0.5)
     n = dense.shape[0]
@@ -363,6 +365,7 @@ def test_constrained_mean_and_marginal_variances_equal_dense(kind):
     np.testing.assert_allclose(field.variance, np.diag(cov), atol=1e-8)
 
 
+@pytest.mark.slow
 def test_constrained_log_prob_is_the_density_on_the_subspace():
     field, dense, A, e, loc = _constrained("sparse")
     mean, cov = dense_conditional(dense, A, e, loc)
@@ -487,6 +490,7 @@ def test_intrinsic_hard_marginal_variances_equal_pinv(kind):
     np.testing.assert_allclose(d.marginal_variances(), expected, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_intrinsic_soft_constraint_density_and_variances():
     n = 6
     R = path_structure(n)
@@ -512,6 +516,7 @@ def test_intrinsic_soft_constraint_density_and_variances():
     )
 
 
+@pytest.mark.slow
 def test_intrinsic_odd_rw2_padding_node():
     # rw2_structure(7) is 8 × 8: node 7 is a decoupled unit-precision pad.
     n, tau = 7, 3.0
@@ -581,6 +586,7 @@ def test_intrinsic_validation():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_grad_log_prob_wrt_factor_scale():
     # Leroux: Q(rho) = rho BᵀB + (1 − rho) I, factored; log|Q| through the sparse
     # Cholesky's exact VJP, against jax.grad through the dense density.
@@ -685,6 +691,7 @@ def test_mvn_precision_samples_through_sparse_factor():
     assert_sample_moments(draws, jnp.ones(n), jnp.linalg.inv(dense))
 
 
+@pytest.mark.slow
 def test_mvn_precision_sparse_sample_is_the_factor_draw():
     op, _, _, _ = proper_precision("sparse", 3, 0.5)
     n = op.in_size()

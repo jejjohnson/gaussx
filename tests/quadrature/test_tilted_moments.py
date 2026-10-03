@@ -83,6 +83,7 @@ def test_negative_cavity_variance_is_passed_through():
     assert jnp.array_equal(t_var, jnp.array([-0.5]))
 
 
+@pytest.mark.slow
 def test_mixed_batch_leaves_valid_sites_bit_identical():
     means = jnp.array([0.0, 0.3, -0.2])
     variances = jnp.array([0.5, -1.0, 2.0])

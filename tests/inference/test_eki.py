@@ -132,6 +132,7 @@ def test_reduces_to_enkf_analysis_with_localization(getkey):
     assert jnp.array_equal(got, expected)
 
 
+@pytest.mark.slow
 def test_reduces_to_etkf_transform(getkey):
     """``deterministic=True``, ``dt=1``, ``step=None`` => plain `etkf_transform`."""
     particles = jr.normal(getkey(), (7, 4))
@@ -156,6 +157,7 @@ def test_reduces_to_etkf_transform(getkey):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_tempering_is_exact(getkey):
     """A schedule summing to one reproduces the exact linear-Gaussian posterior."""
     particles, obs_model, obs_noise, observation, prior_mean, prior_cov = _problem(
@@ -268,6 +270,7 @@ def test_structured_obs_noise_dispatches(getkey, name):
     assert jnp.allclose(got, expected, atol=1e-8, rtol=0.0)
 
 
+@pytest.mark.slow
 def test_kronecker_prior_cov_dispatches(getkey):
     """A `gaussx.Kronecker` ``C0`` survives `tikhonov_augment` into the solve."""
     prior_cov = Kronecker(
@@ -312,6 +315,7 @@ def test_kronecker_prior_cov_dispatches(getkey):
     assert jnp.allclose(got, expected, atol=1e-8, rtol=0.0)
 
 
+@pytest.mark.slow
 def test_block_diag_step_dispatches(getkey):
     """A `gaussx.BlockDiag` ``step`` matches its dense materialisation."""
     particles = jr.normal(getkey(), (6, 5))
@@ -374,6 +378,7 @@ def test_step_scales_each_block_of_the_increment(getkey):
     assert jnp.allclose(scaled[:, 2:], rate_b * base[:, 2:], atol=1e-12, rtol=0.0)
 
 
+@pytest.mark.slow
 def test_deterministic_step_scales_the_anomaly_increment(getkey):
     """``Lambda`` acts on the anomaly *increment*, so ``Lambda = I`` is the ETKF."""
     particles = jr.normal(getkey(), (7, 4))
@@ -408,6 +413,7 @@ def test_deterministic_step_scales_the_anomaly_increment(getkey):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_fixed_point_mean_is_invariant_to_step(getkey):
     """At ``K (y - Gbar) = 0`` the mean does not move, for any invertible Lambda."""
     key = getkey()
@@ -528,6 +534,7 @@ def test_tikhonov_augment_shapes_and_blocks(getkey):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_discrepancy_step_size_matches_the_paper_formula(getkey):
     """Iglesias & Yang (2021) eq. (14), against a direct computation."""
     obs_particles = jr.normal(getkey(), (12, 4))
@@ -676,6 +683,7 @@ def test_discrepancy_schedule_sums_to_one(getkey):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("deterministic", [False, True])
 def test_jit_and_grad(getkey, deterministic):
     """Both variants trace under ``jit`` and differentiate w.r.t. ``observation``."""

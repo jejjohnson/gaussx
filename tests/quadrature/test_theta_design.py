@@ -121,6 +121,7 @@ class TestGrid:
         np.testing.assert_allclose(pts[0], mean)
         np.testing.assert_allclose(logw, lp - jsp.logsumexp(lp), atol=1e-12)
 
+    @pytest.mark.slow
     def test_axis_walk_count(self):
         """Standard normal, step 1, threshold 2.3: |z_j| <= 2, |z|^2 <= 4.6."""
         pts, _ = gaussx.theta_design(
@@ -131,6 +132,7 @@ class TestGrid:
         )
         assert pts.shape == (expected, 2)
 
+    @pytest.mark.slow
     def test_recovers_gaussian_moments(self):
         """A fine, wide grid integrates a Gaussian; truncation sets the error."""
         log_post, mean, cov = _gaussian(2)

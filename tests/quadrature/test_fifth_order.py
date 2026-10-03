@@ -113,6 +113,7 @@ def _smooth_state(scale):
     )
 
 
+@pytest.mark.slow
 def test_matches_gauss_hermite_on_a_smooth_function():
     """Tracks a high-order tensor-product rule on a smooth, non-polynomial
     integrand, and does so more closely than the degree-3 unscented rule.
@@ -178,6 +179,7 @@ def test_points_and_weights_matches_the_rule():
     assert tree_allclose(w_c, expected_weights)
 
 
+@pytest.mark.slow
 def test_jit_vmap_grad(getkey):
     """The rule is a plain JAX computation: traceable and differentiable."""
     dim = 2

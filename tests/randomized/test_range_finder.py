@@ -41,6 +41,7 @@ def _projection_error(Q, A):
     return jnp.linalg.norm(A - Q @ einsum(Q, A, "m l, m n -> l n"), ord=2)
 
 
+@pytest.mark.slow
 def test_range_finder_within_hmt_expected_bound():
     # HMT (2011) Thm 10.6 bounds E‖A − QQᵀA‖₂ for a Gaussian Ω and q = 0.
     # The bound is on the expectation, so compare the mean over 16 draws.
@@ -65,6 +66,7 @@ def test_range_finder_within_hmt_expected_bound():
     assert float(jnp.min(errs)) >= float(sigma[k + p]) * (1 - 1e-8)
 
 
+@pytest.mark.slow
 def test_range_finder_orthonormal_and_exact_on_low_rank():
     A = _known_spectrum(50, 40, jnp.array([5.0, 3.0, 1.0, 0.5]))
     Q = gx.range_finder(_function_op(A), 4, oversample=2, key=jr.key(1))
@@ -73,6 +75,7 @@ def test_range_finder_orthonormal_and_exact_on_low_rank():
     assert _projection_error(Q, A) < 1e-10
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kind", ["gaussian", "sparse_sign", "srht"])
 def test_range_finder_with_sketch(kind):
     n, ell = 64, 12
@@ -118,6 +121,7 @@ def test_range_finder_caps_ell_and_defaults_key():
     assert jnp.array_equal(Q, gx.range_finder(op, 5, key=jr.PRNGKey(0)))
 
 
+@pytest.mark.slow
 def test_qb_matrix_free_matches_dense():
     A = _known_spectrum(40, 30, jnp.array([3.0, 2.0, 1.0]))
     Q, B = gx.qb(_function_op(A), 3, oversample=3, key=jr.key(2))
@@ -126,6 +130,7 @@ def test_qb_matrix_free_matches_dense():
     assert jnp.allclose(Q @ B, A, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_randomized_svd_equals_dense_on_fast_decay():
     sigma = 2.0 ** -jnp.arange(40, dtype=jnp.float64)
     A = _known_spectrum(100, 70, sigma)
@@ -152,6 +157,7 @@ def test_randomized_svd_jit_and_float32():
     assert jnp.allclose(s, jnp.array([3.0, 2.0, 1.0]), atol=1e-4)
 
 
+@pytest.mark.slow
 def test_randomized_eigh_indefinite_which():
     lam = jnp.array([-10.0, 6.0, 3.0, -2.0, 1.0] + [1e-3] * 25)
     A = lx.MatrixLinearOperator(_sym(lam), lx.symmetric_tag)
@@ -183,6 +189,7 @@ def test_randomized_eigh_validation():
         gx.randomized_eigh(lx.MatrixLinearOperator(jnp.ones((4, 3))), 2)
 
 
+@pytest.mark.slow
 def test_svd_method_randomized_dispatch():
     A = _known_spectrum(50, 40, 2.0 ** -jnp.arange(20, dtype=jnp.float64))
     op = _function_op(A)

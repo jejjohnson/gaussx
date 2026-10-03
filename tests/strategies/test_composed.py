@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._distributions import MultivariateNormal
 from gaussx._strategies import CGSolver, ComposedSolver, DenseSolver
@@ -36,6 +37,7 @@ def test_logdet_delegates_to_logdet_strategy(getkey):
     assert tree_allclose(composed.logdet(op), dense.logdet(op))
 
 
+@pytest.mark.slow
 def test_dense_solve_cg_logdet(getkey):
     """Dense solve + CG logdet should each match their standalone strategy."""
     op = _make_pd_operator(getkey)

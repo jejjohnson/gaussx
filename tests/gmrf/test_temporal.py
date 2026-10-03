@@ -63,6 +63,7 @@ class TestRW1:
         expected[0, -1] = expected[-1, 0] = -1.0
         assert jnp.allclose(R.as_matrix(), expected)
 
+    @pytest.mark.slow
     def test_selected_inverse_dispatch(self):
         R = gaussx.rw1_structure(8)
         H = gaussx.BlockTriDiag(R.diagonal + 0.5, R.sub_diagonal)
@@ -88,6 +89,7 @@ class TestRW2:
         eigenvalues = jnp.linalg.eigvalsh(R.as_matrix())
         assert int(jnp.sum(eigenvalues < 1e-9)) == 2
 
+    @pytest.mark.slow
     def test_odd_n_padding_is_decoupled(self):
         R = gaussx.rw2_structure(7)
         assert R.in_size() == 8
@@ -126,6 +128,7 @@ class TestAR1:
         Q = gaussx.ar1_precision(50, rho=0.8, tau=10.0)
         assert jnp.allclose(gaussx.diag_inv(Q), 0.1)
 
+    @pytest.mark.slow
     def test_traced_parameters(self):
         def logdet(rho, tau):
             return gaussx.logdet(gaussx.ar1_precision(10, rho, tau))

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from gaussx._distributions._joseph import joseph_update
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_joseph_matches_standard_update(getkey):
     """Joseph form should match P - K S K^T in the exact-gain case."""
     N, M = 4, 2
@@ -25,6 +27,7 @@ def test_joseph_matches_standard_update(getkey):
     assert tree_allclose(P_joseph, P_standard, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_joseph_guarantees_symmetry(getkey):
     """Output should be symmetric even with perturbed gain."""
     N, M = 5, 3

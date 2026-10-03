@@ -3,11 +3,13 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx import build_prediction_cache, predict_mean, predict_variance
 
 
 class TestPredictionCache:
+    @pytest.mark.slow
     def test_alpha_matches_solve(self, getkey):
         """Cached alpha matches direct solve."""
         N = 10
@@ -33,6 +35,7 @@ class TestPredictionCache:
         assert jnp.allclose(mu, expected, atol=1e-5)
         assert mu.shape == (Nt,)
 
+    @pytest.mark.slow
     def test_predict_variance(self, getkey):
         """Predictive variance matches exact computation."""
         N, Nt = 8, 4
