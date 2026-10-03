@@ -185,7 +185,6 @@ class TestFemProjectorPlanar:
 class TestFemProjectorSphere:
     vertices, triangles = icosphere(2)
 
-    @pytest.mark.slow
     def test_recovers_each_vertex(self):
         A = gaussx.fem_projector(self.vertices, self.triangles, self.vertices)
         n = self.vertices.shape[0]

@@ -75,7 +75,6 @@ class TestSSMToExpectations:
 
 
 class TestExpectationsToSSM:
-    @pytest.mark.slow
     def test_roundtrip(self, getkey):
         """ssm -> expectations -> ssm should recover original parameters."""
         N, d = 4, 2

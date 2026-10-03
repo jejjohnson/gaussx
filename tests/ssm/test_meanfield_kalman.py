@@ -145,7 +145,6 @@ def test_parallel_matches_sequential():
     assert tree_allclose(par.log_likelihood, seq.log_likelihood, rtol=1e-3)
 
 
-@pytest.mark.slow
 def test_blockdiag_operator_inputs_match_dense():
     """BlockDiag operator inputs split structurally and match dense arrays."""
     L, d, m, T = 3, 2, 2, 10
@@ -273,7 +272,6 @@ def test_jit_and_grad():
     assert jnp.all(jnp.isfinite(state.predicted_covs))
 
 
-@pytest.mark.slow
 def test_invalid_block_size_raises():
     """Indivisible state or observation dimensions are rejected."""
     D, T = 4, 5

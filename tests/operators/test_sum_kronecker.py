@@ -409,7 +409,6 @@ def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
     assert jnp.all(jnp.isfinite(result))
 
 
-@pytest.mark.slow
 def test_sumkronecker_sample_matches_dense_reference(getkey):
     SK = _make_psd_sum_kronecker(getkey)
     key = getkey()

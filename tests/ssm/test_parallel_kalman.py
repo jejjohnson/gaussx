@@ -458,7 +458,6 @@ def test_tv_parity_random_params(mask_name, psd_project):
     assert jnp.allclose(P_seq, P_par, **tol)
 
 
-@pytest.mark.slow
 def test_form_sqrt_is_a_deprecated_spelling_of_psd_project():
     # gh-306: form="sqrt" never was a square-root filter.
     (A, H, Q, R, y, m0, P0), _ = _random_tv_model()

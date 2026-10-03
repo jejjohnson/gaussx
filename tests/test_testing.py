@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import lineax as lx
-import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 from gaussx._testing import (
@@ -44,7 +43,6 @@ def test_random_pd_operator(getkey):
     assert lx.is_positive_semidefinite(op)
 
 
-@pytest.mark.slow
 def test_random_kronecker_pd(getkey):
     K = random_kronecker_pd(getkey(), (3, 4))
     assert isinstance(K, Kronecker)

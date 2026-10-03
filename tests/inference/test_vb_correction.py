@@ -300,7 +300,6 @@ def test_predictor_variances_equal_dense(case):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.slow
 def test_moves_towards_quadrature_posterior_mean():
     """Two latent nodes, small Poisson counts: exact mean by grid quadrature."""
     Q = jnp.array([[2.0, -0.8], [-0.8, 1.5]])

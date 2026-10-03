@@ -179,7 +179,6 @@ def test_inv_quad_logdet_is_exact(periodic_2d, periodic_2d_dense):
     assert jnp.allclose(ld, jnp.linalg.slogdet(dense)[1], atol=1e-10)
 
 
-@pytest.mark.slow
 def test_transpose_normal_and_via_pair():
     op = gaussx.Circulant(jnp.array([1.0, 2.0, 0.0, 0.0, -1.0]))  # non-symmetric
     assert jnp.allclose(op.T.as_matrix(), op.as_matrix().T, atol=1e-12)

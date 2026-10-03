@@ -108,7 +108,6 @@ class TestFrobeniusNorm:
 
 
 class TestSLQErrorBars:
-    @pytest.mark.slow
     def test_logdet_and_error(self, psd_op):
         slq = SLQLogdet(num_probes=30, lanczos_order=25)
         est, sem = slq.logdet_and_error(psd_op)

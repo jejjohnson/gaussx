@@ -76,7 +76,6 @@ class TestUncertainSVGPPredict:
         mean, _ = uncertain_svgp_predict(_rbf_kernel, Z, alpha, Q, state, integrator)
         assert jnp.allclose(mean, 0.0, atol=0.1)
 
-    @pytest.mark.slow
     def test_reduces_to_exact_gp_when_q_is_negative_k_inv(self):
         """SVGP matches exact uncertain GP when Z=X and Q=-K^{-1}."""
         state = _make_state_1d()

@@ -24,7 +24,6 @@ class TestDiagInv:
         expected = jnp.diag(jnp.linalg.inv(K))
         assert jnp.allclose(result, expected, atol=1e-5)
 
-    @pytest.mark.slow
     def test_hutchinson_converges(self, getkey):
         """Hutchinson estimate is close with many probes."""
         N = 12
@@ -120,7 +119,6 @@ class TestStructuredDiagInv:
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(op), atol=1e-12)
         assert jnp.allclose(jax.jit(diag_inv)(op), _dense_diag_inv(op), atol=1e-12)
 
-    @pytest.mark.slow
     def test_kronecker(self):
         op = gaussx.Kronecker(_spd(jr.key(0), 3), _spd(jr.key(1), 4))
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(op), atol=1e-12)
@@ -182,7 +180,6 @@ class TestShiftedKronecker:
         expected = jnp.diag(jnp.linalg.inv(K))
         assert jnp.allclose(diag_inv(op), expected, atol=1e-12)
 
-    @pytest.mark.slow
     def test_fft_spatial_factor(self):
         spatial = gaussx.Circulant(jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0]))
         temporal, shifted, _ = self._operators(spatial)

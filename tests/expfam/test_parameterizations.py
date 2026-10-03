@@ -207,7 +207,6 @@ class TestBatched:
         S_sqrt = S_flat.reshape((*batch_shape, N, N))
         return mu, S_sqrt
 
-    @pytest.mark.slow
     def test_meanvar_natural_batched_roundtrip(self, getkey):
         N = 3
         batch_shape = (2, 4)
@@ -223,7 +222,6 @@ class TestBatched:
         assert tree_allclose(mu_rec, mu, rtol=1e-4)
         assert tree_allclose(Sigma_rec, Sigma_orig, rtol=1e-4)
 
-    @pytest.mark.slow
     def test_meanvar_expectation_batched_roundtrip(self, getkey):
         N = 4
         batch_shape = (3,)
@@ -239,7 +237,6 @@ class TestBatched:
         assert tree_allclose(mu_rec, mu, rtol=1e-4)
         assert tree_allclose(Sigma_rec, Sigma_orig, rtol=1e-4)
 
-    @pytest.mark.slow
     def test_natural_expectation_batched_roundtrip(self, getkey):
         N = 3
         batch_shape = (2, 2)

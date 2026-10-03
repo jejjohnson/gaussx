@@ -82,7 +82,6 @@ class TestLOVEVariance:
         exact = k_star @ K_inv @ k_star
         assert jnp.allclose(approx, exact, atol=1e-4)
 
-    @pytest.mark.slow
     def test_jit(self, getkey):
         """Should be JIT-compatible."""
         N = 10

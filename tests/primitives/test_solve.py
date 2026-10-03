@@ -80,7 +80,6 @@ def test_solve_filter_jit(getkey):
     assert tree_allclose(f(op, v), dense_solve(op, v))
 
 
-@pytest.mark.slow
 def test_solve_kronecker_sum_grad_with_repeated_eigenvalue():
     # gh-295: differentiating through the factors' eigh gave NaN when a
     # factor has a repeated eigenvalue (here A = s I). The implicit JVP

@@ -308,7 +308,6 @@ def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -
     assert jnp.allclose(gradient, finite_difference, rtol=1e-5)
 
 
-@pytest.mark.slow
 def test_kronecker_sum_root_jvp_matches_the_dense_root() -> None:
     # The structured Sylvester JVP against dense_symmetric_sqrt's own JVP on
     # the materialised A ⊕ B, for random symmetric tangents.
