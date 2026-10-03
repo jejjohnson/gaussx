@@ -69,6 +69,12 @@ def _takahashi_windows(
     def step(carry, j, size, reach):
         Z, slot = carry
         m = size - 1  # below-diagonal slots of the column
+        if m == 0:  # diagonal-only columns: Z_jj = 1 / L_jj²
+            start, _, vals, mask = _column(p, n, L_pad, j, size)
+            col = 1 / vals[:1] ** 2
+            old = _window(Z, start, size)
+            Z = jax.lax.dynamic_update_slice(Z, jnp.where(mask, col, old), (start,))
+            return (Z, slot), None
         slots = jnp.arange(m, dtype=jnp.int32)
         start, rows, vals, mask = _column(p, n, L_pad, j, size)
         below = rows[1:]  # the clique S (dummy row n past the column's end)

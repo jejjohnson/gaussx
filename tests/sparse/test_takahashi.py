@@ -56,3 +56,20 @@ def test_diag_inv(grid):
         np.diag(np.linalg.inv(np.asarray(op.as_matrix()))),
         atol=1e-12,
     )
+
+
+def test_isolated_node(symbolic_for):
+    # An IID block joined to two fixed effects, except node 0, which nothing
+    # couples (an unobserved IID effect): it is a tree of its own, a bucket of
+    # diagonal-only columns.
+    n = 6
+    linked = np.arange(1, n)
+    rows = np.r_[np.arange(n + 2), linked, linked, n + 1]
+    cols = np.r_[np.arange(n + 2), np.full(n - 1, n), np.full(n - 1, n + 1), n]
+    values = np.r_[np.full(n + 2, 3.0), np.full(2 * n - 2, 0.3), 0.2]
+    op = SparseOperator.from_coo(rows, cols, values, (n + 2, n + 2), symmetric=True)
+    sym = symbolic_for(op, "natural", banded=False)
+    factor = gaussx.sparse_cholesky(op, sym)
+    Z = takahashi(sym, factor.values)
+    inverse = np.linalg.inv(np.asarray(op.as_matrix())[np.ix_(sym.perm, sym.perm)])
+    np.testing.assert_allclose(Z, inverse[sym.rowidx, sym.colidx], atol=1e-12)
