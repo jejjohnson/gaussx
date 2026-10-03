@@ -56,6 +56,7 @@ def test_parallel_kf_matches_sequential(getkey, T):
     assert tree_allclose(par_state.log_likelihood, seq_state.log_likelihood, rtol=1e-3)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("T", [1, 2, 8, 64])
 def test_parallel_rts_matches_sequential(getkey, T):
     A, H, Q, R, x0, P0 = _make_model(getkey)
@@ -71,6 +72,7 @@ def test_parallel_rts_matches_sequential(getkey, T):
     assert tree_allclose(par_covs, seq_covs, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_parallel_kf_returns_filter_state(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (5, 2))
@@ -165,6 +167,7 @@ def test_parallel_rts_last_matches_filter(getkey):
 # ----------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_parallel_kf_with_dense_solver_matches_default(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (6, 2))
@@ -215,6 +218,7 @@ def test_parallel_kf_obs_noise_diagonal_operator(getkey):
     assert tree_allclose(ref.log_likelihood, op.log_likelihood, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_parallel_kf_woodbury_innovation_matches_sequential(getkey):
     N, M, T = 4, 32, 5
     A = 0.95 * jnp.eye(N)
@@ -299,6 +303,7 @@ def test_parallel_kf_ti_broadcast_matches(getkey):
     assert tree_allclose(ref.log_likelihood, tv.log_likelihood, rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_parallel_kf_mask_predict_only(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     T = 6
@@ -328,6 +333,7 @@ def test_parallel_rts_smoother_tv(getkey):
 # ----------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_parallel_kf_jit(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (8, 2))
@@ -452,6 +458,7 @@ def test_tv_parity_random_params(mask_name, psd_project):
     assert jnp.allclose(P_seq, P_par, **tol)
 
 
+@pytest.mark.slow
 def test_form_sqrt_is_a_deprecated_spelling_of_psd_project():
     # gh-306: form="sqrt" never was a square-root filter.
     (A, H, Q, R, y, m0, P0), _ = _random_tv_model()

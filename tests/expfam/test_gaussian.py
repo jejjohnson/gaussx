@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._expfam import (
     GaussianExpFam,
@@ -18,6 +19,7 @@ from gaussx._expfam import (
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_from_mean_cov_roundtrip(getkey):
     """from_mean_cov -> to_expectation should recover (mu, Sigma)."""
     N = 4

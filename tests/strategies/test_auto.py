@@ -23,6 +23,7 @@ def test_solve_diagonal(getkey):
     assert tree_allclose(auto.solve(op, v), expected)
 
 
+@pytest.mark.slow
 def test_solve_block_diag(getkey):
     auto = AutoSolver()
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 3 * jnp.eye(2))

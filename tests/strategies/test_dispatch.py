@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._strategies import DenseSolver
 from gaussx._testing import tree_allclose
@@ -19,6 +20,7 @@ def _make_pd_operator(key, n=5):
 # ── Sugar: gaussian_log_prob ───────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_gaussian_log_prob_with_solver(getkey):
     """gaussian_log_prob(solver=DenseSolver()) should match default."""
     from gaussx._distributions._gaussian import gaussian_log_prob
@@ -78,6 +80,7 @@ def test_log_mll_with_solver(getkey):
     assert tree_allclose(got, ref)
 
 
+@pytest.mark.slow
 def test_trace_correction_with_solver(getkey):
     """trace_correction(solver=DenseSolver()) should match default."""
     from gaussx._inference._inference import trace_correction
@@ -122,6 +125,7 @@ def test_mean_cov_to_natural_with_solver(getkey):
 # ── Recipes: Kalman filter ─────────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_kalman_filter_with_solver(getkey):
     """kalman_filter(solver=DenseSolver()) should match default."""
     from gaussx._ssm._kalman import kalman_filter

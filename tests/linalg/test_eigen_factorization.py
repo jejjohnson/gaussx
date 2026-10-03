@@ -132,6 +132,7 @@ def test_kronecker_sum_solve_matches_dense_kron(mat_a, mat_b):
     assert jnp.allclose(X.ravel(), jnp.linalg.solve(K, R.ravel()), atol=1e-11)
 
 
+@pytest.mark.slow
 def test_kronecker_sum_solve_3d():
     mats = [_nonsymmetric(jr.key(10 + i), n) for i, n in enumerate((3, 4, 5))]
     facs = tuple(gaussx.EigenFactorization.from_matrix(m) for m in mats)

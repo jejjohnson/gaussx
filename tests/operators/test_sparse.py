@@ -488,6 +488,7 @@ class TestPrimitives:
         permuted = dense[sym.perm][:, sym.perm]
         assert jnp.allclose(L @ rearrange(L, "i j -> j i"), permuted)
 
+    @pytest.mark.slow
     def test_cg_solve_against_dense(self, small_laplacian):
         # PSD Laplacian plus a shift, through the CG strategy and lineax CG.
         b = jr.normal(jr.key(0), (12,))
@@ -537,6 +538,7 @@ class TestPrimitives:
         assert isinstance(factor, gaussx.SparseCholeskyFactor)
         assert jnp.allclose(factor.logdet(), n * jnp.log(2.0))
 
+    @pytest.mark.slow
     def test_lanczos_eig_against_dense(self, small_laplacian):
         dense = small_laplacian.as_matrix()
         # Full-rank Lanczos recovers the dense spectrum through the matvec ...

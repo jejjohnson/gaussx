@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
 from gaussx._quadrature._taylor import TaylorIntegrator
@@ -25,6 +26,7 @@ def _linear_fn(x):
 
 
 class TestGaussHermiteIntegrator:
+    @pytest.mark.slow
     def test_linear_fn_exact_mean(self):
         """GH should be exact for linear functions (mean)."""
         state = _make_state()

@@ -176,6 +176,7 @@ class TestGaussianLikelihood:
 
 
 class TestDenseReference:
+    @pytest.mark.slow
     def test_poisson_banded_identity(self):
         n = 24
         Q = proper_rw2(n)
@@ -244,6 +245,7 @@ class TestDenseReference:
         np.testing.assert_allclose(mean, ref, atol=1e-9)
         np.testing.assert_allclose(einsum(V, mean, "n c, n -> c"), 0.0, atol=1e-10)
 
+    @pytest.mark.slow
     def test_dense_hessian(self):
         n = 6
         rng = np.random.default_rng(3)
@@ -298,6 +300,7 @@ def test_predictor_variances_equal_dense(case):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_moves_towards_quadrature_posterior_mean():
     """Two latent nodes, small Poisson counts: exact mean by grid quadrature."""
     Q = jnp.array([[2.0, -0.8], [-0.8, 1.5]])
@@ -470,6 +473,7 @@ def test_float32_stays_float32():
     assert mean.dtype == jnp.float32
 
 
+@pytest.mark.slow
 def test_subspace_shape_is_checked():
     n = 8
     prior = gx.GaussianMRF(jnp.zeros(n), proper_rw2(n))

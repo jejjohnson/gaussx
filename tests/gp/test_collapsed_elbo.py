@@ -2,6 +2,7 @@
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from gaussx import collapsed_elbo
 
@@ -17,6 +18,7 @@ def _exact_mll(K, y, noise_var):
 
 
 class TestCollapsedELBO:
+    @pytest.mark.slow
     def test_m_equals_n_recovers_mll(self, getkey):
         """When M=N (all points are inducing), ELBO equals exact MLL."""
         N = 10
@@ -36,6 +38,7 @@ class TestCollapsedELBO:
 
         assert jnp.allclose(elbo_val, mll_val, atol=1e-4)
 
+    @pytest.mark.slow
     def test_elbo_leq_mll(self, getkey):
         """ELBO is a lower bound on the MLL."""
         N, M = 30, 10
@@ -89,6 +92,7 @@ class TestCollapsedELBO:
         val = jax.jit(collapsed_elbo)(y, K_diag, K_xz, K_zz, noise_var)
         assert jnp.isfinite(val)
 
+    @pytest.mark.slow
     def test_increasing_m_tightens_bound(self, getkey):
         """More inducing points yields a tighter (higher) ELBO."""
         N = 30

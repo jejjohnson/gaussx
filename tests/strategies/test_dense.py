@@ -6,6 +6,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 from gaussx._strategies import DenseSolver
@@ -21,6 +22,7 @@ def test_solve_diagonal(getkey):
     assert tree_allclose(ds.solve(op, v), expected)
 
 
+@pytest.mark.slow
 def test_solve_block_diag(getkey):
     ds = DenseSolver()
     A = lx.MatrixLinearOperator(jr.normal(getkey(), (2, 2)) + 3 * jnp.eye(2))

@@ -5,11 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import mean_cov_to_natural, natural_to_mean_cov
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_roundtrip_nat_to_exp_to_nat(getkey):
     """natural -> expectation -> natural should be identity."""
     N = 4
@@ -24,6 +26,7 @@ def test_roundtrip_nat_to_exp_to_nat(getkey):
     assert tree_allclose(Sigma_recovered.as_matrix(), Sigma_mat, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_roundtrip_exp_to_nat_to_exp(getkey):
     """expectation -> natural -> expectation should be identity."""
     N = 3

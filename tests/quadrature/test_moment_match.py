@@ -97,6 +97,7 @@ def test_power_changes_the_result():
     assert not bool(jnp.allclose(full.d2_log_Z, fractional.d2_log_Z))
 
 
+@pytest.mark.slow
 def test_stein_derivatives_match_autodiff():
     """The Stein-lemma derivatives equal autodiff of the same quadrature sum.
 
@@ -122,6 +123,7 @@ def _bernoulli_log_lik(f):
     return jnp.sum(jax.nn.log_sigmoid(f))
 
 
+@pytest.mark.slow
 def test_rules_agree_on_a_smooth_site():
     """Different rules converge to the same tilted moments on a smooth site.
 
@@ -182,6 +184,7 @@ def test_rejects_non_point_based_integrator():
         moment_match(_bernoulli_log_lik, _gaussian_state(), TaylorIntegrator())
 
 
+@pytest.mark.slow
 def test_jit_vmap_grad():
     """The primitive is traceable and differentiable end to end."""
 

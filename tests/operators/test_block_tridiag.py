@@ -37,6 +37,7 @@ def block_tridiag():
 
 
 class TestBlockTriDiag:
+    @pytest.mark.slow
     def test_mv(self, block_tridiag):
         n = block_tridiag.in_size()
         key = jax.random.PRNGKey(0)
@@ -218,6 +219,7 @@ class TestSingleBlock:
         assert L.sub_diagonal.shape == (0, d, d)
         assert jnp.allclose(L.as_matrix(), jnp.linalg.cholesky(D), atol=1e-12)
 
+    @pytest.mark.slow
     def test_spingp_log_likelihood_one_step(self):
         D, ops = self._ops(2)
         H = jnp.array([[1.0, 0.0]])

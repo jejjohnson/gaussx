@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import pytest
 
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._ssm._ssm_natural import (
@@ -28,6 +29,7 @@ def _make_smoothed_marginals(getkey, N=4, d=2):
 
 
 class TestSSMToExpectations:
+    @pytest.mark.slow
     def test_shapes(self, getkey):
         """Output shapes should be correct."""
         N, d = 5, 3
@@ -40,6 +42,7 @@ class TestSSMToExpectations:
         assert eta2._num_blocks == N
         assert eta2._block_size == d
 
+    @pytest.mark.slow
     def test_diagonal_blocks(self, getkey):
         """Diagonal blocks should be E[x_k x_k^T] = P_k + m_k m_k^T."""
         N, d = 4, 2
@@ -60,6 +63,7 @@ class TestSSMToExpectations:
         expected_sub = cross_covs + jax.vmap(jnp.outer)(means[1:], means[:-1])
         assert tree_allclose(eta2.sub_diagonal, expected_sub, rtol=1e-6)
 
+    @pytest.mark.slow
     def test_eta1_is_concatenated_means(self, getkey):
         """eta1 should be the flattened means."""
         N, d = 3, 4
@@ -71,6 +75,7 @@ class TestSSMToExpectations:
 
 
 class TestExpectationsToSSM:
+    @pytest.mark.slow
     def test_roundtrip(self, getkey):
         """ssm -> expectations -> ssm should recover original parameters."""
         N, d = 4, 2
@@ -83,6 +88,7 @@ class TestExpectationsToSSM:
         assert tree_allclose(covs_rec, covs, rtol=1e-6)
         assert tree_allclose(cross_covs_rec, cross_covs, rtol=1e-6)
 
+    @pytest.mark.slow
     def test_roundtrip_single_step(self, getkey):
         """Roundtrip with N=2 (minimal case with one cross-covariance)."""
         N, d = 2, 3
@@ -95,6 +101,7 @@ class TestExpectationsToSSM:
         assert tree_allclose(covs_rec, covs, rtol=1e-6)
         assert tree_allclose(cross_covs_rec, cross_covs, rtol=1e-6)
 
+    @pytest.mark.slow
     def test_shapes(self, getkey):
         """Recovered shapes should match original."""
         N, d = 5, 3

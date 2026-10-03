@@ -6,6 +6,7 @@ import equinox as eqx
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._strategies import BBMMSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
@@ -31,6 +32,7 @@ def test_solve_diagonal(getkey):
     assert tree_allclose(bbmm.solve(op, v), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_logdet_psd(getkey):
     """Stochastic logdet should be within ~10% for moderate-size PSD."""
     bbmm = BBMMSolver(num_probes=50, lanczos_iter=20)
@@ -42,6 +44,7 @@ def test_logdet_psd(getkey):
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
 
+@pytest.mark.slow
 def test_logdet_diagonal(getkey):
     """Stochastic logdet on diagonal should be reasonably accurate."""
     bbmm = BBMMSolver(num_probes=50, lanczos_iter=10)
@@ -54,6 +57,7 @@ def test_logdet_diagonal(getkey):
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
 
+@pytest.mark.slow
 def test_solve_and_logdet(getkey):
     """Joint solve + logdet should match individual calls."""
     bbmm = BBMMSolver(cg_tolerance=1e-8, cg_max_iter=2000, num_probes=50)
@@ -69,6 +73,7 @@ def test_solve_and_logdet(getkey):
     assert tree_allclose(ld, expected_ld)
 
 
+@pytest.mark.slow
 def test_deterministic_logdet(getkey):
     """logdet should be deterministic (same seed -> same result)."""
     bbmm = BBMMSolver(seed=42, num_probes=20, lanczos_iter=15)
@@ -80,6 +85,7 @@ def test_deterministic_logdet(getkey):
     assert tree_allclose(ld1, ld2)
 
 
+@pytest.mark.slow
 def test_logdet_respects_explicit_key(getkey):
     """Passing different keys should change the stochastic estimate."""
     bbmm = BBMMSolver(seed=42, num_probes=5, lanczos_iter=8)
@@ -91,6 +97,7 @@ def test_logdet_respects_explicit_key(getkey):
     assert not tree_allclose(ld1, ld2)
 
 
+@pytest.mark.slow
 def test_filter_jit_solve(getkey):
     bbmm = BBMMSolver(cg_tolerance=1e-6)
     mat = random_pd_matrix(getkey(), 4)

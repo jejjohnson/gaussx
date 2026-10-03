@@ -13,6 +13,7 @@ from gaussx._strategies import PreconditionedCGSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_solve_psd_no_precond(getkey):
     """Without preconditioning (rank=0), should still solve correctly."""
     solver = PreconditionedCGSolver(preconditioner_rank=0, rtol=1e-8, atol=1e-8)
@@ -23,6 +24,7 @@ def test_solve_psd_no_precond(getkey):
     assert tree_allclose(solver.solve(op, v), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_solve_psd_with_precond(getkey):
     """The preconditioned branch should still converge to the correct solve."""
     solver = PreconditionedCGSolver(
@@ -38,6 +40,7 @@ def test_solve_psd_with_precond(getkey):
     assert tree_allclose(solver.solve(op, v), expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_logdet_psd(getkey):
     """Stochastic logdet should approximate true logdet."""
     solver = PreconditionedCGSolver(num_probes=50, lanczos_order=20)
@@ -48,6 +51,7 @@ def test_logdet_psd(getkey):
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
 
+@pytest.mark.slow
 def test_logdet_respects_explicit_key(getkey):
     """Passing different keys should change the stochastic estimate."""
     solver = PreconditionedCGSolver(seed=42, num_probes=5, lanczos_order=8)
@@ -67,6 +71,7 @@ def _rbf_system():
     return kernel, noise
 
 
+@pytest.mark.slow
 def test_full_rank_preconditioner_is_exactly_the_inverse():
     # #345: the noise was counted twice, giving inv(K + 2σ²I) at full rank.
     kernel, noise = _rbf_system()
@@ -126,6 +131,7 @@ def test_solver_uses_a_prebuilt_preconditioner():
     assert tree_allclose(x, jnp.linalg.solve(system, b), rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_solver_uses_a_prebuilt_nystrom_preconditioner():
     # Built on K with shift σ², passed to the solver of K + σ²I (#345).
     kernel, noise = _rbf_system()

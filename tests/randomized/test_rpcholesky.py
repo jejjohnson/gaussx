@@ -119,6 +119,7 @@ def test_random_with_a_tiny_jitter_stays_finite():
     assert tree_allclose(_gram(F), mat, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_key_none_is_prng_key_zero_and_keys_matter():
     mat = random_pd_matrix(jr.key(6), 40)
     d, col = jnp.diag(mat), lambda k: mat[:, k]

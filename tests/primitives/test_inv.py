@@ -113,6 +113,7 @@ def test_jitted_diag_inv_low_rank_has_no_dense_factorisation():
     assert f"f64[{n},{n}]" not in jaxpr and f"f32[{n},{n}]" not in jaxpr
 
 
+@pytest.mark.slow
 def test_inv_low_rank_general_factors():
     n, k = 6, 2
     keys = jr.split(jr.key(0), 4)

@@ -58,6 +58,7 @@ class TestGaussianLikelihood:
 
 
 class TestExpectedLogLikelihood:
+    @pytest.mark.slow
     def test_gaussian_analytical(self):
         """Analytical ELL should match numerical GH integration."""
         state = _make_state()

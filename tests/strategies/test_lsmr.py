@@ -5,11 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._strategies import LSMRSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_solve_square(getkey):
     """LSMR should solve square well-conditioned systems."""
     solver = LSMRSolver(atol=1e-10, btol=1e-10, maxiter=500)
@@ -49,6 +51,7 @@ def test_solve_rectangular(getkey):
     assert tree_allclose(result, expected, rtol=1e-2)
 
 
+@pytest.mark.slow
 def test_logdet_psd(getkey):
     """Stochastic logdet should approximate true logdet."""
     solver = LSMRSolver(num_probes=50, lanczos_order=20)
@@ -59,6 +62,7 @@ def test_logdet_psd(getkey):
     assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
 
+@pytest.mark.slow
 def test_logdet_respects_explicit_key(getkey):
     """Passing different keys should change the stochastic estimate."""
     solver = LSMRSolver(seed=42, num_probes=5, lanczos_order=8)

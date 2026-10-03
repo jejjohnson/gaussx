@@ -60,6 +60,7 @@ class TestConstruction:
 
 
 class TestMv:
+    @pytest.mark.slow
     def test_mv_matches_dense(self, getkey):
         m = 8
         n = 15
@@ -71,6 +72,7 @@ class TestMv:
         v = jr.normal(getkey(), (n,))
         assert tree_allclose(op.mv(v), op.as_matrix() @ v, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_mv_with_toeplitz_base(self, getkey):
         m = 16
         n = 30
@@ -85,6 +87,7 @@ class TestMv:
         expected = W @ (K_uu.as_matrix() @ (W.T @ v))
         assert tree_allclose(op.mv(v), expected, rtol=1e-4)
 
+    @pytest.mark.slow
     def test_mv_with_diagonal_base(self, getkey):
         m = 6
         n = 10
@@ -246,6 +249,7 @@ class TestJAX:
 
 
 class TestToeplitzIntegration:
+    @pytest.mark.slow
     def test_toeplitz_ski_matches_dense(self, getkey):
         """Full SKI pipeline: Toeplitz base + interpolation."""
         m = 12

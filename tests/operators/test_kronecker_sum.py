@@ -28,6 +28,7 @@ def kron_sum():
 
 
 class TestKroneckerSum:
+    @pytest.mark.slow
     def test_mv(self, kron_sum):
         n = kron_sum.in_size()
         x = jnp.ones(n)
@@ -75,6 +76,7 @@ class TestKroneckerSum:
         expected = kron_sum.as_matrix()
         assert jnp.allclose(reconstructed, expected, atol=1e-4)
 
+    @pytest.mark.slow
     def test_sample_shape_and_covariance(self):
         A_diag = jnp.array([1.0, 2.0])
         B_diag = jnp.array([0.5, 1.5, 2.5])
@@ -166,6 +168,7 @@ def test_sqrt_entry_points_run_under_jit(kron_sum, entry_point):
     assert jnp.allclose(jitted, eager, rtol=1e-12, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_kronecker_sum_sample_grad_with_repeated_eigenvalue():
     # gh-295: the sample inherited KroneckerSumSqrt's NaN eigenvector
     # gradient for an isotropic factor.

@@ -52,6 +52,7 @@ class TestSpdePrecision:
         assert jnp.allclose(Q.as_matrix(), expected, rtol=1e-10, atol=1e-10)
         assert Q.pattern.symmetric
 
+    @pytest.mark.slow
     def test_pattern_is_independent_of_parameters(self):
         vertices, triangles = right_triangle_mesh(4, 4, 1.0)
         C, G = gaussx.fem_matrices(vertices, triangles)
@@ -59,6 +60,7 @@ class TestSpdePrecision:
         Q2 = gaussx.spde_precision(C, G, 3.0, 2.0, 2)
         assert Q1.pattern == Q2.pattern
 
+    @pytest.mark.slow
     def test_jit_and_grad(self):
         vertices, triangles = right_triangle_mesh(3, 4, 1.0)
         C, G = gaussx.fem_matrices(vertices, triangles)
@@ -100,6 +102,7 @@ class TestSpdePrecisionGrid:
         interior = boundary_distance(n0, n1) >= alpha
         assert jnp.allclose(grid.as_matrix()[interior], fem[interior], atol=1e-9)
 
+    @pytest.mark.slow
     def test_symbol_on_a_raster(self):
         # Q = τ² h² (κ² I + h⁻² (L_H ⊕ L_W))^α on a 2-D raster
         shape, kappa, tau, alpha, h = (3, 4), 0.8, 1.5, 2, 0.25
@@ -111,6 +114,7 @@ class TestSpdePrecisionGrid:
         expected = tau**2 * h**2 * jnp.linalg.matrix_power(base, alpha)
         assert jnp.allclose(Q.as_matrix(), expected)
 
+    @pytest.mark.slow
     def test_periodic_axis(self):
         Q = gaussx.spde_precision_grid((3, 5), 0.5, 1.0, 1, periodic=(False, True))
         L_path = gaussx.rw1_structure(3).as_matrix()
@@ -118,6 +122,7 @@ class TestSpdePrecisionGrid:
         L = jnp.kron(L_path, jnp.eye(5)) + jnp.kron(jnp.eye(3), L_cycle)
         assert jnp.allclose(Q.as_matrix(), 0.25 * jnp.eye(15) + L)
 
+    @pytest.mark.slow
     def test_exact_operations(self):
         Q = gaussx.spde_precision_grid((4, 3, 2), 0.9, 1.2, 2, periodic=True)
         dense = Q.as_matrix()
@@ -126,6 +131,7 @@ class TestSpdePrecisionGrid:
         assert jnp.allclose(gaussx.logdet(Q), jnp.linalg.slogdet(dense)[1])
         assert jnp.allclose(gaussx.diag_inv(Q), jnp.diag(jnp.linalg.inv(dense)))
 
+    @pytest.mark.slow
     def test_grad_through_kappa(self):
         def logdet(kappa):
             return gaussx.logdet(gaussx.spde_precision_grid((4, 5), kappa, 1.0, 2))

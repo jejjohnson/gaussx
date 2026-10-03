@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import BlockDiag, submatrix
 from gaussx._testing import random_pd_matrix
@@ -42,6 +43,7 @@ class TestSubmatrixDiagonal:
 
 
 class TestSubmatrixBlockDiag:
+    @pytest.mark.slow
     def test_matches_dense(self, getkey):
         # Build BlockDiag with two PSD blocks of sizes 3 and 4.
         a = random_pd_matrix(getkey(), 3)

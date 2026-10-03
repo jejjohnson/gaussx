@@ -29,6 +29,7 @@ def _matvec_only(op):
 
 
 class TestStochasticTrace:
+    @pytest.mark.slow
     def test_xtrace_beats_hutchinson_budget(self, psd_op):
         true = jnp.trace(psd_op.as_matrix())
         est = trace(
@@ -107,6 +108,7 @@ class TestFrobeniusNorm:
 
 
 class TestSLQErrorBars:
+    @pytest.mark.slow
     def test_logdet_and_error(self, psd_op):
         slq = SLQLogdet(num_probes=30, lanczos_order=25)
         est, sem = slq.logdet_and_error(psd_op)
@@ -114,6 +116,7 @@ class TestSLQErrorBars:
         assert sem > 0.0
         assert jnp.abs(est - true) < 6.0 * sem + 1.0
 
+    @pytest.mark.slow
     def test_point_estimate_matches_mean(self, psd_op):
         slq = SLQLogdet(num_probes=20, lanczos_order=20, seed=3)
         est, _ = slq.logdet_and_error(psd_op)

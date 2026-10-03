@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._strategies import (
     AbstractLogdetStrategy,
@@ -27,6 +28,7 @@ def _make_pd_operator(key, n=8):
 # ── SLQLogdet ──────────────────────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_slq_logdet_psd(getkey):
     """SLQLogdet should approximate logdet of a PSD matrix."""
     op, M = _make_pd_operator(getkey())
@@ -41,6 +43,7 @@ def test_slq_logdet_is_abstract_logdet():
     assert isinstance(SLQLogdet(), AbstractLogdetStrategy)
 
 
+@pytest.mark.slow
 def test_slq_logdet_jit(getkey):
     """SLQLogdet.logdet should be JIT-compatible."""
     op, _ = _make_pd_operator(getkey())
@@ -127,6 +130,7 @@ def test_dense_logdet_jit(getkey):
 # ── Composition tests ──────────────────────────────────────────────
 
 
+@pytest.mark.slow
 def test_composed_with_slq_logdet(getkey):
     """ComposedSolver should accept SLQLogdet as logdet_strategy."""
     op, _M = _make_pd_operator(getkey())

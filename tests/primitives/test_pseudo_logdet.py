@@ -56,6 +56,7 @@ def _grid():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_grid_kronecker_sum_and_null_space_match_dense():
     op, M = _grid()
     expected = _dense_pseudo_logdet(M)
@@ -101,6 +102,7 @@ def _two_components():
     return L, jnp.asarray(N)
 
 
+@pytest.mark.slow
 def test_two_components():
     L, N = _two_components()
     expected = _dense_pseudo_logdet(L.as_matrix())
@@ -173,6 +175,7 @@ def test_cofactor_with_explicit_strategy():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("n", [2, 7, 30])
 def test_rw1_closed_form(n):
     R = gaussx.rw1_structure(n)
@@ -223,6 +226,7 @@ def test_rw2_against_dense(n):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_float32_stays_float32():
     R = gaussx.SparseOperator.from_coo(
         np.array([0, 1, 2, 1, 2]),

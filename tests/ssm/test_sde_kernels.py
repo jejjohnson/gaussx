@@ -201,6 +201,7 @@ class TestSumSDE:
             )
         )
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("make", ["_trend_plus_seasonal", "_all_stationary"])
     def test_discretise_is_block_diagonal_of_components(self, make):
         kern = getattr(self, make)()
@@ -226,12 +227,14 @@ class TestSumSDE:
         )
         assert A_seq.shape == (4, 5, 5)
 
+    @pytest.mark.slow
     def test_float32_components_give_float32(self):
         A, Q = self._trend_plus_seasonal(jnp.float32).discretise(
             jnp.array(0.1, dtype=jnp.float32)
         )
         assert A.dtype == jnp.float32 and Q.dtype == jnp.float32
 
+    @pytest.mark.slow
     def test_gradient_matches_whole_sum_path(self):
         dt = jnp.linspace(0.01, 0.5, 4)
 
@@ -427,6 +430,7 @@ class TestProductSDEKroneckerDiscretisation:
             ),
         )
 
+    @pytest.mark.slow
     def test_matches_dense_triple_product(self):
         """Per-factor congruence agrees with the full (d1*d2)-square form."""
         kern = self._kernel()
@@ -910,6 +914,7 @@ class TestIntegratedWienerSDE:
         assert Q.dtype == f32
         assert kern.initial_covariance().dtype == f32
 
+    @pytest.mark.slow
     def test_filters_a_linear_trend(self):
         """End to end: the prior it exists for, through the Kalman filter."""
         times = jnp.linspace(0.0, 20.0, 40)

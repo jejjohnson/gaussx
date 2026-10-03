@@ -80,6 +80,7 @@ class TestKroneckerSumDispatch:
     def kron_sum(self, getkey):
         return KroneckerSum(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
 
+    @pytest.mark.slow
     def test_diag(self, kron_sum):
         assert tree_allclose(diag(kron_sum), jnp.diag(kron_sum.as_matrix()))
 

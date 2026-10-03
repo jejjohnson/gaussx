@@ -3,12 +3,14 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx import leave_one_out_cv
 from gaussx._strategies import DenseSolver
 
 
 class TestLeaveOneOutCV:
+    @pytest.mark.slow
     def test_loo_means_shape(self, getkey):
         """LOO means have shape (N,)."""
         N = 10
@@ -31,6 +33,7 @@ class TestLeaveOneOutCV:
         result = leave_one_out_cv(op, y)
         assert jnp.all(result.loo_variances > 0)
 
+    @pytest.mark.slow
     def test_loo_matches_brute_force(self, getkey):
         """LOO means match brute-force leave-one-out on a small problem."""
         N = 6

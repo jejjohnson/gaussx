@@ -28,6 +28,7 @@ def _dense_band(matrix, N, d):
     return diagonal, sub
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("d", [1, 2, 3])
 def test_matches_dense_inverse_band(d):
     N = 6
@@ -46,6 +47,7 @@ def test_single_block():
     assert jnp.allclose(band.diagonal[0], jnp.linalg.inv(op.diagonal[0]), atol=1e-12)
 
 
+@pytest.mark.slow
 def test_jit_and_float32():
     op = _spd_block_tridiag(5, 2, jr.key(2))
     op32 = gaussx.BlockTriDiag(

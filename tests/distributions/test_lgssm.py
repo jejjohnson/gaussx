@@ -76,6 +76,7 @@ def _rel_tol(expected):
 
 
 class TestLGSSM:
+    @pytest.mark.slow
     def test_log_prob_matches_dense_joint(self):
         T = 8
         A, H, Q, R, m0, P0 = _make_params(jr.key(0))
@@ -86,6 +87,7 @@ class TestLGSSM:
         expected = _mvn_logpdf(np.asarray(y).reshape(-1), mu, Sigma)
         assert abs(float(d.log_prob(y)) - expected) <= _rel_tol(expected)
 
+    @pytest.mark.slow
     def test_log_prob_is_scalar(self, getkey):
         """``event_shape`` rank is what makes this a scalar — easy to get wrong."""
         A, H, Q, R, m0, P0 = _make_params(getkey())
@@ -192,6 +194,7 @@ class TestOperatorInputs:
         assert jnp.abs(d_op.mean - d_dense.mean).max() <= 1e-10
         assert jnp.abs(d_op.variance - d_dense.variance).max() <= 1e-10
 
+    @pytest.mark.slow
     def test_masked_operator_log_prob(self, getkey):
         ops, dense, T = self._operator_model(getkey)
         A_op, H_op, Q_op, R_op, P0, m0 = ops

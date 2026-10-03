@@ -167,6 +167,7 @@ def test_sparse_sign_columns(d, nnz):
     np.testing.assert_allclose(np.abs(dense[dense != 0]), 1 / math.sqrt(k))
 
 
+@pytest.mark.slow
 def test_srht_equals_dense_construction():
     m, d = 100, 16
     S = gx.SRHTSketch.sample(jr.key(0), d, m)

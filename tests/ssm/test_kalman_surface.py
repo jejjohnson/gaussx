@@ -60,6 +60,7 @@ def _no_warnings(fn, *args, **kwargs):
 # --- one state type ---------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_infinite_horizon_filter_returns_filter_state():
     A, H, Q, R, y, *_ = _model()
     assert isinstance(infinite_horizon_filter(A, H, Q, R, y), FilterState)
@@ -120,6 +121,7 @@ def test_nonlinear_smoother_without_process_noise_does_not_warn():
     _no_warnings(nonlinear_rts_smoother, state, lambda x: A @ x)
 
 
+@pytest.mark.slow
 def test_parallel_filter_solver_only_warns_where_unused():
     A, H, Q, R, y, m0, P0 = _model()
     with pytest.warns(DeprecationWarning, match="woodbury_innovation"):
@@ -142,6 +144,7 @@ def test_parallel_filter_solver_only_warns_where_unused():
 # --- one Q layout -----------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_ssm_to_naturals_accepts_the_markov_gaussian_layout():
     A, Q, mu_0, P0 = _chain()
     new = _no_warnings(ssm_to_naturals, A, Q, mu_0, P0)

@@ -13,6 +13,7 @@ from gaussx import CapacitanceSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_capacitance_enforces_boundary_constraint(getkey):
     """The solution is zero at the constrained (boundary) indices."""
     n = 12
@@ -48,6 +49,7 @@ def test_capacitance_residual_supported_on_boundary(getkey):
     assert tree_allclose(residual * interior_mask, jnp.zeros(n), atol=1e-5)
 
 
+@pytest.mark.slow
 def test_capacitance_is_linear(getkey):
     """The solver is a linear map of the right-hand side."""
     n = 10
@@ -114,6 +116,7 @@ def _residual(x, rhs):
     return _periodic_laplacian(x.reshape(NY, NX)).reshape(-1) - rhs
 
 
+@pytest.mark.slow
 def test_singular_base_without_null_vector_leaves_constant_residual(masked_problem):
     """Documents the gh-260 defect: a pseudo-inverse base alone gives a
     uniform nonzero residual at the unconstrained indices."""
@@ -136,6 +139,7 @@ def test_singular_base_with_null_vector_solves_the_pde(masked_problem):
     assert float(jnp.abs(_residual(x, rhs)[free]).max()) < 1e-10
 
 
+@pytest.mark.slow
 def test_nonsymmetric_singular_base_uses_left_null_vector():
     """Bordered system with distinct right/left null vectors (pinv base)."""
     n = 9
@@ -158,6 +162,7 @@ def test_nonsymmetric_singular_base_uses_left_null_vector():
     assert float(jnp.abs((B @ x - rhs)[free]).max()) < 1e-10
 
 
+@pytest.mark.slow
 def test_nonsingular_base_matches_dense_masked_solve():
     """gh-259 regression: result equals a dense solve of the masked system.
 
@@ -238,6 +243,7 @@ def test_transpose_matches_a_solver_built_for_the_transpose(singular):
     assert jnp.allclose(back, solver(rhs), atol=1e-10)
 
 
+@pytest.mark.slow
 def test_keep_base_solve_false_needs_a_call_time_solve(getkey):
     n = 6
     A = random_pd_matrix(getkey(), n)

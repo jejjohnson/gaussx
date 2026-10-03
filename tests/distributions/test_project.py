@@ -6,11 +6,13 @@ import jax.numpy as jnp
 import jax.random as jr
 import jax.scipy.linalg
 import lineax as lx
+import pytest
 
 from gaussx import project
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
+@pytest.mark.slow
 def test_project_dense(getkey):
     """project(K_XZ, chol(K_ZZ)) should equal K_XZ @ K_ZZ^{-1}."""
     M = 4

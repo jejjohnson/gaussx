@@ -73,6 +73,7 @@ class TestMv:
         v = jr.normal(getkey(), (3,))
         assert tree_allclose(M.mv(v), M.as_matrix() @ v)
 
+    @pytest.mark.slow
     def test_mv_symmetric_mask(self, getkey):
         A_mat = jr.normal(getkey(), (6, 6))
         A = lx.MatrixLinearOperator(A_mat)

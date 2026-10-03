@@ -55,6 +55,7 @@ class TestSDEAutocovariance:
         k_vals = sde_autocovariance(kern, taus)
         assert jnp.allclose(k_vals, sigma2, atol=1e-5)
 
+    @pytest.mark.slow
     def test_differentiable(self):
         def loss(variance, lengthscale):
             kern = MaternSDE(variance=variance, lengthscale=lengthscale, order=1)
@@ -88,6 +89,7 @@ class TestPeriodicClosedForm:
         assert jnp.allclose(k_sde, expected, rtol=0.0, atol=1e-5 * variance)
         assert jnp.allclose(k_sde[0], variance, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_quasi_periodic_zero_lag_is_product_of_variances(self):
         matern = MaternSDE(
             variance=jnp.array(1.5), lengthscale=jnp.array(10.0), order=0

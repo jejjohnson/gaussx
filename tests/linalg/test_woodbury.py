@@ -5,11 +5,13 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import woodbury_solve
 from gaussx._testing import tree_allclose
 
 
+@pytest.mark.slow
 def test_woodbury_solve_basic(getkey):
     """woodbury_solve should match dense solve of (diag + U D U^T)."""
     N, k = 6, 2

@@ -310,6 +310,7 @@ def test_joseph_coincides_with_standard_form_for_affine_maps():
     assert tree_allclose(joseph.filtered_covs, standard.filtered_covs, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_joseph_agrees_with_the_standard_form_on_a_nonlinear_step():
     """Joseph reproduces the matched-joint posterior, it does not shrink it.
 
@@ -390,6 +391,7 @@ def test_joseph_keeps_covariances_psd_on_an_ill_conditioned_problem():
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_smoother_linear_reduction():
     """With affine dynamics the smoother reproduces ``rts_smoother``."""
     integrator = FifthOrderCubatureIntegrator()
@@ -436,6 +438,7 @@ def test_smoothed_variances_do_not_exceed_filtered():
     assert bool(jnp.all(smoothed_var <= filtered_var + 1e-10))
 
 
+@pytest.mark.slow
 def test_smoother_process_noise_is_deprecated_and_ignored():
     """``process_noise`` warns and is ignored, as in ``rts_smoother`` (gh-364)."""
     integrator = FifthOrderCubatureIntegrator()
@@ -457,6 +460,7 @@ def test_smoother_process_noise_is_deprecated_and_ignored():
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_rules_are_ordered_by_polynomial_exactness_on_one_step():
     """On a nonlinear update the rules order by their degree of exactness.
 
@@ -529,6 +533,7 @@ def test_filter_beats_the_prior_on_a_nonlinear_tracking_problem():
     assert bool(jnp.isfinite(result.log_likelihood))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "integrator",
     [TaylorIntegrator(), UnscentedIntegrator(alpha=1.0)],
@@ -596,6 +601,7 @@ def test_jit():
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_manual_loop_reproduces_the_filter():
     """The wrapper is exactly a scan over the public per-step functions.
 
@@ -641,6 +647,7 @@ def test_manual_loop_reproduces_the_filter():
     assert tree_allclose(total_ll, wrapped.log_likelihood, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_manual_backward_loop_reproduces_the_smoother():
     """Likewise for ``nonlinear_rts_step``."""
     from gaussx import nonlinear_rts_step
@@ -694,6 +701,7 @@ def test_step_functions_default_to_the_unscented_rule():
     assert tree_allclose(default[0], explicit[0], atol=0.0)
 
 
+@pytest.mark.slow
 def test_update_step_honours_a_channel_mask():
     """The standalone update marginalises masked channels the same way."""
     from gaussx import nonlinear_kalman_update
@@ -868,6 +876,7 @@ def test_indefinite_innovation_is_rejected():
         )
 
 
+@pytest.mark.slow
 def test_default_is_the_float32_safe_unscented_rule():
     """The default must be ``alpha=1.0``, not the classic ``alpha=1e-3``.
 
@@ -1241,6 +1250,7 @@ def _lapack_counts(validate):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
 def test_default_filter_skips_validation_decompositions():
     counts = _lapack_counts(validate=None)
@@ -1257,6 +1267,7 @@ def test_validate_true_restores_the_checks():
     assert _lapack_counts(validate=True)["dsyevd"] == 4  # + predict and update
 
 
+@pytest.mark.slow
 def test_singular_initial_covariance_gradient_under_vmap():
     # P0 = 0 sends H_eff through the least-squares fallback; under vmap both
     # branches run, and the Cholesky branch must not leak NaN into the grad.

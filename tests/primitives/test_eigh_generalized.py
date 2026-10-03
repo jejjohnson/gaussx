@@ -167,6 +167,7 @@ def test_diagonal_b_lanczos_jits_and_keeps_float32():
     np.testing.assert_allclose(lam[0], 0.0, atol=1e-4)  # constant solution
 
 
+@pytest.mark.slow
 def test_diagonal_b_with_zero_entry_uses_singular_path():
     A = _spd(jr.key(9), 5)
     d = jnp.array([1.0, 2.0, 0.0, 3.0, 0.5])
@@ -202,6 +203,7 @@ def _finite_qz_eigenvalues(A, B):
     return np.sort((alpha[finite] / beta[finite]).real)
 
 
+@pytest.mark.slow
 def test_singular_b_with_coupling_matches_qz():
     A, B, Q, r = _singular_pencil()
     # The coupling block A₀₊ is non-zero, so dropping ker B would be wrong.

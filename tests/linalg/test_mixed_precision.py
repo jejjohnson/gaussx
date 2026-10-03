@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._testing import tree_allclose
@@ -15,6 +16,7 @@ from gaussx._testing import tree_allclose
 
 
 class TestStableSquaredDistances:
+    @pytest.mark.slow
     def test_matches_naive_float64(self, getkey):
         """Should match direct ||x - z||^2 in float64."""
         X = jr.normal(getkey(), (10, 5)).astype(jnp.float64)
@@ -48,6 +50,7 @@ class TestStableSquaredDistances:
         Z = jr.normal(getkey(), (4, 3))
         assert stable_squared_distances(X, Z).shape == (7, 4)
 
+    @pytest.mark.slow
     def test_symmetric(self, getkey):
         """D(X, Z) should equal D(Z, X)^T."""
         X = jr.normal(getkey(), (6, 4))

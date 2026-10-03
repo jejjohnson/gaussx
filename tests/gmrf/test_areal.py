@@ -86,6 +86,7 @@ def eqx_values(R, values):
 
 
 class TestGeneralizedVarianceScale:
+    @pytest.mark.slow
     def test_graph_matches_dense_definition(self):
         R = graph_laplacian(30)
         s = gaussx.generalized_variance_scale(R, jnp.ones(30))
@@ -99,11 +100,13 @@ class TestGeneralizedVarianceScale:
 
     # The default ridge ε = √eps · max diag(R) (R-INLA's) biases the variances
     # by about ε / λ_min(range R): ~1e-6 for these random walks.
+    @pytest.mark.slow
     def test_rw1_block_tridiagonal(self):
         R = gaussx.rw1_structure(25)
         s = gaussx.generalized_variance_scale(R, jnp.ones(25))
         assert jnp.allclose(s, dense_scale(np.asarray(R.as_matrix())), rtol=1e-5)
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("n", [11, 12])
     def test_rw2_with_padding(self, n):
         R = gaussx.rw2_structure(n)
@@ -113,6 +116,7 @@ class TestGeneralizedVarianceScale:
         expected = dense_scale(np.asarray(R.as_matrix())[:n, :n])
         assert jnp.allclose(s, expected, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_grid_kronecker_sum_is_exact(self):
         L = gaussx.rw1_structure(5).as_matrix()
         M = gaussx.rw1_structure(6).as_matrix()
@@ -127,6 +131,7 @@ class TestGeneralizedVarianceScale:
         with pytest.raises(ValueError, match="null_space"):
             gaussx.generalized_variance_scale(graph_laplacian(10), jnp.ones(5))
 
+    @pytest.mark.slow
     def test_scotland_matches_r_inla(self):
         """Golden: R-INLA's inla.scale.model on the Scotland graph.
 
@@ -154,6 +159,7 @@ class TestBYM2:
         s = gaussx.generalized_variance_scale(R, jnp.ones(self.n))
         return s * R
 
+    @pytest.mark.slow
     def test_block_form(self):
         R_star = self._structure()
         tau, phi = 1.5, 0.7

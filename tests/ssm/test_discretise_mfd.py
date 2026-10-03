@@ -185,6 +185,7 @@ def test_negative_timestep_is_rejected():
         )
 
 
+@pytest.mark.slow
 def test_sequence_matches_vmap_of_scalar():
     """``discretise_mfd_sequence`` is the vectorised scalar function."""
     steps = jnp.array([0.0, 0.1, 0.5, 2.0])
@@ -226,6 +227,7 @@ def test_existing_kernels_keep_their_analytic_paths(kernel):
     assert bool(jnp.all(jnp.isfinite(Q)))
 
 
+@pytest.mark.slow
 def test_fallback_engages_when_p_inf_is_none():
     """A kernel with a learned drift and no ``P_inf`` routes through MFD."""
     import equinox as eqx
@@ -268,6 +270,7 @@ def test_fallback_engages_when_p_inf_is_none():
     assert bool(jnp.all(jnp.isfinite(grad)))
 
 
+@pytest.mark.slow
 def test_grad_through_drift_is_finite():
     """``jax.grad`` w.r.t. ``F`` returns finite values."""
 
@@ -397,6 +400,7 @@ def test_stiff_stable_drift_does_not_overflow(decay):
     assert tree_allclose(Q, jnp.array([[1.0 / (2 * decay)]]), rtol=1e-6)
 
 
+@pytest.mark.slow
 def test_scaling_and_squaring_is_exact_where_it_is_not_needed():
     """A well-scaled drift must not pay any accuracy for the new path.
 
@@ -414,6 +418,7 @@ def test_scaling_and_squaring_is_exact_where_it_is_not_needed():
         assert tree_allclose(Q_mfd, Q_stat, atol=1e-13)
 
 
+@pytest.mark.slow
 def test_stiff_drift_stays_differentiable():
     """Scaling and squaring must not break reverse-mode.
 
@@ -444,6 +449,7 @@ def test_drift_too_stiff_for_one_step_is_rejected():
         )
 
 
+@pytest.mark.slow
 def test_sequence_is_unaffected_by_the_doubling_path():
     """Vectorising over time steps still matches the scalar function."""
     steps = jnp.array([0.0, 0.05, 1.0])
@@ -516,6 +522,7 @@ def test_large_diffusion_preserves_smaller_modes():
     assert tree_allclose(Q, Q_c, rtol=1e-10)
 
 
+@pytest.mark.slow
 def test_long_step_with_modest_diffusion_does_not_overflow():
     """The budget applies to ``Q_c`` times the substep, not ``Q_c`` alone.
 

@@ -23,6 +23,7 @@ def _make_psd(key, n):
 
 
 class TestLogProb:
+    @pytest.mark.slow
     def test_matches_manual(self, getkey):
         n = 5
         mu = jr.normal(getkey(), (n,))
@@ -41,6 +42,7 @@ class TestLogProb:
 
         assert tree_allclose(lp, lp_expected, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_matches_covariance_form(self, getkey):
         """Precision-parameterized log_prob should match covariance form."""
         n = 4
@@ -83,6 +85,7 @@ class TestSample:
         samples = d.sample(getkey(), sample_shape=(100,))
         assert samples.shape == (100, n)
 
+    @pytest.mark.slow
     def test_sample_statistics(self, getkey):
         n = 3
         mu = jnp.array([1.0, -0.5, 2.0])
@@ -109,6 +112,7 @@ class TestSample:
         sample = d.sample(getkey())
         assert sample.shape == (batch, n)
 
+    @pytest.mark.slow
     def test_log_prob_multi_sample_shape_matches_numpyro(self, getkey):
         import numpyro.distributions as dist
 
@@ -225,6 +229,7 @@ class TestVmapVsNumpyro:
         lp_prec = jax.vmap(prec_lp)(Lambdas, x_batch)
         assert tree_allclose(lp_cov, lp_prec, rtol=1e-4)
 
+    @pytest.mark.slow
     def test_vmap_grad_log_prob(self, getkey):
         import numpyro.distributions as dist
 

@@ -123,6 +123,7 @@ class TestBinomialLikelihood:
         expected = scipy.stats.binom.logpmf(self.y, self.n, p).sum()
         assert jnp.allclose(lik.log_prob(self.f), expected, atol=1e-10)
 
+    @pytest.mark.slow
     def test_site_derivatives_match_autodiff(self):
         lik = BinomialLikelihood(self.y, self.n)
         grad, hess = lik.site_derivatives(self.f)

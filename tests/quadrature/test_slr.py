@@ -121,6 +121,7 @@ def test_rejects_badly_shaped_conditional_variance(getkey, bad_shape):
         )
 
 
+@pytest.mark.slow
 def test_scalar_output_accepts_both_forms(getkey):
     """With M = 1 both an (M,) and an (M, M) conditional variance are valid."""
     state, gain, offset, _ = _linear_problem(getkey, out=1)
@@ -184,6 +185,7 @@ def test_slr_plus_kalman_update_matches_exact_posterior(getkey):
     assert tree_allclose(post_cov, exact_cov, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_nonlinear_rules_agree():
     """On a mildly nonlinear conditional the rules give the same surrogate.
 
@@ -223,6 +225,7 @@ def test_nonlinear_rules_agree():
     assert tree_allclose(cubature.omega, reference.omega, atol=1e-4)
 
 
+@pytest.mark.slow
 def test_jit_vmap_grad(getkey):
     """SLR is traceable and differentiable end to end."""
     dim, out = 3, 2

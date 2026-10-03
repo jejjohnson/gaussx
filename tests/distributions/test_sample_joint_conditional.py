@@ -80,6 +80,7 @@ def test_conditional_draws_have_the_schur_moments(observed_index: int) -> None:
     assert_sample_moments(draws["conditional"], expected_mean, expected_cov)
 
 
+@pytest.mark.slow
 def test_conditional_draws_are_matheron_updates_of_the_joint_draws() -> None:
     _, blocks, mean = _partition()
     value = jnp.array([0.3, -0.2, 0.1])
@@ -95,6 +96,7 @@ def test_conditional_draws_are_matheron_updates_of_the_joint_draws() -> None:
     assert jnp.allclose(draws["conditional"], updated, atol=1e-10)
 
 
+@pytest.mark.slow
 def test_conditional_draws_are_matheron_updates_with_an_iterative_solver() -> None:
     # A truncated CG solve is not additive across right-hand sides, so the
     # conditional draws must come from the joint draws themselves. A 40-dim
@@ -127,6 +129,7 @@ def test_conditional_draws_are_matheron_updates_with_an_iterative_solver() -> No
     assert jnp.allclose(draws["conditional"], updated, atol=1e-12)
 
 
+@pytest.mark.slow
 def test_a_singular_observed_block_does_not_poison_the_draws() -> None:
     # K_oo = diag(0, 1, 2) is only semi-definite; a structured diagonal solve
     # divides 0 / 0. The target block is correlated with the non-degenerate
@@ -156,6 +159,7 @@ def test_a_singular_observed_block_does_not_poison_the_draws() -> None:
     assert_sample_moments(stacked, jnp.zeros(5), joint)
 
 
+@pytest.mark.slow
 def test_structured_observed_block_is_not_densified(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -185,6 +189,7 @@ def test_structured_observed_block_is_not_densified(
     assert draws["joint"][1].shape == (4, 6)
 
 
+@pytest.mark.slow
 def test_targets_that_coincide_with_observations_are_pinned() -> None:
     # Target 0 duplicates observation 0, so the Schur complement is singular;
     # a Cholesky would return NaNs, the clipped eigh root must not.
@@ -211,6 +216,7 @@ def test_targets_that_coincide_with_observations_are_pinned() -> None:
     assert jnp.allclose(draws["conditional"][:, 0], value[0], atol=1e-4)
 
 
+@pytest.mark.slow
 def test_gradients_stay_finite_for_an_isotropic_schur_complement() -> None:
     # Uncorrelated blocks leave S = sigma^2 I: every eigenvalue repeated, where
     # differentiating through eigh's eigenvectors returns NaN.
@@ -239,6 +245,7 @@ def test_gradients_stay_finite_for_an_isotropic_schur_complement() -> None:
     assert jnp.allclose(gradient, loss(sigma) / sigma)
 
 
+@pytest.mark.slow
 def test_conditional_key_is_absent_without_an_observed_value() -> None:
     _, blocks, mean = _partition()
 
@@ -247,6 +254,7 @@ def test_conditional_key_is_absent_without_an_observed_value() -> None:
     assert set(draws) == {"joint"}
 
 
+@pytest.mark.slow
 def test_solver_strategy_matches_structural_dispatch() -> None:
     _, blocks, mean = _partition()
     value = jnp.array([0.3, -0.2, 0.1])
@@ -260,6 +268,7 @@ def test_solver_strategy_matches_structural_dispatch() -> None:
     assert jnp.allclose(direct["conditional"], iterative["conditional"], atol=1e-8)
 
 
+@pytest.mark.slow
 def test_jit_matches_eager() -> None:
     _, blocks, mean = _partition()
     value = jnp.array([0.3, -0.2, 0.1])

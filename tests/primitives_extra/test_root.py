@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 import gaussx
 from gaussx._gp._love import love_cache, love_variance
@@ -119,6 +120,7 @@ def test_whitening_reconstructs_identity(getkey):
     assert jnp.allclose(whitened, eps, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_love_cache_matches_inverse_root(getkey):
     A = jax.random.normal(getkey(), (8, 8))
     A = A @ A.T + 0.3 * jnp.eye(8)

@@ -40,6 +40,7 @@ def _exact_strategy(n: int, seed: int = 0) -> gaussx.BBMMSolver:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_inv_quad_matches_dense_solve() -> None:
     operator = random_pd_operator(jr.key(0), 40)
     rhs = jr.normal(jr.key(1), (40, 1))
@@ -75,6 +76,7 @@ def test_unreduced_inv_quad_is_per_column() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_logdet_is_exact_for_a_scaled_identity() -> None:
     # Every probe gives z^T log(cI) z = log(c) ||z||^2, so the Hutchinson
     # estimator has zero variance here and the comparison is exact.
@@ -87,6 +89,7 @@ def test_logdet_is_exact_for_a_scaled_identity() -> None:
     assert jnp.allclose(logdet, 12 * jnp.log(scale), rtol=1e-8)
 
 
+@pytest.mark.slow
 def test_lanczos_quadrature_reproduces_a_single_probe() -> None:
     r"""One probe, full-length Lanczos: the estimate is $z^T \log(A) z$.
 
@@ -113,6 +116,7 @@ def test_lanczos_quadrature_reproduces_a_single_probe() -> None:
     assert jnp.allclose(logdet, expected, rtol=1e-4)
 
 
+@pytest.mark.slow
 def test_lanczos_order_may_exceed_the_operator_size() -> None:
     # Without reorthogonalisation, Lanczos past n adds ghost Ritz values whose
     # Gauss weights split between copies, so e1^T log(T) e1 stays accurate --
@@ -139,6 +143,7 @@ def test_lanczos_order_may_exceed_the_operator_size() -> None:
     assert jnp.allclose(logdet, expected, rtol=1e-8)
 
 
+@pytest.mark.slow
 def test_logdet_tracks_the_dense_value() -> None:
     operator = random_pd_operator(jr.key(8), 40)
     rhs = jr.normal(jr.key(9), (40, 1))
@@ -263,6 +268,7 @@ def test_preconditioning_reduces_logdet_variance() -> None:
     )
 
 
+@pytest.mark.slow
 def test_preconditioned_logdet_stays_accurate() -> None:
     operator, preconditioner = _kernel_system(60, rank=20)
     rhs = jr.normal(jr.key(22), (60, 1))
@@ -326,6 +332,7 @@ def test_exact_strategy_ignores_the_preconditioner(strategy) -> None:
     assert jnp.allclose(logdet, expected, rtol=1e-10)
 
 
+@pytest.mark.slow
 def test_cg_strategy_matches_dense_inv_quad() -> None:
     operator = random_pd_operator(jr.key(12), 25)
     rhs = jr.normal(jr.key(13), (25, 2))
@@ -339,6 +346,7 @@ def test_cg_strategy_matches_dense_inv_quad() -> None:
     assert jnp.abs(logdet - expected_logdet) < 0.15 * jnp.abs(expected_logdet)
 
 
+@pytest.mark.slow
 def test_non_bbmm_strategy_applies_the_preconditioner_identity() -> None:
     operator, preconditioner = _kernel_system(40, rank=15)
     rhs = jr.normal(jr.key(14), (40, 1))
@@ -359,6 +367,7 @@ def test_non_bbmm_strategy_applies_the_preconditioner_identity() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_function_operator_is_supported_and_differentiable() -> None:
     # jax.custom_vjp rejects the matvec closure a FunctionLinearOperator
     # carries; the shared-work VJP has to accept arbitrary operator pytrees.
@@ -385,6 +394,7 @@ def test_function_operator_is_supported_and_differentiable() -> None:
     assert jnp.allclose(gradient, -squared / scale**2 + n / scale)
 
 
+@pytest.mark.slow
 def test_jit_matches_eager() -> None:
     operator = random_pd_operator(jr.key(15), 20)
     rhs = jr.normal(jr.key(16), (20, 2))
@@ -405,6 +415,7 @@ def _symmetric(matrix):
     return (matrix + matrix.T) / 2
 
 
+@pytest.mark.slow
 def test_grad_of_inv_quad_matches_the_dense_derivative() -> None:
     n = 25
     matrix = random_pd_operator(jr.key(17), n).as_matrix()

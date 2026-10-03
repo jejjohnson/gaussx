@@ -281,6 +281,7 @@ def test_more_awkward_covariances_are_sampled_exactly(
     assert_sample_moments(samples, mean, covariance.as_matrix())
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("structure", ["kronecker", "kronecker_sum"])
 def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -> None:
     # t I has one eigenvalue repeated three times; differentiating through
@@ -307,6 +308,7 @@ def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -
     assert jnp.allclose(gradient, finite_difference, rtol=1e-5)
 
 
+@pytest.mark.slow
 def test_kronecker_sum_root_jvp_matches_the_dense_root() -> None:
     # The structured Sylvester JVP against dense_symmetric_sqrt's own JVP on
     # the materialised A ⊕ B, for random symmetric tangents.
@@ -435,6 +437,7 @@ def test_an_empty_batch_keeps_the_represented_dtype() -> None:
     assert empty.dtype == full.dtype == jnp.float64
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("name", "loss"),
     [

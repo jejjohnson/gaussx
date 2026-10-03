@@ -25,6 +25,7 @@ def _make_ssm(getkey, N=4, d=2):
 
 
 class TestSSMToNaturals:
+    @pytest.mark.slow
     def test_shapes(self, getkey):
         """Output shapes should be correct."""
         N, d = 5, 3
@@ -36,6 +37,7 @@ class TestSSMToNaturals:
         assert theta_prec._num_blocks == N
         assert theta_prec._block_size == d
 
+    @pytest.mark.slow
     def test_precision_matches_dense(self, getkey):
         """Block-tridiagonal precision should match manually-built dense."""
         N, d = 3, 2
@@ -206,6 +208,7 @@ def _pinned_ssm(N=6, d=2):
     return A, Q, jnp.ones(d), Q[0]
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(jax.default_backend() != "cpu", reason="counts LAPACK calls")
 def test_naturals_to_ssm_factorisation_count():
     A, Q, mu_0, P_0 = _pinned_ssm()

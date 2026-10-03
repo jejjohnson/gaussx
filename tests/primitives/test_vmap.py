@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._operators import Kronecker
 from gaussx._primitives import cholesky, diag, inv, logdet, solve, trace
@@ -22,6 +23,7 @@ def _make_psd(key, n):
 
 
 class TestVmapSolve:
+    @pytest.mark.slow
     def test_vmap_over_vectors(self, getkey):
         n = 5
         K = _make_psd(getkey(), n)
@@ -62,6 +64,7 @@ class TestVmapSolve:
         assert X.shape == (n, 3)
         assert tree_allclose(X, expected, rtol=1e-5)
 
+    @pytest.mark.slow
     def test_vmap_solve_kronecker(self, getkey):
         A = _make_psd(getkey(), 2)
         B = _make_psd(getkey(), 3)

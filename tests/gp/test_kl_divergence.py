@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import jax.random as jr
+import pytest
 
 from gaussx._gp._gauss_kl import gauss_kl
 from gaussx._testing import tree_allclose
@@ -27,6 +28,7 @@ def _naive_kl(q_mu, q_cov, p_cov):
 
 
 class TestWhitePrior:
+    @pytest.mark.slow
     def test_full_q_sqrt_single_output(self, getkey):
         M, R = 5, 1
         q_mu = jr.normal(getkey(), (M, R))
@@ -122,6 +124,7 @@ class TestNonWhitePrior:
 
 
 class TestMultipleOutputs:
+    @pytest.mark.slow
     def test_multi_output_full(self, getkey):
         """KL summed over R outputs should match sum of per-output KLs."""
         M, R = 4, 3

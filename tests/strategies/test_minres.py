@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx._strategies import MINRESSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
@@ -18,6 +19,7 @@ from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 class TestSolvePSD:
+    @pytest.mark.slow
     def test_solve_psd(self, getkey):
         """MINRES should converge on PSD systems."""
         solver = MINRESSolver(rtol=1e-8, atol=1e-8)
@@ -53,6 +55,7 @@ class TestSolvePSD:
 
 
 class TestSolveIndefinite:
+    @pytest.mark.slow
     def test_indefinite_symmetric(self, getkey):
         """MINRES should handle symmetric indefinite systems."""
         solver = MINRESSolver(rtol=1e-8, atol=1e-8, max_steps=500)
@@ -107,6 +110,7 @@ class TestShiftedMINRES:
 
 
 class TestLogdet:
+    @pytest.mark.slow
     def test_logdet_psd(self, getkey):
         """Stochastic logdet should be reasonable for PSD."""
         solver = MINRESSolver(num_probes=50, lanczos_order=20)
@@ -129,6 +133,7 @@ class TestLogdet:
         true_ld = jnp.linalg.slogdet(shifted_mat)[1]
         assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
 
+    @pytest.mark.slow
     def test_logdet_indefinite_uses_logabsdet(self, getkey):
         """Indefinite symmetric matrices should return log|det(A)|."""
         solver = MINRESSolver(num_probes=100, lanczos_order=6)
@@ -178,6 +183,7 @@ class TestJIT:
 
 
 class TestGradient:
+    @pytest.mark.slow
     def test_grad_through_solve(self, getkey):
         """Gradients should flow through MINRES solve."""
         solver = MINRESSolver(rtol=1e-6, atol=1e-6)
