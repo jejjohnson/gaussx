@@ -15,13 +15,17 @@ class AutoSolver(AbstractSolverStrategy):
 
     Selection logic:
 
-    - Structured (Diagonal, BlockDiag, Kronecker, LowRankUpdate):
-      DenseSolver (structural dispatch handles efficiency)
-    - Sums of Kronecker products with an exact reduction
-      (``A₁ ⊗ B₁ + A₂ ⊗ B₂`` with one term positive definite):
-      DenseSolver — the structural dispatch factorizes per factor
+    - Structured, i.e. any operator with an exact structural solve and
+      log-determinant (Diagonal,
+      DiagonalisedOperator, BlockDiag, Kronecker, LowRankUpdate,
+      KroneckerSum, SpectralFunction, BlockTriDiag and its bidiagonal
+      factors, eigen-reducible sums of Kronecker products; also inside
+      ``TaggedLinearOperator``, ``c * A``, ``A / c`` and ``-A``):
+      DenseSolver, whose structural dispatch is exact and cheap
     - Small dense (N <= size_threshold): DenseSolver
-    - Large PSD: CGSolver
+    - Large PSD: CGSolver. Its ``logdet`` is a **stochastic**, fixed-seed
+      SLQ estimate; for an exact one at that size use
+      ``ComposedSolver(CGSolver(), DenseLogdet())``
     - Large general: DenseSolver (fallback)
 
     Attributes:
@@ -68,23 +72,15 @@ class AutoSolver(AbstractSolverStrategy):
         self, operator: lx.AbstractLinearOperator
     ) -> AbstractSolverStrategy:
         """Select the best solver strategy for the given operator."""
-        from gaussx._operators._block_diag import BlockDiag
-        from gaussx._operators._kronecker import Kronecker
-        from gaussx._operators._low_rank_update import LowRankUpdate
-        from gaussx._operators._sum_kronecker import _is_eigen_reducible
+        from gaussx._primitives._logdet import _has_structural_logdet
         from gaussx._strategies._cg import CGSolver
         from gaussx._strategies._dense import DenseSolver
 
-        if isinstance(
-            operator, (lx.DiagonalLinearOperator, BlockDiag, Kronecker, LowRankUpdate)
-        ):
-            return DenseSolver()
-
-        # A sum of Kronecker products only stays structured when the exact
-        # two-term reduction applies; without it ``gaussx.solve`` would
-        # materialize, so those operators fall through to the size/tag rules
-        # below and can still pick up CG.
-        if _is_eigen_reducible(operator):
+        # Exact structural solve + logdet (gh-321). A sum of Kronecker
+        # products only counts when the exact two-term reduction applies;
+        # without it ``gaussx.solve`` would materialize, so it falls through
+        # to the size/tag rules below and can still pick up CG.
+        if _has_structural_logdet(operator):
             return DenseSolver()
 
         n = operator.in_size()
