@@ -58,7 +58,34 @@ operation dispatches on the precision's structure
 
 An odd-length `rw2_structure(n)` has one decoupled padding node: build the
 `IntrinsicGMRF` on all `n + 1` nodes with `null_space` zero on it, and drop
-it from draws. All three require `numpyro` to be installed.
+it from draws. All four require `numpyro` to be installed.
+
+**BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair
+$(b, u^\ast)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision
+$Q(\tau, \phi)$ has the null vector $(\sqrt{\phi/\tau}\,\mathbf 1, \mathbf 1)$,
+which depends on $\theta$. So the bracket `IntrinsicGMRF` drops by default is
+not constant (it holds $\tfrac n2\log\tfrac{\tau}{1-\phi}$), and projecting
+draws along `null_space` does not remove the singular direction.
+`BYM2GMRF` uses the exact density on $\{V^\top u^\ast = 0\}$,
+$-\tfrac12 x^\top Q x + \tfrac n2\log\tfrac{\tau}{1-\phi}$ (plus the constant
+$\tfrac12\log|R^\ast|_+ - \tfrac{2n-c}{2}\log 2\pi$ with `include_normalizer`),
+and draws $u^\ast$ from the ICAR on $R^\ast$, then $b$ from its definition.
+It is an `IntrinsicGMRF`, so `laplace_mode` takes it as a prior, and its
+log-marginal is then correct in $(\tau, \phi)$:
+
+```python
+scale = gx.generalized_variance_scale(R, V)  # R: the Besag structure, n areas
+R_star = scale * R
+# theta-free, so once: log|s R|_+ = log|R|_+ + (n - c) log s, with c = 1 here
+log_pdet = gx.pseudo_logdet(R, structure="laplacian") + (n - 1) * jnp.log(scale)
+
+
+def log_marginal(tau, phi):
+    prior = gx.BYM2GMRF(
+        R_star, tau, phi, V, include_normalizer=True, log_pdet=log_pdet
+    )
+    return gx.laplace_mode(prior, gx.PoissonLikelihood(counts), projector=A).log_marginal
+```
 
 ```python
 import einx
@@ -106,7 +133,7 @@ lp = icar.log_prob(u)  # (N − c)/2 · log τ − τ/2 uᵀRu, with N − c = 4
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF]
+      members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF, BYM2GMRF]
 
 ## Sequential distributions
 

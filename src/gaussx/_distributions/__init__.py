@@ -19,6 +19,7 @@ from gaussx._distributions._sample import sample_joint_conditional, sample_mvn
 
 
 __all__ = [
+    "BYM2GMRF",
     "LGSSM",
     "ConstrainedGMRF",
     "GaussianMRF",
@@ -58,7 +59,7 @@ def __getattr__(name: str) -> Any:
         from gaussx._distributions import _lgssm
 
         return getattr(_lgssm, name)
-    if name in ("GaussianMRF", "IntrinsicGMRF", "ConstrainedGMRF"):
+    if name in ("GaussianMRF", "IntrinsicGMRF", "ConstrainedGMRF", "BYM2GMRF"):
         from gaussx._distributions import _gmrf
 
         return getattr(_gmrf, name)
