@@ -67,16 +67,24 @@ def _mvn_logpdf(x, mu, Sigma):
     )
 
 
+def _rel_tol(expected):
+    """Kalman recursion vs a dense ``slogdet``: both are backward stable, so
+    they agree to a few hundred ulps of the log-density's magnitude in
+    float64. A flat ``1e-13`` was ~5 ulps at |log p| ~ 80 and failed in CI on
+    some BLAS builds."""
+    return 1e-12 * max(1.0, abs(expected))
+
+
 class TestLGSSM:
-    def test_log_prob_matches_dense_joint(self, getkey):
+    def test_log_prob_matches_dense_joint(self):
         T = 8
-        A, H, Q, R, m0, P0 = _make_params(getkey())
+        A, H, Q, R, m0, P0 = _make_params(jr.key(0))
         d = LGSSM(A, H, Q, R, m0, P0, n_steps=T)
-        y = d.sample(getkey())
+        y = d.sample(jr.key(1))
 
         mu, Sigma = _dense_joint(A, H, Q, R, m0, P0, T)
         expected = _mvn_logpdf(np.asarray(y).reshape(-1), mu, Sigma)
-        assert abs(float(d.log_prob(y)) - expected) <= 1e-13
+        assert abs(float(d.log_prob(y)) - expected) <= _rel_tol(expected)
 
     def test_log_prob_is_scalar(self, getkey):
         """``event_shape`` rank is what makes this a scalar — easy to get wrong."""
@@ -198,19 +206,19 @@ class TestOperatorInputs:
 
 
 class TestMaskedLGSSM:
-    def test_log_prob_is_exact_marginal(self, getkey):
+    def test_log_prob_is_exact_marginal(self):
         T, M = 8, 4
-        A, H, Q, R, m0, P0 = _make_params(getkey(), M=M)
-        mask = jr.bernoulli(getkey(), 0.6, (T, M))
+        A, H, Q, R, m0, P0 = _make_params(jr.key(0), M=M)
+        mask = jr.bernoulli(jr.key(1), 0.6, (T, M))
         d = MaskedLGSSM(A, H, Q, R, m0, P0, n_steps=T, obs_mask=mask)
-        y = d.sample(getkey())
+        y = d.sample(jr.key(2))
 
         mu, Sigma = _dense_joint(A, H, Q, R, m0, P0, T)
         idx = np.where(np.asarray(mask).reshape(-1))[0]
         expected = _mvn_logpdf(
             np.asarray(y).reshape(-1)[idx], mu[idx], Sigma[np.ix_(idx, idx)]
         )
-        assert abs(float(d.log_prob(y)) - expected) <= 1e-13
+        assert abs(float(d.log_prob(y)) - expected) <= _rel_tol(expected)
 
     def test_all_true_mask_equals_lgssm(self, getkey):
         T, M = 8, 4
