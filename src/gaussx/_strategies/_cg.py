@@ -56,7 +56,15 @@ class CGSolver(AbstractSolverStrategy):
         if self.preconditioner is not None:
             precond_op = self.preconditioner.as_operator(operator)
             if precond_op is not None:
-                options["preconditioner"] = precond_op
+                # lineax treats `options` as non-differentiable and raises if a
+                # tangent reaches it, but a preconditioner built from the
+                # (traced) operator carries one. The CG solution does not
+                # depend on M^{-1}, only the iteration count does, so stopping
+                # its gradient is exact (as `_inv_quad_logdet` does).
+                dynamic, static = eqx.partition(precond_op, eqx.is_array)
+                options["preconditioner"] = eqx.combine(
+                    jax.lax.stop_gradient(dynamic), static
+                )
         return lx.linear_solve(operator, vector, solver, options=options).value
 
     def logdet(
