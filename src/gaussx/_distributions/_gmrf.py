@@ -39,7 +39,7 @@ from numpyro.distributions.util import lazy_property, validate_sample
 
 from gaussx._distributions._utils import _reshape_batch, _reshape_samples
 from gaussx._einx import einsum, rearrange, reduce
-from gaussx._gmrf._areal import _add_ridge
+from gaussx._gmrf._areal import _add_ridge, _as_sparse, bym2_precision
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._diagonalised import DiagonalisedOperator
@@ -705,7 +705,9 @@ class IntrinsicGMRF(dist.Distribution):
     the bracket only with ``include_normalizer`` (it is $\tau$-free, so an
     MCMC target can skip it; `pseudo_logdet` computes it per call). The
     $\tau$ term is always included, which is what makes $\tau$ identifiable
-    under a hyperprior. ``N − c`` must be ``rank(R)``.
+    under a hyperprior. ``N − c`` must be ``rank(R)``. The bracket is
+    constant only when $R$ itself does not depend on the hyperparameters:
+    for BYM2, whose structure holds $(\tau, \phi)$, use `BYM2GMRF`.
 
     ``constraint`` chooses what happens on $\ker R$:
 
@@ -993,3 +995,219 @@ class IntrinsicGMRF(dist.Distribution):
     @lazy_property
     def variance(self) -> Float[Array, " N"]:
         return self.marginal_variances()
+
+
+# ---------------------------------------------------------------------------
+# BYM2
+# ---------------------------------------------------------------------------
+
+
+class BYM2GMRF(IntrinsicGMRF):
+    r"""The BYM2 pair $(b, u^\ast)$ (Riebler et al., 2016), with its exact density.
+
+    $b = (\sqrt{1-\phi}\,v + \sqrt\phi\,u^\ast)/\sqrt\tau$ with
+    $v \sim \mathcal N(0, I)$ and $u^\ast$ the scaled ICAR field (structure
+    $R^\ast$, `generalized_variance_scale`) under one sum-to-zero constraint
+    per connected component. The joint precision $Q(\tau, \phi)$ is
+    `bym2_precision`, and the field lives on $\{V^\top u^\ast = 0\}$, where
+    its log-density (Rue & Held, eq. 2.30) is
+
+    $$
+    \log\pi(b, u^\ast) = -\tfrac12 x^\top Q x
+        + \tfrac n2 \log\tfrac{\tau}{1-\phi}
+        \;\Big[+\ \tfrac12\log|R^\ast|_+ - \tfrac{2n-c}{2}\log 2\pi\Big],
+    $$
+
+    because the Schur complement of $Q$'s $b$-block is exactly $R^\ast$.
+
+    Why not `IntrinsicGMRF` on $Q$: $Q$'s null vector is
+    $(\sqrt{\phi/\tau}\,\mathbf 1, \mathbf 1)$, which depends on $\theta$.
+    So the bracket `IntrinsicGMRF` drops by default is not $\theta$-free (it
+    holds the $\tfrac n2\log\tfrac{\tau}{1-\phi}$ above), its normaliser
+    takes a dense determinant of size $2n$ at every $\theta$, and its
+    sampler's projection along ``null_space`` leaves the $b$-part of a
+    shifted-Cholesky draw unbounded. Here the $\theta$-dependent term is
+    always included, the bracket is truly constant (from $R^\ast$ alone:
+    the matrix-tree theorem, one sparse Cholesky, or ``log_pdet``), and
+    draws are exact: $u^\ast$ from the constrained ICAR on $R^\ast$, then
+    $b$ from its definition.
+
+    It is an `IntrinsicGMRF` whose ``structure`` is $Q$, ``precision_scale``
+    is 1 and ``null_space`` is $V$ padded with zeros on the $b$ rows, so
+    `laplace_mode` and `vb_mean_correction` take it as a prior unchanged
+    (their log-marginal then has the correct $\theta$-dependence).
+
+    Args:
+        structure_scaled: $R^\ast = sR$, a (scaled) `SparseOperator` graph
+            Laplacian of size ``n``.
+        tau: Precision $\tau > 0$ of $b$ (may be traced).
+        phi: Mixing $0 \le \phi < 1$ (may be traced).
+        null_space: Basis of $\ker R^\ast$, shape ``(n, c)`` (or ``(n,)``):
+            one column per connected component (kernellib's
+            ``graph_null_space``).
+        loc: Mean of the stacked ``(b, u*)``, shape ``(2n,)``; zeros by
+            default.
+        constraint: ``"hard"`` (default), ``"soft"`` or ``"none"``, on
+            $u^\ast$ as in `IntrinsicGMRF`.
+        soft_constraint_scale: $s$ for ``"soft"``.
+        include_normalizer: Add the $\theta$-free constant in brackets.
+        log_pdet: $\log|R^\ast|_+$, if already known: it is
+            $\theta$-free, so compute it once outside a $\theta$ loop.
+            ``None`` computes it per call by the matrix-tree theorem.
+        validate_args: Whether to validate input arguments.
+
+    Examples:
+        ```python
+        import jax
+        import jax.numpy as jnp
+        import numpy as np
+        import gaussx as gx
+
+        # A path of 3 areas: R = D - W
+        R = gx.SparseOperator.from_coo(
+            np.array([0, 1, 2, 1, 2]),
+            np.array([0, 1, 2, 0, 1]),
+            jnp.array([1.0, 2.0, 1.0, -1.0, -1.0]),
+            (3, 3),
+            symmetric=True,
+        )
+        V = jnp.ones(3) / jnp.sqrt(3.0)
+        R_star = gx.generalized_variance_scale(R, V) * R
+        prior = gx.BYM2GMRF(R_star, tau=2.0, phi=0.6, null_space=V)
+        x = prior.sample(jax.random.PRNGKey(0), (100,))  # (100, 6): (b, u*)
+        lp = prior.log_prob(x)  # correct in (tau, phi) for a marginal likelihood
+        ```
+    """
+
+    pytree_data_fields = (
+        "tau",
+        "phi",
+        "structure_scaled",
+        "icar_null_space",
+        "log_pdet",
+    )
+    pytree_aux_fields = ()
+
+    def __init__(
+        self,
+        structure_scaled: lx.AbstractLinearOperator,
+        tau: Float[ArrayLike, ""],
+        phi: Float[ArrayLike, ""],
+        null_space: Float[ArrayLike, "n c"] | Float[ArrayLike, " n"],
+        loc: Float[ArrayLike, " N"] | None = None,
+        *,
+        constraint: Literal["none", "soft", "hard"] = "hard",
+        soft_constraint_scale: float = 1e-3,
+        include_normalizer: bool = False,
+        log_pdet: Float[ArrayLike, ""] | None = None,
+        validate_args: bool | None = None,
+    ) -> None:
+        n = structure_scaled.in_size()
+        precision = bym2_precision(structure_scaled, tau, phi)
+        dtype = precision.values.dtype
+        if loc is None:
+            loc = jnp.zeros(2 * n, dtype=dtype)
+        V = jnp.asarray(null_space, dtype=dtype)
+        if V.ndim == 1:
+            V = rearrange(V, "n -> n 1")
+        if V.shape[0] != n:
+            raise ValueError(f"null_space must have {n} rows, got shape {V.shape}.")
+        padded = jnp.concatenate([jnp.zeros_like(V), V])
+        super().__init__(
+            loc,
+            1.0,
+            precision,
+            padded,
+            constraint=constraint,
+            soft_constraint_scale=soft_constraint_scale,
+            include_normalizer=include_normalizer,
+            validate_args=validate_args,
+        )
+        self.tau = jnp.asarray(tau, dtype=dtype)
+        self.phi = jnp.asarray(phi, dtype=dtype)
+        self.structure_scaled = structure_scaled
+        self.icar_null_space = V
+        self.log_pdet = None if log_pdet is None else jnp.asarray(log_pdet, dtype)
+
+    def _n(self) -> int:
+        return self.icar_null_space.shape[0]
+
+    def _icar(self, constraint: str) -> IntrinsicGMRF:
+        """The unit-precision ICAR on ``R*`` that ``u*`` is drawn from."""
+        n = self._n()
+        return IntrinsicGMRF(
+            jnp.zeros(n, dtype=self.loc.dtype),
+            1.0,
+            self.structure_scaled,
+            self.icar_null_space,
+            constraint=constraint,
+            soft_constraint_scale=self.soft_constraint_scale,
+        )
+
+    def _half_log_pdet(self) -> Float[Array, ""]:
+        """``½ log|R*|₊``: given, or by the matrix-tree theorem (one sparse
+        Cholesky)."""
+        if self.log_pdet is not None:
+            return 0.5 * self.log_pdet
+        values, pattern = _as_sparse(self.structure_scaled)
+        laplacian = SparseOperator(values, pattern)
+        return 0.5 * pseudo_logdet(laplacian, structure="laplacian")
+
+    @validate_sample
+    def log_prob(self, value: Float[Array, "*sample N"]) -> Float[Array, "*sample"]:
+        r"""$-\tfrac12 x^\top Q x + \tfrac n2\log\tfrac{\tau}{1-\phi}$, and extras.
+
+        Args:
+            value: Points ``(b, u*)``, shape ``(..., 2n)``.
+
+        Returns:
+            Log-densities, shape ``(...)``.
+        """
+        n = self._n()
+        quad = _quadratic(self.structure, value - self.loc)
+        result = -0.5 * quad + 0.5 * n * jnp.log(self.tau / (1.0 - self.phi))
+        if self.include_normalizer:
+            rank = 2 * n - self.icar_null_space.shape[1]
+            result = result + self._half_log_pdet() - 0.5 * rank * _LOG_2PI
+        if self.constraint == "soft":
+            scale = self.soft_constraint_scale
+            coeffs = einsum(value, self.null_space, "... n, n c -> ... c")
+            result = result - 0.5 * reduce(coeffs**2, "... c -> ...", "sum") / scale**2
+            if self.include_normalizer:
+                c = self.null_space.shape[1]
+                result = result - c * (math.log(scale) + 0.5 * _LOG_2PI)
+        return result
+
+    def sample(
+        self,
+        key: jax.Array | None,
+        sample_shape: tuple[int, ...] = (),
+    ) -> Float[Array, "*sample N"]:
+        """Exact draws: ``u*`` from the ICAR on ``R*``, then ``b`` from ``u*``.
+
+        Args:
+            key: PRNG key. ``None`` means ``jax.random.PRNGKey(0)``.
+            sample_shape: Leading sample shape.
+
+        Returns:
+            Draws ``(b, u*)``, shape ``sample_shape + (2n,)``.
+        """
+        if key is None:
+            key = jax.random.PRNGKey(0)
+        key_u, key_v = jax.random.split(key)
+        n = self._n()
+        u = self._icar(self.constraint).sample(key_u, sample_shape)
+        v = jax.random.normal(key_v, (*sample_shape, n), dtype=self.loc.dtype)
+        b = (jnp.sqrt(1.0 - self.phi) * v + jnp.sqrt(self.phi) * u) / jnp.sqrt(self.tau)
+        centre = self.loc if self.constraint == "none" else self._project(self.loc)
+        return centre + jnp.concatenate([b, u], axis=-1)
+
+    def marginal_variances(self) -> Float[Array, " N"]:
+        r"""``var(u*)`` from the ICAR on ``R*``, ``var(b) = ((1−φ) + φ var(u*))/τ``.
+
+        Returns:
+            Marginal variances of ``(b, u*)``, shape ``(2n,)``.
+        """
+        var_u = self._icar(self.constraint).marginal_variances()
+        var_b = ((1.0 - self.phi) + self.phi * var_u) / self.tau
+        return jnp.concatenate([var_b, var_u])

@@ -375,6 +375,7 @@ from gaussx._tags import (
 
 try:
     from gaussx._distributions._gmrf import (
+        BYM2GMRF as BYM2GMRF,
         ConstrainedGMRF as ConstrainedGMRF,
         GaussianMRF as GaussianMRF,
         IntrinsicGMRF as IntrinsicGMRF,
