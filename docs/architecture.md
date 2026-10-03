@@ -251,7 +251,10 @@ inspect an operator without knowing its concrete type. Full list in the
 
 A **strategy** bundles a `solve` and a `logdet` algorithm behind one object.
 Anything in gaussx that takes a `solver=` keyword takes one of these, and
-`solver=None` means "use structural dispatch".
+`solver=None` means "use structural dispatch". `inv_quad_logdet` follows the
+same rule: with `strategy=None` it takes the exact structural `solve` and
+`logdet` whenever the operator has them, and only falls back to `BBMMSolver`'s
+shared CG pass (a stochastic log-determinant) for operators that do not.
 
 ```mermaid
 flowchart TB
@@ -293,7 +296,12 @@ flowchart TB
 `AutoSolver`'s rule is deliberately boring and readable: structured operators go
 to `DenseSolver` (structural dispatch is already the fast path), dense operators
 below `size_threshold` (default 1000) go to `DenseSolver`, large PSD operators
-go to `CGSolver`, everything else falls back to `DenseSolver`.
+go to `CGSolver`, everything else falls back to `DenseSolver`. "Structured" is
+every operator with an exact structural `logdet` (including through
+`TaggedLinearOperator`, scalar multiples and negation), so a large
+`BlockTriDiag` or `KroneckerSum` stays exact. The large-PSD branch's `logdet`
+is a **stochastic**, fixed-seed SLQ estimate; pass
+`ComposedSolver(CGSolver(), DenseLogdet())` for an exact one.
 
 ### The front door
 
