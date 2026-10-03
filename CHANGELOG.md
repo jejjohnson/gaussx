@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/jejjohnson/gaussx/compare/v0.6.1...v0.6.2) (2026-10-03)
+
+
+### Bug Fixes
+
+* **sparse:** takahashi on a bucket of diagonal-only columns ([#521](https://github.com/jejjohnson/gaussx/issues/521)) ([2efa446](https://github.com/jejjohnson/gaussx/commit/2efa4469d56b21f6dda413c57eb1110be4bb09e3))
+
 ## [0.6.1](https://github.com/jejjohnson/gaussx/compare/v0.6.0...v0.6.1) (2026-10-03)
 
 
