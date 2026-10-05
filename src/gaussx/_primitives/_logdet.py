@@ -57,7 +57,7 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         Scalar log |det(A)|.
     """
     if isinstance(operator, lx.IdentityLinearOperator):
-        return jnp.array(0.0)
+        return jnp.zeros((), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _logdet_diagonal(operator)
     if isinstance(operator, DiagonalisedOperator):

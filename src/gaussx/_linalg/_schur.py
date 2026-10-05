@@ -45,7 +45,7 @@ def schur_complement(
     # = K_XX - K_XZ @ K_ZZ^{-1} @ K_XZ^T
     # LowRankUpdate: base + U @ diag(d) @ V^T
     # U = K_XZ (N, M), d = -ones(M), V = W^T (N, M)
-    d = -jnp.ones(M)
+    d = -jnp.ones(M, dtype=W.dtype)
     return LowRankUpdate(K_XX, K_XZ, d, W.T)
 
 

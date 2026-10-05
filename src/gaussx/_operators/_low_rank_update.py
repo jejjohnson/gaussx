@@ -128,11 +128,16 @@ class LowRankUpdate(lx.AbstractLinearOperator):
             orthonormal=self.orthonormal,
         )
 
+    def _dtype(self):
+        # ``mv`` returns the promoted dtype of base, U, d and V; the declared
+        # structure must agree, since lineax compares the two in solves.
+        return jnp.result_type(self.base.in_structure().dtype, self.U, self.d, self.V)
+
     def in_structure(self) -> jax.ShapeDtypeStruct:
-        return self.base.in_structure()
+        return jax.ShapeDtypeStruct(self.base.in_structure().shape, self._dtype())
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
-        return self.base.out_structure()
+        return jax.ShapeDtypeStruct(self.base.out_structure().shape, self._dtype())
 
 
 def low_rank_plus_diag(

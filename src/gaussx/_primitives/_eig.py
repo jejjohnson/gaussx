@@ -190,7 +190,7 @@ def _eig_partial(
 
     n = operator.in_size()
     rank = min(rank, n)
-    v0 = jr.normal(key, (n,))
+    v0 = jr.normal(key, (n,), dtype=operator.in_structure().dtype)
 
     tridiag = matfree.decomp.tridiag_sym(rank, reortho="full")
     eigh_fn = matfree.eig.eigh_partial(tridiag)

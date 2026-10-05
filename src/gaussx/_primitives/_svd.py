@@ -81,7 +81,8 @@ def _svd_diagonal(
     d = lx.diagonal(operator)
     n = d.shape[0]
     s = jnp.abs(d)
-    signs = jnp.where(d >= 0, 1.0, -1.0)
+    # +1 for d == 0, in d's dtype (Python-float branches would be default-float).
+    signs = jnp.where(d >= 0, 1, -1).astype(d.dtype)
     U = jnp.diag(signs)
     Vt = jnp.eye(n, dtype=d.dtype)
     return U, s, Vt
@@ -98,6 +99,8 @@ def _svd_partial(
 
     rank = min(rank, operator.in_size(), operator.out_size())
     n = operator.in_size()
+    # Default float on purpose: matfree's bidiag builds its state in JAX's
+    # default float, so a float32 start vector crashes its VJP under x64.
     v0 = jr.normal(key, (n,))
 
     bidiag = matfree.decomp.bidiag(rank)

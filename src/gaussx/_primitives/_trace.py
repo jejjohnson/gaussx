@@ -52,7 +52,7 @@ def trace(
         Scalar trace value (exact or estimated).
     """
     if isinstance(operator, lx.IdentityLinearOperator):
-        return jnp.asarray(float(operator.in_size()))
+        return jnp.asarray(operator.in_size(), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return jnp.sum(lx.diagonal(operator))
     if isinstance(operator, DiagonalisedOperator):
@@ -138,11 +138,15 @@ def _trace_stochastic(
                 "XTrace requires a rotationally invariant sampler; "
                 'use sampler="normal" or sampler="sphere".'
             )
-        probe_fn = resolve_sampler(sampler or "sphere", n, num_probes)
+        probe_fn = resolve_sampler(
+            sampler or "sphere", n, num_probes, dtype=operator.in_structure().dtype
+        )
         integrand = matfree.stochtrace.leave_one_out_xtrace()
         estimate = matfree.stochtrace.estimator_leave_one_out(integrand, probe_fn)
     elif algorithm == "hutchinson":
-        probe_fn = resolve_sampler(sampler or "signs", n, num_probes)
+        probe_fn = resolve_sampler(
+            sampler or "signs", n, num_probes, dtype=operator.in_structure().dtype
+        )
         integrand = matfree.stochtrace.monte_carlo_trace()
         estimate = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
     else:
@@ -180,7 +184,9 @@ def trace_and_diag(
         key = jax.random.PRNGKey(0)
 
     n = operator.in_size()
-    probe_fn = resolve_sampler(sampler, n, num_probes)
+    probe_fn = resolve_sampler(
+        sampler, n, num_probes, dtype=operator.in_structure().dtype
+    )
     integrand = matfree.stochtrace.monte_carlo_trace_and_diagonal()
     estimate = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
     result = estimate(operator.mv, key)

@@ -137,7 +137,9 @@ def _diag_stochastic(
         key = jax.random.PRNGKey(0)
 
     n = operator.in_size()
-    probe_fn = resolve_sampler(sampler, n, num_probes)
+    probe_fn = resolve_sampler(
+        sampler, n, num_probes, dtype=operator.in_structure().dtype
+    )
     integrand = matfree.stochtrace.monte_carlo_diagonal()
     estimate = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
     return estimate(operator.mv, key)

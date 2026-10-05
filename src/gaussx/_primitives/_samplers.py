@@ -11,6 +11,7 @@ from typing import Literal
 
 import jax.numpy as jnp
 import matfree.stochtrace
+from jax.typing import DTypeLike
 
 
 SamplerName = Literal["signs", "normal", "sphere"]
@@ -22,13 +23,17 @@ _SAMPLER_FACTORIES: dict[str, Callable] = {
 }
 
 
-def resolve_sampler(name: SamplerName, n: int, num_probes: int) -> Callable:
+def resolve_sampler(
+    name: SamplerName, n: int, num_probes: int, dtype: DTypeLike | None = None
+) -> Callable:
     """Build a matfree probe sampler by name.
 
     Args:
         name: ``"signs"`` (Rademacher-style), ``"normal"``, or ``"sphere"``.
         n: Problem dimension.
         num_probes: Number of probe vectors.
+        dtype: Probe dtype; pass the operator's, so its matvecs are not
+            promoted. ``None`` means JAX's default float.
 
     Returns:
         A matfree sampler callable.
@@ -39,4 +44,4 @@ def resolve_sampler(name: SamplerName, n: int, num_probes: int) -> Callable:
         raise ValueError(
             f"Unknown sampler {name!r}; expected one of {sorted(_SAMPLER_FACTORIES)}."
         ) from None
-    return factory(jnp.zeros(n), num=num_probes)
+    return factory(jnp.zeros(n, dtype=dtype), num=num_probes)
