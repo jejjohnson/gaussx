@@ -278,8 +278,40 @@ def _logdet_block_bidiagonal(
 
 def _logdet_dense(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     mat = operator.as_matrix()
+    if _is_psd(operator):
+        # A Cholesky is half an LU. A singular PSD matrix gives nan here (as
+        # numpyro does), not slogdet's -inf: non-finite either way (gh-329).
+        return _cholesky_logdet(jnp.linalg.cholesky(mat))
     _, ld = jnp.linalg.slogdet(mat)
     return ld
+
+
+def _is_psd(operator: lx.AbstractLinearOperator) -> bool:
+    """``lx.is_positive_semidefinite``, False where lineax does not know."""
+    try:
+        return bool(lx.is_positive_semidefinite(operator))
+    except NotImplementedError:
+        return False
+
+
+def _cholesky_logdet(factor: Float[Array, "N N"]) -> Float[Array, ""]:
+    """``log det(L Lᵀ)`` from a Cholesky factor ``L``."""
+    return 2.0 * jnp.sum(jnp.log(jnp.diag(factor)))
+
+
+def _dense_psd_matrix(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, "N N"] | None:
+    """The matrix of a PSD-tagged dense operator, looking through tags.
+
+    ``None`` for anything structured, so callers keep its dispatch.
+    """
+    inner = operator
+    while isinstance(inner, lx.TaggedLinearOperator):
+        inner = inner.operator
+    if not isinstance(inner, lx.MatrixLinearOperator) or not _is_psd(operator):
+        return None
+    return inner.matrix
 
 
 def pseudo_logdet(
