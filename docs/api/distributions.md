@@ -81,10 +81,10 @@ log_pdet = gx.pseudo_logdet(R, structure="laplacian") + (n - 1) * jnp.log(scale)
 
 
 def log_marginal(tau, phi):
-    prior = gx.BYM2GMRF(
-        R_star, tau, phi, V, include_normalizer=True, log_pdet=log_pdet
-    )
-    return gx.laplace_mode(prior, gx.PoissonLikelihood(counts), projector=A).log_marginal
+    prior = gx.BYM2GMRF(R_star, tau, phi, V, include_normalizer=True, log_pdet=log_pdet)
+    return gx.laplace_mode(
+        prior, gx.PoissonLikelihood(counts), projector=A
+    ).log_marginal
 ```
 
 ```python

@@ -77,7 +77,9 @@ A = gx.SparseOperator.from_coo(
     np.array([0, 0, 1]), np.array([0, 1, 3]), jnp.array([0.5, 0.5, 1.0]), (2, N)
 )
 w_t = jnp.array([1.0, 2.0])
-H = Q.union(Q.congruence(A, w_t), tags=lx.positive_semidefinite_tag)  # Q + Aᵀ diag(w_t) A
+H = Q.union(
+    Q.congruence(A, w_t), tags=lx.positive_semidefinite_tag
+)  # Q + Aᵀ diag(w_t) A
 x = gx.solve(H, jnp.ones(N))
 ```
 

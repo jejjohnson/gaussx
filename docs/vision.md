@@ -22,11 +22,11 @@ This is, we regret to say, barbaric.
 ```python
 import gaussx
 
-K = gaussx.Kronecker(A, B)   # 10,000 x 10,000, made of two 100 x 100 factors
+K = gaussx.Kronecker(A, B)  # 10,000 x 10,000, made of two 100 x 100 factors
 
-x  = gaussx.solve(K, y)      # 100 x 100 twice, not 10,000 x 10,000 once
-ld = gaussx.logdet(K)        # a weighted sum of two small logdets
-L  = gaussx.cholesky(K)      # a Kronecker of two small Cholesky factors
+x = gaussx.solve(K, y)  # 100 x 100 twice, not 10,000 x 10,000 once
+ld = gaussx.logdet(K)  # a weighted sum of two small logdets
+L = gaussx.cholesky(K)  # a Kronecker of two small Cholesky factors
 ```
 
 Same three lines you already write. Same math you already know. Around half a

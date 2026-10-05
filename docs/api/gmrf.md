@@ -99,7 +99,11 @@ A = gx.fem_projector(vertices, triangles, stations)  # 3 non-zeros per row
 
 # ...or on a global raster, with no mesh at all
 Q_grid = gx.spde_precision_grid(
-    (90, 180), kappa=0.3, tau=1.0, alpha=2, periodic=(False, True)  # wrap longitude
+    (90, 180),
+    kappa=0.3,
+    tau=1.0,
+    alpha=2,
+    periodic=(False, True),  # wrap longitude
 )
 sd_grid = jnp.sqrt(gx.diag_inv(Q_grid))  # exact, two small matrix products per axis
 ```

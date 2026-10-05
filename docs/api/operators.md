@@ -88,9 +88,9 @@ import gaussx
 n = 128
 k = 2 * jnp.pi * jnp.fft.fftfreq(n)
 symbol = (2 * jnp.cos(k) - 2)[:, None] + (2 * jnp.cos(k) - 2)[None, :]
-laplacian = gaussx.circulant_from_symbol(symbol)          # periodic 5-point ∇²
+laplacian = gaussx.circulant_from_symbol(symbol)  # periodic 5-point ∇²
 helmholtz = laplacian - 1.0 * lx.IdentityLinearOperator(laplacian.in_structure())
-psi = gaussx.solve(helmholtz, f)                          # two FFTs, no matrix
+psi = gaussx.solve(helmholtz, f)  # two FFTs, no matrix
 ```
 
 ::: gaussx

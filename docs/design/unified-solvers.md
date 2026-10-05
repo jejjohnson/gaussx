@@ -277,15 +277,18 @@ gaussx solvers only as runtime callables/operators.
 import gaussx
 import jax.numpy as jnp
 
+
 # A negative-definite 5-point Laplacian as a raw matvec (finitevolX style)
-def laplacian(x):           # x: (N,) flattened field
+def laplacian(x):  # x: (N,) flattened field
     ...
     return Lx
 
-A = gaussx.as_linear_operator(laplacian, shape=(N, N), symmetric=True,
-                              negative_definite=True)
 
-x = gaussx.linear_solve(A, b, solver=gaussx.CGSolver())   # routes neg-def correctly
+A = gaussx.as_linear_operator(
+    laplacian, shape=(N, N), symmetric=True, negative_definite=True
+)
+
+x = gaussx.linear_solve(A, b, solver=gaussx.CGSolver())  # routes neg-def correctly
 ```
 
 ### 6.2 Standalone preconditioners (gaussx)
@@ -298,8 +301,10 @@ P_nys = gaussx.NystromPreconditioner(matvec=A.mv, shape=(N, N), rank=50, key=key
 x = gaussx.linear_solve(A, b, solver=gaussx.CGSolver(), preconditioner=P_nys)
 
 # Adapter slot: any approximate-inverse operator/callable becomes a preconditioner
-P_spec = gaussx.OperatorPreconditioner(my_spectral_inverse)   # callable from spectraldiffx
-P_mg   = gaussx.OperatorPreconditioner(my_multigrid_solver)   # Mg object from finitevolX
+P_spec = gaussx.OperatorPreconditioner(
+    my_spectral_inverse
+)  # callable from spectraldiffx
+P_mg = gaussx.OperatorPreconditioner(my_multigrid_solver)  # Mg object from finitevolX
 ```
 
 ### 6.3 Capacitance operator (gaussx core, PDE repos supply the parts)
@@ -308,11 +313,11 @@ P_mg   = gaussx.OperatorPreconditioner(my_multigrid_solver)   # Mg object from f
 # base_solve: a fast regular-domain inverse (e.g. FFT Helmholtz) — passed in.
 # boundary_indices: flat indices of the constrained boundary ring — passed in.
 cap = gaussx.CapacitanceSolver(
-    base_solve=base_solve,            # Callable[[Array[N]], Array[N]]
-    boundary_indices=boundary_idx,    # Int[Array, "Nb"]
+    base_solve=base_solve,  # Callable[[Array[N]], Array[N]]
+    boundary_indices=boundary_idx,  # Int[Array, "Nb"]
     n=N,
 )
-u = cap(rhs_flat)                     # one base solve + Nb-sized correction
+u = cap(rhs_flat)  # one base solve + Nb-sized correction
 ```
 
 ---
@@ -341,7 +346,7 @@ x, info = fvx.solve_cg(
 import spectraldiffx as sdx
 
 cap = sdx.build_capacitance_solver(mask, dx=dx, dy=dy, lambda_=0.0, base_bc="fft")
-psi = cap(rhs)        # field in, field out (wrapper reshapes; gaussx does the algebra)
+psi = cap(rhs)  # field in, field out (wrapper reshapes; gaussx does the algebra)
 ```
 
 ### 7.3 gaussx — GP on a grid reuses the same preconditioner
@@ -349,10 +354,9 @@ psi = cap(rhs)        # field in, field out (wrapper reshapes; gaussx does the a
 ```python
 import gaussx
 
-K = gaussx.Toeplitz(first_col)                     # stationary kernel on 1-D grid
+K = gaussx.Toeplitz(first_col)  # stationary kernel on 1-D grid
 P = gaussx.NystromPreconditioner(matvec=K.mv, shape=K.shape, rank=64, key=key)
-alpha = gaussx.linear_solve(K + noise, y,
-                            solver=gaussx.CGSolver(), preconditioner=P)
+alpha = gaussx.linear_solve(K + noise, y, solver=gaussx.CGSolver(), preconditioner=P)
 ```
 
 ---

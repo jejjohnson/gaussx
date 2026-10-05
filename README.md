@@ -37,9 +37,9 @@ B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
 K = gaussx.Kronecker(A, B)
 
 v = jnp.ones(6)
-x = gaussx.solve(K, v)       # Per-factor solve (efficient)
-ld = gaussx.logdet(K)         # n_B * logdet(A) + n_A * logdet(B)
-L = gaussx.cholesky(K)        # Kronecker(chol(A), chol(B))
+x = gaussx.solve(K, v)  # Per-factor solve (efficient)
+ld = gaussx.logdet(K)  # n_B * logdet(A) + n_A * logdet(B)
+L = gaussx.cholesky(K)  # Kronecker(chol(A), chol(B))
 
 # Distributions with pluggable solver strategies
 mvn = gaussx.MultivariateNormal(

@@ -72,7 +72,7 @@ Bad: "You should add validation here"
 Good: "Add validation here. Proposed implementation:"
 ```python
 if value < 0:
-    raise ValueError('Value must be non-negative')
+    raise ValueError("Value must be non-negative")
 ```
 
 ### Simplicity First

@@ -74,13 +74,13 @@ Pure functions that match the equations in papers. Every one takes a
 `lineax.AbstractLinearOperator` and returns arrays or operators:
 
 ```python
-x     = gaussx.solve(A, b)   # solve A x = b
-ld    = gaussx.logdet(A)     # log|det(A)|
-L     = gaussx.cholesky(A)   # A = L L^T   (lazy, structure-preserving)
-d     = gaussx.diag(A)       # diagonal entries
-t     = gaussx.trace(A)      # tr(A)
-S     = gaussx.sqrt(A)       # S with S S = A
-A_inv = gaussx.inv(A)        # lazy A^{-1}
+x = gaussx.solve(A, b)  # solve A x = b
+ld = gaussx.logdet(A)  # log|det(A)|
+L = gaussx.cholesky(A)  # A = L L^T   (lazy, structure-preserving)
+d = gaussx.diag(A)  # diagonal entries
+t = gaussx.trace(A)  # tr(A)
+S = gaussx.sqrt(A)  # S with S S = A
+A_inv = gaussx.inv(A)  # lazy A^{-1}
 ```
 
 Two properties are worth internalising:
@@ -210,7 +210,7 @@ composition automatically:
 ```python
 K = gaussx.Kronecker(A, B)
 perturbed = K + 0.1 * lx.IdentityLinearOperator(K.in_structure())
-gaussx.solve(perturbed, y)   # dispatches through the sum
+gaussx.solve(perturbed, y)  # dispatches through the sum
 ```
 
 !!! note "Kernel operators live in kernellib"
