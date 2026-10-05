@@ -42,20 +42,30 @@ def solve(
 ) -> Float[Array, " n"]:
     """Solve ``A x = b`` with structural dispatch.
 
-    A singular or numerically singular ``A`` gives a non-finite solution
-    (``nan`` or ``inf``) rather than an error, with numpy semantics, as
+    Operators with no structural rule take a dense fallback. With the
+    default ``solver=None`` that fallback has numpy semantics: a singular or
+    numerically singular ``A`` gives a non-finite solution (``nan`` or
+    ``inf``), in the value and in its gradients, rather than an error, as
     `gaussx.logdet` already has. A log-density built on it is then
     non-finite too, which a sampler or optimiser can reject; an exception
-    would abort the whole run. Call `lineax.linear_solve` directly for a
-    hard error.
+    would abort the whole run. An explicit ``solver`` keeps lineax's
+    behaviour instead, which raises on a singular system or an iterative
+    solver that does not converge.
+
+    Structured rules keep their own semantics for singular operators: a
+    singular `gaussx.DiagonalisedOperator`, for example, returns the
+    minimum-norm pseudo-inverse solution.
 
     Args:
         operator: The linear operator A.
         vector: The right-hand side b.
         solver: Optional lineax solver override for the fallback path.
+            ``None`` uses a dense direct solve chosen from the operator's
+            tags (Cholesky for positive semi-definite, triangular, else LU).
 
     Returns:
-        The solution x; non-finite when ``A`` is singular.
+        The solution x. On the default dense fallback, non-finite when
+        ``A`` is singular.
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return vector
@@ -493,7 +503,45 @@ def _solve_fallback(
     solver: lx.AbstractLinearSolver | None,
 ) -> Float[Array, " n"]:
     if solver is None:
-        solver = lx.AutoLinearSolver(well_posed=True)
-    # throw=False: a singular operator gives a non-finite result instead of
-    # an EquinoxRuntimeError (numpy semantics; see the `solve` docstring).
-    return lx.linear_solve(operator, vector, solver, throw=False).value
+        return _dense_direct_solve(operator, vector)
+    # An explicit solver keeps lineax's error on a singular system or an
+    # unconverged iterative solve (see the `solve` docstring).
+    return lx.linear_solve(operator, vector, solver).value
+
+
+def _has_tag(predicate, operator: lx.AbstractLinearOperator) -> bool:
+    """A lineax structure predicate, False where lineax does not know."""
+    try:
+        return bool(predicate(operator))
+    except NotImplementedError:
+        return False
+
+
+def _dense_direct_solve(
+    operator: lx.AbstractLinearOperator,
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
+    """Dense direct solve with numpy semantics (gh-302).
+
+    Picks the factorisation `lineax.AutoLinearSolver(well_posed=True)` would,
+    but through ``jnp`` / ``jax.scipy``, which return ``nan``/``inf`` for a
+    singular matrix. ``lineax.linear_solve(..., throw=False)`` does that for
+    the value only: its JVP and transpose rules solve with ``throw=True``,
+    so a gradient through a singular operator would still raise.
+    """
+    matrix = operator.as_matrix()
+    if matrix.shape[0] != matrix.shape[1]:
+        raise ValueError(
+            f"solve needs a square operator without a solver, got {matrix.shape}; "
+            "pass e.g. solver=lineax.AutoLinearSolver(well_posed=False)."
+        )
+    if _has_tag(lx.is_diagonal, operator):
+        return vector / jnp.diagonal(matrix)
+    if _has_tag(lx.is_lower_triangular, operator):
+        return jax.scipy.linalg.solve_triangular(matrix, vector, lower=True)
+    if _has_tag(lx.is_upper_triangular, operator):
+        return jax.scipy.linalg.solve_triangular(matrix, vector, lower=False)
+    if _has_tag(lx.is_positive_semidefinite, operator):
+        factor = jnp.linalg.cholesky(matrix)
+        return jax.scipy.linalg.cho_solve((factor, True), vector)
+    return jnp.linalg.solve(matrix, vector)
