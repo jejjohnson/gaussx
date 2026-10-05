@@ -228,3 +228,32 @@ class TestNonConvergedDARE:
         A, H, Q, R, y, _ = self._unconverged()
         with pytest.raises(Exception, match="dare did not converge"):
             infinite_horizon_filter(A, H, Q, R, y, max_iter=2)
+
+
+def _float_system(dtype):
+    A = jnp.array([[0.9, 0.1], [0.0, 0.8]], dtype)
+    H = jnp.array([[1.0, 0.0]], dtype)
+    Q = 0.1 * jnp.eye(2, dtype=dtype)
+    R = 0.2 * jnp.eye(1, dtype=dtype)
+    # Drawn in float64 and cast, so both dtypes see the same data.
+    y = jax.random.normal(jax.random.key(0), (5, 1), dtype=jnp.float64).astype(dtype)
+    return A, H, Q, R, y
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_filter_keeps_the_model_dtype_without_init_mean(dtype):
+    """gh-386: the default init_mean used to be default-float, which crashed
+    a float32 model under x64."""
+    state = infinite_horizon_filter(*_float_system(dtype))
+    assert state.filtered_means.dtype == dtype
+    assert state.predicted_means.dtype == dtype
+    assert state.filtered_covs.dtype == dtype
+    assert state.log_likelihood.dtype == dtype
+
+
+def test_float32_log_likelihood_matches_float64():
+    ll32 = infinite_horizon_filter(*_float_system(jnp.float32)).log_likelihood
+    ll64 = infinite_horizon_filter(*_float_system(jnp.float64)).log_likelihood
+    # The float32 data is the float64 data rounded, so the two agree to
+    # float32 round-off over a 5-step scan.
+    assert jnp.allclose(ll32, ll64, rtol=1e-5)

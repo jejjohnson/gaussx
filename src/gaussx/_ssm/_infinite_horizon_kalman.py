@@ -176,9 +176,13 @@ def infinite_horizon_filter(
 
         return (x_filt_new, ll + ll_inc), (x_filt_new, x_pred)
 
+    # The carry takes the model's dtype, not JAX's default float: a
+    # default-float mean would meet the float32 S_inf of a float32 model in
+    # the solve above, which lineax rejects under x64.
+    dtype = jnp.result_type(observations, P_inf, K_inf)
     if init_mean is None:
-        init_mean = jnp.zeros(N)
-    init_carry = (init_mean, jnp.array(0.0))
+        init_mean = jnp.zeros(N, dtype=dtype)
+    init_carry = (jnp.asarray(init_mean, dtype=dtype), jnp.zeros((), dtype=dtype))
     (_, total_ll), (f_means, p_means) = jax.lax.scan(
         step,
         init_carry,
