@@ -146,10 +146,11 @@ class MultivariateNormalPrecision(dist.Distribution):
             _diag(_inv(self.prec_operator)), self.batch_shape + self.event_shape
         )
 
-    def entropy(self) -> Float[Array, ""]:
+    def entropy(self) -> Float[Array, "*batch"]:
         n = self.loc.shape[-1]
         ld = self.solver.logdet(self.prec_operator)
-        return 0.5 * (n * (1.0 + _LOG_2PI) - ld)
+        # One entry per batch element, as numpyro's contract requires.
+        return jnp.broadcast_to(0.5 * (n * (1.0 + _LOG_2PI) - ld), self.batch_shape)
 
 
 def _unwrap_scaled(
