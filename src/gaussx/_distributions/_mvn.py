@@ -104,7 +104,10 @@ class MultivariateNormal(dist.Distribution):
             )
         L = _cholesky(self.cov_operator)
         shape = sample_shape + self.batch_shape + self.event_shape
-        eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]
+        # Draw in the parameters' dtype (as sample_mvn does), not JAX's
+        # default float, so a float32 model stays float32 under x64.
+        dtype = jnp.result_type(self.loc, self.cov_operator.in_structure().dtype)
+        eps = jax.random.normal(key, shape=shape, dtype=dtype)  # type: ignore[arg-type]
         eps_flat = rearrange(eps, "... D -> (...) D")
         samples_flat = jax.vmap(L.mv)(eps_flat)
         return self.loc + _reshape_samples(samples_flat, shape[:-1])

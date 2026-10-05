@@ -309,8 +309,10 @@ class MarkovGaussian(dist.Distribution):
         chol_P0, chol_Q = self._chol_factors()
         T, d = self.horizon, self.state_dim
         k0, k_rest = jax.random.split(key)
-        x0 = self.mu0 + chol_P0 @ jax.random.normal(k0, (d,))
-        eps = jax.random.normal(k_rest, (T - 1, d))
+        # Draw in the parameters' dtype, not JAX's default float.
+        dtype = jnp.result_type(self.mu0, self.P0, self.Q)
+        x0 = self.mu0 + chol_P0 @ jax.random.normal(k0, (d,), dtype=dtype)
+        eps = jax.random.normal(k_rest, (T - 1, d), dtype=dtype)
 
         def _step(x, inputs):
             A_k, b_k, L_k, e_k = inputs

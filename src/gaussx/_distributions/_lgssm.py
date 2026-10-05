@@ -166,9 +166,17 @@ class LGSSM(dist.Distribution):
         L_Q = _cholesky(_psd(self.Q))
         L_R = _cholesky(_psd(self.R))
 
-        x0 = self.m0 + L_P0.mv(jax.random.normal(key_init, (N,)))
-        eps_q = jax.random.normal(key_q, (self.n_steps, N))
-        eps_r = jax.random.normal(key_r, (self.n_steps, M))
+        # Each noise term is drawn in its factor's dtype, not JAX's default
+        # float, so a float32 model stays float32 under x64.
+        x0 = self.m0 + L_P0.mv(
+            jax.random.normal(key_init, (N,), dtype=L_P0.in_structure().dtype)
+        )
+        eps_q = jax.random.normal(
+            key_q, (self.n_steps, N), dtype=L_Q.in_structure().dtype
+        )
+        eps_r = jax.random.normal(
+            key_r, (self.n_steps, M), dtype=L_R.in_structure().dtype
+        )
 
         def step(x, noise):
             e_q, e_r = noise
