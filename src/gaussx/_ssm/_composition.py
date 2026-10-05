@@ -57,19 +57,9 @@ class SumSDE(SDEKernel):
             else jsl.block_diag(*component_p_inf)
         )
 
-        L_blocks = [p.L for p in params_list]
-        total_rows = sum(b.shape[0] for b in L_blocks)
-        total_cols = sum(b.shape[1] for b in L_blocks)
-        L = jnp.zeros((total_rows, total_cols))
-        row_offset = 0
-        col_offset = 0
-        for block in L_blocks:
-            r, c = block.shape
-            L = L.at[row_offset : row_offset + r, col_offset : col_offset + c].set(
-                block
-            )
-            row_offset += r
-            col_offset += c
+        # ``block_diag`` takes rectangular blocks and keeps their dtype; an
+        # untyped ``jnp.zeros`` accumulator would be float64 under x64.
+        L = jsl.block_diag(*[p.L for p in params_list])
 
         Q_c = jsl.block_diag(*[p.Q_c for p in params_list])
         H = jnp.concatenate([p.H for p in params_list], axis=1)
