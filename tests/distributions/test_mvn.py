@@ -478,10 +478,11 @@ def test_sample_singular_covariance_is_finite_and_in_span():
     assert jnp.all(jnp.isfinite(draws))
     # Each draw is a multiple of v: its component orthogonal to v vanishes,
     # up to the symmetric square root's error on the zero eigenvalues,
-    # sqrt(eps * ||S||) ~ 4e-8 here.
+    # sqrt(eps * ||S||): ~4e-8 in float64, ~8e-4 in float32 (no-x64 lane).
     coeffs = draws @ v / (v @ v)
     residual = draws - jnp.outer(coeffs, v)
-    assert jnp.allclose(residual, 0.0, atol=1e-6)
+    bound = 10 * jnp.sqrt(jnp.finfo(draws.dtype).eps * (v @ v))
+    assert jnp.all(jnp.abs(residual) <= bound)
 
 
 @pytest.mark.parametrize("name", list(_STRUCTURED))
