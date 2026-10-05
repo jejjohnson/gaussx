@@ -102,7 +102,10 @@ class MultivariateNormalPrecision(dist.Distribution):
             )
         L = _cholesky(self.prec_operator)
         shape = sample_shape + self.batch_shape + self.event_shape
-        eps = jax.random.normal(key, shape=shape)  # type: ignore[arg-type]
+        # Draw in the parameters' dtype: default-float noise meets a float32
+        # factor in the solve below, which lineax rejects under x64.
+        dtype = jnp.result_type(self.loc, self.prec_operator.in_structure().dtype)
+        eps = jax.random.normal(key, shape=shape, dtype=dtype)  # type: ignore[arg-type]
 
         def _solve_one(z):
             if isinstance(L, SparseCholeskyFactor):
