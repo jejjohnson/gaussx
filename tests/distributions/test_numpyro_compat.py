@@ -7,10 +7,7 @@ SVI, and Predictive.
 
 from __future__ import annotations
 
-import numpyro.distributions as nd
 import pytest
-
-import gaussx
 
 
 pytest.importorskip("numpyro")
@@ -21,12 +18,14 @@ import jax.random as jr
 import lineax as lx
 import numpyro
 import numpyro.distributions as dist
+import numpyro.distributions as nd
 import numpyro.infer as infer
 from numpyro import handlers
 from numpyro.infer import SVI, Predictive, Trace_ELBO
 from numpyro.infer.autoguide import AutoNormal
 from numpyro.infer.util import log_density
 
+import gaussx
 from gaussx._distributions import MultivariateNormal, MultivariateNormalPrecision
 from gaussx._operators import Kronecker
 from gaussx._testing import tree_allclose
@@ -355,3 +354,26 @@ def test_trace_mean_field_elbo_uses_the_analytic_kl():
     expected = gaussx.dist_kl_divergence(jnp.ones(3), cov, jnp.zeros(3), cov)
     assert jnp.allclose(loss_a, loss_b, rtol=1e-12)
     assert jnp.allclose(loss_a, expected, rtol=1e-10)
+
+
+def test_kl_defers_to_monte_carlo_for_matrix_free_strategies():
+    """gh-313 review: a CG strategy asks for matrix-free solves, which the
+    closed form would not honour, so numpyro keeps its Monte Carlo KL."""
+    from gaussx import CGSolver
+
+    cov = lx.MatrixLinearOperator(
+        _random_spd(jr.key(1), 3), lx.positive_semidefinite_tag
+    )
+    p = gaussx.MultivariateNormal(jnp.zeros(3), cov, solver=CGSolver())
+    q = gaussx.MultivariateNormal(jnp.ones(3), cov)
+    with pytest.raises(NotImplementedError, match="exact solves"):
+        nd.kl_divergence(p, q)
+
+
+def test_kl_survives_plate_expansion():
+    """numpyro's ExpandedDistribution KL delegates to the base pair."""
+    cov = lx.MatrixLinearOperator(2 * jnp.eye(3), lx.positive_semidefinite_tag)
+    p = gaussx.MultivariateNormal(jnp.zeros(3), cov).expand((4,))
+    q = gaussx.MultivariateNormal(jnp.ones(3), cov).expand((4,))
+    expected = gaussx.dist_kl_divergence(jnp.zeros(3), cov, jnp.ones(3), cov)
+    assert jnp.allclose(nd.kl_divergence(p, q), jnp.full(4, expected), rtol=1e-12)

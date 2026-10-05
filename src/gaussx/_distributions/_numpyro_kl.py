@@ -24,6 +24,8 @@ from gaussx._distributions._mvn_prec import MultivariateNormalPrecision
 from gaussx._distributions._utils import _reshape_batch
 from gaussx._einx import rearrange
 from gaussx._primitives._inv import inv
+from gaussx._strategies._auto import AutoSolver
+from gaussx._strategies._dense import DenseSolver
 
 
 _Gaussian = MultivariateNormal | MultivariateNormalPrecision | nd.MultivariateNormal
@@ -37,6 +39,24 @@ def _shared_covariance(d: _Gaussian) -> lx.AbstractLinearOperator | None:
         # Lazy: the KL's structural dispatch sees the inverse of the precision.
         return inv(d.prec_operator)
     return None
+
+
+def _has_exact_kl(d: _Gaussian) -> bool:
+    """Whether ``d``'s solver strategy solves exactly (gh-313 review).
+
+    `dist_kl_divergence` uses exact structural dispatch, densifying where
+    there is no structural rule. That matches a distribution whose strategy
+    is `DenseSolver` (or an `AutoSolver` choosing it), but not one that asked
+    for a matrix-free iterative or stochastic strategy.
+    """
+    if isinstance(d, nd.MultivariateNormal):
+        return True
+    operator = d.cov_operator if isinstance(d, MultivariateNormal) else d.prec_operator
+    if isinstance(d.solver, DenseSolver):
+        return True
+    if isinstance(d.solver, AutoSolver):
+        return isinstance(d.solver._get_strategy(operator), DenseSolver)
+    return False
 
 
 def _flat_dense_covariance(
@@ -58,6 +78,14 @@ def _gaussian_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
         raise ValueError(
             "Distributions must have the same event shape, but are"
             f" {p.event_shape} and {q.event_shape} for p and q, respectively."
+        )
+    if not (_has_exact_kl(p) and _has_exact_kl(q)):
+        # numpyro's callers (TraceMeanField_ELBO) catch this and estimate the
+        # KL by Monte Carlo through each distribution's own log_prob, which
+        # honours a matrix-free CG/SLQ strategy; the closed form would not.
+        raise NotImplementedError(
+            "The closed-form KL needs exact solves: both distributions must use "
+            "DenseSolver, or an AutoSolver that routes to it."
         )
     batch_shape = jnp.broadcast_shapes(p.batch_shape, q.batch_shape)
     (n,) = p.event_shape
