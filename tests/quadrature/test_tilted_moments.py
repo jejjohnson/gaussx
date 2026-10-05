@@ -136,3 +136,30 @@ def test_float32_negative_cavity():
     )
     assert jnp.all(jnp.isfinite(t_mean)) and jnp.all(jnp.isfinite(t_var))
     assert t_var[0] == jnp.float32(-0.5)
+
+
+@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+def test_tilted_moments_follow_the_cavity_dtype(dtype):
+    """gh-400: the Gauss-Hermite nodes were default-float, so a float32
+    cavity came back float64 under x64."""
+    cav_mean = jnp.array([0.0, 0.5], dtype)
+    cav_var = jnp.array([1.0, 2.0], dtype)
+    t_mean, t_var = ep_tilted_moments(
+        lambda f: -0.5 * (1.0 - f) ** 2, cav_mean, cav_var
+    )
+    assert t_mean.dtype == dtype
+    assert t_var.dtype == dtype
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-12])
+def test_tilted_variance_is_scale_invariant(scale):
+    """gh-400: an absolute 1e-10 floor returned 200x the exact variance at
+    scale 1e-12. Gaussian likelihood (variance s2) times a Gaussian cavity
+    (variance v) has the closed-form tilted variance v * s2 / (v + s2)."""
+    v = s2 = scale
+    # order=30, as in test_gaussian_likelihood_exact: GH-20's own error on
+    # this integrand is ~2e-8 relative, at every scale.
+    _, t_var = ep_tilted_moments(
+        lambda f: -0.5 * f**2 / s2, jnp.array([0.0]), jnp.array([v]), order=30
+    )
+    assert jnp.allclose(t_var[0], v * s2 / (v + s2), rtol=1e-8, atol=0.0)

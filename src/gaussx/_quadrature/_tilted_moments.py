@@ -38,7 +38,10 @@ def ep_tilted_moments(
     """
     from gaussx._quadrature._quadrature import gauss_hermite_points
 
-    z, w = gauss_hermite_points(order, dim=1)
+    # Nodes in the cavity's dtype (at least float32), so a float32 cavity
+    # is not promoted to float64 under x64.
+    dtype = jnp.result_type(cav_mean, cav_var, jnp.float32)
+    z, w = gauss_hermite_points(order, dim=1, dtype=dtype)
     z = z.squeeze(-1)
     log_w = jnp.log(w)
 
@@ -61,7 +64,10 @@ def ep_tilted_moments(
 
         t_mean = jnp.sum(weights * f_nodes)
         t_var = jnp.sum(weights * (f_nodes - t_mean) ** 2)
-        t_var = jnp.maximum(t_var, 1e-10)
+        # Floor relative to the cavity, not in absolute units: a tilted
+        # variance below eps * cavity variance is quadrature round-off, and
+        # an absolute floor would inflate small-scale problems.
+        t_var = jnp.maximum(t_var, jnp.finfo(t_var.dtype).eps * var_i)
         return t_mean, t_var
 
     orig_shape = cav_mean.shape
