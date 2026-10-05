@@ -14,6 +14,7 @@
 make install     # Install all dependencies (uv sync --all-groups) + pre-commit hooks
 make test        # Full suite in parallel (uv run pytest -v -n auto)
 make test-fast   # Fast tests only (skips slow + integration; matches PR CI)
+make test-no-x64 # Float32 lane: fast tests with x64 off (matches PR CI)
 make test-slow   # Only the slow + integration tests
 make test-cov    # Full suite with a coverage report
 make lint        # Lint code (ruff check)

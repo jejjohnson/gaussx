@@ -64,8 +64,8 @@ check-env-%: FORCE
 # Phony declarations
 # ---------------------------------------------------------------------------
 .PHONY: help version install init lint format typecheck test test-fast \
-        test-slow test-cov precommit build clean docs docs-serve docs-deploy \
-        FORCE
+        test-slow test-no-x64 test-cov precommit build clean docs docs-serve \
+        docs-deploy FORCE
 
 FORCE:
 
@@ -79,7 +79,7 @@ help: ## 📚 Show this help menu
 	@printf "$(YELLOW)🐍 gaussx$(RESET)\n"
 	@printf "%s\n" "-----------------------------------------------------------"
 	@awk 'BEGIN {FS = ":.*##"; printf ""} \
-	     /^[a-zA-Z_-]+:.*?##/ { printf "  $(BLUE)%-18s$(RESET) %s\n", $$1, $$2 } \
+	     /^[a-zA-Z0-9_-]+:.*?##/ { printf "  $(BLUE)%-18s$(RESET) %s\n", $$1, $$2 } \
 	     /^##@/ { printf "\n$(YELLOW)%s$(RESET)\n", substr($$0, 5) } ' \
 	     $(MAKEFILE_LIST)
 
@@ -141,6 +141,28 @@ test-fast: ## ⚡ Run fast unit tests (skips slow + integration; matches PR CI)
 	@printf "$(YELLOW)>>> Running fast tests...$(RESET)\n"
 	uv run pytest -v -n auto -m "not slow and not integration"
 	@printf "$(GREEN)>>> ✅ Fast tests passed!$(RESET)\n"
+
+# Fast tests run with x64 off (JAX's default float32) by test-no-x64 and CI.
+NO_X64_TESTS := tests/primitives \
+	tests/operators \
+	tests/linalg \
+	tests/distributions/test_mvn.py \
+	tests/distributions/test_mvn_prec.py \
+	tests/distributions/test_gaussian.py \
+	tests/distributions/test_sample_mvn.py \
+	tests/distributions/test_markov_gaussian.py \
+	tests/distributions/test_lgssm.py \
+	tests/distributions/test_sample_dtype.py \
+	tests/ssm/test_kalman.py \
+	tests/ssm/test_parallel_kalman.py \
+	tests/ssm/test_infinite_horizon_kalman.py \
+	tests/ssm/test_sde_kernels.py \
+	tests/test_dtype_preservation.py
+
+test-no-x64: ## 🔢 Run the float32 lane: fast tests with x64 off (matches PR CI)
+	@printf "$(YELLOW)>>> Running fast tests with x64 off...$(RESET)\n"
+	GAUSSX_TEST_X64=0 uv run pytest -n auto -m "not slow and not integration" $(NO_X64_TESTS)
+	@printf "$(GREEN)>>> ✅ No-x64 tests passed!$(RESET)\n"
 
 test-slow: ## 🐢 Run only the slow + integration tests
 	@printf "$(YELLOW)>>> Running slow/integration tests...$(RESET)\n"

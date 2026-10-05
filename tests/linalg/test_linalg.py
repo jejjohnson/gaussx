@@ -294,6 +294,7 @@ def _low_rank(key, n, k, base):
 @pytest.mark.parametrize(
     "base_kind", ["zero", "diagonal", "dense"], ids=["zero", "diagonal", "dense"]
 )
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_trace_product_low_rank_matches_dense(base_kind):
     n = 9
     keys = jr.split(jr.key(0), 4)

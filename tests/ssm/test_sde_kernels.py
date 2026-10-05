@@ -125,11 +125,13 @@ class TestScaledBessel:
 
     @pytest.mark.parametrize("n_max", [6, 10, 20])
     @pytest.mark.parametrize("x", [0.04, 0.25, 1.0, 4.0, 11.0, 25.0, 44.0, 100.0, 1e3])
+    @pytest.mark.x64_only(reason="matches a float64 scipy reference to ~1e-12")
     def test_matches_scipy_ive(self, n_max, x):
         got = np.asarray(_scaled_bessel_i(n_max, jnp.array(x)))
         ref = scipy.special.ive(np.arange(n_max + 1), x)
         np.testing.assert_allclose(got, ref, rtol=1e-10)
 
+    @pytest.mark.x64_only(reason="matches a float64 scipy reference to ~1e-12")
     def test_short_lengthscale_keeps_its_variance(self):
         # The old fixed 20-term series gave trace ≈ 5e-10 here.
         kern = PeriodicSDE(
@@ -145,6 +147,7 @@ class TestScaledBessel:
         assert jnp.allclose(jnp.trace(P_inf[2:, 2:]), ref, rtol=1e-10)
 
     @pytest.mark.parametrize("ell", [0.1, 0.2, 0.5, 1.0, 5.0])
+    @pytest.mark.x64_only(reason="finite-difference gradient check needs float64 steps")
     def test_gradient_matches_finite_differences(self, ell):
         def trace(ell):
             kern = PeriodicSDE(
@@ -504,6 +507,7 @@ class TestLyapunovConsistency:
     """
 
     @pytest.mark.parametrize("name", list(_kernel_zoo()))
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_stationary_lyapunov_residual_is_zero(self, name):
         params = _kernel_zoo()[name].sde_params()
         assert params.P_inf is not None, f"{name} has no stationary covariance"
@@ -652,6 +656,7 @@ class TestProductSDEParamsRobustness:
         assert A.dtype == f32
         assert Q.dtype == f32
 
+    @pytest.mark.x64_only(reason="asserts float64 dtypes")
     def test_sum_l_is_block_diagonal_with_rectangular_blocks(self):
         """L keeps its block layout, including non-square component blocks."""
         k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=2)
@@ -799,6 +804,7 @@ class TestIntegratedWienerSDE:
         assert jnp.allclose(Q, 0.0)
         assert jnp.all(jnp.isfinite(A)) and jnp.all(jnp.isfinite(Q))
 
+    @pytest.mark.x64_only(reason="asserts float64 dtypes")
     def test_initial_covariance_defaults_to_diffuse(self):
         kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
         P_0 = kern.initial_covariance()
@@ -870,6 +876,7 @@ class TestIntegratedWienerSDE:
         assert jnp.allclose(grad_Q, 0.6)
 
     @pytest.mark.parametrize("order", [13, 20])
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_high_orders_keep_valid_coefficients(self, order):
         """Factorials must not overflow into negative coefficients.
 

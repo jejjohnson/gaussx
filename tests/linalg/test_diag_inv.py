@@ -168,6 +168,7 @@ class TestShiftedKronecker:
         return jnp.kron(temporal.as_matrix(), spatial_matrix) + self.c * jnp.eye(n)
 
     @pytest.mark.parametrize("form", ["sum_of_kroneckers", "lineax_sum"])
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_matches_dense_without_materialising_spatial_factor(self, form):
         L_H, L_W = _path_laplacian(3), _path_laplacian(4)
         spatial = _MatvecOnlyKroneckerSum(L_H, L_W)
@@ -180,6 +181,7 @@ class TestShiftedKronecker:
         expected = jnp.diag(jnp.linalg.inv(K))
         assert jnp.allclose(diag_inv(op), expected, atol=1e-12)
 
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_fft_spatial_factor(self):
         spatial = gaussx.Circulant(jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0]))
         temporal, shifted, _ = self._operators(spatial)

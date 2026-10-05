@@ -355,6 +355,7 @@ def test_kronecker_sum_with_traced_factors() -> None:
     assert_sample_moments(samples, jnp.zeros(6), expected)
 
 
+@pytest.mark.x64_only(reason="asserts float64 dtypes")
 def test_a_wider_mean_dtype_is_kept() -> None:
     covariance = lx.DiagonalLinearOperator(jnp.ones(2, dtype=jnp.float32))
     mean = jnp.array([1e8 + 0.25, -3.0], dtype=jnp.float64)
@@ -421,6 +422,7 @@ def test_traced_values_that_rule_out_a_structured_route_fall_back_exactly(
     assert_sample_moments(samples, jnp.zeros(expected.shape[0]), expected)
 
 
+@pytest.mark.x64_only(reason="asserts float64 dtypes")
 def test_an_empty_batch_keeps_the_represented_dtype() -> None:
     # float32 base, float64 U: the matrix is float64, but in_structure says
     # float32. Empty and non-empty draws must agree on the dtype.

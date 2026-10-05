@@ -105,6 +105,7 @@ testpaths = ["tests"]
 markers = [
     "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
     "integration: end-to-end workflows (MCMC/SVI fits through numpyro)",
+    "x64_only: needs float64 (tight tolerances or float64 references); skipped in the no-x64 lane, with a reason in the marker",
 ]
 
 [tool.coverage.run]

@@ -205,6 +205,7 @@ def test_solve_untagged_nonsymmetric_factors_is_correct():
     assert jnp.allclose(op.mv(x), b, atol=1e-10)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_solve_tagged_symmetric_factors_keeps_structured_path(kron_sum):
     """PSD-tagged factors still use the per-factor ``eigh`` solve."""
     b = jnp.arange(kron_sum.in_size(), dtype=jnp.float64)

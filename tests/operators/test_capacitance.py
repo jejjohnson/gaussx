@@ -28,6 +28,7 @@ def test_capacitance_enforces_boundary_constraint(getkey):
     assert tree_allclose(x[boundary], jnp.zeros(boundary.shape[0]), atol=1e-6)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_capacitance_residual_supported_on_boundary(getkey):
     """``B x - f`` vanishes away from the constrained indices.
 
@@ -127,6 +128,7 @@ def test_singular_base_without_null_vector_leaves_constant_residual(masked_probl
     assert float(jnp.std(res)) < 1e-10  # the error is a constant
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_singular_base_with_null_vector_solves_the_pde(masked_problem):
     """gh-260: with the null vector the PDE holds away from the constraints."""
     boundary, rhs, free = masked_problem
@@ -196,6 +198,7 @@ def test_solver_stores_no_green_table(masked_problem):
         assert leaf.size <= max(n, (n_b + 1) ** 2)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_solver_works_under_plain_jit(masked_problem):
     """gh-259: ``base_solve`` is static, so the solver can be passed straight
     through plain ``jax.jit`` (all its pytree leaves are arrays)."""
@@ -220,6 +223,7 @@ def _nonsymmetric_singular(n=9):
 
 
 @pytest.mark.parametrize("singular", [False, True], ids=["regular", "singular"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_transpose_matches_a_solver_built_for_the_transpose(singular):
     # gh-290: transpose() reuses the factorisation (trans=1, swapped null
     # vectors, flipped border sign) instead of N_b more base solves.

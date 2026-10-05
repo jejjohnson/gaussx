@@ -112,6 +112,7 @@ def test_solve_shifted_drop_projects_out_null_mode():
     assert jnp.allclose(A @ x, b, atol=1e-11)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_kronecker_sum_solve_2d_is_sylvester(mat_a, mat_b):
     """A X + X Bᵀ − σX = R with non-symmetric A, B."""
     fa = gaussx.EigenFactorization.from_matrix(mat_a)
@@ -122,6 +123,7 @@ def test_kronecker_sum_solve_2d_is_sylvester(mat_a, mat_b):
     assert jnp.max(jnp.abs(residual)) < 1e-11
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_kronecker_sum_solve_matches_dense_kron(mat_a, mat_b):
     """Row-major vec: (A ⊗ I + I ⊗ B − σI) vec(X) = vec(R)."""
     fa = gaussx.EigenFactorization.from_matrix(mat_a)
@@ -146,6 +148,7 @@ def test_kronecker_sum_solve_3d():
     assert jnp.max(jnp.abs(AX - 0.2 * X - R)) < 1e-11
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_kronecker_sum_solve_trailing_batch(mat_a, mat_b):
     fa = gaussx.EigenFactorization.from_matrix(mat_a)
     fb = gaussx.EigenFactorization.from_matrix(mat_b)

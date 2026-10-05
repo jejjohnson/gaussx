@@ -51,6 +51,7 @@ def test_sqrt_kronecker(getkey):
     assert tree_allclose(reconstructed, K.as_matrix(), rtol=1e-4)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_sqrt_kronecker_sum(getkey):
     A = random_pd_matrix(getkey(), 2)
     B = random_pd_matrix(getkey(), 3)
@@ -120,6 +121,7 @@ class TestDenseSqrtGradients:
         ],
         ids=["isotropic", "degenerate-pairs", "distinct"],
     )
+    @pytest.mark.x64_only(reason="finite-difference gradient check needs float64 steps")
     def test_jvp_matches_finite_differences(self, matrix, getkey):
         direction = random_pd_matrix(getkey(), matrix.shape[0])
         step = 1e-6
@@ -158,6 +160,7 @@ def _dense_isotropic_root(s, B):
 
 
 @pytest.mark.parametrize("inverse", [False, True], ids=["mv", "solve"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_sqrt_kronecker_sum_grad_with_repeated_eigenvalue(inverse):
     # gh-295: KroneckerSumSqrt exposed its eigh eigenvectors to autodiff,
     # so the gradient was NaN for a factor with a repeated eigenvalue.

@@ -248,6 +248,7 @@ class TestTransformsAndConsumers:
         assert tree_allclose(structured, reference, atol=1e-10)
 
     @pytest.mark.parametrize("anchor_kind", ["shift", "diagonal"])
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_solve_gradient_matches_dense_with_degenerate_factors(self, anchor_kind):
         """Solve gradients stay exact on repeated / clustered eigenvalues.
 

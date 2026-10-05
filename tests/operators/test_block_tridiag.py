@@ -185,6 +185,7 @@ class TestSingleBlock:
     @pytest.mark.parametrize("d", [1, 3])
     @pytest.mark.parametrize("kind", ["full", "lower", "upper"])
     @pytest.mark.parametrize("jit", [False, True], ids=["eager", "jit"])
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_matches_dense(self, d, kind, jit):
         _, ops = self._ops(d)
         op = ops[kind]

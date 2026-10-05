@@ -54,6 +54,7 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 make install              # Install all deps (uv sync --all-groups) + pre-commit hooks
 make test                 # Run tests in parallel: uv run pytest -v -n auto
 make test-fast            # Fast unit tests (skips slow + integration; matches PR CI)
+make test-no-x64          # Float32 lane: fast tests with x64 off (matches PR CI)
 make test-slow            # Only the slow + integration tests
 make test-cov             # Run tests with coverage report (parallel)
 make format               # Auto-fix: ruff format . && ruff check --fix .
@@ -109,6 +110,23 @@ When adding tests:
   numerics, `jit`+`grad`+`vmap` sweeps, long scans).
 - `@pytest.mark.integration`: end-to-end workflows (e.g. MCMC/SVI fits
   through numpyro). Usually combined with `slow`.
+
+## The float32 (no-x64) lane
+
+`tests/conftest.py` enables x64 for the whole suite, so CI also runs a
+float32 lane on every PR: `make test-no-x64` runs the subset listed in the
+Makefile's `NO_X64_TESTS` with `GAUSSX_TEST_X64=0`, i.e. in JAX's default
+configuration where float64 does not exist.
+
+- Build test inputs in the active default float: the `gaussx._testing`
+  `random_*` helpers do this when `dtype` is left as `None`.
+- A dtype parametrisation is `[jnp.float32, pytest.param(jnp.float64,
+  marks=pytest.mark.x64_only(reason="float64 case"))]`, so the float32 case
+  still runs in the lane.
+- A test that genuinely needs float64 (a tolerance float32 cannot meet, a
+  float64 reference, finite differences) takes
+  `@pytest.mark.x64_only(reason="...")`. The reason is required; collection
+  fails without one.
 
 ## Tests That Assert On Random Draws
 

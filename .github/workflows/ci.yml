@@ -38,6 +38,24 @@ jobs:
       - name: Run fast tests with coverage
         run: uv run pytest -n auto -m "not slow and not integration" --cov=src/gaussx --cov-report=term-missing:skip-covered
 
+  # Every PR: the float32 lane. The suite otherwise runs with x64 on, so
+  # JAX's default configuration (float32, no float64) is never exercised.
+  # `make test-no-x64` runs the curated subset in NO_X64_TESTS with
+  # GAUSSX_TEST_X64=0; tests marked x64_only (with a reason) are skipped.
+  test-no-x64:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.12"
+      - name: Install dependencies
+        run: uv sync --locked --group dev
+      - name: Run fast tests with x64 off
+        run: make test-no-x64
+
   # Every PR and push: strict docs build (`strict: true` in mkdocs.yml), so a
   # broken cross-reference or an unresolvable `::: gaussx.X` fails here, not
   # on the deployed site. Notebooks are pre-executed, so no kernel is needed.

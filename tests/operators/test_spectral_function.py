@@ -57,6 +57,7 @@ class TestSpectralFunction:
         assert jnp.allclose(gaussx.diag_inv(operator), jnp.diag(jnp.linalg.inv(dense)))
         assert jnp.allclose(gaussx.diag(operator), jnp.diag(dense))
 
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_sqrt_matmul(self, operator):
         dense = dense_function(operator.base.as_matrix(), operator.fn)
         b = jr.normal(jr.key(1), (12,))
@@ -76,6 +77,7 @@ class TestSpectralFunction:
         expected = jnp.diag(jnp.linalg.pinv(op.as_matrix()))
         assert jnp.allclose(gaussx.diag_inv(op, pinv=True), expected, atol=1e-10)
 
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_from_eigen_factorizations_matches_init(self, operator):
         factors = [
             gaussx.EigenFactorization.from_matrix(path_laplacian(3), symmetric=True),

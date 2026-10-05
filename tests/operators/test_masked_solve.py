@@ -72,6 +72,7 @@ def _masked(op, mask, periodic=True):
 
 
 @pytest.mark.parametrize("lam", [0.0, 1.0])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_masked_solve_matches_dense(disc_mask, lam):
     """λ = 1 (non-singular base) and λ = 0 (singular: null vector derived)."""
     op = _laplacian(lam)
@@ -294,6 +295,7 @@ def test_transpose_keeps_capacitance(symmetric):
     assert jnp.allclose(gaussx.solve(op.T.T, _SMALL_F), gaussx.solve(op, _SMALL_F))
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_transpose_of_singular_base_under_jit(disc_mask):
     # Bordered (null-vector) capacitance, transposed inside a trace.
     op = _laplacian(0.0)
@@ -308,6 +310,7 @@ def test_transpose_of_singular_base_under_jit(disc_mask):
 @pytest.mark.parametrize(
     ("old", "new"), [(0.0, 0.5), (1.0, 0.0)], ids=["singular-to-regular", "to-singular"]
 )
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_with_base_rebuilds_the_capacitance(disc_mask, old, new):
     # The capacitance is a cache of the base; after an update (here a new
     # shift, as an optimiser step would produce) with_base rebuilds it,
@@ -323,6 +326,7 @@ def test_with_base_rebuilds_the_capacitance(disc_mask, old, new):
     assert jnp.allclose(gaussx.solve(rebuilt.T, f), expected, atol=1e-10)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_traced_singular_base_needs_an_explicit_null_vector(disc_mask):
     # Built under jit, the null vector of a singular base cannot be derived:
     # without one the solve raises instead of solving the wrong system, and

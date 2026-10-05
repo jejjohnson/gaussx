@@ -22,14 +22,44 @@ from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 # ---------------------------------------------------------------------------
 
 
+_DEFAULT_TOLERANCES = {
+    # (rtol, atol). float64 keeps the historical defaults; float32 allows
+    # ~100 eps of relative and absolute round-off, so a float32 matvec
+    # compared with a float32 matmul does not fail on entries near zero.
+    8: (1e-5, 1e-8),
+    4: (1e-4, 1e-5),
+    2: (1e-2, 1e-3),
+}
+
+
+def default_tolerances(*trees) -> tuple[float, float]:
+    """``(rtol, atol)`` for the lowest-precision float leaf in ``trees``.
+
+    Lets one assertion hold in both the x64 and the no-x64
+    (``GAUSSX_TEST_X64=0``) lanes. Trees with no float leaves get the
+    float64 defaults.
+    """
+    # finfo gives the component precision for complex dtypes too.
+    sizes = [
+        jnp.finfo(leaf.dtype).bits // 8
+        for leaf in jax.tree.leaves(trees)
+        if hasattr(leaf, "dtype") and jnp.issubdtype(leaf.dtype, jnp.inexact)
+    ]
+    return _DEFAULT_TOLERANCES.get(min(sizes, default=8), _DEFAULT_TOLERANCES[8])
+
+
 def tree_allclose(
-    x, y, *, rtol: float = 1e-5, atol: float = 1e-8
+    x, y, *, rtol: float | None = None, atol: float | None = None
 ) -> bool | Bool[Array, ""]:
     """PyTree-aware approximate equality check.
 
     Wraps ``eqx.tree_equal`` with tolerance support. Matches the
-    pattern used in the lineax test suite.
+    pattern used in the lineax test suite. ``rtol`` / ``atol`` left as
+    ``None`` follow the inputs' precision (see `default_tolerances`).
     """
+    default_rtol, default_atol = default_tolerances(x, y)
+    rtol = default_rtol if rtol is None else rtol
+    atol = default_atol if atol is None else atol
     return eqx.tree_equal(x, y, typematch=True, rtol=rtol, atol=atol)
 
 
@@ -38,19 +68,29 @@ def tree_allclose(
 # ---------------------------------------------------------------------------
 
 
+def _resolve_dtype(dtype):
+    """``None`` means the active default float: float64 with x64, else float32.
+
+    Following the active default (rather than hard float64) lets the same
+    test run in the x64 and the no-x64 lanes.
+    """
+    return jnp.result_type(float) if dtype is None else dtype
+
+
 def random_pd_matrix(
     key: jax.Array,
     n: int,
     *,
-    dtype=jnp.float64,
+    dtype=None,
 ) -> Float[Array, "n n"]:
     """Generate a random positive-definite n x n matrix."""
+    dtype = _resolve_dtype(dtype)
     A = jr.normal(key, (n, n), dtype=dtype)
     return A @ A.T + 0.1 * jnp.eye(n, dtype=dtype)
 
 
 def random_pd_operator(
-    key: jax.Array, n: int, *, dtype=jnp.float64
+    key: jax.Array, n: int, *, dtype=None
 ) -> lx.MatrixLinearOperator:
     """Generate a random PSD MatrixLinearOperator."""
     mat = random_pd_matrix(key, n, dtype=dtype)
@@ -61,7 +101,7 @@ def random_kronecker_pd(
     key: jax.Array,
     sizes: tuple[int, ...],
     *,
-    dtype=jnp.float64,
+    dtype=None,
 ) -> Kronecker:
     """Generate a Kronecker product of random PSD matrices."""
     keys = jr.split(key, len(sizes))
@@ -75,7 +115,7 @@ def random_block_diag_pd(
     key: jax.Array,
     sizes: tuple[int, ...],
     *,
-    dtype=jnp.float64,
+    dtype=None,
 ) -> BlockDiag:
     """Generate a BlockDiag of random PSD matrices."""
     keys = jr.split(key, len(sizes))
@@ -90,9 +130,10 @@ def random_low_rank_update(
     n: int,
     rank: int,
     *,
-    dtype=jnp.float64,
+    dtype=None,
 ) -> LowRankUpdate:
     """Generate a random LowRankUpdate with positive diagonal base."""
+    dtype = _resolve_dtype(dtype)
     k1, k2, k3 = jr.split(key, 3)
     d = jnp.abs(jr.normal(k1, (n,), dtype=dtype)) + 0.5
     U = jr.normal(k2, (n, rank), dtype=dtype) * 0.3
