@@ -13,7 +13,8 @@ import jax.random as jr
 import lineax as lx
 
 from gaussx._distributions import MultivariateNormal
-from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
+from gaussx._einx import rearrange
+from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, LowRankUpdate
 from gaussx._strategies import AutoSolver, DenseSolver
 from gaussx._testing import assert_sample_moments, tree_allclose
 
@@ -447,3 +448,95 @@ def test_mvn_log_prob_of_singular_covariance_is_non_finite(jit):
 
     value = jax.jit(f)(x) if jit else f(x)
     assert not jnp.isfinite(value)
+
+
+# ---------------------------------------------------------------------------
+# gh-298: .sample goes through sample_mvn
+# ---------------------------------------------------------------------------
+
+
+def _psd(matrix):
+    return lx.MatrixLinearOperator(jnp.asarray(matrix), lx.positive_semidefinite_tag)
+
+
+_A = _psd([[2.0, 0.5], [0.5, 1.0]])
+_B = _psd([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
+_STRUCTURED = {
+    "scaled_kronecker": 2.0 * Kronecker(_A, _B),
+    "low_rank_update": LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.ones(6)), jnp.ones((6, 1))
+    ),
+    "kronecker_sum": KroneckerSum(_A, _B),
+}
+
+
+def test_sample_singular_covariance_is_finite_and_in_span():
+    """A rank-1 covariance used to give all-NaN draws (dense Cholesky)."""
+    v = jnp.array([1.0, 2.0, -1.0])
+    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.outer(v, v)))
+    draws = d.sample(jr.key(0), (4,))
+    assert jnp.all(jnp.isfinite(draws))
+    # Each draw is a multiple of v: its component orthogonal to v vanishes,
+    # up to the symmetric square root's error on the zero eigenvalues,
+    # sqrt(eps * ||S||): ~4e-8 in float64, ~8e-4 in float32 (no-x64 lane).
+    coeffs = draws @ v / (v @ v)
+    residual = draws - jnp.outer(coeffs, v)
+    bound = 10 * jnp.sqrt(jnp.finfo(draws.dtype).eps * (v @ v))
+    assert jnp.all(jnp.abs(residual) <= bound)
+
+
+@pytest.mark.parametrize("name", list(_STRUCTURED))
+def test_sample_keeps_the_covariance_structure(name, monkeypatch):
+    """No dense square root for structured covariances (spy on _dense_draws)."""
+    import gaussx._distributions._sample as sample_module
+
+    calls = []
+    original = sample_module._dense_draws
+
+    def spy(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(sample_module, "_dense_draws", spy)
+    cov = _STRUCTURED[name]
+    draws = MultivariateNormal(jnp.zeros(6), cov).sample(jr.key(0), (5,))
+    assert draws.shape == (5, 6)
+    assert jnp.all(jnp.isfinite(draws))
+    assert calls == []
+
+
+@pytest.mark.parametrize("sample_shape", [(), (3,), (2, 3)])
+def test_sample_matches_sample_mvn(sample_shape):
+    """Bit-for-bit the same draws as sample_mvn, reshaped, for a batched loc."""
+    import math
+
+    from gaussx import sample_mvn
+
+    loc = jr.normal(jr.key(1), (4, 3))
+    cov = _psd([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+    d = MultivariateNormal(loc, cov)
+    draws = d.sample(jr.key(0), sample_shape)
+    ref = sample_mvn(loc, cov, key=jr.key(0), num_samples=math.prod(sample_shape))
+    assert draws.shape == (*sample_shape, 4, 3)
+    flat = rearrange(draws, "... b n -> (...) b n")
+    assert jnp.array_equal(flat, ref)
+
+
+def test_sample_with_empty_sample_shape_axis():
+    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(3)))
+    draws = d.sample(jr.key(0), (0, 2))
+    assert draws.shape == (0, 2, 3)
+
+
+def test_sample_under_jit():
+    d = MultivariateNormal(jnp.zeros(6), _STRUCTURED["scaled_kronecker"])
+    draws = jax.jit(lambda key: d.sample(key, (3,)))(jr.key(0))
+    assert draws.shape == (3, 6)
+    assert jnp.all(jnp.isfinite(draws))
+
+
+def test_empty_sample_still_checks_the_covariance_shape():
+    """gh-298 review: an empty sample_shape must not hide a size mismatch."""
+    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(2)))
+    with pytest.raises(ValueError, match="mean must have shape"):
+        d.sample(jr.key(0), (0,))

@@ -283,3 +283,99 @@ class TestJIT:
         g = grad_fn(x)
         assert g.shape == (n,)
         assert jnp.all(jnp.isfinite(g))
+
+
+# ---------------------------------------------------------------------------
+# gh-298: structured precisions keep their Cholesky; non-finite falls back
+# ---------------------------------------------------------------------------
+
+
+def _psd(matrix):
+    return lx.MatrixLinearOperator(jnp.asarray(matrix), lx.positive_semidefinite_tag)
+
+
+def _scaled_kronecker_precision():
+    from gaussx import Kronecker
+
+    A = _psd([[2.0, 0.5], [0.5, 1.0]])
+    B = _psd([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
+    return 2.0 * Kronecker(A, B)
+
+
+def test_scaled_kronecker_precision_keeps_its_structure(monkeypatch):
+    """2 * Kronecker used to densify: the Cholesky now sees the Kronecker."""
+    import gaussx._distributions._mvn_prec as prec_module
+
+    factored = []
+    original = prec_module._cholesky
+
+    def spy(operator):
+        factored.append(type(operator).__name__)
+        return original(operator)
+
+    monkeypatch.setattr(prec_module, "_cholesky", spy)
+    precision = _scaled_kronecker_precision()
+    d = MultivariateNormalPrecision(jnp.zeros(6), precision)
+    draws = d.sample(jr.key(0), (20_000,))
+    assert factored == ["Kronecker"]
+    cov = jnp.linalg.inv(precision.as_matrix())
+    assert_sample_moments(draws, jnp.zeros(6), cov)
+
+
+def test_non_finite_cholesky_falls_back_to_dense(monkeypatch):
+    """A factor that fails numerically gives draws from the dense route."""
+    import gaussx._distributions._mvn_prec as prec_module
+
+    def nan_factor(operator):
+        n = operator.in_size()
+        return lx.MatrixLinearOperator(
+            jnp.full((n, n), jnp.nan), lx.lower_triangular_tag
+        )
+
+    monkeypatch.setattr(prec_module, "_cholesky", nan_factor)
+    precision = _psd([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+    d = MultivariateNormalPrecision(jnp.zeros(3), precision)
+    draws = d.sample(jr.key(0), (20_000,))
+    assert jnp.all(jnp.isfinite(draws))
+    assert_sample_moments(draws, jnp.zeros(3), jnp.linalg.inv(precision.as_matrix()))
+
+
+def test_precision_sample_under_jit():
+    d = MultivariateNormalPrecision(jnp.zeros(6), _scaled_kronecker_precision())
+    draws = jax.jit(lambda key: d.sample(key, (3,)))(jr.key(0))
+    assert draws.shape == (3, 6)
+    assert jnp.all(jnp.isfinite(draws))
+
+
+def _sparse_precision():
+    import numpy as np
+
+    from gaussx import SparseOperator
+
+    rows = np.array([0, 1, 2, 0, 1, 1, 2])
+    cols = np.array([0, 1, 2, 1, 0, 2, 1])
+    values = jnp.array([2.0, 2.0, 2.0, -0.5, -0.5, -0.5, -0.5])
+    return SparseOperator.from_coo(
+        rows, cols, values, (3, 3), tags=frozenset({lx.positive_semidefinite_tag})
+    )
+
+
+def test_scaled_composite_with_a_sparse_block_still_samples():
+    """gh-298 review: 2 * BlockDiag(sparse, dense) must not be unwrapped into
+    BlockDiag's Cholesky, which cannot hold a sparse factor."""
+    from gaussx import BlockDiag
+
+    dense = lx.MatrixLinearOperator(2 * jnp.eye(2), lx.positive_semidefinite_tag)
+    precision = 2.0 * BlockDiag(_sparse_precision(), dense)
+    draws = MultivariateNormalPrecision(jnp.zeros(5), precision).sample(jr.key(0), (4,))
+    assert draws.shape == (4, 5)
+    assert jnp.all(jnp.isfinite(draws))
+
+
+def test_sparse_precision_sample_stages_no_dense_fallback():
+    """gh-298 review: lax.cond stages both branches under jit, so the dense
+    fallback is only added for dense precisions."""
+    d = MultivariateNormalPrecision(jnp.zeros(3), _sparse_precision())
+    jaxpr = str(jax.make_jaxpr(lambda key: d.sample(key, (2,)))(jr.key(0)))
+    assert "eigh" not in jaxpr
+    assert jnp.all(jnp.isfinite(d.sample(jr.key(0), (2,))))

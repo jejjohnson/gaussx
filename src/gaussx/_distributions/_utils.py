@@ -102,3 +102,27 @@ def _reshape_samples(
     batch_pattern = " ".join(batch_axes)
     pattern = f"({batch_pattern}) N -> {batch_pattern} N"
     return rearrange(values, pattern, **axis_lengths)
+
+
+def _unflatten_sample_axis(
+    values: Float[Array, "S ..."],
+    sample_shape: tuple[int, ...],
+) -> Float[Array, "*sample ..."]:
+    """Split a leading ``prod(sample_shape)`` axis into ``sample_shape``.
+
+    Args:
+        values: Array whose leading axis has length ``prod(sample_shape)``.
+        sample_shape: Target sample shape. When empty, the leading axis must
+            have length one and is dropped.
+
+    Returns:
+        Array of shape ``(*sample_shape, *values.shape[1:])``.
+    """
+    if not sample_shape:
+        return values[0]
+    sample_axes = _axis_names(len(sample_shape))
+    axis_lengths = dict(zip(sample_axes, sample_shape, strict=True))
+    sample_pattern = " ".join(sample_axes)
+    return rearrange(
+        values, f"({sample_pattern}) ... -> {sample_pattern} ...", **axis_lengths
+    )
