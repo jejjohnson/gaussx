@@ -345,3 +345,37 @@ def test_precision_sample_under_jit():
     draws = jax.jit(lambda key: d.sample(key, (3,)))(jr.key(0))
     assert draws.shape == (3, 6)
     assert jnp.all(jnp.isfinite(draws))
+
+
+def _sparse_precision():
+    import numpy as np
+
+    from gaussx import SparseOperator
+
+    rows = np.array([0, 1, 2, 0, 1, 1, 2])
+    cols = np.array([0, 1, 2, 1, 0, 2, 1])
+    values = jnp.array([2.0, 2.0, 2.0, -0.5, -0.5, -0.5, -0.5])
+    return SparseOperator.from_coo(
+        rows, cols, values, (3, 3), tags=frozenset({lx.positive_semidefinite_tag})
+    )
+
+
+def test_scaled_composite_with_a_sparse_block_still_samples():
+    """gh-298 review: 2 * BlockDiag(sparse, dense) must not be unwrapped into
+    BlockDiag's Cholesky, which cannot hold a sparse factor."""
+    from gaussx import BlockDiag
+
+    dense = lx.MatrixLinearOperator(2 * jnp.eye(2), lx.positive_semidefinite_tag)
+    precision = 2.0 * BlockDiag(_sparse_precision(), dense)
+    draws = MultivariateNormalPrecision(jnp.zeros(5), precision).sample(jr.key(0), (4,))
+    assert draws.shape == (4, 5)
+    assert jnp.all(jnp.isfinite(draws))
+
+
+def test_sparse_precision_sample_stages_no_dense_fallback():
+    """gh-298 review: lax.cond stages both branches under jit, so the dense
+    fallback is only added for dense precisions."""
+    d = MultivariateNormalPrecision(jnp.zeros(3), _sparse_precision())
+    jaxpr = str(jax.make_jaxpr(lambda key: d.sample(key, (2,)))(jr.key(0)))
+    assert "eigh" not in jaxpr
+    assert jnp.all(jnp.isfinite(d.sample(jr.key(0), (2,))))

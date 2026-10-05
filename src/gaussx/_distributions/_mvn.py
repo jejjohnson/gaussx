@@ -109,14 +109,14 @@ class MultivariateNormal(dist.Distribution):
         # symmetric square root at the dense fallback, so a semi-definite
         # covariance gives exact finite draws instead of a NaN Cholesky.
         num_samples = math.prod(sample_shape)
-        if num_samples == 0:
-            # sample_mvn needs at least one draw; keep the shape and dtype.
-            dtype = jnp.result_type(
-                self.loc, jax.eval_shape(self.cov_operator.as_matrix).dtype
-            )
-            shape = sample_shape + self.batch_shape + self.event_shape
-            return jnp.zeros(shape, dtype=dtype)
         loc = jnp.broadcast_to(self.loc, self.batch_shape + self.event_shape)
+        if num_samples == 0:
+            # sample_mvn needs at least one draw. Trace one abstractly, so an
+            # empty sample still gets its shape checks and its dtype.
+            one = jax.eval_shape(
+                lambda: sample_mvn(loc, self.cov_operator, key=key, num_samples=1)
+            )
+            return jnp.zeros(sample_shape + one.shape[1:], dtype=one.dtype)
         draws = sample_mvn(loc, self.cov_operator, key=key, num_samples=num_samples)
         return _unflatten_sample_axis(draws, sample_shape)
 

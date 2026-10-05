@@ -533,3 +533,10 @@ def test_sample_under_jit():
     draws = jax.jit(lambda key: d.sample(key, (3,)))(jr.key(0))
     assert draws.shape == (3, 6)
     assert jnp.all(jnp.isfinite(draws))
+
+
+def test_empty_sample_still_checks_the_covariance_shape():
+    """gh-298 review: an empty sample_shape must not hide a size mismatch."""
+    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(2)))
+    with pytest.raises(ValueError, match="mean must have shape"):
+        d.sample(jr.key(0), (0,))
