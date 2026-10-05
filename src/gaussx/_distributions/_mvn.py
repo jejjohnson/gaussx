@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -13,9 +15,9 @@ from gaussx._distributions._gaussian import (
     _gaussian_log_prob_residual,
     gaussian_entropy,
 )
-from gaussx._distributions._utils import _reshape_batch, _reshape_samples
+from gaussx._distributions._sample import sample_mvn
+from gaussx._distributions._utils import _reshape_batch, _unflatten_sample_axis
 from gaussx._einx import rearrange
-from gaussx._primitives._cholesky import cholesky as _cholesky
 from gaussx._primitives._diag import diag as _diag
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
@@ -102,15 +104,21 @@ class MultivariateNormal(dist.Distribution):
             raise ValueError(
                 "PRNG key must be provided to sample from MultivariateNormal."
             )
-        L = _cholesky(self.cov_operator)
-        shape = sample_shape + self.batch_shape + self.event_shape
-        # Draw in the parameters' dtype (as sample_mvn does), not JAX's
-        # default float, so a float32 model stays float32 under x64.
-        dtype = jnp.result_type(self.loc, self.cov_operator.in_structure().dtype)
-        eps = jax.random.normal(key, shape=shape, dtype=dtype)  # type: ignore[arg-type]
-        eps_flat = rearrange(eps, "... D -> (...) D")
-        samples_flat = jax.vmap(L.mv)(eps_flat)
-        return self.loc + _reshape_samples(samples_flat, shape[:-1])
+        # Delegate to sample_mvn, which dispatches on the covariance's
+        # structure (Kronecker, low-rank, scalar multiples, ...) and takes a
+        # symmetric square root at the dense fallback, so a semi-definite
+        # covariance gives exact finite draws instead of a NaN Cholesky.
+        num_samples = math.prod(sample_shape)
+        if num_samples == 0:
+            # sample_mvn needs at least one draw; keep the shape and dtype.
+            dtype = jnp.result_type(
+                self.loc, jax.eval_shape(self.cov_operator.as_matrix).dtype
+            )
+            shape = sample_shape + self.batch_shape + self.event_shape
+            return jnp.zeros(shape, dtype=dtype)
+        loc = jnp.broadcast_to(self.loc, self.batch_shape + self.event_shape)
+        draws = sample_mvn(loc, self.cov_operator, key=key, num_samples=num_samples)
+        return _unflatten_sample_axis(draws, sample_shape)
 
     @lazy_property
     def mean(self) -> Float[Array, "*batch N"]:
