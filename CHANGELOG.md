@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.6.3](https://github.com/jejjohnson/gaussx/compare/v0.6.2...v0.6.3) (2026-10-05)
+
+
+### Features
+
+* **distributions:** register numpyro kl_divergence for the gaussx MVN classes ([#540](https://github.com/jejjohnson/gaussx/issues/540)) ([5682677](https://github.com/jejjohnson/gaussx/commit/56826778bfffd620d87bcc75623cfab40aa9a847))
+
+
+### Bug Fixes
+
+* **distributions:** draw sample noise in the parameter dtype ([#381](https://github.com/jejjohnson/gaussx/issues/381)) ([#528](https://github.com/jejjohnson/gaussx/issues/528)) ([852dabc](https://github.com/jejjohnson/gaussx/commit/852dabc9eed93213fc9c0794090e00bb83f10037))
+* **distributions:** give batched MVN entropies the batch shape ([#319](https://github.com/jejjohnson/gaussx/issues/319)) ([#542](https://github.com/jejjohnson/gaussx/issues/542)) ([bc189c0](https://github.com/jejjohnson/gaussx/commit/bc189c0b0dd892d3786a26f5ea9b6f4466eb0709))
+* **distributions:** make log(2 pi) a Python float so it follows the active dtype ([#369](https://github.com/jejjohnson/gaussx/issues/369)) ([#527](https://github.com/jejjohnson/gaussx/issues/527)) ([7db7647](https://github.com/jejjohnson/gaussx/commit/7db76476ab23dbe0e21242863c7bceb515b5d2f9))
+* **distributions:** route MultivariateNormal.sample through sample_mvn and keep structured precisions structured ([#538](https://github.com/jejjohnson/gaussx/issues/538)) ([1e12d54](https://github.com/jejjohnson/gaussx/commit/1e12d545a8c405a9d58612c63aa11e8408a0fd08))
+* **distributions:** validate only the observed entries in MaskedLGSSM, and allow round-off in the Lanczos bracket test ([#469](https://github.com/jejjohnson/gaussx/issues/469)) ([#526](https://github.com/jejjohnson/gaussx/issues/526)) ([6d37c2c](https://github.com/jejjohnson/gaussx/commit/6d37c2c249a0329f0c2cd1f8329a23b493246f12))
+* **linalg:** centre stable_squared_distances and accumulate its norms in the wide dtype ([#414](https://github.com/jejjohnson/gaussx/issues/414)) ([#533](https://github.com/jejjohnson/gaussx/issues/533)) ([ebd69e6](https://github.com/jejjohnson/gaussx/commit/ebd69e6cceb66f50187ba2312ab1987abc873938))
+* **operators:** derive dtypes from inputs at the remaining default-dtype sites ([#408](https://github.com/jejjohnson/gaussx/issues/408)) ([#532](https://github.com/jejjohnson/gaussx/issues/532)) ([835981e](https://github.com/jejjohnson/gaussx/commit/835981e4733cef207d326bfb7df9fe1397470a95))
+* **primitives:** return non-finite from a singular dense solve instead of raising ([#537](https://github.com/jejjohnson/gaussx/issues/537)) ([c91bf01](https://github.com/jejjohnson/gaussx/commit/c91bf0136beded909ea585010d2a1cfcc3306295))
+* **quadrature:** keep ep_tilted_moments in the cavity dtype and floor its variance relative to the cavity ([#400](https://github.com/jejjohnson/gaussx/issues/400)) ([#531](https://github.com/jejjohnson/gaussx/issues/531)) ([526b94f](https://github.com/jejjohnson/gaussx/commit/526b94f16f896143ebfda0ba9fbc53ba841e5c06))
+* **ssm:** build SumSDE's L with block_diag so it keeps the component dtype ([#397](https://github.com/jejjohnson/gaussx/issues/397)) ([#530](https://github.com/jejjohnson/gaussx/issues/530)) ([3f4fd86](https://github.com/jejjohnson/gaussx/commit/3f4fd86759f8272037ea3b2429aa78d28fb30678))
+* **ssm:** give infinite_horizon_filter's carry the model dtype ([#386](https://github.com/jejjohnson/gaussx/issues/386)) ([#529](https://github.com/jejjohnson/gaussx/issues/529)) ([b15fd35](https://github.com/jejjohnson/gaussx/commit/b15fd350a416c9cc27d24558fe561b5ebf631d45))
+
+
+### Performance Improvements
+
+* **distributions:** factor a dense PSD covariance once in log_prob, entropy and KL ([#543](https://github.com/jejjohnson/gaussx/issues/543)) ([4fa71ea](https://github.com/jejjohnson/gaussx/commit/4fa71ea67f07179432422b30be3341dbceb65653))
+
 ## [0.6.2](https://github.com/jejjohnson/gaussx/compare/v0.6.1...v0.6.2) (2026-10-03)
 
 
