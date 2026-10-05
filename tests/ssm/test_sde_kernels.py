@@ -616,6 +616,57 @@ class TestProductSDEParamsRobustness:
         assert params.Q_c.dtype == f32
         assert params.P_inf.dtype == f32
 
+    @pytest.mark.parametrize("with_trend", [False, True])
+    def test_sum_adds_no_dtype_promotion(self, with_trend):
+        """gh-397: SumSDE's L used an untyped ``jnp.zeros`` accumulator.
+
+        With an IntegratedWienerSDE trend (no P_inf) discretise goes through
+        ``L Q_c L^T``, so the float64 L also made Q float64.
+        """
+        f32 = jnp.float32
+        seasonal = MaternSDE(
+            variance=jnp.array(1.0, dtype=f32),
+            lengthscale=jnp.array(2.0, dtype=f32),
+            order=1,
+        )
+        first = (
+            IntegratedWienerSDE(
+                diffusion=jnp.array(0.5, dtype=f32),
+                order=1,
+                P_0=jnp.eye(2, dtype=f32),
+            )
+            if with_trend
+            else seasonal
+        )
+        kernel = SumSDE((first, seasonal))
+        params = kernel.sde_params()
+
+        assert params.F.dtype == f32
+        assert params.L.dtype == f32
+        assert params.H.dtype == f32
+        assert params.Q_c.dtype == f32
+        assert (params.P_inf is None) == with_trend
+        if params.P_inf is not None:
+            assert params.P_inf.dtype == f32
+        A, Q = kernel.discretise(jnp.array(0.1, dtype=f32))
+        assert A.dtype == f32
+        assert Q.dtype == f32
+
+    def test_sum_l_is_block_diagonal_with_rectangular_blocks(self):
+        """L keeps its block layout, including non-square component blocks."""
+        k1 = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(1.0), order=2)
+        k2 = CosineSDE(variance=jnp.array(1.0), frequency=jnp.array(1.4))
+        L1, L2 = k1.sde_params().L, k2.sde_params().L
+        L = SumSDE((k1, k2)).sde_params().L
+
+        r1, c1 = L1.shape
+        assert L.shape == (r1 + L2.shape[0], c1 + L2.shape[1])
+        assert L.dtype == jnp.float64
+        np.testing.assert_array_equal(L[:r1, :c1], L1)
+        np.testing.assert_array_equal(L[r1:, c1:], L2)
+        np.testing.assert_array_equal(L[:r1, c1:], 0.0)
+        np.testing.assert_array_equal(L[r1:, :c1], 0.0)
+
     def test_sde_params_is_reverse_mode_differentiable(self):
         """``safe_cholesky``'s ``lax.while_loop`` has no reverse-mode rule."""
 
