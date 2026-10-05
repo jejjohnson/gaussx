@@ -99,6 +99,7 @@ For performance comparisons, use a JIT-warm-then-measure pattern:
 import time
 import jax
 
+
 def time_fn(fn, warmup=2, repeats=5):
     """JIT-compile, warm up, then time *repeats* calls (seconds)."""
     jitted = jax.jit(fn)
@@ -122,7 +123,9 @@ For comparison tables, print them in a code cell:
 ```python
 # %%
 for name, stats in results.items():
-    print(f"{name:20s}  time={stats['time_ms']:8.2f} ms  residual={stats['residual']:.2e}")
+    print(
+        f"{name:20s}  time={stats['time_ms']:8.2f} ms  residual={stats['residual']:.2e}"
+    )
 ```
 
 The printed output is captured in the `.ipynb` cell output and rendered by mkdocs.

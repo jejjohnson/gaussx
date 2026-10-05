@@ -32,10 +32,10 @@ K = gaussx.Kronecker(A, B)
 
 # Primitives exploit structure automatically
 v = jnp.ones(4)
-x = gaussx.solve(K, v)       # per-factor solve
-ld = gaussx.logdet(K)         # n2*logdet(A) + n1*logdet(B)
-L = gaussx.cholesky(K)        # Kronecker(chol(A), chol(B))
-t = gaussx.trace(K)           # trace(A) * trace(B)
+x = gaussx.solve(K, v)  # per-factor solve
+ld = gaussx.logdet(K)  # n2*logdet(A) + n1*logdet(B)
+L = gaussx.cholesky(K)  # Kronecker(chol(A), chol(B))
+t = gaussx.trace(K)  # trace(A) * trace(B)
 ```
 
 ## API Notes
@@ -51,12 +51,12 @@ import lineax as lx
 import gaussx
 
 mean, var = gaussx.kronecker_posterior_predictive(
-	[Kx, Ky],
-	y,
-	noise_var=1e-2,
-	grid_shape=(nx, ny),
-	K_cross_factors=[Kx_star, Ky_star],
-	K_test_diag_factors=[jnp.ones(nx_star), jnp.ones(ny_star)],
+    [Kx, Ky],
+    y,
+    noise_var=1e-2,
+    grid_shape=(nx, ny),
+    K_cross_factors=[Kx_star, Ky_star],
+    K_test_diag_factors=[jnp.ones(nx_star), jnp.ones(ny_star)],
 )
 
 theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0)

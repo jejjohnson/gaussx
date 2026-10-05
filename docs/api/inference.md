@@ -84,7 +84,9 @@ def log_marginal(log_tau):
     return result.log_marginal  # H stays BlockTriDiag
 
 
-value, grad = jax.value_and_grad(log_marginal)(0.0)  # exact: implicit diff + block Cholesky
+value, grad = jax.value_and_grad(log_marginal)(
+    0.0
+)  # exact: implicit diff + block Cholesky
 ```
 
 The likelihood holds the observations, so `laplace_mode(prior, likelihood)`
