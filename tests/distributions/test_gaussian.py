@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -116,3 +120,42 @@ def test_add_jitter_default(getkey):
     jittered = add_jitter(op)
     expected = jnp.diag(d) + 1e-6 * jnp.eye(3)
     assert tree_allclose(jittered.as_matrix(), expected, atol=1e-10)
+
+
+def test_log_prob_is_exact_when_x64_is_enabled_after_import():
+    """gh-369: the log(2 pi) constant must not freeze the import-time dtype.
+
+    conftest.py enables x64 before gaussx is imported, which hides the bug,
+    so the import-then-enable order runs in a fresh interpreter.
+    """
+    script = textwrap.dedent(
+        """
+        import jax
+        import gaussx
+        jax.config.update("jax_enable_x64", True)
+        import jax.numpy as jnp, lineax as lx, numpy as np
+        from scipy.stats import multivariate_normal
+
+        n = 2000
+        x = jnp.linspace(-1.0, 1.0, n)
+        cov = lx.DiagonalLinearOperator(jnp.ones(n))
+        ref = multivariate_normal(np.zeros(n), np.eye(n)).logpdf(np.asarray(x))
+        lp = gaussx.gaussian_log_prob(jnp.zeros(n), cov, x)
+        lp_prec = gaussx.MultivariateNormalPrecision(jnp.zeros(n), cov).log_prob(x)
+        assert lp.dtype == jnp.float64, lp.dtype
+        # The bug was an offset of 3.1e-8 per dimension (8.8e-6 here).
+        assert abs(float(lp) - ref) < 1e-9, float(lp) - ref
+        assert abs(float(lp_prec) - ref) < 1e-9, float(lp_prec) - ref
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_log_prob_keeps_float32_under_x64():
+    """gh-369: the Python-float constant stays weakly typed."""
+    x = jnp.linspace(-1.0, 1.0, 5, dtype=jnp.float32)
+    cov = lx.DiagonalLinearOperator(jnp.ones(5, jnp.float32))
+    assert gaussian_log_prob(jnp.zeros(5, jnp.float32), cov, x).dtype == jnp.float32

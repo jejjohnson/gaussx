@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -15,7 +17,10 @@ from gaussx._strategies._base import (
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
-_LOG_2PI = jnp.log(2.0 * jnp.pi)
+# A Python float, not a jnp array: it is weakly typed, so it takes the dtype
+# of the array it meets, and it does not freeze the default dtype that was
+# active at import (x64 is often enabled after `import gaussx`).
+_LOG_2PI = math.log(2.0 * math.pi)
 
 
 def quadratic_form(
