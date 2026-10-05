@@ -278,13 +278,8 @@ def _as(kind, loc, cov):
     return nd.MultivariateNormal(loc, covariance_matrix=cov)
 
 
-# q = MultivariateNormalPrecision at N = 1 hits lx.diagonal(InverseOperator),
-# which is unimplemented until gh-349 lands; strict, so it flips then.
-_INVERSE_DIAGONAL = pytest.mark.xfail(
-    strict=True, raises=NotImplementedError, reason="gh-349"
-)
 _CASES = [
-    pytest.param(p, q, n, marks=_INVERSE_DIAGONAL if (q, n) == ("gx_prec", 1) else ())
+    (p, q, n)
     for p in ("gx_mvn", "gx_prec", "nd_mvn")
     for q in ("gx_mvn", "gx_prec", "nd_mvn")
     for n in (1, 3, 7)
