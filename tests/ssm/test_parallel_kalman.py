@@ -435,6 +435,7 @@ _TV_CASES = [
 
 
 @pytest.mark.parametrize(("mask_name", "psd_project"), _TV_CASES)
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_tv_parity_random_params(mask_name, psd_project):
     args, masks = _random_tv_model()
     A = args[0]

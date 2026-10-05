@@ -42,6 +42,7 @@ def _align_signs(V, V_ref):
 
 
 @pytest.mark.parametrize("tagged", [True, False])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_pd_b_matches_scipy_eigh(tagged):
     n = 7
     A = _spd(jr.key(0), n, shift=-0.5)  # symmetric, indefinite
@@ -59,6 +60,7 @@ def test_pd_b_matches_scipy_eigh(tagged):
 
 
 @pytest.mark.parametrize("which", ["smallest", "largest"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_pd_b_rank_and_which(which):
     n, k = 7, 3
     A = _spd(jr.key(2), n, shift=-0.5)
@@ -99,6 +101,7 @@ def _random_graph_laplacian(key, n):
 
 @pytest.mark.parametrize("use_rank", [False, True])
 @pytest.mark.parametrize("drop_first", [False, True])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_diagonal_b_matches_kernellib_smallest_generalized(drop_first, use_rank):
     n, n_components = 12, 3
     L, degree = _random_graph_laplacian(jr.key(4), n)
@@ -117,6 +120,7 @@ def test_diagonal_b_matches_kernellib_smallest_generalized(drop_first, use_rank)
 
 
 @pytest.mark.parametrize("which", ["smallest", "largest"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_diagonal_b_lanczos_rank_matches_dense(which):
     # S = B^{-1/2} A B^{-1/2} has a designed spectrum with well-separated
     # extremes, so a 23-step Krylov space on N = 80 converges them tightly.
@@ -223,6 +227,7 @@ def test_singular_b_with_coupling_matches_qz():
     assert not np.allclose(naive, lam, rtol=1e-3)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_singular_b_largest_and_rank():
     A, B, _, r = _singular_pencil()
     lam, V = eigh_generalized(

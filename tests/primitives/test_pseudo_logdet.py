@@ -128,6 +128,7 @@ def test_null_space_basis_invariance():
 
 
 @pytest.mark.parametrize("symmetric", [True, False])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_cofactor_connected_random_graph(symmetric):
     rng = np.random.default_rng(0)
     n = 12

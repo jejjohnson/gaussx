@@ -15,6 +15,10 @@ from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._testing import tree_allclose
 
 
+# float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
+FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case"))
+
+
 # ---------------------------------------------------------------------------
 # stable_squared_distances
 # ---------------------------------------------------------------------------
@@ -78,7 +82,14 @@ def _near_duplicates():
     return X, Z, exact
 
 
-@pytest.mark.parametrize("accumulate_dtype", [None, jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "accumulate_dtype",
+    [
+        None,
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 def test_near_duplicates_far_from_origin(accumulate_dtype):
     """gh-414: centring removes the cancellation, in any accumulate dtype.
 

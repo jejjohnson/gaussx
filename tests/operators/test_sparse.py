@@ -472,6 +472,7 @@ class TestTransforms:
 
 
 class TestPrimitives:
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_small_solve_logdet_cholesky_dense(self, small_laplacian):
         dense = small_laplacian.as_matrix()
         b = jnp.arange(12.0)
@@ -553,6 +554,7 @@ class TestPrimitives:
         dense_partial, _ = gaussx.eig(dense_op, rank=4, key=jr.key(1))
         assert jnp.allclose(partial, dense_partial)
 
+    @pytest.mark.x64_only(reason="CG default tolerance unreachable in float32 (#327)")
     def test_jacobi_preconditioned_cg(self, small_laplacian):
         b = jnp.ones(12)
         solver = gaussx.CGSolver(

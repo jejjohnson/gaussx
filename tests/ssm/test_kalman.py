@@ -664,6 +664,7 @@ _FILTERS = {
 
 
 @pytest.mark.parametrize("name", [*_FILTERS, "nonlinear_kalman_filter"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_first_observation_sees_one_transition(name):
     # gh-346: every filter predicts before it updates, so observations[0]
     # is scored against H A x₀, not H x₀.

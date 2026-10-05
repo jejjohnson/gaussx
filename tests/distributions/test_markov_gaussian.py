@@ -133,6 +133,7 @@ class TestMoments:
 
 
 class TestPrecisionForm:
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_precision_is_inverse_of_cov(self):
         chain = _make_chain(jr.key(5), 6, 2)
         prec = chain.precision
@@ -151,6 +152,7 @@ class TestPrecisionForm:
         assert jnp.allclose(back.mu0, chain.mu0, atol=1e-8)
         assert jnp.allclose(back.P0, chain.P0, atol=1e-8)
 
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_from_precision_form_accepts_stacked_mean(self):
         chain = _make_chain(jr.key(7), 4, 2)
         mean, prec = chain.to_precision_form()

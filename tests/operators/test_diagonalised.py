@@ -77,11 +77,13 @@ def periodic_2d_dense():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_circulant_symbol_matches_dense_laplacian(periodic_2d, periodic_2d_dense):
     assert jnp.allclose(periodic_2d.as_matrix(), periodic_2d_dense, atol=1e-12)
     assert lx.is_symmetric(periodic_2d)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_dst_operator_matches_dense_laplacian():
     op = _dst1_laplacian(16)
     dense = _dense_second_difference(16, periodic=False)
@@ -94,6 +96,7 @@ def test_eigenvalue_size_mismatch_raises():
 
 
 @pytest.mark.parametrize("lam", [0.5, 2.0])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_shift_stays_diagonalised_and_solves(periodic_2d, periodic_2d_dense, lam):
     """gh-261: ``A − λI`` never materialises; solve matches dense."""
     shifted = periodic_2d - lam * lx.IdentityLinearOperator(periodic_2d.in_structure())
@@ -104,6 +107,7 @@ def test_shift_stays_diagonalised_and_solves(periodic_2d, periodic_2d_dense, lam
     assert jnp.allclose(x, expected, atol=1e-12)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_scalar_algebra_stays_closed(periodic_2d):
     identity = lx.IdentityLinearOperator(periodic_2d.in_structure())
     for op in (
@@ -136,6 +140,7 @@ def test_shift_drops_definiteness_tags():
     assert lx.is_symmetric(shifted)  # symmetry is re-derived
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_singular_solve_is_pseudo_inverse(periodic_2d, periodic_2d_dense):
     """Zero eigenvalue (constant mode) → minimum-norm solution."""
     b = jr.normal(jr.key(1), (256,))
@@ -145,6 +150,7 @@ def test_singular_solve_is_pseudo_inverse(periodic_2d, periodic_2d_dense):
 
 
 @pytest.mark.parametrize("lam", [0.3, 1.0])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_logdet_inv_trace_match_dense(periodic_2d, periodic_2d_dense, lam):
     op = periodic_2d - lam * lx.IdentityLinearOperator(periodic_2d.in_structure())
     dense = periodic_2d_dense - lam * jnp.eye(256)
@@ -155,6 +161,7 @@ def test_logdet_inv_trace_match_dense(periodic_2d, periodic_2d_dense, lam):
     assert jnp.allclose(gaussx.trace(op), jnp.trace(dense), atol=1e-10)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_sqrt_squares_to_operator():
     """sqrt(−Δ + I): S @ S = A, elementwise √λ, no materialisation."""
     op = -_dst1_laplacian(16) + lx.IdentityLinearOperator(
@@ -179,6 +186,7 @@ def test_inv_quad_logdet_is_exact(periodic_2d, periodic_2d_dense):
     assert jnp.allclose(ld, jnp.linalg.slogdet(dense)[1], atol=1e-10)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_transpose_normal_and_via_pair():
     op = gaussx.Circulant(jnp.array([1.0, 2.0, 0.0, 0.0, -1.0]))  # non-symmetric
     assert jnp.allclose(op.T.as_matrix(), op.as_matrix().T, atol=1e-12)
@@ -242,6 +250,7 @@ def test_circulant_1d_matches_scipy():
     assert jnp.allclose(gaussx.inv(op).as_matrix(), jnp.linalg.inv(dense), atol=1e-10)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_circulant_2d_block_circulant():
     c = jnp.zeros((8, 8)).at[0, 0].set(4.0).at[0, 1].set(-1.0).at[1, 0].set(-1.0)
     c = c.at[0, -1].set(-1.0).at[-1, 0].set(-1.0)  # symmetric 5-point kernel

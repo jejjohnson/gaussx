@@ -17,6 +17,10 @@ import pytest
 import gaussx
 
 
+# float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
+FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case"))
+
+
 def _pd(dtype, n=4):
     a = jr.normal(jr.key(0), (n, n), dtype=jnp.float64).astype(dtype)
     return a @ a.T + 4 * jnp.eye(n, dtype=dtype)
@@ -121,13 +125,20 @@ CASES = [
 ]
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 @pytest.mark.parametrize("case", CASES, ids=lambda f: f.__name__.lstrip("_"))
 def test_output_dtype_follows_input_dtype(case, dtype):
     for out in case(dtype):
         assert out.dtype == dtype, (case.__name__, out)
 
 
+@pytest.mark.x64_only(reason="asserts float64 dtypes")
 def test_low_rank_update_structure_matches_mv_for_mixed_dtypes():
     """The declared structure is the dtype ``mv`` actually returns."""
     lru = gaussx.LowRankUpdate(

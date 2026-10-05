@@ -525,6 +525,7 @@ def _zero_weight_operator(d, *, nonsymmetric=False, dtype=jnp.float64):
 @pytest.mark.parametrize(
     "d", [[1.0, 0.0], [0.0, 0.0], [0.7, -0.2]], ids=["one_zero", "all_zero", "signed"]
 )
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_zero_weight_matches_dense(d, nonsymmetric):
     # The capacitance used to be diag(1/d) + V^T L^{-1} U: inf for d_k = 0.
     op = _zero_weight_operator(jnp.array(d), nonsymmetric=nonsymmetric)
@@ -537,6 +538,7 @@ def test_zero_weight_matches_dense(d, nonsymmetric):
 
 
 @pytest.mark.parametrize("nonsymmetric", [False, True], ids=["sym", "general"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_zero_weight_gradients_match_dense(nonsymmetric):
     d0 = jnp.array([1.0, 0.0])
     b = jnp.ones(5)

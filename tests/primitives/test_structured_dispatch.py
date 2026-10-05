@@ -187,6 +187,7 @@ class TestLineaxLazyOperatorDispatch:
 
 
 class TestStructuredSVD:
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_kronecker(self, getkey):
         K = Kronecker(
             lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3))),

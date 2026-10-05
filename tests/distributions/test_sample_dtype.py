@@ -25,6 +25,10 @@ from gaussx import (
 )
 
 
+# float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
+FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case"))
+
+
 D, T = 2, 4
 
 
@@ -54,7 +58,13 @@ def _build(name: str, dtype):
     )
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 @pytest.mark.parametrize(
     "name",
     [
@@ -71,7 +81,13 @@ def test_sample_follows_parameter_dtype(name, dtype):
     assert jnp.all(jnp.isfinite(draws))
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 def test_class_and_functional_samplers_agree_on_dtype(dtype):
     """The class API matches sample_mvn, which already followed the dtype."""
     d = _build("MultivariateNormal", dtype)

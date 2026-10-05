@@ -85,6 +85,7 @@ def _symmetric_low_rank(n=50, k=4):
 
 
 @pytest.mark.parametrize("transform", ["eager", "filter_jit", "jax_jit"])
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_inv_low_rank_type_is_stable_under_tracing(transform):
     op = _symmetric_low_rank()
     seen = {}

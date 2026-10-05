@@ -113,6 +113,7 @@ class TestLGSSM:
         with pytest.raises(ValueError, match="PRNG key"):
             d.sample(None)
 
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_mean_and_variance_match_dense_joint(self, getkey):
         T = 6
         A, H, Q, R, m0, P0 = _make_params(getkey())
@@ -211,6 +212,7 @@ class TestOperatorInputs:
 
 
 class TestMaskedLGSSM:
+    @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_log_prob_is_exact_marginal(self):
         T, M = 8, 4
         A, H, Q, R, m0, P0 = _make_params(jr.key(0), M=M)

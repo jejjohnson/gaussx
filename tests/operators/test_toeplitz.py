@@ -13,6 +13,10 @@ from gaussx._operators import Toeplitz, ToeplitzCholesky, toeplitz_sample
 from gaussx._testing import tree_allclose
 
 
+# float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
+FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case"))
+
+
 def _toeplitz_dense(column):
     """Build a dense symmetric Toeplitz matrix from first column."""
     n = column.shape[0]
@@ -317,7 +321,7 @@ _COMPLEX_COLUMN = jnp.array([1 + 1j, 2.0, 3.0])
     ids=["Toeplitz", "ToeplitzCholesky", "toeplitz_sample"],
 )
 def test_complex_column_rejected(build):
-    with pytest.raises(TypeError, match="must be real, got complex128"):
+    with pytest.raises(TypeError, match=r"must be real, got complex(64|128)"):
         build(_COMPLEX_COLUMN)
 
 
@@ -328,7 +332,13 @@ def test_toeplitz_validates_rank_and_emptiness():
         Toeplitz(jnp.ones(0))
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 def test_real_columns_keep_their_dtype(dtype):
     op = Toeplitz(jnp.array([2.0, 0.5, 0.1], dtype=dtype))
     assert op.in_structure().dtype == dtype

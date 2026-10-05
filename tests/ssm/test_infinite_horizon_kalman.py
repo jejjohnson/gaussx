@@ -13,6 +13,10 @@ from gaussx import (
 )
 
 
+# float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
+FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case"))
+
+
 class TestInfiniteHorizonFilter:
     def _stable_system(self, getkey):
         """Create a stable system for testing."""
@@ -240,7 +244,13 @@ def _float_system(dtype):
     return A, H, Q, R, y
 
 
-@pytest.mark.parametrize("dtype", [jnp.float32, jnp.float64])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        FLOAT64,
+    ],
+)
 def test_filter_keeps_the_model_dtype_without_init_mean(dtype):
     """gh-386: the default init_mean used to be default-float, which crashed
     a float32 model under x64."""
