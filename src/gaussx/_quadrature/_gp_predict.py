@@ -293,7 +293,7 @@ def uncertain_gp_predict_mc(
 
     # Sample inputs
     L = cholesky(state.cov).as_matrix()
-    eps = jr.normal(key, (n_particles, N))
+    eps = jr.normal(key, (n_particles, N), dtype=jnp.result_type(mu, L))
     x_samples = mu[None, :] + eps @ L.T
 
     # Predict at each sample

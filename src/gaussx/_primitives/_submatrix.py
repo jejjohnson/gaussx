@@ -91,7 +91,9 @@ def _submatrix_kronecker(
     ``(R, C)`` sub-matrix (via recursive dispatch), so only ``R x C``
     intermediates are formed — never the full Kronecker matrix.
     """
-    result = jnp.ones((row_idx.shape[0], col_idx.shape[0]))
+    result = jnp.ones(
+        (row_idx.shape[0], col_idx.shape[0]), dtype=operator.in_structure().dtype
+    )
     row_rem, col_rem = row_idx, col_idx
     for op in reversed(operator.operators):
         m = op.out_size()

@@ -11,6 +11,7 @@ import lineax as lx
 import matfree.decomp
 import matfree.funm
 import matfree.stochtrace
+from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
@@ -29,13 +30,26 @@ def _slq_estimators(
     n: int,
     num_probes: int,
     sampler: SamplerName,
+    dtype: DTypeLike,
 ) -> tuple[Callable, Callable]:
     """Build (point, mean-and-sem) SLQ estimators sharing one sampler."""
-    probe_fn = resolve_sampler(sampler, n, num_probes)
-    point = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
-    with_sem = matfree.stochtrace.estimator_monte_carlo_mean_and_sem(
+    probe_fn = resolve_sampler(sampler, n, num_probes, dtype)
+    point_raw = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
+    with_sem_raw = matfree.stochtrace.estimator_monte_carlo_mean_and_sem(
         integrand, probe_fn
     )
+
+    # The probes and matvecs run in the operator's dtype, but matfree's funm
+    # integrand projects onto ``np.eye(k)[0]``, built in JAX's default float,
+    # so the scalar comes back float64 under x64. Cast it back.
+    def point(matvec, key):
+        return jnp.asarray(point_raw(matvec, key), dtype=dtype)
+
+    def with_sem(matvec, key):
+        return jax.tree.map(
+            lambda x: jnp.asarray(x, dtype=dtype), with_sem_raw(matvec, key)
+        )
+
     return point, with_sem
 
 
@@ -86,7 +100,13 @@ class SLQLogdet(AbstractLogdetStrategy):
             key = jax.random.PRNGKey(self.seed)
 
         n = operator.in_size()
-        point, _ = _slq_estimators(self._integrand(n), n, self.num_probes, self.sampler)
+        point, _ = _slq_estimators(
+            self._integrand(n),
+            n,
+            self.num_probes,
+            self.sampler,
+            operator.in_structure().dtype,
+        )
         return point(operator.mv, key)
 
     def logdet_and_error(
@@ -111,7 +131,11 @@ class SLQLogdet(AbstractLogdetStrategy):
 
         n = operator.in_size()
         _, with_sem = _slq_estimators(
-            self._integrand(n), n, self.num_probes, self.sampler
+            self._integrand(n),
+            n,
+            self.num_probes,
+            self.sampler,
+            operator.in_structure().dtype,
         )
         return with_sem(operator.mv, key)
 
@@ -168,7 +192,11 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         n = operator.in_size()
         order = min(self.lanczos_order, n)
         point, _ = _slq_estimators(
-            _logabsdet_integrand(order), n, self.num_probes, self.sampler
+            _logabsdet_integrand(order),
+            n,
+            self.num_probes,
+            self.sampler,
+            operator.in_structure().dtype,
         )
         return point(self._shifted_matvec(operator), key)
 
@@ -194,7 +222,11 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         n = operator.in_size()
         order = min(self.lanczos_order, n)
         _, with_sem = _slq_estimators(
-            _logabsdet_integrand(order), n, self.num_probes, self.sampler
+            _logabsdet_integrand(order),
+            n,
+            self.num_probes,
+            self.sampler,
+            operator.in_structure().dtype,
         )
         return with_sem(self._shifted_matvec(operator), key)
 

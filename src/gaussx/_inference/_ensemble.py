@@ -943,7 +943,8 @@ def etkf_transform(
     rinv_pert = jnp.linalg.solve(r_matrix, obs_pert.T)  # (M, J)
     rinv_d = jnp.linalg.solve(r_matrix, y - obs_mean)  # (M,)
 
-    precision = (n_ens - 1) / inflation * jnp.eye(n_ens) + obs_pert @ rinv_pert
+    eye = jnp.eye(n_ens, dtype=rinv_pert.dtype)
+    precision = (n_ens - 1) / inflation * eye + obs_pert @ rinv_pert
     precision = symmetrize(precision)
     analysis_cov = jnp.linalg.inv(precision)  # tilde A, (J, J)
 
