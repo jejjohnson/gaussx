@@ -12,6 +12,7 @@ import pytest
 
 import gaussx
 from gaussx._einx import einsum
+from gaussx._testing import default_tolerances
 
 
 def _dense_pseudo_logdet(M, rtol=1e-9):
@@ -214,12 +215,17 @@ def test_rw2_against_dense(n):
 
     R = gaussx.rw2_structure(n)
     assert R.in_size() == n + n % 2
-    assert jnp.allclose(gaussx.pseudo_logdet(R), expected)
+    # RW2's condition number grows like n^4, so a float32 run (the no-x64
+    # lane) is only good to ~1e-5 relative against this float64 reference.
+    result = gaussx.pseudo_logdet(R)
+    rtol, atol = default_tolerances(result)
+    assert jnp.allclose(result, expected, rtol=rtol, atol=atol)
 
     t = np.arange(n, dtype=float)
     basis = np.zeros((R.in_size(), 2))
     basis[:n, 0], basis[:n, 1] = 1.0, t  # not orthonormal: any basis works
-    assert jnp.allclose(gaussx.pseudo_logdet(R, null_space=basis), expected)
+    result = gaussx.pseudo_logdet(R, null_space=basis)
+    assert jnp.allclose(result, expected, rtol=rtol, atol=atol)
 
 
 # ---------------------------------------------------------------------------
