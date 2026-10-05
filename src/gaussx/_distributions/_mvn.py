@@ -130,5 +130,8 @@ class MultivariateNormal(dist.Distribution):
             _diag(self.cov_operator), self.batch_shape + self.event_shape
         )
 
-    def entropy(self) -> Float[Array, ""]:
-        return gaussian_entropy(self.cov_operator, solver=self.solver)
+    def entropy(self) -> Float[Array, "*batch"]:
+        # The entropy does not depend on loc, but numpyro's contract is one
+        # entry per batch element (Independent.entropy sums over them).
+        entropy = gaussian_entropy(self.cov_operator, solver=self.solver)
+        return jnp.broadcast_to(entropy, self.batch_shape)

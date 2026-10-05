@@ -379,3 +379,28 @@ def test_sparse_precision_sample_stages_no_dense_fallback():
     jaxpr = str(jax.make_jaxpr(lambda key: d.sample(key, (2,)))(jr.key(0)))
     assert "eigh" not in jaxpr
     assert jnp.all(jnp.isfinite(d.sample(jr.key(0), (2,))))
+
+
+# ---------------------------------------------------------------------------
+# gh-319: entropy has the batch shape
+# ---------------------------------------------------------------------------
+
+_ENTROPY_COV = jnp.array([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+
+
+@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)])
+def test_entropy_has_the_batch_shape(batch_shape):
+    op = lx.MatrixLinearOperator(_ENTROPY_COV, lx.positive_semidefinite_tag)
+    single = MultivariateNormalPrecision(jnp.zeros(3), op).entropy()
+    batched = MultivariateNormalPrecision(jnp.zeros((*batch_shape, 3)), op).entropy()
+    assert single.shape == ()
+    assert batched.shape == batch_shape
+    assert jnp.allclose(batched, single, rtol=1e-14)
+
+
+def test_to_event_entropy_sums_the_batch():
+    """d.to_event(1).entropy() used to crash on the scalar entropy."""
+    op = lx.MatrixLinearOperator(_ENTROPY_COV, lx.positive_semidefinite_tag)
+    single = MultivariateNormalPrecision(jnp.zeros(3), op).entropy()
+    d = MultivariateNormalPrecision(jnp.zeros((4, 3)), op).to_event(1)
+    assert jnp.allclose(d.entropy(), 4 * single, rtol=1e-14)

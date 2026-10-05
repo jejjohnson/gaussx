@@ -540,3 +540,28 @@ def test_empty_sample_still_checks_the_covariance_shape():
     d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(2)))
     with pytest.raises(ValueError, match="mean must have shape"):
         d.sample(jr.key(0), (0,))
+
+
+# ---------------------------------------------------------------------------
+# gh-319: entropy has the batch shape
+# ---------------------------------------------------------------------------
+
+_ENTROPY_COV = jnp.array([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+
+
+@pytest.mark.parametrize("batch_shape", [(), (4,), (2, 3)])
+def test_entropy_has_the_batch_shape(batch_shape):
+    op = lx.MatrixLinearOperator(_ENTROPY_COV, lx.positive_semidefinite_tag)
+    single = MultivariateNormal(jnp.zeros(3), op).entropy()
+    batched = MultivariateNormal(jnp.zeros((*batch_shape, 3)), op).entropy()
+    assert single.shape == ()
+    assert batched.shape == batch_shape
+    assert jnp.allclose(batched, single, rtol=1e-14)
+
+
+def test_to_event_entropy_sums_the_batch():
+    """d.to_event(1).entropy() used to crash on the scalar entropy."""
+    op = lx.MatrixLinearOperator(_ENTROPY_COV, lx.positive_semidefinite_tag)
+    single = MultivariateNormal(jnp.zeros(3), op).entropy()
+    d = MultivariateNormal(jnp.zeros((4, 3)), op).to_event(1)
+    assert jnp.allclose(d.entropy(), 4 * single, rtol=1e-14)
