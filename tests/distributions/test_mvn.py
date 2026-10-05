@@ -434,3 +434,16 @@ class TestSolverChoice:
         d_dense = MultivariateNormal(jnp.zeros(n), op, solver=DenseSolver())
 
         assert tree_allclose(d_auto.log_prob(x), d_dense.log_prob(x), rtol=1e-5)
+
+
+@pytest.mark.parametrize("jit", [False, True])
+def test_mvn_log_prob_of_singular_covariance_is_non_finite(jit):
+    """gh-302: a degenerate covariance must not abort an MCMC/SVI run."""
+    cov = lx.MatrixLinearOperator(jnp.ones((3, 3)), lx.positive_semidefinite_tag)
+    x = jnp.array([0.1, -0.2, 0.3])
+
+    def f(x):
+        return MultivariateNormal(jnp.zeros(3), cov).log_prob(x)
+
+    value = jax.jit(f)(x) if jit else f(x)
+    assert not jnp.isfinite(value)

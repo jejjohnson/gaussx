@@ -6,10 +6,13 @@ import subprocess
 import sys
 import textwrap
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
+import gaussx
 from gaussx import (
     add_jitter,
     gaussian_entropy,
@@ -159,3 +162,78 @@ def test_log_prob_keeps_float32_under_x64():
     x = jnp.linspace(-1.0, 1.0, 5, dtype=jnp.float32)
     cov = lx.DiagonalLinearOperator(jnp.ones(5, jnp.float32))
     assert gaussian_log_prob(jnp.zeros(5, jnp.float32), cov, x).dtype == jnp.float32
+
+
+_SINGULAR_COVARIANCES = {
+    "rank_one": jnp.ones((3, 3)),
+    "ill_conditioned": jnp.eye(3) + 1e17 * jnp.ones((3, 3)),
+}
+
+
+@pytest.mark.parametrize("name", list(_SINGULAR_COVARIANCES))
+@pytest.mark.parametrize("jit", [False, True])
+def test_log_prob_of_singular_covariance_is_non_finite(name, jit):
+    """gh-302: non-finite like numpyro, not an EquinoxRuntimeError."""
+    cov = lx.MatrixLinearOperator(
+        _SINGULAR_COVARIANCES[name], lx.positive_semidefinite_tag
+    )
+    x = jnp.array([0.1, -0.2, 0.3])
+
+    def f(x):
+        return gaussian_log_prob(jnp.zeros(3), cov, x)
+
+    value = jax.jit(f)(x) if jit else f(x)
+    assert not jnp.isfinite(value)
+
+
+def test_log_prob_of_regular_covariance_is_unchanged():
+    """gh-302: throw=False changes nothing for a well-posed solve."""
+    a = jr.normal(jr.key(0), (4, 4))
+    cov = lx.MatrixLinearOperator(a @ a.T + jnp.eye(4), lx.positive_semidefinite_tag)
+    r = jr.normal(jr.key(1), (4,))
+    solved = gaussx.solve(cov, r)
+    reference = lx.linear_solve(cov, r, lx.AutoLinearSolver(well_posed=True)).value
+    assert jnp.array_equal(solved, reference)
+
+
+def test_gradient_through_a_singular_solve_is_non_finite():
+    """gh-302 review: lineax's JVP/transpose solve with throw=True, so the
+    default dense path avoids lineax and a gradient is nan, not a raise."""
+    x = jnp.array([0.1, -0.2, 0.3])
+
+    def f(S):
+        cov = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        return gaussian_log_prob(jnp.zeros(3), cov, x)
+
+    grad = jax.grad(f)(jnp.ones((3, 3)))
+    assert not jnp.all(jnp.isfinite(grad))
+
+
+def test_explicit_solver_still_raises_when_it_fails():
+    """gh-302 review: an explicit solver keeps lineax's error, so an
+    unconverged iterative solve is not silently returned."""
+    import equinox as eqx
+
+    a = jr.normal(jr.key(0), (6, 6))
+    cov = lx.MatrixLinearOperator(a @ a.T + jnp.eye(6), lx.positive_semidefinite_tag)
+    solver = lx.CG(rtol=1e-14, atol=1e-14, max_steps=1)
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        gaussx.solve(cov, jnp.ones(6), solver=solver)
+
+
+@pytest.mark.parametrize(
+    "tag",
+    [lx.positive_semidefinite_tag, lx.lower_triangular_tag, lx.upper_triangular_tag],
+)
+def test_default_dense_solve_matches_lineax_by_tag(tag):
+    a = jr.normal(jr.key(0), (5, 5))
+    if tag is lx.positive_semidefinite_tag:
+        matrix = a @ a.T + jnp.eye(5)
+    elif tag is lx.lower_triangular_tag:
+        matrix = jnp.tril(a) + 5 * jnp.eye(5)
+    else:
+        matrix = jnp.triu(a) + 5 * jnp.eye(5)
+    op = lx.MatrixLinearOperator(matrix, tag)
+    b = jr.normal(jr.key(1), (5,))
+    reference = lx.linear_solve(op, b, lx.AutoLinearSolver(well_posed=True)).value
+    assert jnp.allclose(gaussx.solve(op, b), reference, rtol=1e-12, atol=1e-12)
