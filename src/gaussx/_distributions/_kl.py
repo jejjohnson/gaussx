@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._linalg._linalg import trace_product
 from gaussx._primitives._inv import inv
-from gaussx._primitives._logdet import logdet
+from gaussx._primitives._logdet import _cholesky_logdet, _dense_psd_matrix, logdet
 from gaussx._primitives._solve import solve
 
 
@@ -53,6 +54,18 @@ def dist_kl_divergence(
     """
     N = p_loc.shape[-1]
     delta = q_loc - p_loc
+
+    p_matrix, q_matrix = _dense_psd_matrix(p_cov), _dense_psd_matrix(q_cov)
+    if p_matrix is not None and q_matrix is not None:
+        # Two Choleskys for the whole KL (gh-329): with M = L_q^{-1} L_p,
+        # tr(Sigma_q^{-1} Sigma_p) = ||M||_F^2, and the quadratic form and
+        # both log-determinants come from the same factors.
+        L_p = jnp.linalg.cholesky(p_matrix)
+        L_q = jnp.linalg.cholesky(q_matrix)
+        M = jax.scipy.linalg.solve_triangular(L_q, L_p, lower=True)
+        z = jax.scipy.linalg.solve_triangular(L_q, delta, lower=True)
+        ld_diff = _cholesky_logdet(L_q) - _cholesky_logdet(L_p)
+        return 0.5 * (jnp.sum(M**2) + z @ z - N + ld_diff)
 
     # tr(Sigma_q^{-1} Sigma_p)
     q_inv = inv(q_cov)

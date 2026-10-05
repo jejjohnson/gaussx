@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import math
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._primitives._logdet import _cholesky_logdet, _dense_psd_matrix
 from gaussx._primitives._trace import trace
+from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import (
     AbstractLogdetStrategy,
     AbstractSolverStrategy,
     AbstractSolveStrategy,
 )
+from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
@@ -51,10 +55,33 @@ def _gaussian_log_prob_residual(
 ) -> Float[Array, ""]:
     """Gaussian log-prob given a pre-computed residual ``value - loc``."""
     N = residual.shape[-1]
+    matrix = _dense_psd_matrix(cov_operator)
+    if matrix is not None and _uses_structural_dispatch(cov_operator, solver):
+        # Factor once (gh-329): one Cholesky gives both the quadratic form
+        # and the log-determinant, where a solve plus a logdet factor twice.
+        factor = jnp.linalg.cholesky(matrix)
+        whitened = jax.scipy.linalg.solve_triangular(factor, residual, lower=True)
+        return -0.5 * (N * _LOG_2PI + _cholesky_logdet(factor) + whitened @ whitened)
     alpha = dispatch_solve(cov_operator, residual, solver)
     quad = residual @ alpha
     ld = dispatch_logdet(cov_operator, solver)
     return -0.5 * (N * _LOG_2PI + ld + quad)
+
+
+def _uses_structural_dispatch(
+    operator: lx.AbstractLinearOperator,
+    solver: AbstractSolverStrategy | None,
+) -> bool:
+    """Whether *solver* would solve *operator* by `gaussx.solve` and `logdet`.
+
+    Only then may the factor-once path stand in for it: an explicit
+    iterative or stochastic strategy must keep its own semantics.
+    """
+    if solver is None or isinstance(solver, DenseSolver):
+        return True
+    if isinstance(solver, AutoSolver):
+        return isinstance(solver._get_strategy(operator), DenseSolver)
+    return False
 
 
 def gaussian_log_prob(
