@@ -7,7 +7,10 @@ SVI, and Predictive.
 
 from __future__ import annotations
 
+import numpyro.distributions as nd
 import pytest
+
+import gaussx
 
 
 pytest.importorskip("numpyro")
@@ -253,3 +256,102 @@ class TestStructuredInNumpyro:
 
         assert samples["mu"].shape == (100, 4)
         assert jnp.all(jnp.isfinite(samples["mu"]))
+
+
+# ---------------------------------------------------------------------------
+# gh-313: numpyro kl_divergence for the gaussx MVN classes
+# ---------------------------------------------------------------------------
+
+
+def _random_spd(key, n):
+    a = jr.normal(key, (n, n))
+    return a @ a.T + n * jnp.eye(n)
+
+
+def _as(kind, loc, cov):
+    """A Gaussian of the given class with mean loc and covariance cov."""
+    psd = lx.positive_semidefinite_tag
+    if kind == "gx_mvn":
+        return gaussx.MultivariateNormal(loc, lx.MatrixLinearOperator(cov, psd))
+    if kind == "gx_prec":
+        precision = lx.MatrixLinearOperator(jnp.linalg.inv(cov), psd)
+        return gaussx.MultivariateNormalPrecision(loc, precision)
+    return nd.MultivariateNormal(loc, covariance_matrix=cov)
+
+
+# q = MultivariateNormalPrecision at N = 1 hits lx.diagonal(InverseOperator),
+# which is unimplemented until gh-349 lands; strict, so it flips then.
+_INVERSE_DIAGONAL = pytest.mark.xfail(
+    strict=True, raises=NotImplementedError, reason="gh-349"
+)
+_CASES = [
+    pytest.param(p, q, n, marks=_INVERSE_DIAGONAL if (q, n) == ("gx_prec", 1) else ())
+    for p in ("gx_mvn", "gx_prec", "nd_mvn")
+    for q in ("gx_mvn", "gx_prec", "nd_mvn")
+    for n in (1, 3, 7)
+    if (p, q) != ("nd_mvn", "nd_mvn")
+]
+
+
+@pytest.mark.parametrize(("p_kind", "q_kind", "n"), _CASES)
+def test_kl_divergence_matches_numpyro_dense(p_kind, q_kind, n):
+    """Every gaussx/numpyro pairing agrees with numpyro's dense MVN-MVN KL.
+
+    rtol=1e-10: both sides are float64 closed forms on SPD matrices with
+    condition numbers below ~10, so only round-off separates them; the
+    precision class adds one dense inverse.
+    """
+    k1, k2, k3, k4 = jr.split(jr.key(0), 4)
+    p_loc, q_loc = jr.normal(k1, (n,)), jr.normal(k2, (n,))
+    p_cov, q_cov = _random_spd(k3, n), _random_spd(k4, n)
+    expected = nd.kl_divergence(
+        nd.MultivariateNormal(p_loc, covariance_matrix=p_cov),
+        nd.MultivariateNormal(q_loc, covariance_matrix=q_cov),
+    )
+    actual = nd.kl_divergence(_as(p_kind, p_loc, p_cov), _as(q_kind, q_loc, q_cov))
+    assert jnp.allclose(actual, expected, rtol=1e-10, atol=0.0)
+
+
+@pytest.mark.parametrize("q_kind", ["gx_mvn", "nd_mvn"])
+def test_kl_divergence_broadcasts_batch_shapes(q_kind):
+    k1, k2, k3 = jr.split(jr.key(0), 3)
+    p_locs = jr.normal(k1, (4, 3))
+    cov = _random_spd(k2, 3)
+    q_loc = jr.normal(k3, (3,))
+    q = _as(q_kind, q_loc, cov)
+    batched = nd.kl_divergence(_as("gx_mvn", p_locs, cov), q)
+    assert batched.shape == (4,)
+    for i in range(4):
+        single = nd.kl_divergence(_as("gx_mvn", p_locs[i], cov), q)
+        assert jnp.allclose(batched[i], single, rtol=1e-12)
+
+
+def test_kl_divergence_rejects_mismatched_event_shapes():
+    p = _as("gx_mvn", jnp.zeros(3), jnp.eye(3))
+    q = _as("gx_mvn", jnp.zeros(2), jnp.eye(2))
+    with pytest.raises(ValueError, match="same event shape"):
+        nd.kl_divergence(p, q)
+
+
+def test_trace_mean_field_elbo_uses_the_analytic_kl():
+    """With the KL registered, TraceMeanField_ELBO stops sampling it: the
+    loss of a model whose only latent is the MVN site is deterministic."""
+    import numpyro
+    from numpyro.infer import TraceMeanField_ELBO
+
+    cov = lx.MatrixLinearOperator(
+        _random_spd(jr.key(1), 3), lx.positive_semidefinite_tag
+    )
+
+    def model():
+        numpyro.sample("f", gaussx.MultivariateNormal(jnp.zeros(3), cov))
+
+    def guide():
+        numpyro.sample("f", gaussx.MultivariateNormal(jnp.ones(3), cov))
+
+    elbo = TraceMeanField_ELBO()
+    loss_a = elbo.loss(jr.key(0), {}, model, guide)
+    loss_b = elbo.loss(jr.key(1), {}, model, guide)
+    expected = gaussx.dist_kl_divergence(jnp.ones(3), cov, jnp.zeros(3), cov)
+    assert jnp.allclose(loss_a, loss_b, rtol=1e-12)
+    assert jnp.allclose(loss_a, expected, rtol=1e-10)
