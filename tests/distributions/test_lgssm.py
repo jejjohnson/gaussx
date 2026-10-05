@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import pytest
 
 
@@ -247,6 +249,23 @@ class TestMaskedLGSSM:
         d = MaskedLGSSM(A, H, Q, R, m0, P0, n_steps=T, obs_mask=mask)
         y = d.sample(getkey())
         assert d.log_prob(jnp.where(mask, y, jnp.nan)) == d.log_prob(y)
+
+    @pytest.mark.parametrize("validate_args", [False, True])
+    def test_masked_nan_entries_pass_support_validation(self, getkey, validate_args):
+        """Validation checks the observed entries only (numpyro >= 0.22
+        validates by default, which turned a masked NaN into -inf)."""
+        T, M = 8, 4
+        A, H, Q, R, m0, P0 = _make_params(getkey(), M=M)
+        mask = jnp.zeros((T, M), dtype=bool).at[:, 0].set(True)
+        d = MaskedLGSSM(
+            A, H, Q, R, m0, P0, n_steps=T, obs_mask=mask, validate_args=validate_args
+        )
+        y = d.sample(getkey())
+        y_nan = jnp.where(mask, y, jnp.nan)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            assert d.log_prob(y_nan) == d.log_prob(y)
+            assert jnp.isfinite(d.log_prob(jnp.stack([y_nan, y_nan])).sum())
 
     def test_wrong_mask_shape_raises(self, getkey):
         T, M = 8, 4

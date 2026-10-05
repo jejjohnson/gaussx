@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpyro.distributions as dist
+from jax.typing import ArrayLike
 from jaxtyping import Array, Bool, Float
 from numpyro.distributions.util import lazy_property, validate_sample
 
@@ -305,6 +306,12 @@ class MaskedLGSSM(LGSSM):
     @property
     def _obs_mask(self) -> Bool[Array, "T M"]:
         return self.obs_mask
+
+    def _validate_sample(self, value: ArrayLike) -> ArrayLike:
+        # Masked entries are never read and may be NaN, so check the support
+        # on the observed entries only. numpyro >= 0.22 validates by default,
+        # and a NaN anywhere would otherwise turn log_prob into -inf.
+        return super()._validate_sample(jnp.where(self.obs_mask, value, 0.0))
 
 
 class LGSSMFactory(eqx.Module):

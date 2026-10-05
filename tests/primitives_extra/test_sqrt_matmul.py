@@ -177,8 +177,13 @@ def test_partial_lanczos_bounds_are_an_inner_bracket_before_widening() -> None:
 
     # Ritz values interlace the spectrum, so the raw estimate is an inner
     # bracket; the largest eigenvalue is the one Lanczos nails first.
-    assert lam_min >= eigenvalues[0]
-    assert lam_max <= eigenvalues[-1]
+    # Interlacing is exact only in exact arithmetic: a converged Ritz value
+    # and eigvalsh's eigenvalue come from different eigensolvers, each
+    # backward-stable to O(n eps ||A||) (Weyl), so allow that much slack
+    # rather than comparing the last bit.
+    slack = 30 * jnp.finfo(eigenvalues.dtype).eps * eigenvalues[-1]
+    assert lam_min >= eigenvalues[0] - slack
+    assert lam_max <= eigenvalues[-1] + slack
     assert jnp.allclose(lam_max, eigenvalues[-1], rtol=1e-6)
 
 
