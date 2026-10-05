@@ -374,6 +374,8 @@ from gaussx._tags import (
 
 
 try:
+    # Registers numpyro kl_divergence for the two MVN classes (gh-313).
+    from gaussx._distributions import _numpyro_kl  # noqa: F401
     from gaussx._distributions._gmrf import (
         BYM2GMRF as BYM2GMRF,
         ConstrainedGMRF as ConstrainedGMRF,
