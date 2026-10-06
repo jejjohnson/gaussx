@@ -156,7 +156,7 @@ print("All three constructors produce identical natural parameters.")
 
 # %%
 # Recover mean and covariance from the exp-fam object
-mu_recovered, Sigma_recovered = gaussx.to_expectation(q1)
+mu_recovered, Sigma_recovered = gaussx.to_mean_cov(q1)
 
 print("Original mu   =", mu)
 print("Recovered mu  =", mu_recovered)
@@ -167,14 +167,14 @@ print("Recovered Sigma =\n", Sigma_recovered.as_matrix())
 print("Match:", jnp.allclose(Sigma_mat, Sigma_recovered.as_matrix(), atol=1e-10))
 
 # %%
-# Also verify to_natural produces matching eta1, eta2
-eta1_fn, eta2_fn = gaussx.to_natural(mu, Sigma_op)
+# Also verify mean_cov_to_natural produces matching eta1, eta2
+eta1_fn, eta2_fn = gaussx.mean_cov_to_natural(mu, Sigma_op)
 
-print("eta1 (to_natural) =", eta1_fn)
+print("eta1 (mean_cov_to_natural) =", eta1_fn)
 print("eta1 (object)     =", q1.eta1)
 print("Match:", jnp.allclose(eta1_fn, q1.eta1, atol=1e-12))
 print()
-print("eta2 (to_natural) =\n", eta2_fn.as_matrix())
+print("eta2 (mean_cov_to_natural) =\n", eta2_fn.as_matrix())
 print("eta2 (object)     =\n", q1.eta2.as_matrix())
 print("Match:", jnp.allclose(eta2_fn.as_matrix(), q1.eta2.as_matrix(), atol=1e-12))
 
@@ -359,7 +359,7 @@ posterior = gaussx.GaussianExpFam(
 )
 
 # Recover posterior mean and covariance
-mu_post, Sigma_post = gaussx.to_expectation(posterior)
+mu_post, Sigma_post = gaussx.to_mean_cov(posterior)
 
 print("Posterior mean =", mu_post)
 print("Posterior cov  =\n", Sigma_post.as_matrix())
@@ -388,8 +388,8 @@ print(
 # |---|---|
 # | Build from mean/cov | `GaussianExpFam.from_mean_cov(mu, Sigma)` |
 # | Build from mean/prec | `GaussianExpFam.from_mean_prec(mu, Lambda)` |
-# | Natural $\to$ expectation | `gaussx.to_expectation(q)` |
-# | Expectation $\to$ natural | `gaussx.to_natural(mu, Sigma)` |
+# | Natural $\to$ mean, covariance | `gaussx.to_mean_cov(q)` |
+# | Mean, covariance $\to$ natural | `gaussx.mean_cov_to_natural(mu, Sigma)` |
 # | Log-partition $A(\eta)$ | `gaussx.log_partition(q)` |
 # | Sufficient statistics | `gaussx.sufficient_stats(x)` |
 # | Fisher information | `gaussx.fisher_info(q)` |

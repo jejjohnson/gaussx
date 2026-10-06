@@ -12,8 +12,11 @@ from gaussx._expfam import (
     fisher_info,
     kl_divergence,
     log_partition,
+    mean_cov_to_natural,
+    natural_to_expectation,
     sufficient_stats,
     to_expectation,
+    to_mean_cov,
     to_natural,
 )
 from gaussx._testing import random_pd_matrix, tree_allclose
@@ -21,14 +24,14 @@ from gaussx._testing import random_pd_matrix, tree_allclose
 
 @pytest.mark.slow
 def test_from_mean_cov_roundtrip(getkey):
-    """from_mean_cov -> to_expectation should recover (mu, Sigma)."""
+    """from_mean_cov -> to_mean_cov should recover (mu, Sigma)."""
     N = 4
     Sigma_mat = random_pd_matrix(getkey(), N)
     Sigma = lx.MatrixLinearOperator(Sigma_mat, lx.positive_semidefinite_tag)
     mu = jr.normal(getkey(), (N,))
 
     ef = GaussianExpFam.from_mean_cov(mu, Sigma)
-    mu_rec, Sigma_rec = to_expectation(ef)
+    mu_rec, Sigma_rec = to_mean_cov(ef)
 
     assert tree_allclose(mu_rec, mu, rtol=1e-4)
     assert tree_allclose(Sigma_rec.as_matrix(), Sigma_mat, rtol=1e-4)
@@ -51,15 +54,15 @@ def test_from_mean_prec(getkey):
 
 
 def test_to_natural_roundtrip(getkey):
-    """to_natural -> to_expectation from GaussianExpFam should roundtrip."""
+    """mean_cov_to_natural -> to_mean_cov should roundtrip."""
     N = 3
     Sigma_mat = random_pd_matrix(getkey(), N)
     Sigma = lx.MatrixLinearOperator(Sigma_mat, lx.positive_semidefinite_tag)
     mu = jr.normal(getkey(), (N,))
 
-    eta1, eta2 = to_natural(mu, Sigma)
+    eta1, eta2 = mean_cov_to_natural(mu, Sigma)
     ef = GaussianExpFam(eta1=eta1, eta2=eta2)
-    mu_rec, Sigma_rec = to_expectation(ef)
+    mu_rec, Sigma_rec = to_mean_cov(ef)
 
     assert tree_allclose(mu_rec, mu, rtol=1e-4)
     assert tree_allclose(Sigma_rec.as_matrix(), Sigma_mat, rtol=1e-4)
@@ -148,3 +151,38 @@ def test_kl_divergence_positive(getkey):
 
     kl = kl_divergence(q, p)
     assert kl >= -1e-6  # should be non-negative
+
+
+def test_mean_cov_versus_expectation_parameters():
+    """gh-335: to_mean_cov gives (mu, Sigma); natural_to_expectation gives
+    the expectation parameters (mu, mu mu^T + Sigma)."""
+    k1, k2 = jr.split(jr.key(0))
+    mu = jr.normal(k1, (3,))
+    a = jr.normal(k2, (3, 3))
+    S = a @ a.T + jnp.eye(3)
+    Sigma = lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+    eta1, eta2 = mean_cov_to_natural(mu, Sigma)
+    m1, m2 = natural_to_expectation(eta1, eta2.as_matrix())
+    _, cov = to_mean_cov(GaussianExpFam(eta1=eta1, eta2=eta2))
+    assert jnp.allclose(m1, mu, rtol=1e-10)
+    assert jnp.allclose(m2, jnp.outer(mu, mu) + S, rtol=1e-10)
+    assert jnp.allclose(cov.as_matrix(), S, rtol=1e-10)
+
+
+def test_misnamed_aliases_are_deprecated():
+    """gh-335: same values as their replacements, with a DeprecationWarning."""
+    mu = jnp.array([1.0, -0.5])
+    Sigma = lx.MatrixLinearOperator(
+        jnp.array([[2.0, 0.3], [0.3, 1.0]]), lx.positive_semidefinite_tag
+    )
+    ef = GaussianExpFam.from_mean_cov(mu, Sigma)
+    with pytest.warns(DeprecationWarning, match="to_mean_cov"):
+        old = to_expectation(ef)
+    new = to_mean_cov(ef)
+    assert jnp.allclose(old[0], new[0])
+    assert jnp.allclose(old[1].as_matrix(), new[1].as_matrix())
+    with pytest.warns(DeprecationWarning, match="mean_cov_to_natural"):
+        old_eta = to_natural(mu, Sigma)
+    new_eta = mean_cov_to_natural(mu, Sigma)
+    assert jnp.allclose(old_eta[0], new_eta[0])
+    assert jnp.allclose(old_eta[1].as_matrix(), new_eta[1].as_matrix())

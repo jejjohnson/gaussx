@@ -7,6 +7,7 @@ from gaussx._expfam._gaussian import (
     log_partition,
     sufficient_stats,
     to_expectation,
+    to_mean_cov,
     to_natural,
 )
 from gaussx._expfam._natural import (
@@ -36,5 +37,6 @@ __all__ = [
     "natural_to_meanvar",
     "sufficient_stats",
     "to_expectation",
+    "to_mean_cov",
     "to_natural",
 ]
