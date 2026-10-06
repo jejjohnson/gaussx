@@ -173,16 +173,20 @@ def test_trace_stochastic_diagonal(getkey):
 # --- Stochastic Diag ---
 
 
-def test_diag_stochastic(getkey):
+def test_diag_stochastic():
     """Stochastic diag should approximate true diagonal."""
-    mat = random_pd_matrix(getkey(), 10)
+    m = 200
+    mat = random_pd_matrix(jr.key(0), 10)
     op = lx.MatrixLinearOperator(mat, lx.symmetric_tag)
 
-    estimated = diag(op, stochastic=True, num_probes=200, key=getkey())
-    true_diag = jnp.diag(mat)
+    estimated = diag(op, stochastic=True, num_probes=m, key=jr.key(1))
 
-    # Stochastic — generous tolerance
-    assert jnp.max(jnp.abs(estimated - true_diag)) < 0.3 * jnp.max(true_diag) + 1.0
+    # Rademacher ("signs") probes: each entry of the m-probe mean has
+    # variance sum_{j != i} A_ij^2 / m, so 5 standard deviations per entry
+    # is a real bound (gh-303). Matrix and probes are pinned.
+    off_diagonal = mat - jnp.diag(jnp.diag(mat))
+    sd = jnp.sqrt(jnp.sum(off_diagonal**2, axis=1) / m)
+    assert jnp.all(jnp.abs(estimated - jnp.diag(mat)) <= 5.0 * sd)
 
 
 def test_svd_partial_rank_clipped(getkey):

@@ -8,6 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+from gaussx._einx import einsum
 from gaussx._strategies import (
     AbstractLogdetStrategy,
     ComposedSolver,
@@ -25,17 +26,28 @@ def _make_pd_operator(key, n=8):
     return lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag), M
 
 
+# The SLQ estimators report their own standard error of the mean (SEM), so
+# their tests bound |est - ref| by K_SEM standard errors instead of a fixed
+# rtol (gh-303). Over 1000 random matrices |err| / SEM peaked at 3.1
+# (indefinite) and 3.4 (PSD), so 5 SEM is a real bound; with the matrix and
+# the probes pinned, each test is also deterministic.
+K_SEM = 5.0
+
+
+def _assert_within_sem(strategy, op, ref):
+    est, sem = strategy.logdet_and_error(op)
+    assert jnp.abs(est - ref) <= K_SEM * sem, (est, ref, sem)
+
+
 # ── SLQLogdet ──────────────────────────────────────────────────────
 
 
 @pytest.mark.slow
-def test_slq_logdet_psd(getkey):
+def test_slq_logdet_psd():
     """SLQLogdet should approximate logdet of a PSD matrix."""
-    op, M = _make_pd_operator(getkey())
+    op, M = _make_pd_operator(jr.key(0))
     _, ref = jnp.linalg.slogdet(M)
-    slq = SLQLogdet(num_probes=40, lanczos_order=8)
-    est = slq.logdet(op)
-    assert tree_allclose(est, ref, rtol=0.1)
+    _assert_within_sem(SLQLogdet(num_probes=40, lanczos_order=8), op, ref)
 
 
 def test_slq_logdet_is_abstract_logdet():
@@ -65,34 +77,38 @@ def test_slq_logdet_with_key(getkey):
 # ── IndefiniteSLQLogdet ────────────────────────────────────────────
 
 
-def test_indefinite_slq_logdet_psd(getkey):
+def test_indefinite_slq_logdet_psd():
     """IndefiniteSLQLogdet on PSD should match |logdet|."""
-    op, M = _make_pd_operator(getkey())
+    op, M = _make_pd_operator(jr.key(0))
     _, ref = jnp.linalg.slogdet(M)
-    est = IndefiniteSLQLogdet(num_probes=40, lanczos_order=8).logdet(op)
-    assert tree_allclose(est, ref, rtol=0.1)
+    _assert_within_sem(IndefiniteSLQLogdet(num_probes=40, lanczos_order=8), op, ref)
 
 
-def test_indefinite_slq_logdet_indefinite(getkey):
-    """IndefiniteSLQLogdet should handle indefinite symmetric matrices."""
+def test_indefinite_slq_logdet_indefinite():
+    """IndefiniteSLQLogdet should handle indefinite symmetric matrices.
+
+    The spectrum is set by construction, Q diag(lambda) Q^T with mixed signs
+    and |lambda| >= 0.5, so log|det M| is not near zero. A random A + A^T + 2I
+    reached min |lambda| = 7e-5 over 1000 seeds, which is what made the old
+    relative tolerance flaky (gh-303).
+    """
     n = 8
-    A = jr.normal(getkey(), (n, n))
-    M = A + A.T  # symmetric but not necessarily PSD
-    M = M + 2.0 * jnp.eye(n)  # shift to keep eigenvalues well away from zero
-    op = lx.MatrixLinearOperator(M)
-    ref = jnp.sum(jnp.log(jnp.abs(jnp.linalg.eigvalsh(M))))
-    est = IndefiniteSLQLogdet(num_probes=80, lanczos_order=8).logdet(op)
-    assert tree_allclose(est, ref, rtol=0.3)
+    Q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n)))
+    eigvals = jnp.array([-3.0, -1.5, -0.5, 0.5, 1.0, 2.0, 3.0, 4.0])
+    M = einsum(Q * eigvals, Q, "i k, j k -> i j")
+    op = lx.MatrixLinearOperator(M, lx.symmetric_tag)
+    ref = jnp.sum(jnp.log(jnp.abs(eigvals)))
+    _assert_within_sem(IndefiniteSLQLogdet(num_probes=80, lanczos_order=8), op, ref)
 
 
-def test_indefinite_slq_logdet_shift(getkey):
+def test_indefinite_slq_logdet_shift():
     """Shift parameter should be applied correctly."""
-    op, M = _make_pd_operator(getkey())
+    op, M = _make_pd_operator(jr.key(0))
     shift = 2.0
     M_shifted = M + shift * jnp.eye(M.shape[0])
     _, ref = jnp.linalg.slogdet(M_shifted)
-    est = IndefiniteSLQLogdet(num_probes=40, lanczos_order=8, shift=shift).logdet(op)
-    assert tree_allclose(est, ref, rtol=0.1)
+    strategy = IndefiniteSLQLogdet(num_probes=40, lanczos_order=8, shift=shift)
+    _assert_within_sem(strategy, op, ref)
 
 
 def test_indefinite_slq_logdet_is_abstract_logdet():

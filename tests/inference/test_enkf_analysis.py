@@ -119,6 +119,9 @@ def test_analysis_spread_is_not_underdispersive(getkey):
     deterministic_cov = jnp.cov(deterministic.T, bias=False)
 
     # The stochastic analysis reproduces the true posterior covariance ...
+    # The bound: a sample covariance of J draws in N dimensions has relative
+    # Frobenius error O(sqrt(N / J)); with N = 3, J = 200 000 that is a few
+    # times 1e-3, so 0.02 leaves several standard errors of margin (gh-303).
     stochastic_err = jnp.linalg.norm(stochastic_cov - post_cov)
     stochastic_err /= jnp.linalg.norm(post_cov)
     assert stochastic_err < 0.02
