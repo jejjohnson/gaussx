@@ -13,15 +13,7 @@ from gaussx._ssm._udl import (
     udl_from_ssm_params,
     udl_to_ssm_params,
 )
-
-
-def _make_spd_block_tridiag(key, T, d, coupling=0.3):
-    """Random SPD block-tridiagonal precision (diagonally dominant)."""
-    k1, k2 = jr.split(key)
-    raw = jr.normal(k1, (T, d, d))
-    diag = jax.vmap(lambda M: M @ M.T)(raw) + 5.0 * jnp.eye(d)[None]
-    sub = coupling * jr.normal(k2, (T - 1, d, d))
-    return BlockTriDiag(diag, sub)
+from gaussx._testing import random_spd_block_tridiag
 
 
 def _make_ssm(key, T, d):
@@ -37,7 +29,7 @@ class TestUDLDecomposition:
     @pytest.mark.slow
     def test_shapes(self):
         T, d = 6, 3
-        udl = udl_decomposition(_make_spd_block_tridiag(jr.key(0), T, d))
+        udl = udl_decomposition(random_spd_block_tridiag(jr.key(0), T, d))
         assert isinstance(udl, UDLDecomposition)
         assert udl.U_sub.shape == (T - 1, d, d)
         assert udl.D_diag.shape == (T, d, d)
@@ -49,7 +41,7 @@ class TestUDLDecomposition:
     def test_factors_reproduce_precision_densely(self):
         """Lambda == U D~ U^T with U unit upper block-bidiagonal."""
         T, d = 5, 2
-        prec = _make_spd_block_tridiag(jr.key(1), T, d)
+        prec = random_spd_block_tridiag(jr.key(1), T, d)
         udl = udl_decomposition(prec)
 
         n = T * d
@@ -66,25 +58,25 @@ class TestUDLDecomposition:
     def test_roundtrip_as_block_tridiag(self):
         """Lambda -> UDL -> Lambda is the identity to 1e-8."""
         T, d = 7, 3
-        prec = _make_spd_block_tridiag(jr.key(2), T, d)
+        prec = random_spd_block_tridiag(jr.key(2), T, d)
         rebuilt = udl_decomposition(prec).as_block_tridiag()
         assert jnp.allclose(rebuilt.diagonal, prec.diagonal, atol=1e-8)
         assert jnp.allclose(rebuilt.sub_diagonal, prec.sub_diagonal, atol=1e-8)
 
     def test_chol_D_is_cholesky_of_D(self):
-        udl = udl_decomposition(_make_spd_block_tridiag(jr.key(3), 4, 2))
+        udl = udl_decomposition(random_spd_block_tridiag(jr.key(3), 4, 2))
         rebuilt = jax.vmap(lambda L: L @ L.T)(udl.chol_D)
         assert jnp.allclose(rebuilt, udl.D_diag, atol=1e-10)
 
     def test_not_the_cholesky_factor(self):
         """UDL is a distinct factorisation: D~ is not the identity."""
-        udl = udl_decomposition(_make_spd_block_tridiag(jr.key(4), 4, 2))
+        udl = udl_decomposition(random_spd_block_tridiag(jr.key(4), 4, 2))
         assert not jnp.allclose(udl.D_diag, jnp.eye(2)[None])
 
     @pytest.mark.slow
     def test_solve_matches_dense(self):
         T, d = 20, 3
-        prec = _make_spd_block_tridiag(jr.key(5), T, d)
+        prec = random_spd_block_tridiag(jr.key(5), T, d)
         rhs = jr.normal(jr.key(6), (T * d,))
         x = udl_decomposition(prec).solve(rhs)
         expected = jnp.linalg.solve(prec.as_matrix(), rhs)
@@ -92,7 +84,7 @@ class TestUDLDecomposition:
 
     @pytest.mark.slow
     def test_logdet_matches_dense(self):
-        prec = _make_spd_block_tridiag(jr.key(7), 12, 2)
+        prec = random_spd_block_tridiag(jr.key(7), 12, 2)
         ld = udl_decomposition(prec).logdet()
         _, expected = jnp.linalg.slogdet(prec.as_matrix())
         assert jnp.allclose(ld, expected, atol=1e-8)
@@ -154,7 +146,7 @@ class TestTransforms:
     @pytest.mark.slow
     def test_jit_grad_vmap(self):
         T, d = 6, 2
-        prec = _make_spd_block_tridiag(jr.key(20), T, d)
+        prec = random_spd_block_tridiag(jr.key(20), T, d)
         rhs = jr.normal(jr.key(21), (T * d,))
 
         def loss(diag, sub):

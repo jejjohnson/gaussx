@@ -19,7 +19,7 @@ import pytest
 
 import gaussx
 from gaussx import MultivariateNormal, MultivariateNormalPrecision
-from gaussx._testing import random_pd_matrix
+from gaussx._testing import random_pd_operator
 
 
 def _exported_strategy_classes() -> list[type]:
@@ -71,14 +71,8 @@ def test_tree_map_leaves_strategy_config_unchanged(strategy):
     assert jax.tree_util.tree_map(lambda leaf: 2 * leaf, strategy) == strategy
 
 
-def _pd_operator() -> lx.AbstractLinearOperator:
-    return lx.MatrixLinearOperator(
-        random_pd_matrix(jr.key(0), 3), lx.positive_semidefinite_tag
-    )
-
-
 def test_distribution_leaves_are_only_arrays():
-    op = _pd_operator()
+    op = random_pd_operator(jr.key(0), 3)
     dist = MultivariateNormal(jnp.zeros(3), op)
     leaves = jax.tree_util.tree_leaves(dist)
     assert len(leaves) == 2
@@ -94,7 +88,7 @@ def test_distribution_leaves_are_only_arrays():
     ids=_id,
 )
 def test_jax_jit_log_prob_with_distribution_argument(cls, strategy):
-    op = _pd_operator()
+    op = random_pd_operator(jr.key(0), 3)
     if isinstance(strategy, gaussx.SparseCholeskySolver):
         # A sparse factorisation needs a SparseOperator: the same matrix,
         # stored as its (dense) lower triangle.

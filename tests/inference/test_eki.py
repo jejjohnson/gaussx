@@ -30,7 +30,7 @@ from gaussx import (
 )
 from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
-from gaussx._testing import random_pd_matrix
+from gaussx._testing import empirical_moments, random_pd_matrix
 
 
 # ---------------------------------------------------------------------------
@@ -59,14 +59,6 @@ def _exact_ensemble(mean, cov, n_ens):
     omega = q[:, 1 : n_state + 1]  # (J, N)
     factor = dense_symmetric_sqrt(cov)  # symmetric, so L L^T = L L = cov
     return mean[None, :] + jnp.sqrt(n_ens - 1.0) * omega @ factor
-
-
-def _empirical(ensemble):
-    """``(mean, covariance)`` with the ``1 / (J - 1)`` divisor."""
-    n_ens = ensemble.shape[0]
-    mean = jnp.mean(ensemble, axis=0)
-    anomalies = ensemble - mean[None, :]
-    return mean, anomalies.T @ anomalies / (n_ens - 1)
 
 
 def _exact_posterior(prior_mean, prior_cov, obs_model, obs_noise, observation):
@@ -178,7 +170,7 @@ def test_tempering_is_exact(getkey):
     post_mean, post_cov = _exact_posterior(
         prior_mean, prior_cov, obs_model, obs_noise, observation
     )
-    got_mean, got_cov = _empirical(particles)
+    got_mean, got_cov = empirical_moments(particles)
     assert jnp.allclose(got_mean, post_mean, atol=1e-6, rtol=0.0)
     assert jnp.allclose(got_cov, post_cov, atol=1e-6, rtol=0.0)
 
@@ -203,7 +195,7 @@ def test_schedule_not_summing_to_one_is_not_the_posterior(getkey):
     post_mean, _ = _exact_posterior(
         prior_mean, prior_cov, obs_model, obs_noise, observation
     )
-    got_mean, got_cov = _empirical(particles)
+    got_mean, got_cov = empirical_moments(particles)
     assert not jnp.allclose(got_mean, post_mean, atol=1e-3)
 
     # It is exactly the posterior of the *half-weighted* likelihood, i.e. 2R.

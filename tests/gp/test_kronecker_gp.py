@@ -9,12 +9,7 @@ from gaussx._gp._kronecker_gp import (
     kronecker_mll,
     kronecker_posterior_predictive,
 )
-
-
-def _make_pd(key, n):
-    """Make a positive definite matrix."""
-    A = jax.random.normal(key, (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
+from gaussx._testing import random_pd_matrix
 
 
 def _rbf_kernel(x, y, lengthscale=1.0):
@@ -28,8 +23,8 @@ class TestKroneckerMLL:
         """Kronecker MLL should match dense computation."""
         n1, n2 = 4, 3
         N = n1 * n2
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         noise_var = 0.1
         y = jax.random.normal(getkey(), (N,))
 
@@ -49,8 +44,8 @@ class TestKroneckerMLL:
     def test_scalar(self, getkey):
         """Should return a scalar."""
         n1, n2 = 3, 3
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         y = jax.random.normal(getkey(), (n1 * n2,))
 
         K1_op = lx.MatrixLinearOperator(K1, lx.positive_semidefinite_tag)
@@ -63,8 +58,8 @@ class TestKroneckerMLL:
     def test_negative(self, getkey):
         """MLL should be negative (log of probability density)."""
         n1, n2 = 4, 3
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         y = jax.random.normal(getkey(), (n1 * n2,))
 
         K1_op = lx.MatrixLinearOperator(K1, lx.positive_semidefinite_tag)
@@ -78,9 +73,9 @@ class TestKroneckerMLL:
         """Should work with three Kronecker factors."""
         n1, n2, n3 = 3, 3, 2
         N = n1 * n2 * n3
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
-        K3 = _make_pd(getkey(), n3)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
+        K3 = random_pd_matrix(getkey(), n3)
         y = jax.random.normal(getkey(), (N,))
 
         ops = [
@@ -158,8 +153,8 @@ class TestKroneckerPosteriorPredictive:
         n1_test, n2_test = 2, 3
         N_test = n1_test * n2_test
 
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         y = jax.random.normal(getkey(), (n1 * n2,))
         K_cross_1 = jax.random.normal(getkey(), (n1_test, n1))
         K_cross_2 = jax.random.normal(getkey(), (n2_test, n2))
@@ -183,8 +178,8 @@ class TestKroneckerPosteriorPredictive:
         """Predictive variances should be non-negative."""
         n1, n2 = 4, 3
 
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         y = jax.random.normal(getkey(), (n1 * n2,))
 
         # Use submatrix of eigenvectors as cross-covariance for well-conditioned test
@@ -207,8 +202,8 @@ class TestKroneckerPosteriorPredictive:
     def test_requires_test_prior_diagonals(self, getkey):
         """Variance computation should require exact test prior diagonals."""
         n1, n2 = 2, 2
-        K1 = _make_pd(getkey(), n1)
-        K2 = _make_pd(getkey(), n2)
+        K1 = random_pd_matrix(getkey(), n1)
+        K2 = random_pd_matrix(getkey(), n2)
         y = jax.random.normal(getkey(), (n1 * n2,))
         K_cross_1 = jax.random.normal(getkey(), (1, n1))
         K_cross_2 = jax.random.normal(getkey(), (1, n2))

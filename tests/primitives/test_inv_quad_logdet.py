@@ -13,7 +13,11 @@ from gaussx import LowRankUpdate
 
 # Private helpers whose own behaviour these tests check.
 from gaussx._primitives._inv_quad_logdet import _lanczos_coefficients, _mbcg
-from gaussx._testing import default_tolerances, random_pd_operator
+from gaussx._testing import (
+    default_tolerances,
+    random_pd_matrix,
+    random_pd_operator,
+)
 
 
 def _dense_inv_quad(operator: lx.AbstractLinearOperator, rhs):
@@ -557,21 +561,21 @@ def test_rejects_mismatched_right_hand_side() -> None:
 _PSD = lx.positive_semidefinite_tag
 
 
-def _pd(seed, n):
-    X = jr.normal(jr.key(seed), (n, n))
-    return X @ X.T + n * jnp.eye(n)
-
-
 def _structured(scale):
     """``name -> operator`` with every leaf multiplied by ``scale``."""
-    A = lx.MatrixLinearOperator(scale * _pd(0, 3), _PSD)
-    B = lx.MatrixLinearOperator(scale * _pd(1, 4), _PSD)
+    A = lx.MatrixLinearOperator(scale * random_pd_matrix(jr.key(0), 3, jitter=3), _PSD)
+    B = lx.MatrixLinearOperator(scale * random_pd_matrix(jr.key(1), 4, jitter=4), _PSD)
     U = jr.normal(jr.key(2), (12, 2))
     return {
         "kronecker": gaussx.Kronecker(A, B),
         "block_diag": gaussx.BlockDiag(A, B),
         "low_rank": LowRankUpdate(
-            lx.MatrixLinearOperator(scale * _pd(3, 12), _PSD), U, jnp.ones(2), U
+            lx.MatrixLinearOperator(
+                scale * random_pd_matrix(jr.key(3), 12, jitter=12), _PSD
+            ),
+            U,
+            jnp.ones(2),
+            U,
         ),
         "block_tridiag": gaussx.BlockTriDiag(
             scale * jnp.tile(4.0 * jnp.eye(2), (6, 1, 1)),
@@ -618,7 +622,7 @@ def test_default_gradients_match_dense(name) -> None:
 
 @pytest.mark.slow
 def test_unstructured_operators_still_take_bbmm() -> None:
-    op = lx.MatrixLinearOperator(_pd(6, 20), _PSD)
+    op = lx.MatrixLinearOperator(random_pd_matrix(jr.key(6), 20, jitter=20), _PSD)
     rhs = jr.normal(jr.key(7), (20, 2))
     default = gaussx.inv_quad_logdet(op, rhs)
     bbmm = gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver())

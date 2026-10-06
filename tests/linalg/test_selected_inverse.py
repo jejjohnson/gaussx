@@ -10,15 +10,7 @@ import pytest
 
 import gaussx
 from gaussx._einx import rearrange
-
-
-def _spd_block_tridiag(N, d, key):
-    """Band of a random SPD matrix, made SPD as a band by diagonal dominance."""
-    k1, k2 = jr.split(key)
-    sub = 0.3 * jr.normal(k1, (N - 1, d, d))
-    raw = jr.normal(k2, (N, d, d))
-    diag = raw @ rearrange(raw, "N i j -> N j i") + 5.0 * jnp.eye(d)
-    return gaussx.BlockTriDiag(diag, sub)
+from gaussx._testing import random_spd_block_tridiag
 
 
 def _dense_band(matrix, N, d):
@@ -32,7 +24,7 @@ def _dense_band(matrix, N, d):
 @pytest.mark.parametrize("d", [1, 2, 3])
 def test_matches_dense_inverse_band(d):
     N = 6
-    op = _spd_block_tridiag(N, d, jr.key(0))
+    op = random_spd_block_tridiag(jr.key(0), N, d)
     band = gaussx.selected_inverse(op)
     diagonal, sub = _dense_band(jnp.linalg.inv(op.as_matrix()), N, d)
     assert isinstance(band, gaussx.BlockTriDiag)
@@ -41,7 +33,7 @@ def test_matches_dense_inverse_band(d):
 
 
 def test_single_block():
-    op = _spd_block_tridiag(1, 2, jr.key(1))
+    op = random_spd_block_tridiag(jr.key(1), 1, 2)
     band = gaussx.selected_inverse(op)
     assert band.sub_diagonal.shape == (0, 2, 2)
     assert jnp.allclose(band.diagonal[0], jnp.linalg.inv(op.diagonal[0]), atol=1e-12)
@@ -49,7 +41,7 @@ def test_single_block():
 
 @pytest.mark.slow
 def test_jit_and_float32():
-    op = _spd_block_tridiag(5, 2, jr.key(2))
+    op = random_spd_block_tridiag(jr.key(2), 5, 2)
     op32 = gaussx.BlockTriDiag(
         op.diagonal.astype(jnp.float32), op.sub_diagonal.astype(jnp.float32)
     )
@@ -61,7 +53,7 @@ def test_jit_and_float32():
 
 
 def test_rejects_unsupported_operators():
-    op = _spd_block_tridiag(3, 2, jr.key(3))
+    op = random_spd_block_tridiag(jr.key(3), 3, 2)
     with pytest.raises(TypeError, match="BlockTriDiag"):
         gaussx.selected_inverse(gaussx.Kronecker(op, op))
     nonsym = gaussx.BlockTriDiag(op.diagonal, op.sub_diagonal, symmetric=False)

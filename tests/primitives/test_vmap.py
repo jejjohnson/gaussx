@@ -14,19 +14,14 @@ import pytest
 
 from gaussx._operators import Kronecker
 from gaussx._primitives import cholesky, diag, inv, logdet, solve, trace
-from gaussx._testing import tree_allclose
-
-
-def _make_psd(key, n):
-    A = jr.normal(key, (n, n))
-    return A @ A.T + 0.5 * jnp.eye(n)
+from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 class TestVmapSolve:
     @pytest.mark.slow
     def test_vmap_over_vectors(self, getkey):
         n = 5
-        K = _make_psd(getkey(), n)
+        K = random_pd_matrix(getkey(), n, jitter=0.5)
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
         B = jr.normal(getkey(), (8, n))
 
@@ -38,7 +33,7 @@ class TestVmapSolve:
 
     def test_vmap_over_operators(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
         bs = jr.normal(getkey(), (5, n))
 
         def solve_one(K_i, b_i):
@@ -54,7 +49,7 @@ class TestVmapSolve:
     def test_vmap_solve_columns(self, getkey):
         """Matrix RHS via vmap over columns."""
         n = 5
-        K = _make_psd(getkey(), n)
+        K = random_pd_matrix(getkey(), n, jitter=0.5)
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
         B = jr.normal(getkey(), (n, 3))
 
@@ -66,8 +61,8 @@ class TestVmapSolve:
 
     @pytest.mark.slow
     def test_vmap_solve_kronecker(self, getkey):
-        A = _make_psd(getkey(), 2)
-        B = _make_psd(getkey(), 3)
+        A = random_pd_matrix(getkey(), 2, jitter=0.5)
+        B = random_pd_matrix(getkey(), 3, jitter=0.5)
         A_op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
         B_op = lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
         kron = Kronecker(A_op, B_op)
@@ -83,7 +78,7 @@ class TestVmapSolve:
 class TestVmapLogdet:
     def test_vmap_over_operators(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
 
         def ld_one(K_i):
             op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
@@ -99,7 +94,7 @@ class TestVmapLogdet:
 class TestVmapCholesky:
     def test_vmap_cholesky_mv(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
         bs = jr.normal(getkey(), (5, n))
 
         def chol_mv(K_i, b_i):
@@ -117,7 +112,7 @@ class TestVmapCholesky:
 class TestVmapDiag:
     def test_vmap_diag(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
 
         def diag_one(K_i):
             op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
@@ -133,7 +128,7 @@ class TestVmapDiag:
 class TestVmapTrace:
     def test_vmap_trace(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
 
         def trace_one(K_i):
             op = lx.MatrixLinearOperator(K_i, lx.positive_semidefinite_tag)
@@ -149,7 +144,7 @@ class TestVmapTrace:
 class TestVmapInv:
     def test_vmap_inv_mv(self, getkey):
         n = 4
-        Ks = jnp.stack([_make_psd(getkey(), n) for _ in range(5)])
+        Ks = jnp.stack([random_pd_matrix(getkey(), n, jitter=0.5) for _ in range(5)])
         bs = jr.normal(getkey(), (5, n))
 
         def inv_mv(K_i, b_i):

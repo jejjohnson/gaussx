@@ -16,13 +16,12 @@ from gaussx._distributions import MultivariateNormal
 from gaussx._einx import rearrange
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, LowRankUpdate
 from gaussx._strategies import AutoSolver, DenseSolver
-from gaussx._testing import assert_sample_moments, tree_allclose
-
-
-def _make_psd(key, n):
-    """Create a random PSD matrix."""
-    A = jr.normal(key, (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
+from gaussx._testing import (
+    assert_sample_moments,
+    psd_operator,
+    random_pd_matrix,
+    tree_allclose,
+)
 
 
 class TestLogProb:
@@ -30,7 +29,7 @@ class TestLogProb:
     def test_matches_manual(self, getkey):
         n = 5
         mu = jr.normal(getkey(), (n,))
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         x = jr.normal(getkey(), (n,))
 
@@ -52,7 +51,7 @@ class TestLogProb:
 
         n = 4
         mu = jr.normal(getkey(), (n,))
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         x = jr.normal(getkey(), (n,))
 
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
@@ -68,7 +67,7 @@ class TestLogProb:
         n = 4
         batch = 5
         mu = jr.normal(getkey(), (batch, n))
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         x = jr.normal(getkey(), (batch, n))
 
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
@@ -97,7 +96,7 @@ class TestLogProb:
 class TestSample:
     def test_sample_shape(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -108,7 +107,7 @@ class TestSample:
     def test_sample_statistics(self, getkey):
         n = 3
         mu = jnp.array([1.0, -0.5, 2.0])
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(mu, op)
 
@@ -121,7 +120,7 @@ class TestSample:
 
     def test_single_sample(self, getkey):
         n = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -131,7 +130,7 @@ class TestSample:
     def test_batched_loc_sample_shape(self, getkey):
         n = 3
         batch = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         mu = jr.normal(getkey(), (batch, n))
         d = MultivariateNormal(mu, op)
@@ -144,7 +143,7 @@ class TestSample:
         import numpyro.distributions as dist
 
         n = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         mu = jr.normal(getkey(), (n,))
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(mu, op)
@@ -163,7 +162,7 @@ class TestProperties:
     def test_mean(self, getkey):
         n = 4
         mu = jr.normal(getkey(), (n,))
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(mu, op)
 
@@ -171,7 +170,7 @@ class TestProperties:
 
     def test_variance(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -180,7 +179,7 @@ class TestProperties:
     def test_variance_broadcasts_over_batched_loc(self, getkey):
         n = 4
         batch = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         mu = jr.normal(getkey(), (batch, n))
         d = MultivariateNormal(mu, op)
@@ -190,7 +189,7 @@ class TestProperties:
 
     def test_entropy_matches_manual(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -201,7 +200,7 @@ class TestProperties:
 
     def test_event_shape(self, getkey):
         n = 5
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -212,8 +211,8 @@ class TestProperties:
 class TestStructuredOperators:
     @pytest.mark.slow
     def test_kronecker(self, getkey):
-        A = _make_psd(getkey(), 2)
-        B = _make_psd(getkey(), 3)
+        A = random_pd_matrix(getkey(), 2)
+        B = random_pd_matrix(getkey(), 3)
         A_op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
         B_op = lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
         kron = Kronecker(A_op, B_op)
@@ -234,8 +233,8 @@ class TestStructuredOperators:
         assert tree_allclose(lp, lp_expected, rtol=1e-4)
 
     def test_block_diag(self, getkey):
-        A = _make_psd(getkey(), 2)
-        B = _make_psd(getkey(), 3)
+        A = random_pd_matrix(getkey(), 2)
+        B = random_pd_matrix(getkey(), 3)
         A_op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
         B_op = lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
         bd = BlockDiag(A_op, B_op)
@@ -282,7 +281,7 @@ class TestStructuredOperators:
 class TestJIT:
     def test_log_prob_jit(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
         x = jr.normal(getkey(), (n,))
@@ -294,7 +293,7 @@ class TestJIT:
 
     def test_sample_jit(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
 
@@ -303,7 +302,7 @@ class TestJIT:
 
     def test_grad_log_prob(self, getkey):
         n = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         d = MultivariateNormal(jnp.zeros(n), op)
         x = jr.normal(getkey(), (n,))
@@ -322,7 +321,7 @@ class TestVmapVsNumpyro:
 
         n = 4
         batch = 5
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         mu_batch = jr.normal(getkey(), (batch, n))
         x_batch = jr.normal(getkey(), (batch, n))
 
@@ -347,7 +346,7 @@ class TestVmapVsNumpyro:
         n = 3
         batch = 4
         mu = jr.normal(getkey(), (n,))
-        Sigmas = jnp.stack([_make_psd(getkey(), n) for _ in range(batch)])
+        Sigmas = jnp.stack([random_pd_matrix(getkey(), n) for _ in range(batch)])
         x_batch = jr.normal(getkey(), (batch, n))
 
         # numpyro: native batch
@@ -367,7 +366,7 @@ class TestVmapVsNumpyro:
         n = 3
         batch = 4
         mu = jnp.zeros(n)
-        Sigmas = jnp.stack([_make_psd(getkey(), n) for _ in range(batch)])
+        Sigmas = jnp.stack([random_pd_matrix(getkey(), n) for _ in range(batch)])
 
         # numpyro: native batch
         h_np = dist.MultivariateNormal(mu, covariance_matrix=Sigmas).entropy()
@@ -386,7 +385,7 @@ class TestVmapVsNumpyro:
 
         n = 3
         batch = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         mu_batch = jr.normal(getkey(), (batch, n))
         x_batch = jr.normal(getkey(), (batch, n))
 
@@ -412,7 +411,7 @@ class TestVmapVsNumpyro:
     def test_vmap_sample_shape(self, getkey):
         n = 4
         batch = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         mu_batch = jr.normal(getkey(), (batch, n))
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         keys = jr.split(getkey(), batch)
@@ -427,7 +426,7 @@ class TestVmapVsNumpyro:
 class TestSolverChoice:
     def test_explicit_solver(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
         x = jr.normal(getkey(), (n,))
 
@@ -455,12 +454,8 @@ def test_mvn_log_prob_of_singular_covariance_is_non_finite(jit):
 # ---------------------------------------------------------------------------
 
 
-def _psd(matrix):
-    return lx.MatrixLinearOperator(jnp.asarray(matrix), lx.positive_semidefinite_tag)
-
-
-_A = _psd([[2.0, 0.5], [0.5, 1.0]])
-_B = _psd([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
+_A = psd_operator([[2.0, 0.5], [0.5, 1.0]])
+_B = psd_operator([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
 _STRUCTURED = {
     "scaled_kronecker": 2.0 * Kronecker(_A, _B),
     "low_rank_update": LowRankUpdate(
@@ -473,7 +468,7 @@ _STRUCTURED = {
 def test_sample_singular_covariance_is_finite_and_in_span():
     """A rank-1 covariance used to give all-NaN draws (dense Cholesky)."""
     v = jnp.array([1.0, 2.0, -1.0])
-    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.outer(v, v)))
+    d = MultivariateNormal(jnp.zeros(3), psd_operator(jnp.outer(v, v)))
     draws = d.sample(jr.key(0), (4,))
     assert jnp.all(jnp.isfinite(draws))
     # Each draw is a multiple of v: its component orthogonal to v vanishes,
@@ -513,7 +508,7 @@ def test_sample_matches_sample_mvn(sample_shape):
     from gaussx import sample_mvn
 
     loc = jr.normal(jr.key(1), (4, 3))
-    cov = _psd([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+    cov = psd_operator([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
     d = MultivariateNormal(loc, cov)
     draws = d.sample(jr.key(0), sample_shape)
     ref = sample_mvn(loc, cov, key=jr.key(0), num_samples=math.prod(sample_shape))
@@ -523,7 +518,7 @@ def test_sample_matches_sample_mvn(sample_shape):
 
 
 def test_sample_with_empty_sample_shape_axis():
-    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(3)))
+    d = MultivariateNormal(jnp.zeros(3), psd_operator(jnp.eye(3)))
     draws = d.sample(jr.key(0), (0, 2))
     assert draws.shape == (0, 2, 3)
 
@@ -537,7 +532,7 @@ def test_sample_under_jit():
 
 def test_empty_sample_still_checks_the_covariance_shape():
     """gh-298 review: an empty sample_shape must not hide a size mismatch."""
-    d = MultivariateNormal(jnp.zeros(3), _psd(jnp.eye(2)))
+    d = MultivariateNormal(jnp.zeros(3), psd_operator(jnp.eye(2)))
     with pytest.raises(ValueError, match="mean must have shape"):
         d.sample(jr.key(0), (0,))
 

@@ -31,19 +31,10 @@ from gaussx._operators import (
     SumOfKroneckers,
 )
 from gaussx._operators._block_tridiag import LowerBlockTriDiag, UpperBlockTriDiag
-from gaussx._testing import tree_allclose
+from gaussx._testing import random_pd_matrix, random_pd_operator, tree_allclose
 
 
-def _psd_matrix(key, n):
-    m = jr.normal(key, (n, n))
-    return m @ m.T + n * jnp.eye(n)
-
-
-def _psd_operator(key, n):
-    return lx.MatrixLinearOperator(
-        _psd_matrix(key, n),
-        (lx.symmetric_tag, lx.positive_semidefinite_tag),
-    )
+_SYM_PSD = (lx.symmetric_tag, lx.positive_semidefinite_tag)
 
 
 @pytest.fixture
@@ -80,7 +71,10 @@ class TestLowRankUpdateDispatch:
 class TestKroneckerSumDispatch:
     @pytest.fixture
     def kron_sum(self, getkey):
-        return KroneckerSum(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
+        return KroneckerSum(
+            random_pd_operator(getkey(), 3, jitter=3, tags=_SYM_PSD),
+            random_pd_operator(getkey(), 4, jitter=4, tags=_SYM_PSD),
+        )
 
     def test_diag(self, kron_sum):
         assert tree_allclose(diag(kron_sum), jnp.diag(kron_sum.as_matrix()))
@@ -96,8 +90,14 @@ class TestKroneckerSumDispatch:
 class TestSumKroneckerDispatch:
     @pytest.fixture
     def sum_kron(self, getkey):
-        k1 = Kronecker(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
-        k2 = Kronecker(_psd_operator(getkey(), 3), _psd_operator(getkey(), 4))
+        k1 = Kronecker(
+            random_pd_operator(getkey(), 3, jitter=3, tags=_SYM_PSD),
+            random_pd_operator(getkey(), 4, jitter=4, tags=_SYM_PSD),
+        )
+        k2 = Kronecker(
+            random_pd_operator(getkey(), 3, jitter=3, tags=_SYM_PSD),
+            random_pd_operator(getkey(), 4, jitter=4, tags=_SYM_PSD),
+        )
         return SumOfKroneckers(k1, k2)
 
     def test_diag(self, sum_kron):
@@ -110,9 +110,9 @@ class TestSumKroneckerDispatch:
 class TestBlockBidiagonalDispatch:
     @pytest.fixture
     def upper(self, getkey):
-        diag_blocks = jax.vmap(lambda k: jnp.linalg.cholesky(_psd_matrix(k, 2)))(
-            jr.split(getkey(), 3)
-        )
+        diag_blocks = jax.vmap(
+            lambda k: jnp.linalg.cholesky(random_pd_matrix(k, 2, jitter=2))
+        )(jr.split(getkey(), 3))
         super_blocks = jr.normal(getkey(), (2, 2, 2))
         return UpperBlockTriDiag(jnp.swapaxes(diag_blocks, -1, -2), super_blocks)
 
@@ -175,7 +175,10 @@ class TestLineaxLazyOperatorDispatch:
         assert tree_allclose(inv(op).as_matrix(), jnp.linalg.inv(op.as_matrix()))
 
     def test_cholesky_tagged_unwraps(self, getkey):
-        inner = BlockDiag(_psd_operator(getkey(), 2), _psd_operator(getkey(), 3))
+        inner = BlockDiag(
+            random_pd_operator(getkey(), 2, jitter=2, tags=_SYM_PSD),
+            random_pd_operator(getkey(), 3, jitter=3, tags=_SYM_PSD),
+        )
         tagged = lx.TaggedLinearOperator(inner, lx.positive_semidefinite_tag)
         L = cholesky(tagged)
         assert isinstance(L, BlockDiag)
@@ -241,7 +244,7 @@ class TestRequiredLineaxPredicates:
     """
 
     def test_has_unit_diagonal_registered(self, getkey):
-        dense = _psd_operator(getkey(), 2)
+        dense = random_pd_operator(getkey(), 2, jitter=2, tags=_SYM_PSD)
         operators = [
             BlockDiag(dense, dense),
             Kronecker(dense, dense),
@@ -252,9 +255,9 @@ class TestRequiredLineaxPredicates:
             assert lx.has_unit_diagonal(op) is False
 
     def test_auto_solver_on_lower_block_tridiag(self, getkey):
-        diag_blocks = jax.vmap(lambda k: jnp.linalg.cholesky(_psd_matrix(k, 2)))(
-            jr.split(getkey(), 3)
-        )
+        diag_blocks = jax.vmap(
+            lambda k: jnp.linalg.cholesky(random_pd_matrix(k, 2, jitter=2))
+        )(jr.split(getkey(), 3))
         sub_blocks = jr.normal(getkey(), (2, 2, 2))
         L = LowerBlockTriDiag(diag_blocks, sub_blocks)
         b = jr.normal(getkey(), (6,))

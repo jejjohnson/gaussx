@@ -15,6 +15,7 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._testing import psd_operator
 
 
 # float64 does not exist in the no-x64 lane (GAUSSX_TEST_X64=0).
@@ -22,12 +23,10 @@ FLOAT64 = pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 c
 
 
 def _pd(dtype, n=4):
+    # Kept local (gh-316): drawn in float64 and cast, so every dtype case sees
+    # the same matrix; random_pd_matrix draws in the requested dtype.
     a = jr.normal(jr.key(0), (n, n), dtype=jnp.float64).astype(dtype)
     return a @ a.T + 4 * jnp.eye(n, dtype=dtype)
-
-
-def _psd_op(dtype, n=4):
-    return lx.MatrixLinearOperator(_pd(dtype, n), lx.positive_semidefinite_tag)
 
 
 def _logdet_identity(dtype):
@@ -51,7 +50,7 @@ def _svd_diagonal(dtype):
 
 
 def _eig_partial(dtype):
-    return list(gaussx.eig(_psd_op(dtype, 6), rank=2, key=jr.key(0)))
+    return list(gaussx.eig(psd_operator(_pd(dtype, 6)), rank=2, key=jr.key(0)))
 
 
 def _schur_complement(dtype):
@@ -59,7 +58,7 @@ def _schur_complement(dtype):
     k_zz = lx.MatrixLinearOperator(
         2 * jnp.eye(2, dtype=dtype), lx.positive_semidefinite_tag
     )
-    sc = gaussx.schur_complement(_psd_op(dtype), k_xz, k_zz)
+    sc = gaussx.schur_complement(psd_operator(_pd(dtype)), k_xz, k_zz)
     return [sc.d, sc.mv(jnp.ones(4, dtype)), sc.in_structure()]
 
 
@@ -77,21 +76,21 @@ def _etkf_transform(dtype):
 
 
 def _trace_stochastic(dtype):
-    return [gaussx.trace(_psd_op(dtype), stochastic=True, key=jr.key(3))]
+    return [gaussx.trace(psd_operator(_pd(dtype)), stochastic=True, key=jr.key(3))]
 
 
 def _diag_stochastic(dtype):
-    return [gaussx.diag(_psd_op(dtype), stochastic=True, key=jr.key(3))]
+    return [gaussx.diag(psd_operator(_pd(dtype)), stochastic=True, key=jr.key(3))]
 
 
 def _slq_logdet(dtype):
     strategy = gaussx.SLQLogdet(num_probes=4, lanczos_order=3)
-    return list(strategy.logdet_and_error(_psd_op(dtype), key=jr.key(3)))
+    return list(strategy.logdet_and_error(psd_operator(_pd(dtype)), key=jr.key(3)))
 
 
 def _nystrom_preconditioner(dtype):
     pre = gaussx.NystromPreconditioner.from_operator(
-        _psd_op(dtype), rank=2, shift=0.1, key=jr.key(4)
+        psd_operator(_pd(dtype)), rank=2, shift=0.1, key=jr.key(4)
     )
     return [pre.basis, pre.eigenvalues, pre.shift]
 

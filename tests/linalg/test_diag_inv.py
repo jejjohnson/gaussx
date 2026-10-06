@@ -10,6 +10,7 @@ import gaussx
 from gaussx import diag_inv
 from gaussx._einx import rearrange
 from gaussx._strategies import DenseSolver
+from gaussx._testing import random_pd_operator
 
 
 class TestDiagInv:
@@ -91,11 +92,6 @@ def _path_laplacian(n):
     return lx.MatrixLinearOperator(L, lx.symmetric_tag)
 
 
-def _spd(key, n):
-    m = jr.normal(key, (n, n))
-    return lx.MatrixLinearOperator(m @ m.T + n * jnp.eye(n), lx.symmetric_tag)
-
-
 def _identity(n):
     return lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n,), jnp.float64))
 
@@ -124,11 +120,17 @@ class TestStructuredDiagInv:
         assert jnp.allclose(jax.jit(diag_inv)(op), _dense_diag_inv(op), atol=1e-12)
 
     def test_kronecker(self):
-        op = gaussx.Kronecker(_spd(jr.key(0), 3), _spd(jr.key(1), 4))
+        op = gaussx.Kronecker(
+            random_pd_operator(jr.key(0), 3, jitter=3, tags=lx.symmetric_tag),
+            random_pd_operator(jr.key(1), 4, jitter=4, tags=lx.symmetric_tag),
+        )
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(op), atol=1e-12)
 
     def test_kronecker_sum(self):
-        op = gaussx.KroneckerSum(_spd(jr.key(0), 3), _path_laplacian(4))
+        op = gaussx.KroneckerSum(
+            random_pd_operator(jr.key(0), 3, jitter=3, tags=lx.symmetric_tag),
+            _path_laplacian(4),
+        )
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(op), atol=1e-12)
 
     def test_kronecker_sum_pinv_on_singular_grid_laplacian(self):
@@ -137,19 +139,27 @@ class TestStructuredDiagInv:
         assert jnp.allclose(diag_inv(op, pinv=True), expected, atol=1e-12)
 
     def test_kronecker_sum_never_materialised(self):
-        op = _MatvecOnlyKroneckerSum(_path_laplacian(4), _spd(jr.key(0), 5))
+        op = _MatvecOnlyKroneckerSum(
+            _path_laplacian(4),
+            random_pd_operator(jr.key(0), 5, jitter=5, tags=lx.symmetric_tag),
+        )
         dense = gaussx.KroneckerSum(op.A, op.B)
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(dense), atol=1e-12)
 
     def test_diagonalised_operator(self):
         circulant = gaussx.Circulant(jnp.array([2.5, -1.0, 0.0, 0.0, -1.0]))
-        op = gaussx.KroneckerSum(_spd(jr.key(0), 3), circulant)
+        op = gaussx.KroneckerSum(
+            random_pd_operator(jr.key(0), 3, jitter=3, tags=lx.symmetric_tag), circulant
+        )
         assert jnp.allclose(diag_inv(circulant), _dense_diag_inv(circulant))
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(op), atol=1e-12)
 
     def test_pinv_without_eigen_structure_raises(self):
         with pytest.raises(ValueError, match="pinv=True"):
-            diag_inv(_spd(jr.key(0), 4), pinv=True)
+            diag_inv(
+                random_pd_operator(jr.key(0), 4, jitter=4, tags=lx.symmetric_tag),
+                pinv=True,
+            )
 
 
 class TestShiftedKronecker:
@@ -158,7 +168,7 @@ class TestShiftedKronecker:
     c = 0.7
 
     def _operators(self, spatial):
-        temporal = _spd(jr.key(0), 3)
+        temporal = random_pd_operator(jr.key(0), 3, jitter=3, tags=lx.symmetric_tag)
         n = 3 * spatial.in_size()
         shifted = gaussx.SumOfKroneckers(
             gaussx.Kronecker(temporal, spatial),

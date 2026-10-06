@@ -13,13 +13,12 @@ import jax.random as jr
 import lineax as lx
 
 from gaussx._distributions import MultivariateNormal, MultivariateNormalPrecision
-from gaussx._testing import assert_sample_moments, tree_allclose
-
-
-def _make_psd(key, n):
-    """Create a random PSD matrix."""
-    A = jr.normal(key, (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
+from gaussx._testing import (
+    assert_sample_moments,
+    psd_operator,
+    random_pd_matrix,
+    tree_allclose,
+)
 
 
 class TestLogProb:
@@ -27,7 +26,7 @@ class TestLogProb:
     def test_matches_manual(self, getkey):
         n = 5
         mu = jr.normal(getkey(), (n,))
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         x = jr.normal(getkey(), (n,))
 
@@ -47,7 +46,7 @@ class TestLogProb:
         """Precision-parameterized log_prob should match covariance form."""
         n = 4
         mu = jr.normal(getkey(), (n,))
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         Lambda = jnp.linalg.inv(Sigma)
         x = jr.normal(getkey(), (n,))
 
@@ -65,7 +64,7 @@ class TestLogProb:
         n = 4
         batch = 5
         mu = jr.normal(getkey(), (batch, n))
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         x = jr.normal(getkey(), (batch, n))
 
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
@@ -78,7 +77,7 @@ class TestLogProb:
 class TestSample:
     def test_sample_shape(self, getkey):
         n = 4
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(jnp.zeros(n), op)
 
@@ -89,7 +88,7 @@ class TestSample:
     def test_sample_statistics(self, getkey):
         n = 3
         mu = jnp.array([1.0, -0.5, 2.0])
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         Lambda = jnp.linalg.inv(Sigma)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(mu, op)
@@ -104,7 +103,7 @@ class TestSample:
     def test_batched_loc_sample_shape(self, getkey):
         n = 3
         batch = 4
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         mu = jr.normal(getkey(), (batch, n))
         d = MultivariateNormalPrecision(mu, op)
@@ -117,7 +116,7 @@ class TestSample:
         import numpyro.distributions as dist
 
         n = 3
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         mu = jr.normal(getkey(), (n,))
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(mu, op)
@@ -136,7 +135,7 @@ class TestProperties:
     def test_mean(self, getkey):
         n = 4
         mu = jr.normal(getkey(), (n,))
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(mu, op)
 
@@ -144,7 +143,7 @@ class TestProperties:
 
     def test_variance(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         Lambda = jnp.linalg.inv(Sigma)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(jnp.zeros(n), op)
@@ -154,7 +153,7 @@ class TestProperties:
     def test_variance_broadcasts_over_batched_loc(self, getkey):
         n = 4
         batch = 3
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         Lambda = jnp.linalg.inv(Sigma)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         mu = jr.normal(getkey(), (batch, n))
@@ -165,7 +164,7 @@ class TestProperties:
 
     def test_entropy_matches_covariance_form(self, getkey):
         n = 4
-        Sigma = _make_psd(getkey(), n)
+        Sigma = random_pd_matrix(getkey(), n)
         Lambda = jnp.linalg.inv(Sigma)
 
         cov_op = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
@@ -178,7 +177,7 @@ class TestProperties:
 
     def test_event_shape(self, getkey):
         n = 5
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(jnp.zeros(n), op)
 
@@ -195,7 +194,7 @@ class TestVmapVsNumpyro:
         n = 3
         batch = 4
         mu = jr.normal(getkey(), (n,))
-        Lambdas = jnp.stack([_make_psd(getkey(), n) for _ in range(batch)])
+        Lambdas = jnp.stack([random_pd_matrix(getkey(), n) for _ in range(batch)])
         x_batch = jr.normal(getkey(), (batch, n))
 
         # numpyro: native batch
@@ -213,7 +212,7 @@ class TestVmapVsNumpyro:
         n = 3
         batch = 4
         mu = jr.normal(getkey(), (n,))
-        Sigmas = jnp.stack([_make_psd(getkey(), n) for _ in range(batch)])
+        Sigmas = jnp.stack([random_pd_matrix(getkey(), n) for _ in range(batch)])
         Lambdas = jnp.linalg.inv(Sigmas)
         x_batch = jr.normal(getkey(), (batch, n))
 
@@ -235,7 +234,7 @@ class TestVmapVsNumpyro:
 
         n = 3
         batch = 4
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         mu_batch = jr.normal(getkey(), (batch, n))
         x_batch = jr.normal(getkey(), (batch, n))
 
@@ -262,7 +261,7 @@ class TestVmapVsNumpyro:
 class TestJIT:
     def test_log_prob_jit(self, getkey):
         n = 4
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(jnp.zeros(n), op)
         x = jr.normal(getkey(), (n,))
@@ -274,7 +273,7 @@ class TestJIT:
 
     def test_grad_log_prob(self, getkey):
         n = 3
-        Lambda = _make_psd(getkey(), n)
+        Lambda = random_pd_matrix(getkey(), n)
         op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
         d = MultivariateNormalPrecision(jnp.zeros(n), op)
         x = jr.normal(getkey(), (n,))
@@ -290,15 +289,11 @@ class TestJIT:
 # ---------------------------------------------------------------------------
 
 
-def _psd(matrix):
-    return lx.MatrixLinearOperator(jnp.asarray(matrix), lx.positive_semidefinite_tag)
-
-
 def _scaled_kronecker_precision():
     from gaussx import Kronecker
 
-    A = _psd([[2.0, 0.5], [0.5, 1.0]])
-    B = _psd([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
+    A = psd_operator([[2.0, 0.5], [0.5, 1.0]])
+    B = psd_operator([[1.0, 0.2, 0.0], [0.2, 1.5, 0.3], [0.0, 0.3, 1.2]])
     return 2.0 * Kronecker(A, B)
 
 
@@ -333,7 +328,7 @@ def test_non_finite_cholesky_falls_back_to_dense(monkeypatch):
         )
 
     monkeypatch.setattr(prec_module, "_cholesky", nan_factor)
-    precision = _psd([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
+    precision = psd_operator([[2.0, 0.3, 0.0], [0.3, 1.0, 0.2], [0.0, 0.2, 1.5]])
     d = MultivariateNormalPrecision(jnp.zeros(3), precision)
     draws = d.sample(jr.key(0), (20_000,))
     assert jnp.all(jnp.isfinite(draws))

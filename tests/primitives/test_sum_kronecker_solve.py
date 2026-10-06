@@ -34,32 +34,32 @@ from gaussx._primitives._solve import solve
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._dense import DenseSolver
-from gaussx._testing import dense_logdet, dense_solve, tree_allclose
+from gaussx._testing import (
+    dense_logdet,
+    dense_solve,
+    random_pd_matrix,
+    random_pd_operator,
+    tree_allclose,
+)
+
+
+_SYM_PSD = (lx.symmetric_tag, lx.positive_semidefinite_tag)
 
 
 N_A = 3
 N_B = 4
 
 
-def _psd_matrix(key, n):
-    m = jr.normal(key, (n, n))
-    return m @ m.T + n * jnp.eye(n)
-
-
-def _psd_operator(key, n):
-    return lx.MatrixLinearOperator(
-        _psd_matrix(key, n),
-        (lx.symmetric_tag, lx.positive_semidefinite_tag),
-    )
-
-
 def _symmetric_operator(key, n):
-    return lx.MatrixLinearOperator(_psd_matrix(key, n), lx.symmetric_tag)
+    return lx.MatrixLinearOperator(random_pd_matrix(key, n, jitter=n), lx.symmetric_tag)
 
 
-def _psd_kronecker(key):
+def _kronecker_of_psd(key):
     k_a, k_b = jr.split(key)
-    return Kronecker(_psd_operator(k_a, N_A), _psd_operator(k_b, N_B))
+    return Kronecker(
+        random_pd_operator(k_a, N_A, jitter=N_A, tags=_SYM_PSD),
+        random_pd_operator(k_b, N_B, jitter=N_B, tags=_SYM_PSD),
+    )
 
 
 def _identity(n):
@@ -85,7 +85,7 @@ class TestExactTwoTermPaths:
     def test_scalar_shift(self):
         """Case 1: ``B ⊗ C + σ² I``, the classical Kronecker-exact GP."""
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
+            _kronecker_of_psd(jr.key(0)),
             Kronecker(_identity(N_A), 0.7 * _identity(N_B)),
             tags=lx.positive_semidefinite_tag,
         )
@@ -99,7 +99,7 @@ class TestExactTwoTermPaths:
         separate branches.
         """
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
+            _kronecker_of_psd(jr.key(0)),
             Kronecker(_identity(N_A), -0.5 * _identity(N_B)),
         )
         _assert_matches_dense(operator, _rhs(jr.key(1)))
@@ -108,7 +108,7 @@ class TestExactTwoTermPaths:
         """Case 2 with a diagonal anchor: ``B ⊗ C + diag(s) ⊗ I``."""
         noise = jnp.array([0.3, 0.9, 1.4])
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
+            _kronecker_of_psd(jr.key(0)),
             Kronecker(lx.DiagonalLinearOperator(noise), _identity(N_B)),
             tags=lx.positive_semidefinite_tag,
         )
@@ -117,8 +117,8 @@ class TestExactTwoTermPaths:
     def test_general_two_term(self):
         """Case 2: ``B₁ ⊗ C₁ + B₂ ⊗ C₂`` with the second term SPD."""
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
             tags=lx.positive_semidefinite_tag,
         )
         _assert_matches_dense(operator, _rhs(jr.key(2)))
@@ -127,7 +127,7 @@ class TestExactTwoTermPaths:
         """Only the *first* term is PSD-tagged, so that one is the anchor."""
         key_a, key_b = jr.split(jr.key(0))
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(1)),
+            _kronecker_of_psd(jr.key(1)),
             Kronecker(_symmetric_operator(key_a, N_A), _symmetric_operator(key_b, N_B)),
         )
         assert _is_eigen_reducible(operator)
@@ -135,7 +135,9 @@ class TestExactTwoTermPaths:
 
     def test_no_dense_fallback_warning(self):
         """The exact paths never route through ``cholesky(SumOfKroneckers)``."""
-        operator = SumOfKroneckers(_psd_kronecker(jr.key(0)), _psd_kronecker(jr.key(1)))
+        operator = SumOfKroneckers(
+            _kronecker_of_psd(jr.key(0)), _kronecker_of_psd(jr.key(1))
+        )
         with warnings.catch_warnings():
             warnings.simplefilter("error", DenseFallbackWarning)
             solve(operator, _rhs(jr.key(2)))
@@ -146,14 +148,14 @@ class TestAddLinearOperatorForms:
     """``SumOperator`` builds ``AddLinearOperator`` chains, not the operator."""
 
     def test_kronecker_plus_scalar_identity(self):
-        operator = _psd_kronecker(jr.key(0)) + 0.7 * _identity(N_A * N_B)
+        operator = _kronecker_of_psd(jr.key(0)) + 0.7 * _identity(N_A * N_B)
         assert isinstance(operator, lx.AddLinearOperator)
         _assert_matches_dense(operator, _rhs(jr.key(1)))
 
     def test_sum_operator_with_tags(self):
         """A tagged sum takes the structured path without losing its tags."""
         operator = SumOperator(
-            _psd_kronecker(jr.key(0)),
+            _kronecker_of_psd(jr.key(0)),
             0.7 * _identity(N_A * N_B),
             tags=lx.positive_semidefinite_tag,
         )
@@ -161,13 +163,13 @@ class TestAddLinearOperatorForms:
         _assert_matches_dense(operator, _rhs(jr.key(1)))
 
     def test_two_kroneckers(self):
-        operator = _psd_kronecker(jr.key(0)) + _psd_kronecker(jr.key(1))
+        operator = _kronecker_of_psd(jr.key(0)) + _kronecker_of_psd(jr.key(1))
         _assert_matches_dense(operator, _rhs(jr.key(2)))
 
     def test_sum_of_kroneckers_plus_identity(self):
         """Identity leaves are summed and folded into one ``I ⊗ cI`` term."""
         operator = (
-            _psd_kronecker(jr.key(0))
+            _kronecker_of_psd(jr.key(0))
             + 0.25 * _identity(N_A * N_B)
             + 0.5 * _identity(N_A * N_B)
         )
@@ -181,9 +183,9 @@ class TestFallbacksStayCorrect:
 
     def test_three_terms(self):
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
-            _psd_kronecker(jr.key(2)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
+            _kronecker_of_psd(jr.key(2)),
         )
         assert _sum_of_kroneckers_eigen(operator) is None
         _assert_matches_dense(operator, _rhs(jr.key(3)))
@@ -192,10 +194,10 @@ class TestFallbacksStayCorrect:
         """Without symmetry/PSD tags we cannot justify the reduction."""
         key_a, key_b = jr.split(jr.key(0))
         untagged = Kronecker(
-            lx.MatrixLinearOperator(_psd_matrix(key_a, N_A)),
-            lx.MatrixLinearOperator(_psd_matrix(key_b, N_B)),
+            lx.MatrixLinearOperator(random_pd_matrix(key_a, N_A, jitter=N_A)),
+            lx.MatrixLinearOperator(random_pd_matrix(key_b, N_B, jitter=N_B)),
         )
-        operator = SumOfKroneckers(untagged, _psd_kronecker(jr.key(1)))
+        operator = SumOfKroneckers(untagged, _kronecker_of_psd(jr.key(1)))
         assert _sum_of_kroneckers_eigen(operator) is None
         _assert_matches_dense(operator, _rhs(jr.key(2)))
 
@@ -204,15 +206,21 @@ class TestFallbacksStayCorrect:
         shift = lx.DiagonalLinearOperator(
             jnp.abs(jr.normal(jr.key(0), (N_A * N_B,))) + 1.0
         )
-        operator = _psd_kronecker(jr.key(1)) + shift
+        operator = _kronecker_of_psd(jr.key(1)) + shift
         assert _kronecker_terms(operator) is None
         _assert_matches_dense(operator, _rhs(jr.key(2)))
 
     def test_mismatched_factor_sizes(self):
         """Terms whose factors split the size differently share no basis."""
         operator = SumOfKroneckers(
-            Kronecker(_psd_operator(jr.key(0), 2), _psd_operator(jr.key(1), 6)),
-            Kronecker(_psd_operator(jr.key(2), 3), _psd_operator(jr.key(3), 4)),
+            Kronecker(
+                random_pd_operator(jr.key(0), 2, jitter=2, tags=_SYM_PSD),
+                random_pd_operator(jr.key(1), 6, jitter=6, tags=_SYM_PSD),
+            ),
+            Kronecker(
+                random_pd_operator(jr.key(2), 3, jitter=3, tags=_SYM_PSD),
+                random_pd_operator(jr.key(3), 4, jitter=4, tags=_SYM_PSD),
+            ),
         )
         assert _kronecker_terms(operator) is None
         _assert_matches_dense(operator, _rhs(jr.key(4)))
@@ -220,9 +228,9 @@ class TestFallbacksStayCorrect:
     def test_three_terms_via_iterative_solvers(self):
         """The documented escape hatch for Q ≥ 3: CG over the structured mv."""
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
-            _psd_kronecker(jr.key(2)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
+            _kronecker_of_psd(jr.key(2)),
             tags=lx.positive_semidefinite_tag,
         )
         vector = _rhs(jr.key(3))
@@ -233,8 +241,8 @@ class TestFallbacksStayCorrect:
 class TestTransformsAndConsumers:
     def test_logdet_gradient_matches_dense(self):
         """Gradients w.r.t. factor entries agree with dense autodiff."""
-        base = _psd_matrix(jr.key(0), N_A)
-        kron_b = _psd_operator(jr.key(1), N_B)
+        base = random_pd_matrix(jr.key(0), N_A, jitter=N_A)
+        kron_b = random_pd_operator(jr.key(1), N_B, jitter=N_B, tags=_SYM_PSD)
         anchor = Kronecker(_identity(N_A), 0.7 * _identity(N_B))
 
         def build(scale):
@@ -288,7 +296,7 @@ class TestTransformsAndConsumers:
 
     def test_solve_under_jit_and_vmap(self):
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
+            _kronecker_of_psd(jr.key(0)),
             Kronecker(_identity(N_A), 0.7 * _identity(N_B)),
         )
         vectors = jr.normal(jr.key(1), (5, N_A * N_B))
@@ -298,8 +306,8 @@ class TestTransformsAndConsumers:
 
     def test_inv_routes_through_structured_solve(self):
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
             tags=lx.positive_semidefinite_tag,
         )
         vector = _rhs(jr.key(2))
@@ -313,8 +321,8 @@ class TestAutoSolverClassification:
     def test_reducible_operator_picks_dense_strategy(self, size_threshold):
         """Structure beats size: the exact path is cheap at any dimension."""
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
             tags=lx.positive_semidefinite_tag,
         )
         strategy = AutoSolver(size_threshold=size_threshold)._get_strategy(operator)
@@ -322,9 +330,9 @@ class TestAutoSolverClassification:
 
     def test_three_term_operator_keeps_size_rules(self):
         operator = SumOfKroneckers(
-            _psd_kronecker(jr.key(0)),
-            _psd_kronecker(jr.key(1)),
-            _psd_kronecker(jr.key(2)),
+            _kronecker_of_psd(jr.key(0)),
+            _kronecker_of_psd(jr.key(1)),
+            _kronecker_of_psd(jr.key(2)),
             tags=lx.positive_semidefinite_tag,
         )
         strategy = AutoSolver(size_threshold=1)._get_strategy(operator)
@@ -341,11 +349,13 @@ class TestAnchorEligibility:
         evidence the caller gave and drop the whole sum to the dense path.
         """
         wrapped = lx.TaggedLinearOperator(
-            lx.MatrixLinearOperator(_psd_matrix(jr.key(0), N_B)),
+            lx.MatrixLinearOperator(random_pd_matrix(jr.key(0), N_B, jitter=N_B)),
             (lx.symmetric_tag, lx.positive_semidefinite_tag),
         )
-        anchor = Kronecker(_psd_operator(jr.key(1), N_A), wrapped)
-        operator = SumOfKroneckers(_psd_kronecker(jr.key(2)), anchor)
+        anchor = Kronecker(
+            random_pd_operator(jr.key(1), N_A, jitter=N_A, tags=_SYM_PSD), wrapped
+        )
+        operator = SumOfKroneckers(_kronecker_of_psd(jr.key(2)), anchor)
         assert _is_eigen_reducible(operator)
         _assert_matches_dense(operator, _rhs(jr.key(3)))
 
@@ -361,7 +371,9 @@ class TestAnchorEligibility:
             (lx.symmetric_tag, lx.positive_semidefinite_tag),
         )
         operator = SumOfKroneckers(
-            Kronecker(singular, _psd_operator(jr.key(0), N_B)),
+            Kronecker(
+                singular, random_pd_operator(jr.key(0), N_B, jitter=N_B, tags=_SYM_PSD)
+            ),
             Kronecker(_identity(N_A), 0.7 * _identity(N_B)),
         )
         solution = solve(operator, _rhs(jr.key(1)))
@@ -372,7 +384,7 @@ class TestAnchorEligibility:
 def _signed_diagonal_sum(diagonal, scale=1.0):
     """``A ⊗ B + diag(diagonal) ⊗ (scale I)`` with a PD first term (gh-317)."""
     return SumOfKroneckers(
-        _psd_kronecker(jr.key(0)),
+        _kronecker_of_psd(jr.key(0)),
         Kronecker(lx.DiagonalLinearOperator(diagonal), scale * _identity(N_B)),
     )
 

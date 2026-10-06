@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
@@ -86,3 +87,42 @@ def test_tree_allclose_float32_tolerates_round_off_near_zero():
     """A float32 result 1e-7 off a near-zero reference is round-off."""
     ref = jnp.array([1e-3, 2.0], jnp.float32)
     assert tree_allclose(ref + jnp.float32(1e-7), ref)
+
+
+def test_random_spd_block_tridiag_is_spd_for_every_key():
+    """gh-316: SPD by construction, not by diagonal dominance."""
+    from gaussx._testing import random_spd_block_tridiag
+
+    def min_eig(key):
+        dense = random_spd_block_tridiag(key, 4, 3).as_matrix()
+        return jnp.linalg.eigvalsh(dense).min(), jnp.abs(dense - dense.T).max()
+
+    eigs, asym = jax.vmap(min_eig)(jr.split(jr.key(0), 100))
+    assert jnp.all(eigs > 0)
+    assert jnp.all(asym == 0)
+
+
+def test_random_sum_of_kroneckers_pd_is_symmetric_pd():
+    from gaussx._testing import random_sum_of_kroneckers_pd
+
+    dense = random_sum_of_kroneckers_pd(jr.key(0), (2, 3)).as_matrix()
+    assert jnp.allclose(dense, dense.T)
+    assert jnp.linalg.eigvalsh(dense).min() > 0
+
+
+def test_empirical_moments_matches_mean_and_cov():
+    from gaussx._testing import empirical_moments
+
+    samples = jr.normal(jr.key(0), (50, 3))
+    mean, cov = empirical_moments(samples)
+    assert jnp.allclose(mean, jnp.mean(samples, axis=0))
+    assert jnp.allclose(cov, jnp.cov(samples.T, bias=False))
+
+
+def test_random_pd_matrix_jitter():
+    """jitter is the shift on the diagonal; the default stays 0.1."""
+    from gaussx._testing import random_pd_matrix
+
+    base = random_pd_matrix(jr.key(0), 4)
+    shifted = random_pd_matrix(jr.key(0), 4, jitter=4.0)
+    assert jnp.allclose(shifted - base, 3.9 * jnp.eye(4))

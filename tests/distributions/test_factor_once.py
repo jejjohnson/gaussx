@@ -18,6 +18,7 @@ import scipy.stats
 from jax.extend import core as jcore
 
 import gaussx
+from gaussx._testing import psd_operator, random_pd_matrix
 
 
 def _count(f, *args) -> dict[str, int]:
@@ -37,33 +38,24 @@ def _count(f, *args) -> dict[str, int]:
     return {name: counts[name] for name in ("cholesky", "lu")}
 
 
-def _spd(key, n):
-    a = jr.normal(key, (n, n))
-    return a @ a.T + n * jnp.eye(n)
-
-
-def _psd(matrix):
-    return lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
-
-
-_S = _spd(jr.key(0), 3)
+_S = random_pd_matrix(jr.key(0), 3, jitter=3)
 _X = jnp.array([0.1, -0.2, 0.3])
 
 
 def test_gaussian_log_prob_factors_once():
-    f = lambda S, x: gaussx.gaussian_log_prob(jnp.zeros(3), _psd(S), x)
+    f = lambda S, x: gaussx.gaussian_log_prob(jnp.zeros(3), psd_operator(S), x)
     assert _count(f, _S, _X) == {"cholesky": 1, "lu": 0}
 
 
 def test_mvn_log_prob_factors_once():
     def f(S, x):
-        return gaussx.MultivariateNormal(jnp.zeros(3), _psd(S)).log_prob(x)
+        return gaussx.MultivariateNormal(jnp.zeros(3), psd_operator(S)).log_prob(x)
 
     assert _count(f, _S, _X) == {"cholesky": 1, "lu": 0}
 
 
 def test_entropy_factors_once():
-    assert _count(lambda S: gaussx.gaussian_entropy(_psd(S)), _S) == {
+    assert _count(lambda S: gaussx.gaussian_entropy(psd_operator(S)), _S) == {
         "cholesky": 1,
         "lu": 0,
     }
@@ -71,7 +63,9 @@ def test_entropy_factors_once():
 
 def test_kl_factors_each_covariance_once():
     def f(S, T):
-        return gaussx.dist_kl_divergence(jnp.zeros(3), _psd(S), jnp.ones(3), _psd(T))
+        return gaussx.dist_kl_divergence(
+            jnp.zeros(3), psd_operator(S), jnp.ones(3), psd_operator(T)
+        )
 
     assert _count(f, _S, _S + jnp.eye(3)) == {"cholesky": 2, "lu": 0}
 
@@ -81,18 +75,22 @@ def test_values_match_scipy_and_numpyro(n):
     """rtol=1e-10: float64 closed forms on well-conditioned SPD matrices."""
     nd = pytest.importorskip("numpyro.distributions")
     k1, k2, k3, k4 = jr.split(jr.key(n), 4)
-    S, T = _spd(k1, n), _spd(k2, n)
+    S, T = random_pd_matrix(k1, n, jitter=n), random_pd_matrix(k2, n, jitter=n)
     mu, x = jr.normal(k3, (n,)), jr.normal(k4, (n,))
     ref = scipy.stats.multivariate_normal(np.asarray(mu), np.asarray(S))
     assert np.allclose(
-        gaussx.gaussian_log_prob(mu, _psd(S), x), ref.logpdf(np.asarray(x)), rtol=1e-10
+        gaussx.gaussian_log_prob(mu, psd_operator(S), x),
+        ref.logpdf(np.asarray(x)),
+        rtol=1e-10,
     )
-    assert np.allclose(gaussx.gaussian_entropy(_psd(S)), ref.entropy(), rtol=1e-10)
+    assert np.allclose(
+        gaussx.gaussian_entropy(psd_operator(S)), ref.entropy(), rtol=1e-10
+    )
     kl_ref = nd.kl_divergence(
         nd.MultivariateNormal(mu, covariance_matrix=S),
         nd.MultivariateNormal(x, covariance_matrix=T),
     )
-    kl = gaussx.dist_kl_divergence(mu, _psd(S), x, _psd(T))
+    kl = gaussx.dist_kl_divergence(mu, psd_operator(S), x, psd_operator(T))
     assert jnp.allclose(kl, kl_ref, rtol=1e-10)
 
 
@@ -105,14 +103,14 @@ def test_log_prob_gradient_matches_the_two_factorisation_form():
         return -0.5 * (3 * jnp.log(2 * jnp.pi) + ld + x @ alpha)
 
     def new(S, x):
-        return gaussx.gaussian_log_prob(jnp.zeros(3), _psd(S), x)
+        return gaussx.gaussian_log_prob(jnp.zeros(3), psd_operator(S), x)
 
     assert jnp.allclose(jax.grad(new)(_S, _X), jax.grad(old)(_S, _X), rtol=1e-10)
 
 
 def _structured():
-    A = _psd(_spd(jr.key(1), 2))
-    B = _psd(_spd(jr.key(2), 3))
+    A = psd_operator(random_pd_matrix(jr.key(1), 2, jitter=2))
+    B = psd_operator(random_pd_matrix(jr.key(2), 3, jitter=3))
     return {
         "kronecker": gaussx.Kronecker(A, B),
         "block_diag": gaussx.BlockDiag(A, B),
@@ -138,6 +136,6 @@ def test_structured_covariances_are_not_materialised(name, monkeypatch):
 
 def test_singular_covariance_stays_non_finite():
     """gh-302 holds on the new path: non-finite, no exception."""
-    cov = _psd(jnp.ones((3, 3)))
+    cov = psd_operator(jnp.ones((3, 3)))
     assert not jnp.isfinite(gaussx.gaussian_log_prob(jnp.zeros(3), cov, _X))
     assert not jnp.isfinite(gaussx.gaussian_entropy(cov))

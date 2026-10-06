@@ -7,6 +7,7 @@ other internal tests; not part of the public, stable gaussx API.
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -14,7 +15,14 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
+from gaussx._einx import einsum, reduce
+from gaussx._operators import (
+    BlockDiag,
+    BlockTriDiag,
+    Kronecker,
+    LowRankUpdate,
+    SumOfKroneckers,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -82,19 +90,34 @@ def random_pd_matrix(
     n: int,
     *,
     dtype=None,
+    jitter: float = 0.1,
 ) -> Float[Array, "n n"]:
-    """Generate a random positive-definite n x n matrix."""
+    """A random positive-definite ``A Aᵀ + jitter·I``, ``A ~ N(0, 1)``.
+
+    ``jitter`` sets the conditioning, and so what a given tolerance means:
+    say it explicitly when a test's tolerance was chosen for it.
+    """
     dtype = _resolve_dtype(dtype)
     A = jr.normal(key, (n, n), dtype=dtype)
-    return A @ A.T + 0.1 * jnp.eye(n, dtype=dtype)
+    return A @ A.T + jitter * jnp.eye(n, dtype=dtype)
 
 
 def random_pd_operator(
-    key: jax.Array, n: int, *, dtype=None
+    key: jax.Array,
+    n: int,
+    *,
+    dtype=None,
+    jitter: float = 0.1,
+    tags: object = lx.positive_semidefinite_tag,
 ) -> lx.MatrixLinearOperator:
-    """Generate a random PSD MatrixLinearOperator."""
-    mat = random_pd_matrix(key, n, dtype=dtype)
-    return lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+    """`random_pd_matrix` wrapped as a tagged ``MatrixLinearOperator``."""
+    mat = random_pd_matrix(key, n, dtype=dtype, jitter=jitter)
+    return lx.MatrixLinearOperator(mat, tags)
+
+
+def psd_operator(matrix: Float[Array, "n n"]) -> lx.MatrixLinearOperator:
+    """Wrap a matrix the test knows to be PSD as a PSD-tagged operator."""
+    return lx.MatrixLinearOperator(jnp.asarray(matrix), lx.positive_semidefinite_tag)
 
 
 def random_kronecker_pd(
@@ -102,11 +125,13 @@ def random_kronecker_pd(
     sizes: tuple[int, ...],
     *,
     dtype=None,
+    jitter: float = 0.1,
 ) -> Kronecker:
     """Generate a Kronecker product of random PSD matrices."""
     keys = jr.split(key, len(sizes))
     ops = tuple(
-        random_pd_operator(k, n, dtype=dtype) for k, n in zip(keys, sizes, strict=True)
+        random_pd_operator(k, n, dtype=dtype, jitter=jitter)
+        for k, n in zip(keys, sizes, strict=True)
     )
     return Kronecker(*ops)
 
@@ -116,11 +141,13 @@ def random_block_diag_pd(
     sizes: tuple[int, ...],
     *,
     dtype=None,
+    jitter: float = 0.1,
 ) -> BlockDiag:
     """Generate a BlockDiag of random PSD matrices."""
     keys = jr.split(key, len(sizes))
     ops = tuple(
-        random_pd_operator(k, n, dtype=dtype) for k, n in zip(keys, sizes, strict=True)
+        random_pd_operator(k, n, dtype=dtype, jitter=jitter)
+        for k, n in zip(keys, sizes, strict=True)
     )
     return BlockDiag(*ops)
 
@@ -140,6 +167,70 @@ def random_low_rank_update(
     diag_vals = jnp.abs(jr.normal(k3, (rank,), dtype=dtype)) + 0.1
     base = lx.DiagonalLinearOperator(d)
     return LowRankUpdate(base, U, diag_vals)
+
+
+def random_sum_of_kroneckers_pd(
+    key: jax.Array,
+    sizes: tuple[int, ...],
+    *,
+    num_terms: int = 2,
+    dtype=None,
+    jitter: float = 0.1,
+) -> SumOfKroneckers:
+    """A ``SumOfKroneckers`` of ``num_terms`` Kronecker products of PSD factors.
+
+    Each factor is `random_pd_operator` with the given ``jitter``, so the sum
+    is symmetric positive definite.
+    """
+    keys = jr.split(key, num_terms)
+    return SumOfKroneckers(
+        *(random_kronecker_pd(k, sizes, dtype=dtype, jitter=jitter) for k in keys)
+    )
+
+
+def random_spd_block_tridiag(
+    key: jax.Array,
+    num_blocks: int,
+    block_size: int,
+    *,
+    coupling: float = 0.3,
+    dtype=None,
+) -> BlockTriDiag:
+    """A random SPD ``BlockTriDiag``, positive definite by construction.
+
+    Built as ``L Lᵀ`` for a lower block-bidiagonal ``L`` with well-conditioned
+    lower-triangular diagonal blocks ``D_k`` and sub-diagonal blocks
+    ``C_k ~ coupling·N(0, 1)``: then ``A_kk = D_k D_kᵀ + C_{k-1} C_{k-1}ᵀ`` and
+    ``A_{k+1,k} = C_k D_kᵀ``. Diagonal dominance, which the local builders this
+    replaces relied on, is not guaranteed for arbitrary draws.
+    """
+    dtype = _resolve_dtype(dtype)
+    k_diag, k_sub = jr.split(key)
+    raw = jr.normal(k_diag, (num_blocks, block_size, block_size), dtype=dtype)
+    gram = einsum(raw, raw, "N i k, N j k -> N i j") + block_size * jnp.eye(
+        block_size, dtype=dtype
+    )
+    D = jnp.linalg.cholesky(gram)
+    C = coupling * jr.normal(
+        k_sub, (num_blocks - 1, block_size, block_size), dtype=dtype
+    )
+    diagonal = einsum(D, D, "N i k, N j k -> N i j")
+    if num_blocks == 1:
+        # einx rejects a zero-length axis, so the empty band skips it.
+        return BlockTriDiag(diagonal, C)
+    diagonal = diagonal.at[1:].add(einsum(C, C, "N i k, N j k -> N i j"))
+    sub_diagonal = einsum(C, D[:-1], "N i k, N j k -> N i j")
+    return BlockTriDiag(diagonal, sub_diagonal)
+
+
+def empirical_moments(
+    samples: Float[Array, "S N"],
+) -> tuple[Float[Array, " N"], Float[Array, "N N"]]:
+    """Sample mean and the unbiased sample covariance (``1 / (S - 1)``)."""
+    mean = reduce(samples, "S N -> N", "mean")
+    anomalies = einx.subtract("S N, N -> S N", samples, mean)
+    cov = einsum(anomalies, anomalies, "S i, S j -> i j") / (samples.shape[0] - 1)
+    return mean, cov
 
 
 # ---------------------------------------------------------------------------
