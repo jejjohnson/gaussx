@@ -132,9 +132,10 @@ configuration where float64 does not exist.
 
 The `getkey` fixture is `equinox.internal.GetKey`, which seeds itself from
 `random.randint` unless `EQX_GETKEY_SEED` is set — so every run draws a
-different model. Reproduce a one-off failure with
-`EQX_GETKEY_SEED=<n> uv run pytest <nodeid>`, and sweep `n` to find the
-failing seeds. Two rules keep such tests from reddening CI at random:
+different model. A failing `getkey` test prints its seed and a
+copy-pasteable `EQX_GETKEY_SEED=<n> uv run pytest '<nodeid>'` repro line
+(a "getkey seed" section in the report); sweep `n` to find other failing
+seeds. Two rules keep such tests from reddening CI at random:
 
 - **If the randomness is incidental** — the test checks a correctness
   property and any model would do — pin the key (`jr.key(0)`) instead of

@@ -47,3 +47,29 @@ def _clear_jax_caches():
 @pytest.fixture
 def getkey():
     return eqxi.GetKey()
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(item, call):
+    """On a failing ``getkey`` test, print the seed and a repro line (gh-305).
+
+    ``GetKey`` draws a fresh seed per test unless ``EQX_GETKEY_SEED`` is set,
+    so without this a CI failure could only be reproduced by a seed sweep.
+    Works when ``getkey`` reaches the test through another fixture, too.
+    """
+    report = yield
+    getkey = getattr(item, "funcargs", {}).get("getkey")
+    if report.failed and getkey is not None:
+        report.sections.append(
+            (
+                "getkey seed",
+                f"reproduce with: EQX_GETKEY_SEED={getkey.seed} "
+                f"uv run pytest '{item.nodeid}'",
+            )
+        )
+    return report
+
+
+def pytest_report_header(config):
+    seed = os.environ.get("EQX_GETKEY_SEED")
+    return f"EQX_GETKEY_SEED={seed}" if seed is not None else None
