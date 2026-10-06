@@ -117,10 +117,6 @@ markers = [
 
 [tool.coverage.run]
 source = ["src/gaussx"]
-# sys.monitoring (PEP 669) instead of the C tracer: measured ~8% off the
-# fast lane with --cov; no branch coverage is collected, which it would
-# not support before Python 3.14.
-core = "sysmon"
 omit = ["tests/*"]
 
 [tool.coverage.report]
