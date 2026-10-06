@@ -61,7 +61,10 @@ def test_multi_column_inv_quad_is_the_trace() -> None:
 
     inv_quad, _ = gaussx.inv_quad_logdet(operator, rhs, strategy=_exact_strategy(40))
 
-    assert jnp.allclose(inv_quad, jnp.sum(_dense_inv_quad(operator, rhs)), rtol=1e-6)
+    # Dtype-aware: rtol=1e-6 held in float64 but not in the float32 lane.
+    rtol, atol = default_tolerances(inv_quad)
+    expected = jnp.sum(_dense_inv_quad(operator, rhs))
+    assert jnp.allclose(inv_quad, expected, rtol=rtol, atol=atol)
 
 
 @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
