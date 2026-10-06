@@ -5,7 +5,6 @@ from __future__ import annotations
 import warnings
 
 import equinox as eqx
-import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
@@ -211,16 +210,13 @@ def sufficient_stats(
     """Compute sufficient statistics ``T(x) = [x, x x^T]``.
 
     Args:
-        x: Data vector, shape ``(N,)`` or batch ``(B, N)``.
+        x: Data, shape ``(*batch, N)`` with any number of batch axes.
 
     Returns:
-        Tuple ``(x, outer_product)`` where outer_product has
-        shape ``(N, N)`` or ``(B, N, N)``.
+        Tuple ``(x, outer_product)`` where outer_product has shape
+        ``(*batch, N, N)``.
     """
-    if x.ndim == 1:
-        return x, jnp.outer(x, x)
-    # Batched: (B, N) -> (B, N, N)
-    return x, einsum(x, x, "b i, b j -> b i j")
+    return x, einsum(x, x, "... i, ... j -> ... i j")
 
 
 def kl_divergence(
