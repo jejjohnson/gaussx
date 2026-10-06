@@ -130,21 +130,25 @@ configuration where float64 does not exist.
 
 ## Tests That Assert On Random Draws
 
-The `getkey` fixture is `equinox.internal.GetKey`, which seeds itself from
-`random.randint` unless `EQX_GETKEY_SEED` is set — so every run draws a
-different model. A failing `getkey` test prints its seed and a
-copy-pasteable `EQX_GETKEY_SEED=<n> uv run pytest '<nodeid>'` repro line
-(a "getkey seed" section in the report); sweep `n` to find other failing
-seeds. Two rules keep such tests from reddening CI at random:
+The `getkey` fixture is an `equinox.internal.GetKey` seeded per test from
+a CRC of the test's node id (`tests/conftest.py`), so every run of a test
+draws the same model and a failure reproduces by rerunning it. Set
+`EQX_GETKEY_SEED=<n>` to override the seed and sweep other draws; a failing
+`getkey` test prints its seed and a copy-pasteable
+`EQX_GETKEY_SEED=<n> uv run pytest '<nodeid>'` line (a "getkey seed"
+section in the report). `scripts/find_getkey_tests.py` lists the `getkey`
+tests (`--dead` lists any that take it without using it; keep that empty).
+Two rules keep tests honest about randomness:
 
 - **If the randomness is incidental** — the test checks a correctness
-  property and any model would do — pin the key (`jr.key(0)`) instead of
-  taking `getkey`. Deterministic makes the tolerance mean something.
+  property and any model would do — `getkey` (pinned per test) or an
+  explicit `jr.key(0)` are both fine; a tolerance tuned on one draw should
+  still hold under a short `EQX_GETKEY_SEED` sweep.
 - **If the test is genuinely about sampling behaviour**, bound the
   estimator by its own sampling distribution rather than a fixed `atol`:
   `gaussx._testing.assert_sample_moments` does this for mean/covariance at
   a default 7 sigma. A flat `atol` against a randomly drawn covariance is a
-  different number of sigmas on every run — the defect behind gh-220.
+  different number of sigmas on every draw — the defect behind gh-220.
 
 Either way, say in a comment where the bound came from.
 

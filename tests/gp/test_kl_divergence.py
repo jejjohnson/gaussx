@@ -52,7 +52,7 @@ class TestWhitePrior:
         expected = _naive_kl(q_mu[:, 0], q_cov, jnp.eye(M))
         assert tree_allclose(result, expected, rtol=1e-4)
 
-    def test_zero_mean_full(self, getkey):
+    def test_zero_mean_full(self):
         """KL with zero mean should be non-negative."""
         M = 4
         q_mu = jnp.zeros((M, 1))

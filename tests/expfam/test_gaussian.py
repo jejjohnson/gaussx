@@ -68,7 +68,7 @@ def test_to_natural_roundtrip(getkey):
     assert tree_allclose(Sigma_rec.as_matrix(), Sigma_mat, rtol=1e-4)
 
 
-def test_log_partition_known(getkey):
+def test_log_partition_known():
     """Log-partition for known case: N(0, sigma^2 I)."""
     N = 3
     sigma2 = 2.0

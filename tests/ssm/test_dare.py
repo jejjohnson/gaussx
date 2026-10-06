@@ -61,7 +61,7 @@ class TestDARE:
         eigvals = jnp.linalg.eigvalsh(result.P_inf)
         assert jnp.all(eigvals > 0)
 
-    def test_jit_compatible(self, getkey):
+    def test_jit_compatible(self):
         """Works under jax.jit."""
         D, M = 2, 1
         A = 0.9 * jnp.eye(D)

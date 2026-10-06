@@ -73,7 +73,7 @@ class TestSVGPVarianceAdjustment:
         expected = (K_inv @ S_u @ K_inv - K_inv) @ v
         assert jnp.allclose(result, expected, atol=1e-4)
 
-    def test_jit(self, getkey):
+    def test_jit(self):
         """Should be JIT-compatible."""
         M = 3
         K_zz = jnp.eye(M)

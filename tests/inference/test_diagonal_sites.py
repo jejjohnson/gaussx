@@ -103,7 +103,7 @@ def test_newton_diagonal_matches_dense_path(getkey):
     assert tree_allclose(diag_nat2, jnp.diag(dense_nat2), atol=1e-10)
 
 
-def test_newton_precision_floor_engages(getkey):
+def test_newton_precision_floor_engages():
     """A non-log-concave site is clipped to the floor rather than going negative."""
     mean = jnp.array([0.5, -1.0, 0.25, 2.0])
     grad = jnp.array([0.1, -0.3, 0.7, 0.0])

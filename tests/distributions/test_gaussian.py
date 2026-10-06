@@ -23,7 +23,7 @@ from gaussx import (
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
-def test_quadratic_form_diagonal(getkey):
+def test_quadratic_form_diagonal():
     d = jnp.array([2.0, 3.0, 4.0])
     x = jnp.array([1.0, 2.0, 3.0])
     op = lx.DiagonalLinearOperator(d)
@@ -41,7 +41,7 @@ def test_quadratic_form_dense(getkey):
     assert tree_allclose(result, expected, rtol=1e-5)
 
 
-def test_gaussian_log_prob_known(getkey):
+def test_gaussian_log_prob_known():
     """Log-prob of N(0, I) at x=0 should be -N/2 log(2pi)."""
     N = 3
     mu = jnp.zeros(N)
@@ -71,7 +71,7 @@ def test_gaussian_log_prob_matches_scipy():
     assert jnp.allclose(result, expected.logpdf(np.asarray(x)), rtol=1e-10)
 
 
-def test_gaussian_entropy_isotropic(getkey):
+def test_gaussian_entropy_isotropic():
     """Entropy of N(0, sigma^2 I)."""
     N = 3
     sigma2 = 2.0
@@ -81,7 +81,7 @@ def test_gaussian_entropy_isotropic(getkey):
     assert tree_allclose(result, expected, rtol=1e-5)
 
 
-def test_kl_standard_normal_zero_for_identity(getkey):
+def test_kl_standard_normal_zero_for_identity():
     """KL(N(0, I) || N(0, I)) = 0."""
     N = 4
     m = jnp.zeros(N)
@@ -98,7 +98,7 @@ def test_kl_standard_normal_positive(getkey):
     assert kl >= -1e-6
 
 
-def test_kl_standard_normal_known(getkey):
+def test_kl_standard_normal_known():
     """KL to standard normal for isotropic case."""
     N = 3
     sigma2 = 2.0
@@ -118,7 +118,7 @@ def test_add_jitter(getkey):
     assert tree_allclose(jittered.as_matrix(), expected, rtol=1e-6)
 
 
-def test_add_jitter_default(getkey):
+def test_add_jitter_default():
     d = jnp.array([1.0, 2.0, 3.0])
     op = lx.DiagonalLinearOperator(d)
     jittered = add_jitter(op)

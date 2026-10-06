@@ -10,7 +10,7 @@ from gaussx import BlockDiag, Kronecker, eig, eigvals
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
-def test_eig_diagonal(getkey):
+def test_eig_diagonal():
     d = jnp.array([3.0, 1.0, 2.0])
     op = lx.DiagonalLinearOperator(d)
     vals, vecs = eig(op)
@@ -18,7 +18,7 @@ def test_eig_diagonal(getkey):
     assert tree_allclose(vecs, jnp.eye(3))
 
 
-def test_eigvals_diagonal(getkey):
+def test_eigvals_diagonal():
     d = jnp.array([5.0, 2.0, 7.0])
     op = lx.DiagonalLinearOperator(d)
     assert tree_allclose(eigvals(op), d)
@@ -64,7 +64,7 @@ def test_eig_block_diag(getkey):
     assert tree_allclose(reconstructed, bd.as_matrix(), rtol=1e-4)
 
 
-def test_eigvals_block_diag(getkey):
+def test_eigvals_block_diag():
     d1 = jnp.array([1.0, 2.0])
     d2 = jnp.array([3.0, 4.0, 5.0])
     bd = BlockDiag(
@@ -90,7 +90,7 @@ def test_eig_kronecker(getkey):
     assert tree_allclose(jnp.sort(vals), jnp.sort(expected_vals), rtol=1e-4)
 
 
-def test_eigvals_kronecker(getkey):
+def test_eigvals_kronecker():
     d1 = jnp.array([2.0, 3.0])
     d2 = jnp.array([4.0, 5.0])
     K = Kronecker(

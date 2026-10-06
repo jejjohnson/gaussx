@@ -22,7 +22,7 @@ class TestGaussianSites:
         leaves = jax.tree.leaves(sites)
         assert len(leaves) == 2
 
-    def test_shapes(self, getkey):
+    def test_shapes(self):
         """Fields should have correct shapes."""
         N, d = 5, 3
         nat1 = jnp.zeros((N, d))
@@ -72,7 +72,7 @@ class TestSitesToPrecision:
         prec = sites_to_precision(sites)
         assert isinstance(prec, BlockTriDiag)
 
-    def test_correct_dimensions(self, getkey):
+    def test_correct_dimensions(self):
         """BlockTriDiag dimensions should match sites."""
         N, d = 5, 3
         sites = GaussianSites(

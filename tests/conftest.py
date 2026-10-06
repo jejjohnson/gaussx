@@ -1,4 +1,5 @@
 import os
+import zlib
 
 import equinox.internal as eqxi
 import jax
@@ -45,8 +46,20 @@ def _clear_jax_caches():
 
 
 @pytest.fixture
-def getkey():
-    return eqxi.GetKey()
+def getkey(request):
+    """A ``GetKey`` seeded per test, so every run draws the same model (gh-311).
+
+    The seed is a CRC of the test's node id, so different tests still see
+    different models but each one is deterministic: a fixed tolerance means
+    one thing, and a failure reproduces by rerunning the test. Set
+    ``EQX_GETKEY_SEED`` to override it and sweep other draws.
+    """
+    override = os.environ.get("EQX_GETKEY_SEED")
+    if override is not None:
+        seed = int(override)
+    else:
+        seed = zlib.crc32(request.node.nodeid.encode())
+    return eqxi.GetKey(seed=seed)
 
 
 @pytest.hookimpl(wrapper=True)

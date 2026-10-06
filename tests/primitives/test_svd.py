@@ -10,7 +10,7 @@ from gaussx import svd
 from gaussx._testing import tree_allclose
 
 
-def test_svd_diagonal(getkey):
+def test_svd_diagonal():
     d = jnp.array([3.0, -1.0, 2.0])
     op = lx.DiagonalLinearOperator(d)
     U, s, Vt = svd(op)
