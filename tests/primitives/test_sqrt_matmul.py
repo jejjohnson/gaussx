@@ -11,12 +11,14 @@ import pytest
 from scipy.special import ellipj as scipy_ellipj, ellipk as scipy_ellipk
 
 import gaussx
-from gaussx._operators import (
+from gaussx import (
     BlockDiag,
     LowRankUpdate,
     low_rank_plus_diag,
     low_rank_plus_identity,
 )
+
+# Private helpers whose own behaviour these tests check.
 from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk, _shift_operator
 from gaussx._testing import random_pd_operator
 
@@ -33,6 +35,7 @@ def _dense_power(operator: lx.AbstractLinearOperator, power: float):
 
 
 @pytest.mark.parametrize("modulus", [0.0, 0.3, 0.9, 0.999, 1.0 - 1e-6])
+@pytest.mark.x64_only(reason="float64 scipy reference near modulus 1")
 def test_ellipk_matches_scipy(modulus: float) -> None:
     assert jnp.allclose(_ellipk(jnp.asarray(modulus)), scipy_ellipk(modulus))
 
@@ -59,6 +62,7 @@ def test_float32_roots_survive_a_large_condition_number() -> None:
 
 
 @pytest.mark.parametrize("modulus", [0.0, 0.3, 0.9, 0.999, 1.0 - 1e-6])
+@pytest.mark.x64_only(reason="float64 scipy reference")
 def test_ellipj_matches_scipy(modulus: float) -> None:
     argument = np.linspace(0.0, 0.999 * scipy_ellipk(modulus), 11)
     sn, cn, dn = _ellipj(jnp.asarray(argument), jnp.asarray(modulus))
@@ -104,6 +108,7 @@ def test_spectral_bounds_are_exact_for_a_scaled_identity(scale: float) -> None:
     ],
     ids=["tagged", "scaled", "divided"],
 )
+@pytest.mark.x64_only(reason="asserts an error below 1e-8")
 def test_wrapped_diagonals_take_the_structural_path(wrap) -> None:
     # 40 entries spanning kappa = 1e8: a 20-step Lanczos run would only bracket
     # this from the inside, and the safety factor would not cover the gap.
@@ -235,6 +240,7 @@ def test_sqrt_inv_matmul_matches_dense_symmetric_root() -> None:
     assert jnp.allclose(result, _dense_power(operator, -0.5) @ rhs, atol=1e-8)
 
 
+@pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_sqrt_matmul_matches_dense_symmetric_root() -> None:
     operator = random_pd_operator(jr.key(3), 25)
     rhs = jr.normal(jr.key(4), (25, 3))
@@ -385,7 +391,14 @@ def test_tagged_diagonal_base_stays_diagonal_under_a_shift() -> None:
     # Hale-Higham-Trefethen convergence is geometric in the node count with a
     # rate set by log(kappa); at kappa = 1e4 these are the observed accuracies
     # with an order of magnitude of headroom.
-    [(5, 1e-1), (10, 1e-3), (15, 1e-6), (25, 1e-10)],
+    [
+        (5, 1e-1),
+        (10, 1e-3),
+        (15, 1e-6),
+        pytest.param(
+            25, 1e-10, marks=pytest.mark.x64_only(reason="1e-10 is below float32 eps")
+        ),
+    ],
 )
 def test_accuracy_improves_with_more_quadrature_nodes(
     num_quadrature: int, tolerance: float

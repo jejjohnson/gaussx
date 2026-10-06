@@ -8,8 +8,12 @@ import lineax as lx
 import pytest
 
 import gaussx
-from gaussx._gp._love import love_cache, love_variance
-from gaussx._primitives import root_decomposition, root_inv_decomposition
+from gaussx import (
+    love_cache,
+    love_variance,
+    root_decomposition,
+    root_inv_decomposition,
+)
 from gaussx._testing import assert_sample_moments
 
 

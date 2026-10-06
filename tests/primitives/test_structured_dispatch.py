@@ -12,6 +12,17 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+from gaussx import (
+    cholesky,
+    diag,
+    inv,
+    logdet,
+    solve,
+    sqrt,
+    submatrix,
+    svd,
+    trace,
+)
 from gaussx._operators import (
     BlockDiag,
     Kronecker,
@@ -20,15 +31,6 @@ from gaussx._operators import (
     SumOfKroneckers,
 )
 from gaussx._operators._block_tridiag import LowerBlockTriDiag, UpperBlockTriDiag
-from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._diag import diag
-from gaussx._primitives._inv import inv
-from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
-from gaussx._primitives._sqrt import sqrt
-from gaussx._primitives._submatrix import submatrix
-from gaussx._primitives._svd import svd
-from gaussx._primitives._trace import trace
 from gaussx._testing import tree_allclose
 
 
