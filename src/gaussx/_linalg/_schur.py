@@ -7,6 +7,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._operators._low_rank_update import LowRankUpdate
 
 
@@ -104,16 +105,12 @@ def conditional_variance(
         and isinstance(A_X, lx.AbstractLinearOperator)
         and isinstance(K_XZ, jax.Array)
     ):
-        import warnings
-
-        warnings.warn(
+        warn_deprecated(
             "conditional_variance(base_diag, A_X, S_u) is deprecated; "
             "use conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u). "
             "The legacy form treats the first argument as the "
             "precomputed Schur diagonal and skips the K_XZ-based "
-            "subtraction.",
-            DeprecationWarning,
-            stacklevel=2,
+            "subtraction."
         )
         legacy_A_X = K_XZ  # second positional was the projection matrix
         legacy_S_u: lx.AbstractLinearOperator = A_X  # third was S_u

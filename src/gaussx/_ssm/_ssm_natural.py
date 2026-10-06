@@ -11,14 +11,13 @@ diagonal EP) conversions see `gaussx._ssm._site_natural`.
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_matrix
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -49,12 +48,10 @@ def _transition_noise(
             f"to match A, got {Q.shape[0]}."
         )
         raise ValueError(msg)
-    warnings.warn(
+    warn_deprecated(
         f"{function} with Q of shape (N, d, d) and Q[0] == P_0 is deprecated; "
         "pass only the transition noise Q[1:] (shape (N-1, d, d)), as "
-        "MarkovGaussian does. The stacked layout will be removed in 0.5.0.",
-        DeprecationWarning,
-        stacklevel=3,
+        "MarkovGaussian does. The stacked layout will be removed in 0.5.0."
     )
     # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
     # Python ``bool()`` could only run eagerly (gh-359). Attached to both
@@ -194,21 +191,17 @@ def naturals_to_ssm(
         - ``P_0``: Initial covariance, shape ``(d, d)``.
     """
     if solver is not None:
-        warnings.warn(
+        warn_deprecated(
             "naturals_to_ssm(solver=...) is deprecated and ignored; it will be "
-            "removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "removed in 0.5.0."
         )
     if initial_in_q is None:
-        warnings.warn(
+        warn_deprecated(
             "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in 0.5.0 it "
             "will return only the transition noise (shape (N-1, d, d)), as "
             "MarkovGaussian and ssm_to_naturals take it. Pass "
             "initial_in_q=False to adopt that layout now, or initial_in_q=True "
-            "to keep the current one until then.",
-            DeprecationWarning,
-            stacklevel=2,
+            "to keep the current one until then."
         )
         initial_in_q = True
     d = theta_precision._block_size

@@ -11,14 +11,13 @@ joint precision is $\Lambda$.
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 
@@ -246,13 +245,11 @@ def udl_from_ssm_params(
     if P0 is not None:
         Q = jnp.concatenate([P0[None], Q], axis=0)
     else:
-        warnings.warn(
+        warn_deprecated(
             "udl_from_ssm_params(A, Q) with P_0 stacked as Q[0] is deprecated; "
             "pass the transition noise and P0 separately, "
             "udl_from_ssm_params(A, Q, P0). The stacked layout will be "
-            "removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "removed in 0.5.0."
         )
     if Q.shape[0] != A.shape[0] + 1:
         msg = (

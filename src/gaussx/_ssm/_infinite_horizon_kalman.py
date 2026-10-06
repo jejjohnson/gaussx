@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import repeat
 from gaussx._linalg._linalg import sandwich, solve_rows
@@ -36,11 +35,9 @@ _DEPRECATED_ALIASES = {"InfiniteHorizonState": FilterState}
 
 
 def _deprecated_alias(name: str) -> type[FilterState]:
-    warnings.warn(
+    warn_deprecated(
         f"gaussx.{name} is deprecated: infinite_horizon_filter returns a "
-        "gaussx.FilterState. The alias will be removed in 0.5.0.",
-        DeprecationWarning,
-        stacklevel=3,
+        "gaussx.FilterState. The alias will be removed in 0.5.0."
     )
     return _DEPRECATED_ALIASES[name]
 
@@ -242,13 +239,11 @@ def infinite_horizon_smoother(
     noise: Array | lx.AbstractLinearOperator | None
     if isinstance(process_noise, DAREResult):
         # Old order: (filter_state, transition, dare_result, process_noise).
-        warnings.warn(
+        warn_deprecated(
             "infinite_horizon_smoother(filter_state, transition, dare_result, "
             "process_noise) is deprecated; pass process_noise third and "
             "dare_result as a keyword, as in rts_smoother. The old order will "
-            "stop working in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "stop working in 0.5.0."
         )
         dare_result, noise = process_noise, _legacy_process_noise
     elif _legacy_process_noise is not None:

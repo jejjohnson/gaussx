@@ -16,6 +16,7 @@ import numpy as np
 from jax.core import Tracer
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 from gaussx._operators._factored_eigen import FactoredEigen, kronecker_eigen
@@ -840,12 +841,9 @@ class SumKronecker(SumOfKroneckers):
         *krons: Kronecker,
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
-        import warnings
 
-        warnings.warn(
+        warn_deprecated(
             "SumKronecker is deprecated; use SumOfKroneckers "
-            "(KroneckerSum remains a different operator).",
-            DeprecationWarning,
-            stacklevel=2,
+            "(KroneckerSum remains a different operator)."
         )
         super().__init__(kron1, kron2, *krons, tags=tags)
