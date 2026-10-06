@@ -1,4 +1,5 @@
 import os
+import warnings
 import zlib
 
 import equinox.internal as eqxi
@@ -43,6 +44,24 @@ def _clear_jax_caches():
     """
     yield
     jax.clear_caches()
+
+
+@pytest.fixture(autouse=True)
+def _gaussx_deprecations_are_errors():
+    """gaussx's own deprecations are errors in the tests (gh-332).
+
+    A test that exercises a deprecated path must say so with ``pytest.warns``,
+    which overrides this filter inside its block, and internal use of a
+    deprecated path fails. This is a fixture rather than a ``filterwarnings``
+    entry in pyproject.toml because pytest imports a filter's category while
+    reading its config, which would import gaussx before pytest-cov starts in
+    the xdist workers and leave every module-level line uncovered.
+    """
+    from gaussx._deprecation import GaussxDeprecationWarning
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", GaussxDeprecationWarning)
+        yield
 
 
 @pytest.fixture

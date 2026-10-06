@@ -102,10 +102,6 @@ python-version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# gaussx's own deprecations are errors in the tests (gh-332): a test that
-# exercises a deprecated path must say so with pytest.warns, and internal
-# use of a deprecated path fails.
-filterwarnings = ["error::gaussx._deprecation.GaussxDeprecationWarning"]
 markers = [
     "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
     "integration: end-to-end workflows (MCMC/SVI fits through numpyro)",
