@@ -100,7 +100,7 @@ def test_infinite_horizon_smoother_requires_dare_result():
     "smoother",
     [
         rts_smoother,
-        parallel_rts_smoother,
+        pytest.param(parallel_rts_smoother, marks=pytest.mark.slow),
         lambda s, A, *q: meanfield_rts_smoother(s, A, *q, block_size=1),
     ],
     ids=["rts", "parallel_rts", "meanfield_rts"],

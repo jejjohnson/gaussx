@@ -213,6 +213,7 @@ def _dense_log_likelihood(prior, H, R, y):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("per_step_h", [False, True], ids=["shared_H", "per_step_H"])
+@pytest.mark.slow
 def test_log_likelihood_and_gradient_match_dense_joint(per_step_h):
     prior, H, R, y = _small_problem(per_step_h)
     N, d, M = prior.diagonal.shape[0], prior.diagonal.shape[1], R.shape[0]

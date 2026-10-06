@@ -42,6 +42,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "pytest-xdist>=3.5",
+    "pytest-timeout>=2.3",
     "pre-commit>=3.7",
     "beartype>=0.18",
     "numpyro>=0.21",
@@ -102,6 +103,12 @@ python-version = "3.12"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Hard per-test ceiling so a hang (e.g. an iterative solver that never
+# converges) fails in minutes, not at the runner's 6-hour limit. This is not
+# the tiering line (unmarked tests stay under ~1 s, see CLAUDE.md); it leaves
+# room for cold-cache compiles of the slow lane on a loaded runner. Raise it
+# for one test with @pytest.mark.timeout(...).
+timeout = 120
 markers = [
     "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
     "integration: end-to-end workflows (MCMC/SVI fits through numpyro)",
@@ -110,6 +117,10 @@ markers = [
 
 [tool.coverage.run]
 source = ["src/gaussx"]
+# sys.monitoring (PEP 669) instead of the C tracer: measured ~8% off the
+# fast lane with --cov; no branch coverage is collected, which it would
+# not support before Python 3.14.
+core = "sysmon"
 omit = ["tests/*"]
 
 [tool.coverage.report]

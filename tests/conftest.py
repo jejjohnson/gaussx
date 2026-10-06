@@ -1,6 +1,7 @@
 import os
 import warnings
 import zlib
+from pathlib import Path
 
 import equinox.internal as eqxi
 import jax
@@ -72,6 +73,27 @@ def _gaussx_deprecations_are_errors(request):
             for arg in mark.args:
                 warnings.filterwarnings(*parse_warning_filter(arg, escape=False))
         yield
+
+
+# Persistent XLA compilation cache. Eager JAX compiles one small program per
+# operation (a ~40 ms compile each), which is most of this suite's runtime.
+# Caching every program on disk lets the xdist workers share compilations
+# within a run, and later runs (locally, or CI with the directory restored)
+# skip them: tests/ssm/ fast lane 150 s -> 116 s cold, 74 s warm; tests/linalg/
+# 28 s -> 20 s cold, 12 s warm (-n 8).
+# The cache key covers the jax/jaxlib version, backend and XLA flags, so a
+# dependency bump simply misses. Override the location with
+# JAX_COMPILATION_CACHE_DIR; `make clean` deletes the default one.
+jax.config.update(
+    "jax_compilation_cache_dir",
+    os.environ.get("JAX_COMPILATION_CACHE_DIR")
+    or str(Path(__file__).resolve().parents[1] / ".pytest_cache" / "jax"),
+)
+jax.config.update("jax_persistent_cache_min_compile_time_secs", 0)
+jax.config.update("jax_persistent_cache_min_entry_size_bytes", -1)
+# No jax_compilation_cache_max_size: bounding the cache switches JAX to a
+# file-locked LRU that serialises the xdist workers (tests/linalg cold run
+# 20 s -> 38 s, slower than no cache at all). `make clean` clears it.
 
 
 @pytest.fixture

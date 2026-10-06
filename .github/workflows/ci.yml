@@ -14,6 +14,11 @@ concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # List the slowest tests in every log, so a test that outgrows the fast
+  # lane (unmarked tests stay under ~1 s; see CLAUDE.md) is visible in review.
+  PYTEST_ADDOPTS: --durations=15
+
 jobs:
   # Every PR: every supported Python version (the classifiers in
   # pyproject.toml), fast unit tests only, with coverage so
@@ -47,6 +52,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Same persistent JAX compilation cache as test-fast (float32 programs
+      # are cached under their own keys, so the lanes do not collide).
+      - name: Restore the JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .pytest_cache/jax
+          key: jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}-no-x64
+          restore-keys: |
+            jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+            jax-cache-${{ runner.os }}-
+      # Persistent JAX compilation cache (tests/conftest.py writes it here).
+      # Compiled XLA programs do not depend on the Python version, so all
+      # jobs share one cache: restore the newest for this lockfile, else any;
+      # every job saves its own (run- and job-scoped key).
+      - name: Restore the JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .pytest_cache/jax
+          key: jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}-${{ strategy.job-index }}
+          restore-keys: |
+            jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+            jax-cache-${{ runner.os }}-
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -107,6 +134,18 @@ jobs:
         python-version: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v7
+      # Persistent JAX compilation cache (tests/conftest.py writes it here).
+      # Compiled XLA programs do not depend on the Python version, so all
+      # jobs share one cache: restore the newest for this lockfile, else any;
+      # every job saves its own (run- and job-scoped key).
+      - name: Restore the JAX compilation cache
+        uses: actions/cache@v6
+        with:
+          path: .pytest_cache/jax
+          key: jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-${{ github.run_id }}-${{ strategy.job-index }}
+          restore-keys: |
+            jax-cache-${{ runner.os }}-${{ hashFiles('uv.lock') }}-
+            jax-cache-${{ runner.os }}-
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true

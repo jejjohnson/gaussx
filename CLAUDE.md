@@ -111,6 +111,17 @@ When adding tests:
 - `@pytest.mark.integration`: end-to-end workflows (e.g. MCMC/SVI fits
   through numpyro). Usually combined with `slow`.
 
+Most of the suite's runtime is XLA compiling each eagerly-run operation,
+not the numerics, so a test's cost is the number of distinct programs it
+compiles rather than its problem size. `tests/conftest.py` therefore turns
+on JAX's persistent compilation cache (`.pytest_cache/jax`, restored and
+saved by CI), which roughly halves a warm run. Judge a new test's tier by
+its time with a warm cache (`--durations`, which CI prints for the 15
+slowest tests). For parametrised tests, mark only the expensive cases slow
+(`pytest.param(64, marks=pytest.mark.slow)`) and keep a small one fast.
+`pytest-timeout` fails any single test after 120 s as a hang guard; raise it
+for one test with `@pytest.mark.timeout(...)`.
+
 ## The float32 (no-x64) lane
 
 `tests/conftest.py` enables x64 for the whole suite, so CI also runs a
