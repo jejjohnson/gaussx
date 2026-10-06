@@ -14,7 +14,8 @@ from gaussx import (
     root_decomposition,
     root_inv_decomposition,
 )
-from gaussx._testing import assert_sample_moments
+from gaussx._einx import einsum
+from gaussx._testing import assert_sample_moments, default_tolerances
 
 
 def test_root_decomposition_truncated_diagonal():
@@ -51,8 +52,13 @@ def test_cholesky_root_is_exact(getkey):
     inv_root = root_inv_decomposition(op, rank=2, method="cholesky")
 
     assert root.root.shape == (5, 5)
-    assert jnp.allclose(root.root @ root.root.T, A, atol=1e-8)
-    assert jnp.allclose(inv_root.root @ inv_root.root.T, jnp.linalg.inv(A), atol=1e-8)
+    # Dtype-aware: atol=1e-8 is a float64 number, below float32 round-off.
+    rtol, atol = default_tolerances(A)
+    L, L_inv = root.root, inv_root.root
+    assert jnp.allclose(einsum(L, L, "i k, j k -> i j"), A, rtol=rtol, atol=atol)
+    assert jnp.allclose(
+        einsum(L_inv, L_inv, "i k, j k -> i j"), jnp.linalg.inv(A), rtol=rtol, atol=atol
+    )
 
 
 def test_pivoted_cholesky_root_diagonal():

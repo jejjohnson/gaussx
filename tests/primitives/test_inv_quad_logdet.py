@@ -13,7 +13,7 @@ from gaussx import LowRankUpdate
 
 # Private helpers whose own behaviour these tests check.
 from gaussx._primitives._inv_quad_logdet import _lanczos_coefficients, _mbcg
-from gaussx._testing import random_pd_operator
+from gaussx._testing import default_tolerances, random_pd_operator
 
 
 def _dense_inv_quad(operator: lx.AbstractLinearOperator, rhs):
@@ -49,7 +49,10 @@ def test_inv_quad_matches_dense_solve() -> None:
 
     inv_quad, _ = gaussx.inv_quad_logdet(operator, rhs, strategy=_exact_strategy(40))
 
-    assert jnp.allclose(inv_quad, jnp.sum(_dense_inv_quad(operator, rhs)), rtol=1e-6)
+    # Dtype-aware: rtol=1e-6 held in float64 but not in the float32 lane.
+    rtol, atol = default_tolerances(inv_quad)
+    expected = jnp.sum(_dense_inv_quad(operator, rhs))
+    assert jnp.allclose(inv_quad, expected, rtol=rtol, atol=atol)
 
 
 def test_multi_column_inv_quad_is_the_trace() -> None:
