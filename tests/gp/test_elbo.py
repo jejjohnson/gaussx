@@ -3,12 +3,17 @@
 import jax
 import jax.numpy as jnp
 
+from gaussx._einx import reduce
 from gaussx._gp._elbo import variational_elbo_gaussian, variational_elbo_mc
 
 
 class TestVariationalElboGaussian:
     def test_basic_value(self):
-        """ELBO should be negative (log-prob minus KL)."""
+        """ELBO equals its closed form, sum_i E_q[log N(y_i | f_i, s2)] - KL.
+
+        The Gaussian expectation is -0.5 log(2 pi s2) - ((y - m)^2 + v)/(2 s2)
+        per point (gh-324). Negative here, as for these inputs it must be.
+        """
         key = jax.random.key(0)
         N = 10
         y = jax.random.normal(key, (N,))
@@ -17,8 +22,13 @@ class TestVariationalElboGaussian:
         noise_var = 1.0
         kl = jnp.array(0.5)
         elbo = variational_elbo_gaussian(y, f_loc, f_var, noise_var, kl)
+        ell = jnp.sum(
+            -0.5 * jnp.log(2 * jnp.pi * noise_var)
+            - ((y - f_loc) ** 2 + f_var) / (2 * noise_var)
+        )
         assert elbo.shape == ()
-        assert jnp.isfinite(elbo)
+        assert jnp.allclose(elbo, ell - kl, rtol=1e-12)
+        assert elbo < 0
 
     def test_zero_kl(self):
         """With zero KL, ELBO equals expected log-likelihood."""
@@ -76,7 +86,7 @@ class TestVariationalElboGaussian:
 
 class TestVariationalElboMC:
     def test_basic_value(self):
-        """MC ELBO should return a finite scalar."""
+        """MC ELBO is the sample mean of the log-likelihood minus KL (gh-324)."""
         key = jax.random.key(42)
         N = 5
         S = 100
@@ -87,8 +97,9 @@ class TestVariationalElboMC:
 
         kl = jnp.array(1.0)
         elbo = variational_elbo_mc(log_lik, f_samples, kl)
+        expected = jnp.mean(-0.5 * reduce(f_samples**2, "S N -> S", "sum")) - kl
         assert elbo.shape == ()
-        assert jnp.isfinite(elbo)
+        assert jnp.allclose(elbo, expected, rtol=1e-12)
 
     def test_zero_kl(self):
         """With zero KL, MC ELBO equals average log-likelihood."""

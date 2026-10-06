@@ -15,6 +15,7 @@ from gaussx import (
     process_noise_covariance,
     trace_correction,
 )
+from gaussx._einx import einsum
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -61,18 +62,26 @@ def test_gaussian_expected_log_lik(getkey):
 
 
 @pytest.mark.slow
-def test_trace_correction_positive(getkey):
-    """Trace correction should be non-negative for valid kernels."""
-    N, M = 8, 3
-    K_xx_mat = random_pd_matrix(getkey(), N)
-    K_zz_mat = random_pd_matrix(getkey(), M)
-    K_xz = jr.normal(getkey(), (N, M)) * 0.3
+def test_trace_correction_positive():
+    """Trace correction is non-negative for blocks of one PSD kernel (gh-324).
 
+    tr(K_xx - K_xz K_zz^{-1} K_zx) is the trace of a Schur complement of the
+    joint matrix, which is PSD only when the three blocks come from one PSD
+    kernel; independently drawn blocks need not satisfy it.
+    """
+    N, M = 8, 3
+    J = random_pd_matrix(jr.key(0), N + M)
+    K_xx_mat, K_xz, K_zz_mat = J[:N, :N], J[:N, N:], J[N:, N:]
     K_xx = lx.MatrixLinearOperator(K_xx_mat)
     K_zz = lx.MatrixLinearOperator(K_zz_mat)
 
     tc = trace_correction(K_xx, K_xz, K_zz)
-    assert jnp.isfinite(tc)
+    projected = einsum(
+        K_xz, jnp.linalg.solve(K_zz_mat, einsum(K_xz, "n m -> m n")), "n m, m k -> n k"
+    )
+    expected = jnp.trace(K_xx_mat - projected)
+    assert tc >= 0
+    assert jnp.allclose(tc, expected, rtol=1e-10)
 
 
 def test_trace_correction_matches_manual(getkey):

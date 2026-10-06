@@ -211,7 +211,9 @@ class TestKroneckerPosteriorPredictive:
         K1_op = lx.MatrixLinearOperator(K1, lx.positive_semidefinite_tag)
         K2_op = lx.MatrixLinearOperator(K2, lx.positive_semidefinite_tag)
 
-        try:
+        # Only the missing keyword argument may raise: any other TypeError (a
+        # typo, a wrong operand type) must fail this test (gh-324).
+        with pytest.raises(TypeError, match="K_test_diag_factors"):
             kronecker_posterior_predictive(
                 [K1_op, K2_op],
                 y,
@@ -219,7 +221,3 @@ class TestKroneckerPosteriorPredictive:
                 (n1, n2),
                 [K_cross_1, K_cross_2],
             )
-        except TypeError:
-            pass
-        else:
-            raise AssertionError("Expected missing K_test_diag_factors to fail")
