@@ -4,6 +4,7 @@ import jax
 import jax.numpy as jnp
 
 from gaussx import symmetrize
+from gaussx._testing import default_tolerances
 
 
 class TestSymmetrize:
@@ -32,7 +33,10 @@ class TestSymmetrize:
         N = 5
         A = jax.random.normal(getkey(), (N, N))
         skew = 0.5 * (A - A.T)
-        assert jnp.allclose(symmetrize(A) + skew, A)
+        # Tolerances follow the dtype: allclose's float64 defaults fail on
+        # near-zero entries in the float32 (no-x64) lane.
+        rtol, atol = default_tolerances(A)
+        assert jnp.allclose(symmetrize(A) + skew, A, rtol=rtol, atol=atol)
 
     def test_batched_over_leading_axes(self, getkey):
         """Operates on the trailing two axes of a batched stack."""
