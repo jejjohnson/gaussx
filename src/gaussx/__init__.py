@@ -184,6 +184,7 @@ from gaussx._preconditioners import (
     PartialCholeskyPreconditioner as PartialCholeskyPreconditioner,
 )
 from gaussx._primitives import (
+    Chandrupatla as Chandrupatla,
     DenseFallbackWarning as DenseFallbackWarning,
     RootDecomposition as RootDecomposition,
     SumKroneckerSqrt as SumKroneckerSqrt,
@@ -199,6 +200,8 @@ from gaussx._primitives import (
     inv as inv,
     inv_quad_logdet as inv_quad_logdet,
     logdet as logdet,
+    mixture_quantile as mixture_quantile,
+    mixture_quantile_gaussian_approx as mixture_quantile_gaussian_approx,
     pseudo_logdet as pseudo_logdet,
     root_decomposition as root_decomposition,
     root_inv_decomposition as root_inv_decomposition,
@@ -416,6 +419,7 @@ __all__ = [
     "BlockTriDiag",
     "CGSolver",
     "CapacitanceSolver",
+    "Chandrupatla",
     "ColumnID",
     "ComposedSolver",
     "ConstantSDE",
@@ -636,6 +640,8 @@ __all__ = [
     "mean_expectation",
     "meanfield_kalman_filter",
     "meanfield_rts_smoother",
+    "mixture_quantile",
+    "mixture_quantile_gaussian_approx",
     "moment_match",
     "moment_transform",
     "natural_to_expectation",
