@@ -47,6 +47,7 @@ from gaussx._ssm._parallel_kalman import (
 )
 from gaussx._ssm._periodic import CosineSDE, PeriodicSDE
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
+from gaussx._ssm._sde_kl import LinearizedSDE, linearize_sde, sde_kl_divergence
 from gaussx._ssm._site_natural import (
     cavity_from_marginal,
     site_mean_var_from_natural,
@@ -76,6 +77,7 @@ __all__ = [
     "FilterState",
     "GaussianSites",
     "IntegratedWienerSDE",
+    "LinearizedSDE",
     "MaternSDE",
     "PeriodicSDE",
     "ProductSDE",
@@ -94,6 +96,7 @@ __all__ = [
     "infinite_horizon_smoother",
     "kalman_filter",
     "kalman_gain",
+    "linearize_sde",
     "masked_moment_inputs",
     "meanfield_kalman_filter",
     "meanfield_rts_smoother",
@@ -109,6 +112,7 @@ __all__ = [
     "process_noise_covariance",
     "rts_smoother",
     "sde_autocovariance",
+    "sde_kl_divergence",
     "site_mean_var_from_natural",
     "site_natural_from_tilted",
     "sites_to_precision",
