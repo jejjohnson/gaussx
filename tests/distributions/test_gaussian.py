@@ -52,22 +52,23 @@ def test_gaussian_log_prob_known(getkey):
     assert tree_allclose(result, expected, rtol=1e-5)
 
 
-def test_gaussian_log_prob_matches_scipy(getkey):
+@pytest.mark.x64_only(reason="float64 scipy reference at rtol=1e-10")
+def test_gaussian_log_prob_matches_scipy():
+    """Against scipy itself (gh-355), on a pinned non-isotropic covariance.
+
+    rtol=1e-10: a float64 closed form on a well-conditioned SPD matrix.
+    """
+    import numpy as np
+    import scipy.stats
+
     N = 4
-    mat = random_pd_matrix(getkey(), N)
-    mu = jr.normal(getkey(), (N,))
-    x = jr.normal(getkey(), (N,))
-    op = lx.MatrixLinearOperator(mat)
-
-    result = gaussian_log_prob(mu, op, x)
-
-    # Manual computation
-    r = x - mu
-    _, ld = jnp.linalg.slogdet(mat)
-    quad = r @ jnp.linalg.solve(mat, r)
-    expected = -0.5 * (N * jnp.log(2.0 * jnp.pi) + ld + quad)
-
-    assert tree_allclose(result, expected, rtol=1e-4)
+    k1, k2, k3 = jr.split(jr.key(0), 3)
+    mat = random_pd_matrix(k1, N) + jnp.eye(N)
+    mu = jr.normal(k2, (N,))
+    x = jr.normal(k3, (N,))
+    result = gaussian_log_prob(mu, lx.MatrixLinearOperator(mat), x)
+    expected = scipy.stats.multivariate_normal(np.asarray(mu), np.asarray(mat))
+    assert jnp.allclose(result, expected.logpdf(np.asarray(x)), rtol=1e-10)
 
 
 def test_gaussian_entropy_isotropic(getkey):
