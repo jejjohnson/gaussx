@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators import BlockDiag, Kronecker
+from gaussx._operators import BlockDiag, Kronecker, Toeplitz
 from gaussx._primitives import trace
 from gaussx._testing import dense_trace, tree_allclose
 
@@ -35,3 +35,17 @@ def test_trace_dense_fallback(getkey):
     mat = jr.normal(getkey(), (3, 3))
     op = lx.MatrixLinearOperator(mat)
     assert tree_allclose(trace(op), jnp.trace(mat))
+
+
+def test_trace_toeplitz_is_n_c0(monkeypatch):
+    """``trace(Toeplitz) = n · c[0]`` without materialising (gh-373)."""
+    op = Toeplitz(jnp.array([2.0, 0.5, 0.25, 0.125]))
+    expected = jnp.trace(op.as_matrix())
+
+    def _forbidden(self):
+        raise AssertionError("Toeplitz.as_matrix called")
+
+    monkeypatch.setattr(Toeplitz, "as_matrix", _forbidden)
+    result = trace(op)
+    monkeypatch.undo()
+    assert jnp.array_equal(result, expected)

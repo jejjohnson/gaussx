@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import warnings
 from typing import TYPE_CHECKING, overload
 
 import jax
@@ -11,6 +13,7 @@ import lineax as lx
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
+from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
@@ -23,6 +26,21 @@ if TYPE_CHECKING:
 
 class DenseFallbackWarning(UserWarning):
     """Warning emitted when a structured primitive materialises an operator."""
+
+
+# Frames inside gaussx are skipped, so the warning lands on the caller's line
+# however deep the (recursive) dispatch that emitted it.
+_GAUSSX_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def warn_dense_fallback(message: str) -> None:
+    """Emit a `DenseFallbackWarning` attributed to the caller's code."""
+    warnings.warn(
+        message,
+        DenseFallbackWarning,
+        stacklevel=2,
+        skip_file_prefixes=(_GAUSSX_DIR + os.sep,),
+    )
 
 
 @overload
@@ -73,6 +91,13 @@ def cholesky(
         return _cholesky_sum_kronecker(operator)
     if isinstance(operator, SparseOperator):
         return _cholesky_sparse(operator)
+    if isinstance(operator, DiagonalisedOperator):
+        warn_dense_fallback(
+            "cholesky(DiagonalisedOperator) materialises the operator and runs "
+            "a dense O(n^3) Cholesky. gaussx.sqrt(A) returns a symmetric root S "
+            "with S S^T = A in O(n log n), which is enough for sampling."
+        )
+        return _cholesky_dense(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return cholesky(operator.operator)
     if isinstance(

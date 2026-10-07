@@ -16,12 +16,19 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
+from gaussx._operators._diagonalised import (
+    DiagonalisedOperator,
+    _fftn,
+    _ifftn,
+)
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._operators._toeplitz import Toeplitz
+from gaussx._primitives._cholesky import warn_dense_fallback
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 
 
@@ -65,6 +72,14 @@ def diag(
         return _diag_kronecker_sum(operator)
     if isinstance(operator, SparseOperator | SpectralFunction):
         return operator.diagonal()
+    if isinstance(operator, Toeplitz):
+        # A symmetric Toeplitz matrix has the constant diagonal c[0] (gh-373).
+        return jnp.full(operator.in_size(), operator.column[0])
+    if isinstance(operator, DiagonalisedOperator) and _is_fft_pair(operator):
+        # F⁻¹ diag(λ) F has the constant diagonal mean(λ) (gh-373).
+        mean = jnp.mean(operator.eigenvalues)
+        mean = jnp.real(mean) if operator.real_output else mean
+        return jnp.full(operator.in_size(), mean)
     if isinstance(operator, SumOfKroneckers):
         return ft.reduce(jnp.add, (diag(kron) for kron in operator.operators))
     if isinstance(operator, lx.TaggedLinearOperator):
@@ -85,7 +100,17 @@ def diag(
         return -diag(operator.operator)
     if stochastic:
         return _diag_stochastic(operator, num_probes, key, sampler)
+    if isinstance(operator, DiagonalisedOperator):
+        warn_dense_fallback(
+            "diag(DiagonalisedOperator) with a non-FFT transform pair "
+            "materialises the operator; diag(..., stochastic=True) estimates "
+            "it from matvecs."
+        )
     return jnp.diag(operator.as_matrix())
+
+
+def _is_fft_pair(operator: DiagonalisedOperator) -> bool:
+    return operator.forward is _fftn and operator.inverse is _ifftn
 
 
 def _diag_block_diag(operator: BlockDiag) -> Float[Array, " n"]:

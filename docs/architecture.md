@@ -137,6 +137,8 @@ instance, has no block-tridiagonal path and falls back there.
 | `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
+| `DiagonalisedOperator` / `Circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
+| `Toeplitz` | lineax solver | `slogdet` | dense | $c_0$ (constant diagonal) | dense eigh | lazy |
 | Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse |
 | Everything else | lineax solver | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
 
