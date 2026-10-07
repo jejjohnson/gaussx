@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx import BlockDiag, submatrix
-from gaussx._testing import random_pd_matrix
+from gaussx import (
+    BlockDiag,
+    Kronecker,
+    LowRankUpdate,
+    conditional,
+    submatrix,
+)
+from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 class TestSubmatrixDense:
@@ -138,3 +146,95 @@ class TestNegativeIndices:
         normalized_cols = jnp.where(cols < 0, cols + n, cols)
         expected = block_diag.as_matrix()[jnp.ix_(normalized_rows, normalized_cols)]
         assert jnp.allclose(submatrix(block_diag, rows, cols), expected)
+
+
+# ---------------------------------------------------------------------------
+# LowRankUpdate and lineax wrappers keep structure (gh-379)
+# ---------------------------------------------------------------------------
+
+_ROWS = jnp.array([0, 5, 7, -1])
+_COLS = jnp.array([1, 5, -2])
+
+
+def _low_rank(key, *, general=False):
+    k1, k2, k3 = jr.split(key, 3)
+    U = jr.normal(k1, (9, 3))
+    V = jr.normal(k2, (9, 3)) if general else None
+    base = lx.DiagonalLinearOperator(jr.uniform(k3, (9,)) + 0.1)
+    return LowRankUpdate(base, U, jnp.array([1.0, 0.5, 2.0]), V)
+
+
+def _kron(key):
+    k1, k2 = jr.split(key)
+    return Kronecker(
+        lx.MatrixLinearOperator(random_pd_matrix(k1, 3)),
+        lx.MatrixLinearOperator(random_pd_matrix(k2, 3)),
+    )
+
+
+def _forbid_as_matrix(monkeypatch, *classes):
+    for cls in classes:
+
+        def _forbidden(self, cls=cls):
+            raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+        monkeypatch.setattr(cls, "as_matrix", _forbidden)
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda k: _low_rank(k), id="low_rank_symmetric"),
+        pytest.param(lambda k: _low_rank(k, general=True), id="low_rank_general"),
+        pytest.param(lambda k: 2.0 * _kron(k), id="mul"),
+        pytest.param(lambda k: _kron(k) / 2.0, id="div"),
+        pytest.param(lambda k: -_kron(k), id="neg"),
+        pytest.param(
+            lambda k: (
+                _kron(k) + 0.5 * lx.IdentityLinearOperator(_kron(k).in_structure())
+            ),
+            id="add_identity",
+        ),
+    ],
+)
+def test_submatrix_structured_wrappers(monkeypatch, build):
+    op = build(jr.key(0))
+    expected = op.as_matrix()[jnp.ix_(_ROWS, _COLS)]
+    _forbid_as_matrix(monkeypatch, LowRankUpdate, Kronecker)
+    result = submatrix(op, _ROWS, _COLS)
+    monkeypatch.undo()
+    assert tree_allclose(result, expected)
+
+
+def test_submatrix_traced_indices():
+    op = _low_rank(jr.key(0))
+    result = eqx.filter_jit(submatrix)(op, _ROWS, _COLS)
+    assert tree_allclose(result, op.as_matrix()[jnp.ix_(_ROWS, _COLS)])
+
+
+def test_conditional_low_rank_does_not_materialise(monkeypatch):
+    op = _low_rank(jr.key(0))
+    loc = jnp.zeros(9)
+    obs_idx, obs_values = jnp.array([3, 6]), jnp.array([0.5, -0.5])
+    dense = lx.MatrixLinearOperator(op.as_matrix(), lx.positive_semidefinite_tag)
+    mean_ref, cov_ref = conditional(loc, dense, obs_idx, obs_values)
+    _forbid_as_matrix(monkeypatch, LowRankUpdate)
+    mean, cov = conditional(loc, op, obs_idx, obs_values)
+    monkeypatch.undo()
+    assert tree_allclose(mean, mean_ref)
+    assert tree_allclose(cov.as_matrix(), cov_ref.as_matrix())
+
+
+def test_submatrix_pytree_structures():
+    """PyTree-structured operators: identity and empty selections still work."""
+    struct = {
+        "a": jax.ShapeDtypeStruct((2,), jnp.float32),
+        "b": jax.ShapeDtypeStruct((1,), jnp.float32),
+    }
+    identity = lx.IdentityLinearOperator(struct)
+    rows, cols = jnp.array([0, 2]), jnp.array([2, 1])
+    assert jnp.array_equal(
+        submatrix(identity, rows, cols), identity.as_matrix()[jnp.ix_(rows, cols)]
+    )
+    empty = submatrix(identity, jnp.array([], dtype=jnp.int32), cols)
+    assert empty.shape == (0, 2)
