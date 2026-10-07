@@ -14,6 +14,11 @@ from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    orthonormal_scaled_identity,
+    scaled_identity_like,
+)
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._operators._utils import register_lineax_structure_functions
 from gaussx._primitives._scale import scaled_root
@@ -83,6 +88,10 @@ def sqrt(
         return _sqrt_kronecker(operator)
     if isinstance(operator, KroneckerSum):
         return _sqrt_kronecker_sum(operator)
+    if isinstance(operator, LowRankUpdate) and operator.rank > 0:
+        c = orthonormal_scaled_identity(operator)
+        if c is not None:
+            return _sqrt_low_rank_orthonormal(operator, c)
     if isinstance(operator, SumOfKroneckers):
         return _sqrt_sum_kronecker(
             operator,
@@ -108,6 +117,25 @@ def _sqrt_block_diag(operator: BlockDiag) -> BlockDiag:
 
 def _sqrt_kronecker(operator: Kronecker) -> Kronecker:
     return Kronecker(*(sqrt(op) for op in operator.operators))
+
+
+def _sqrt_low_rank_orthonormal(
+    operator: LowRankUpdate, c: Float[Array, ""]
+) -> LowRankUpdate:
+    """``√(cI + U D Uᵀ) = √c I + U diag(√(c + d) − √c) Uᵀ`` for ``UᵀU = I``.
+
+    The principal root of the PSD operator, again an orthonormal
+    ``LowRankUpdate`` on a scaled-identity base (gh-333).
+    """
+    root_c = jnp.sqrt(c)
+    psd = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+    return LowRankUpdate(
+        scaled_identity_like(operator.base, root_c, psd),
+        operator.U,
+        jnp.sqrt(c + operator.d) - root_c,
+        tags=psd,
+        orthonormal=True,
+    )
 
 
 def _sqrt_kronecker_sum(operator: KroneckerSum) -> KroneckerSumSqrt:

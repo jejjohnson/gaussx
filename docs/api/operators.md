@@ -36,9 +36,22 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
 
 $L + U\,\mathrm{diag}(d)\,V^\top$ with Woodbury-efficient solves and
 matrix-determinant-lemma logdets. The factories build the common special cases
-directly from arrays. Pass `orthonormal=True` when $U$ and $V$ have orthonormal
-columns (truncated SVD, Nyström, ensemble factors) to unlock the stronger
-symmetry / PSD tag inference.
+directly from arrays. `orthonormal=True` is an unchecked claim that $U$ has
+orthonormal columns ($U^\top U = I_k$: truncated SVD, Nyström, ensemble
+factors). It matters only for a symmetric update on a scaled-identity base,
+$cI + U\,\mathrm{diag}(d)\,U^\top$ — build one with
+`low_rank_plus_identity(U, d, scale=c, orthonormal=True)` — where `solve` and
+`logdet` take $O(nk)$ / $O(k)$ closed forms with no $k \times k$ factorisation,
+and `inv` and `sqrt` stay orthonormal low-rank updates:
+
+$$
+(cI + UDU^\top)^{-1} = c^{-1}\Big(I - U\,\mathrm{diag}\big(\tfrac{d}{c+d}\big)U^\top\Big),
+\qquad
+\log\lvert\det(cI + UDU^\top)\rvert = (n-k)\log\lvert c\rvert + \textstyle\sum_i \log\lvert c + d_i\rvert .
+$$
+
+On any other base (e.g. a general diagonal) the flag does not change the
+result, and tag inference never depends on it.
 
 !!! warning "`SVDLowRankUpdate` is deprecated"
     It remains a `LowRankUpdate` subclass — so `isinstance` checks and

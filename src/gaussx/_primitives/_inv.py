@@ -7,12 +7,17 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
+from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    orthonormal_scaled_identity,
+    scaled_identity_like,
+)
 from gaussx._operators._utils import register_lineax_structure_functions
 
 
@@ -56,6 +61,9 @@ def inv(
     if isinstance(operator, LowRankUpdate) and _is_square(operator.base):
         if operator.rank == 0:
             return inv(operator.base, solver=solver)
+        c = orthonormal_scaled_identity(operator)
+        if c is not None:
+            return _inv_low_rank_orthonormal(operator, c)
         # Decided from static structure only (gh-328): a value check on
         # ``U == V`` is lost once the operator crosses a jit boundary.
         if lx.is_symmetric(operator) and operator.symmetric_factors:
@@ -134,6 +142,24 @@ def _inv_low_rank_symmetric(
         -m,
         Z,
         tags=_inverse_tags(operator),
+    )
+
+
+def _inv_low_rank_orthonormal(
+    operator: LowRankUpdate, c: Float[Array, ""]
+) -> LowRankUpdate:
+    """``(cI + U D Uᵀ)⁻¹ = c⁻¹ I + U diag(−d / (c (c + d))) Uᵀ`` for ``UᵀU = I``.
+
+    Same orthonormal factor, so the result takes the fast path again
+    (gh-333). No factorisation at all.
+    """
+    d = operator.d
+    return LowRankUpdate(
+        scaled_identity_like(operator.base, 1 / c, _inverse_tags(operator.base)),
+        operator.U,
+        -d / (c * (c + d)),
+        tags=_inverse_tags(operator),
+        orthonormal=True,
     )
 
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -10,14 +11,16 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._einx import einsum
 from gaussx._operators import (
     LowRankUpdate,
     low_rank_plus_diag,
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
+from gaussx._operators._low_rank_update import orthonormal_scaled_identity
 from gaussx._tags import is_low_rank
-from gaussx._testing import tree_allclose
+from gaussx._testing import default_tolerances, tree_allclose
 
 
 # ---------------------------------------------------------------------------
@@ -576,3 +579,112 @@ def test_rank_zero_is_the_base():
     assert jnp.allclose(gaussx.solve(op, b), b / jnp.arange(1.0, 6.0))
     assert jnp.allclose(gaussx.logdet(op), jnp.sum(jnp.log(jnp.arange(1.0, 6.0))))
     assert jnp.allclose(gaussx.inv(op).as_matrix(), jnp.diag(1 / jnp.arange(1.0, 6.0)))
+
+
+# ---------------------------------------------------------------------------
+# Orthonormal fast path on a scaled-identity base (gh-333)
+# ---------------------------------------------------------------------------
+
+
+def _orthonormal_case(orthonormal=True, c=0.5):
+    # c + d > 0 but d is not non-negative (the issue's acceptance case).
+    U = jnp.linalg.qr(jr.normal(jr.key(0), (6, 2)))[0]
+    d = jnp.array([2.0, -0.3], dtype=U.dtype)
+    return low_rank_plus_identity(U, d, scale=c, orthonormal=orthonormal)
+
+
+def _dense_sqrt(M):
+    w, V = jnp.linalg.eigh(M)
+    scaled = einx.multiply("i k, k -> i k", V, jnp.sqrt(w))
+    return einsum(scaled, V, "i k, j k -> i j")
+
+
+def test_orthonormal_scaled_identity_detection():
+    op = _orthonormal_case()
+    assert jnp.allclose(orthonormal_scaled_identity(op), 0.5)
+    assert orthonormal_scaled_identity(op.T) is not None
+    assert orthonormal_scaled_identity(_orthonormal_case(orthonormal=False)) is None
+    # A general diagonal base or distinct factors never take the fast path.
+    U = jnp.linalg.qr(jr.normal(jr.key(0), (6, 2)))[0]
+    assert (
+        orthonormal_scaled_identity(
+            svd_low_rank_plus_diag(jnp.ones(6), U, jnp.ones(2), U)
+        )
+        is None
+    )
+    distinct = LowRankUpdate(_orthonormal_case().base, U, V=U + 0.0, orthonormal=True)
+    assert orthonormal_scaled_identity(distinct) is None
+
+
+def test_orthonormal_fast_path_matches_dense_and_woodbury():
+    fast = _orthonormal_case()
+    slow = _orthonormal_case(orthonormal=False)
+    M = fast.as_matrix()
+    rtol, atol = default_tolerances(M)
+    b = jnp.arange(1.0, 7.0, dtype=M.dtype)
+
+    x = gaussx.solve(fast, b)
+    assert jnp.allclose(x, jnp.linalg.solve(M, b), rtol=rtol, atol=atol)
+    assert jnp.allclose(x, gaussx.solve(slow, b), rtol=rtol, atol=atol)
+    ld = gaussx.logdet(fast)
+    assert jnp.allclose(ld, jnp.linalg.slogdet(M)[1], rtol=rtol, atol=atol)
+    assert jnp.allclose(ld, gaussx.logdet(slow), rtol=rtol, atol=atol)
+
+    inverse = gaussx.inv(fast)
+    assert isinstance(inverse, LowRankUpdate)
+    assert orthonormal_scaled_identity(inverse) is not None
+    assert jnp.allclose(inverse.as_matrix(), jnp.linalg.inv(M), rtol=rtol, atol=atol)
+    root = gaussx.sqrt(fast)
+    assert isinstance(root, LowRankUpdate)
+    assert orthonormal_scaled_identity(root) is not None
+    assert lx.is_positive_semidefinite(root)
+    assert jnp.allclose(root.as_matrix(), _dense_sqrt(M), rtol=rtol, atol=atol)
+
+
+def test_orthonormal_fast_path_skips_the_capacitance(monkeypatch):
+    import gaussx._primitives._solve as solve_mod
+
+    def boom(*args, **kwargs):
+        raise AssertionError("Woodbury capacitance built on the orthonormal path")
+
+    monkeypatch.setattr(solve_mod, "_low_rank_capacitance", boom)
+    op = _orthonormal_case()
+    b = jnp.ones(6, dtype=op.U.dtype)
+    gaussx.solve(op, b)
+    gaussx.logdet(op)
+    gaussx.inv(op)
+    with pytest.raises(AssertionError, match="capacitance"):
+        gaussx.solve(_orthonormal_case(orthonormal=False), b)
+
+
+def test_orthonormal_fast_path_jit_and_grad():
+    U = jnp.linalg.qr(jr.normal(jr.key(0), (6, 2)))[0]
+    b = jnp.arange(1.0, 7.0, dtype=U.dtype)
+
+    def loss(c, d, fast):
+        op = LowRankUpdate(
+            c * lx.IdentityLinearOperator(jax.ShapeDtypeStruct((6,), U.dtype)),
+            U,
+            d,
+            orthonormal=fast,
+        )
+        return gaussx.logdet(op) + jnp.sum(gaussx.solve(op, b))
+
+    c = jnp.asarray(0.5, dtype=U.dtype)
+    d = jnp.array([2.0, -0.3], dtype=U.dtype)
+    grad = jax.jit(jax.grad(loss, argnums=(0, 1)), static_argnums=2)
+    rtol, atol = default_tolerances(b)
+    for got, want in zip(grad(c, d, True), grad(c, d, False), strict=True):
+        assert jnp.allclose(got, want, rtol=10 * rtol, atol=10 * atol)
+
+
+def test_low_rank_plus_identity_orthonormal_tags():
+    op = _orthonormal_case()
+    assert op.orthonormal is True
+    assert lx.is_symmetric(op)
+    # Tags stay structural: a caller-supplied d may be negative.
+    assert not lx.is_positive_semidefinite(op)
+    U = op.U
+    assert lx.is_positive_semidefinite(low_rank_plus_identity(U, orthonormal=True))
+    claimed = low_rank_plus_identity(U, jnp.ones(2), orthonormal=True, psd=True)
+    assert lx.is_positive_semidefinite(claimed)

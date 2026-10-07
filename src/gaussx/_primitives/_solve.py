@@ -25,7 +25,10 @@ from gaussx._operators._kronecker_sum import (
     KroneckerSumSqrt,
     _eigh_factor,
 )
-from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    orthonormal_scaled_identity,
+)
 from gaussx._operators._masked import MaskedOperator
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._spectral_function import SpectralFunction
@@ -109,6 +112,9 @@ def solve(
     if isinstance(operator, LowRankUpdate):
         if operator.rank == 0:
             return solve(operator.base, vector, solver=solver)
+        c = orthonormal_scaled_identity(operator)
+        if c is not None:
+            return _solve_low_rank_orthonormal(operator, c, vector)
         return _solve_low_rank(operator, vector, solver)
     if isinstance(operator, SumOfKroneckers):
         return _solve_sum_of_kroneckers(operator, vector, solver)
@@ -290,6 +296,20 @@ def _solve_low_rank(
     Linv_U, K = _low_rank_capacitance(operator, solver)
     DVt_Linv_b = operator.d * einsum(operator.V, Linv_b, "n k, n -> k")
     return Linv_b - Linv_U @ jnp.linalg.solve(K, DVt_Linv_b)
+
+
+def _solve_low_rank_orthonormal(
+    operator: LowRankUpdate,
+    c: Float[Array, ""],
+    vector: Float[Array, " n"],
+) -> Float[Array, " n"]:
+    """``(cI + U D Uᵀ)⁻¹ b = (b − U diag(d / (c + d)) Uᵀ b) / c`` for ``UᵀU = I``.
+
+    ``O(nk)``, no ``k x k`` factorisation (gh-333).
+    """
+    U, d = operator.U, operator.d
+    Ut_b = einsum(U, vector, "n k, n -> k")
+    return (vector - U @ (d / (c + d) * Ut_b)) / c
 
 
 def _solve_sum_of_kroneckers(
