@@ -20,7 +20,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._operators import Kronecker, SumOfKroneckers, SumOperator
+from gaussx._operators import Kronecker, KroneckerSum, SumOfKroneckers, SumOperator
 from gaussx._operators._sum_kronecker import (
     _DiagonalWhitener,
     _is_eigen_reducible,
@@ -37,6 +37,7 @@ from gaussx._strategies._dense import DenseSolver
 from gaussx._testing import (
     dense_logdet,
     dense_solve,
+    random_kronecker_pd,
     random_pd_matrix,
     random_pd_operator,
     tree_allclose,
@@ -449,3 +450,66 @@ class TestNonPositiveDiagonalAnchor:
         # A valid traced diagonal is unaffected.
         valid = jnp.array([1.0, 3.0, 2.0])
         assert tree_allclose(jax.jit(run)(valid), run(valid), atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Silent densification is flagged, at the caller's line (gh-406)
+# ---------------------------------------------------------------------------
+
+
+def _three_term():
+    keys = jr.split(jr.key(0), 3)
+    return SumOfKroneckers(*(random_kronecker_pd(k, (2, 3)) for k in keys))
+
+
+def _untagged_kronecker_sum():
+    return KroneckerSum(
+        lx.MatrixLinearOperator(random_pd_matrix(jr.key(0), 2)),
+        lx.MatrixLinearOperator(random_pd_matrix(jr.key(1), 3)),
+    )
+
+
+@pytest.mark.parametrize(
+    ("call", "match"),
+    [
+        pytest.param(
+            lambda: solve(_three_term(), jnp.ones(6)), "solve", id="solve_sok"
+        ),
+        pytest.param(lambda: logdet(_three_term()), "logdet", id="logdet_sok"),
+        pytest.param(
+            lambda: solve(_untagged_kronecker_sum(), jnp.ones(6)),
+            "symmetric_tag",
+            id="solve_kronecker_sum",
+        ),
+        pytest.param(
+            lambda: solve(
+                2.0 * lx.TaggedLinearOperator(_three_term(), ()), jnp.ones(6)
+            ),
+            "solve",
+            id="solve_wrapped_sok",
+        ),
+    ],
+)
+def test_dense_fallback_warns_at_caller(call, match):
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        call()
+    hits = [w for w in record if issubclass(w.category, DenseFallbackWarning)]
+    assert len(hits) == 1
+    assert match in str(hits[0].message)
+    assert hits[0].filename == __file__
+
+
+def test_structured_paths_do_not_warn():
+    two_term = SumOfKroneckers(
+        random_kronecker_pd(jr.key(0), (2, 3)), random_kronecker_pd(jr.key(1), (2, 3))
+    )
+    tagged = KroneckerSum(
+        lx.MatrixLinearOperator(random_pd_matrix(jr.key(0), 2), lx.symmetric_tag),
+        lx.MatrixLinearOperator(random_pd_matrix(jr.key(1), 3), lx.symmetric_tag),
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DenseFallbackWarning)
+        solve(two_term, jnp.ones(6))
+        logdet(two_term)
+        solve(tagged, jnp.ones(6))

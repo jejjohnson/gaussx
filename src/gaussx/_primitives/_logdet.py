@@ -29,6 +29,7 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_eigen,
 )
+from gaussx._primitives._cholesky import warn_dense_fallback
 
 
 if TYPE_CHECKING:
@@ -228,6 +229,11 @@ def _logdet_sum_of_kroneckers(operator: SumOfKroneckers) -> Float[Array, ""]:
     """
     factorization = _sum_of_kroneckers_eigen(operator)
     if factorization is None:
+        warn_dense_fallback(
+            "logdet(SumOfKroneckers) has no closed form here (three or more "
+            "terms, or no positive-definite anchor) and materialises the "
+            "operator; SLQLogdet estimates it matrix-free."
+        )
         return _logdet_dense(operator)
     return factorization.logdet()
 

@@ -10,9 +10,9 @@ import lineax as lx
 import pytest
 
 from gaussx._einx import einsum
-from gaussx._operators import BlockDiag, Circulant, Kronecker
+from gaussx._operators import BlockDiag, Circulant, Kronecker, SumOfKroneckers
 from gaussx._primitives import DenseFallbackWarning, cholesky
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._testing import random_kronecker_pd, random_pd_matrix, tree_allclose
 
 
 def test_cholesky_diagonal(getkey):
@@ -143,3 +143,12 @@ def test_cholesky_diagonalised_warns_dense_fallback():
     assert record[0].filename == __file__
     Lm = L.as_matrix()
     assert tree_allclose(einsum(Lm, Lm, "i k, j k -> i j"), op.as_matrix())
+
+
+def test_cholesky_sum_of_kroneckers_warns_at_caller():
+    """The warning names the caller's line, not gaussx's dispatcher (gh-406)."""
+    keys = jr.split(jr.key(0), 3)
+    op = SumOfKroneckers(*(random_kronecker_pd(k, (2, 3)) for k in keys))
+    with pytest.warns(DenseFallbackWarning) as record:
+        cholesky(2.0 * op)
+    assert [w.filename for w in record] == [__file__]
