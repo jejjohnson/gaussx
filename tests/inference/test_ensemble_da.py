@@ -26,6 +26,7 @@ from gaussx import (
 from gaussx._einx import einsum, rearrange, reduce
 from gaussx._testing import (
     assert_sample_moments,
+    default_tolerances,
     empirical_moments,
     key_sequence,
     psd_operator,
@@ -357,11 +358,6 @@ def _forbid_as_matrix(monkeypatch, *classes):
         monkeypatch.setattr(cls, "as_matrix", _explode)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="gh-367: etkf_transform densifies obs_noise via as_matrix()",
-)
 def test_etkf_does_not_materialise_structured_noise(monkeypatch):
     """A diagonal / block-diagonal R must stay structured (gh-282, gh-367)."""
     nextkey = key_sequence(4)
@@ -378,6 +374,138 @@ def test_etkf_does_not_materialise_structured_noise(monkeypatch):
     for R_op in (diag, block):
         w_mean, transform = etkf_transform(obs_particles, y, R_op)
         assert jnp.all(jnp.isfinite(w_mean)) and jnp.all(jnp.isfinite(transform))
+
+
+def _reference_etkf(obs_particles, y, R, inflation=1.0):
+    """The pre-gh-367 dense algorithm: two R solves, explicit inverse, eigh."""
+    J = obs_particles.shape[0]
+    obs_mean = reduce(obs_particles, "J M -> M", "mean")
+    Y = einx.subtract("J M, M -> J M", obs_particles, obs_mean)
+    rinv_pert = jnp.linalg.solve(R, rearrange(Y, "J M -> M J"))
+    rinv_d = jnp.linalg.solve(R, y - obs_mean)
+    precision = (J - 1) / inflation * jnp.eye(J) + einsum(
+        Y, rinv_pert, "J M, M K -> J K"
+    )
+    analysis_cov = jnp.linalg.inv(
+        0.5 * (precision + rearrange(precision, "a b -> b a"))
+    )
+    w_mean = einsum(analysis_cov, einsum(Y, rinv_d, "J M, M -> J"), "J K, K -> J")
+    s, V = jnp.linalg.eigh((J - 1) * analysis_cov)
+    return w_mean, einsum(
+        einx.multiply("J i, i -> J i", V, jnp.sqrt(s)), V, "J i, K i -> J K"
+    )
+
+
+@pytest.mark.x64_only(reason="regression checked to rtol=1e-10")
+@pytest.mark.parametrize("inflation", [1.0, 1.5])
+@pytest.mark.parametrize("J, M", [(6, 3), (4, 8)])
+def test_etkf_matches_the_dense_reference(J, M, inflation):
+    """gh-367: the one-solve / one-eigh route matches the old algorithm."""
+    nextkey = key_sequence(5)
+    obs_particles = jr.normal(nextkey(), (J, M))
+    y = jr.normal(nextkey(), (M,))
+    R = random_pd_matrix(nextkey(), M, jitter=0.5)
+
+    for R_op in (psd_operator(R), lx.DiagonalLinearOperator(jnp.diag(R))):
+        w_ref, t_ref = _reference_etkf(obs_particles, y, R_op.as_matrix(), inflation)
+        w, t = etkf_transform(obs_particles, y, R_op, inflation=inflation)
+        assert tree_allclose(w, w_ref, rtol=1e-10, atol=1e-12)
+        assert tree_allclose(t, t_ref, rtol=1e-10, atol=1e-12)
+
+
+def _primitive_counts(fn, *args):
+    jaxpr = jax.make_jaxpr(fn)(*args)
+    counts: dict[str, int] = {}
+
+    def _walk(jx):
+        for eqn in jx.eqns:
+            counts[eqn.primitive.name] = counts.get(eqn.primitive.name, 0) + 1
+            for param in eqn.params.values():
+                for sub in param if isinstance(param, (list, tuple)) else (param,):
+                    inner = getattr(sub, "jaxpr", sub)
+                    if hasattr(inner, "eqns"):
+                        _walk(inner)
+
+    _walk(jaxpr.jaxpr)
+    return counts
+
+
+def test_etkf_factors_once_and_takes_one_eigh():
+    """gh-367: one eigh, no explicit inverse; diagonal R needs no LU at all."""
+    nextkey = key_sequence(6)
+    J, M = 6, 4
+    obs_particles = jr.normal(nextkey(), (J, M))
+    y = jr.normal(nextkey(), (M,))
+    R = random_pd_matrix(nextkey(), M, jitter=0.5)
+
+    def run(R_op):
+        return lambda o, yy: etkf_transform(o, yy, R_op)
+
+    diag = _primitive_counts(
+        run(lx.DiagonalLinearOperator(jnp.diag(R))), obs_particles, y
+    )
+    assert diag.get("eigh", 0) == 1
+    assert diag.get("lu", 0) == 0
+
+    dense = _primitive_counts(run(lx.MatrixLinearOperator(R)), obs_particles, y)
+    assert dense.get("eigh", 0) == 1
+    assert dense.get("lu", 0) == 1  # R factored once, no (J, J) inverse
+
+
+@pytest.mark.x64_only(reason="finite differences need float64")
+def test_etkf_gradient_is_finite_at_repeated_eigenvalues():
+    """gh-367: M < J - 1 leaves (J - 1)/lambda repeated; gradients stay finite.
+
+    Checked against central finite differences of a scalar loss of both
+    outputs; the 1e-6 tolerance is the O(h^2) truncation at h = 1e-5.
+    """
+    nextkey = key_sequence(7)
+    J, M = 7, 2  # prior eigenvalue has multiplicity J - 1 - M = 4
+    obs_particles = jr.normal(nextkey(), (J, M))
+    y = jr.normal(nextkey(), (M,))
+    R_op = lx.DiagonalLinearOperator(jnp.array([0.3, 0.7]))
+    weights = jr.normal(nextkey(), (J, J))
+
+    def loss(o):
+        w, t = etkf_transform(o, y, R_op, inflation=1.2)
+        return jnp.sum(w**2) + jnp.sum(weights * t)
+
+    grad = jax.grad(loss)(obs_particles)
+    assert jnp.all(jnp.isfinite(grad))
+
+    direction = jr.normal(nextkey(), (J, M))
+    h = 1e-5
+    fd = (loss(obs_particles + h * direction) - loss(obs_particles - h * direction)) / (
+        2 * h
+    )
+    assert jnp.allclose(jnp.sum(grad * direction), fd, rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.parametrize("solver", [gaussx.DenseSolver(), gaussx.CGSolver()])
+def test_etkf_forwards_solver(solver, monkeypatch):
+    """gh-367: ``solver=`` reaches the R solve and gives the same answer."""
+    from gaussx._inference import _ensemble
+
+    nextkey = key_sequence(8)
+    J, M = 5, 3
+    obs_particles = jr.normal(nextkey(), (J, M))
+    y = jr.normal(nextkey(), (M,))
+    R_op = psd_operator(random_pd_matrix(nextkey(), M, jitter=1.0))
+
+    seen = []
+    original = _ensemble.solve_rows
+
+    def spy(op, rows, *, solver=None):
+        seen.append(solver)
+        return original(op, rows, solver=solver)
+
+    monkeypatch.setattr(_ensemble, "solve_rows", spy)
+    w, t = etkf_transform(obs_particles, y, R_op, solver=solver)
+    w_ref, t_ref = etkf_transform(obs_particles, y, R_op)
+    assert seen == [solver, None]
+    rtol, atol = default_tolerances(w)
+    assert tree_allclose(w, w_ref, rtol=100 * rtol, atol=100 * atol)
+    assert tree_allclose(t, t_ref, rtol=100 * rtol, atol=100 * atol)
 
 
 def test_etkf_jit(getkey):
