@@ -258,6 +258,10 @@ from gaussx._quadrature import (
     uncertain_vgp_predict as uncertain_vgp_predict,
 )
 from gaussx._randomized import (
+    CUR as CUR,
+    ColumnID as ColumnID,
+    column_id as column_id,
+    cur as cur,
     qb as qb,
     randomized_eigh as randomized_eigh,
     randomized_nystrom as randomized_nystrom,
@@ -391,6 +395,7 @@ from gaussx._tags import (
 # missing attribute; tests/test_docs_api_coverage.py checks this against
 # dir(gaussx) and the API reference (gh-322).
 __all__ = [
+    "CUR",
     "AbstractIntegrator",
     "AbstractLikelihood",
     "AbstractLogdetStrategy",
@@ -408,6 +413,7 @@ __all__ = [
     "BlockTriDiag",
     "CGSolver",
     "CapacitanceSolver",
+    "ColumnID",
     "ComposedSolver",
     "ConstantSDE",
     "CosineSDE",
@@ -508,6 +514,7 @@ __all__ = [
     "circulant",
     "circulant_from_symbol",
     "collapsed_elbo",
+    "column_id",
     "compute_psi_statistics",
     "conditional",
     "conditional_interpolate",
@@ -517,6 +524,7 @@ __all__ = [
     "create_grid",
     "cubature_points",
     "cubic_interpolation_weights",
+    "cur",
     "cvi_update_sites",
     "damped_natural_update",
     "dare",
