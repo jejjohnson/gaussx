@@ -45,9 +45,9 @@ from gaussx._testing import psd_operator, tree_allclose
 
 # A strategy factory takes the PSD part ``K`` of a system ``A = K + σ² I``
 # (Nyström is built from ``K``, the lazy partial Cholesky is told σ²), σ²,
-# and options in the canonical spelling (rtol/atol/max_steps), which it
-# translates to the strategy's own keywords. ``None`` options keep the
-# strategy's defaults.
+# and options in the canonical spelling (rtol/atol/max_steps, gh-405; LSMR
+# calls its relative tolerance btol). ``None`` options keep the strategy's
+# defaults.
 Factory = Callable[..., gaussx.AbstractSolverStrategy]
 
 
@@ -56,14 +56,13 @@ def _cg_options(rtol=None, atol=None, max_steps=None):
     return {k: v for k, v in opts.items() if v is not None}
 
 
-def _bbmm(K, noise, rtol=None, atol=None, max_steps=None):
-    opts = {"cg_tolerance": rtol, "cg_max_iter": max_steps}
-    return gaussx.BBMMSolver(**{k: v for k, v in opts.items() if v is not None})
+def _bbmm(K, noise, **opts):
+    return gaussx.BBMMSolver(**_cg_options(**opts))
 
 
 def _lsmr(damp):
     def make(K, noise, rtol=None, atol=None, max_steps=None):
-        opts = {"btol": rtol, "atol": atol, "maxiter": max_steps}
+        opts = {"btol": rtol, "atol": atol, "max_steps": max_steps}
         opts = {k: v for k, v in opts.items() if v is not None}
         return gaussx.LSMRSolver(damp=damp, **opts)
 

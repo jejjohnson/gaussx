@@ -29,7 +29,9 @@ from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrat
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
+from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import DenseLogdet
+from gaussx._strategies._tolerances import resolve_tolerance
 
 
 def inv_quad_logdet(
@@ -38,7 +40,8 @@ def inv_quad_logdet(
     *,
     strategy: AbstractSolverStrategy | None = None,
     reduce_inv_quad: bool = True,
-    preconditioner: lx.AbstractLinearOperator | None = None,
+    logdet_preconditioner: lx.AbstractLinearOperator | None = None,
+    preconditioner: lx.AbstractLinearOperator | None = UNSET,
 ) -> tuple[Float[Array, " *C"], Float[Array, ""]]:
     r"""Joint inverse-quadratic and log-determinant via shared BBMM CG.
 
@@ -58,7 +61,7 @@ def inv_quad_logdet(
     ``[rhs | probes]``, so a marginal-likelihood step costs roughly half the
     matvecs of a separate `gaussx.solve` plus `gaussx.logdet`.
 
-    Passing a ``preconditioner`` $P \approx A$ applies the variance reduction
+    Passing a ``logdet_preconditioner`` $P \approx A$ applies the variance reduction
     of Artemev et al. (2021): the same CG pass then produces the Lanczos
     tridiagonal of $P^{-1} A$, so the stochastic part of
 
@@ -80,16 +83,31 @@ def inv_quad_logdet(
         reduce_inv_quad: Whether to sum the per-column quadratic forms into
             the trace. When ``False`` the first return value is the ``(C,)``
             vector of $r_c^{\top} A^{-1} r_c$.
-        preconditioner: Optional operator $P \approx A$ with a cheap
+        logdet_preconditioner: Optional operator $P \approx A$ with a cheap
             log-determinant, used for variance reduction as above. This is the
-            approximation to $A$ itself, not an approximate inverse. Ignored
-            when the strategy's log-determinant is already exact (e.g.
-            `gaussx.DenseSolver`), since there is no variance to reduce.
+            approximation to $A$ itself, **not** an approximate inverse like
+            the ``preconditioner=`` of `gaussx.CGSolver` and
+            `gaussx.linear_solve`. Ignored when the strategy's
+            log-determinant is already exact (e.g. `gaussx.DenseSolver`),
+            since there is no variance to reduce.
+        preconditioner: Deprecated alias of ``logdet_preconditioner``
+            (gh-405), renamed because everywhere else in gaussx
+            ``preconditioner=`` means $M^{-1} \approx A^{-1}$.
 
     Returns:
         Tuple ``(inv_quad, logdet)``. ``inv_quad`` is a scalar when
         ``reduce_inv_quad`` is ``True`` and a ``(C,)`` vector otherwise.
     """
+    preconditioner = default(
+        renamed(
+            "inv_quad_logdet",
+            "preconditioner",
+            preconditioner,
+            "logdet_preconditioner",
+            logdet_preconditioner if logdet_preconditioner is not None else UNSET,
+        ),
+        None,
+    )
     if operator.in_size() != operator.out_size():
         raise ValueError("inv_quad_logdet requires a square operator")
     if jnp.ndim(rhs) != 2:
@@ -272,7 +290,7 @@ def _shared_work_core(
     # The mBCG floors are relative, so they take BBMM's dtype-aware relative
     # tolerance (gh-327): 1e-4 in float64, as before, and 1e-3 in float32.
     eps = jnp.finfo(dtype).eps
-    rhs_tol = strategy._cg_tolerance(dtype)
+    rhs_tol = resolve_tolerance(strategy.rtol, dtype, 1e-4)
     floors = jnp.concatenate(
         [
             jnp.full((num_rhs,), rhs_tol**2, dtype=dtype),
@@ -281,7 +299,7 @@ def _shared_work_core(
     )
 
     block = jnp.concatenate([rhs, probes], axis=1)
-    max_iter = strategy.cg_max_iter
+    max_iter = strategy.max_steps
     solutions, initial, alphas, betas, active = _mbcg(
         operator, block, apply_inverse, max_iter, floors
     )
@@ -293,15 +311,15 @@ def _shared_work_core(
         columns = eqx.error_if(
             columns,
             jnp.any(active[-1, :num_rhs]),
-            "BBMM's mBCG did not converge within `cg_max_iter` steps. Increase "
-            "`cg_max_iter`, loosen `cg_tolerance`, or pass `throw=False`.",
+            "BBMM's mBCG did not converge within `max_steps` steps. Increase "
+            "`max_steps`, loosen `rtol`, or pass `throw=False`.",
         )
     # Deliberately *not* clamped to ``n``. mBCG does not reorthogonalise, so
     # steps past ``n`` add ghost copies of converged Ritz values -- but the
     # Gauss rule splits their weight between the copies, and those extra
     # steps are what recover the accuracy lost to orthogonality (Greenbaum
     # 1989). Truncating at ``n`` costs digits on ill-conditioned operators.
-    order = min(strategy.lanczos_iter, max_iter)
+    order = min(strategy.lanczos_order, max_iter)
     diagonal, off_diagonal = _lanczos_coefficients(
         alphas[:, num_rhs:], betas[:, num_rhs:], active[:, num_rhs:], order
     )

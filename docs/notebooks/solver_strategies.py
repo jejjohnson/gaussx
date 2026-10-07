@@ -181,13 +181,13 @@ print(f"  (n={n} < 1000, so AutoSolver selects DenseSolver internally)")
 # coefficients. In gaussx that shared pass is
 # `gaussx.inv_quad_logdet(op, rhs, strategy=BBMMSolver(...))`. It is not
 # automatically cheaper: it runs the probe columns to CG convergence rather
-# than stopping after `lanczos_iter` Lanczos steps, so on a well-conditioned
+# than stopping after `lanczos_order` Lanczos steps, so on a well-conditioned
 # kernel it can apply the operator to more columns than a separate solve and
 # SLQ.
 
 # %%
 bbmm = gaussx.BBMMSolver(
-    cg_max_iter=500, cg_tolerance=1e-6, lanczos_iter=50, num_probes=20
+    max_steps=500, rtol=1e-6, atol=1e-6, lanczos_order=50, num_probes=20
 )
 
 x_bbmm = bbmm.solve(op, b)
@@ -254,7 +254,7 @@ print(f"  logdet error:   {jnp.abs(ld_pcg - ld_true):.2e}")
 # ($\min \|Ax - b\|^2 + \lambda^2\|x\|^2$) is desired.
 
 # %%
-lsmr = gaussx.LSMRSolver(atol=1e-8, btol=1e-8, maxiter=500)
+lsmr = gaussx.LSMRSolver(atol=1e-8, btol=1e-8, max_steps=500)
 
 x_lsmr = lsmr.solve(op, b)
 ld_lsmr = lsmr.logdet(op)
