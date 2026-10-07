@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -202,3 +203,33 @@ def test_eig_kronecker_of_psd_tagged_factors_is_real_orthonormal(getkey):
     )
     vals, vecs = eig(op)
     _assert_real_orthonormal(vals, vecs, op.as_matrix())
+
+
+def test_eig_psd_tag_reaches_untagged_blocks():
+    """The wrapper's symmetry carries into BlockDiag blocks (review of gh-314)."""
+    S = _repeated_eigenvalue_spd()
+    block = lx.MatrixLinearOperator(S)  # untagged, repeated eigenvalue
+    op = lx.TaggedLinearOperator(BlockDiag(block, block), lx.positive_semidefinite_tag)
+    vals, vecs = eig(op)
+    _assert_real_orthonormal(vals, vecs, op.as_matrix())
+
+
+def test_eig_tagged_kronecker_of_rectangular_factors():
+    """``A ⊗ Aᵀ`` is square with rectangular factors: decomposed whole."""
+    A = jnp.array([[1.0, 2.0]])
+    K = Kronecker(lx.MatrixLinearOperator(A), lx.MatrixLinearOperator(A.T))
+    op = lx.TaggedLinearOperator(K, lx.symmetric_tag)
+    vals = eigvals(op)
+    assert tree_allclose(
+        jnp.sort(vals), jnp.sort(jnp.linalg.eigvals(K.as_matrix()).real)
+    )
+    eig(op)
+
+
+def test_eig_psd_tagged_pytree_operator():
+    S = _repeated_eigenvalue_spd()
+    struct = {"a": jax.ShapeDtypeStruct((4,), S.dtype)}
+    inner = lx.PyTreeLinearOperator({"a": {"a": S}}, struct)
+    op = lx.TaggedLinearOperator(inner, lx.positive_semidefinite_tag)
+    vals, vecs = eig(op)
+    _assert_real_orthonormal(vals, vecs, S)
