@@ -99,12 +99,9 @@ def test_mvn_log_prob_grad_with_preconditioned_cg():
 
     # The logdet is stochastic for CG, so compare against the same strategy's
     # logdet paired with a dense solve: only the solve's gradient is at issue.
-    # lanczos_order < n: at full order on this low-rank-ish Gram the SLQ
-    # logdet's own gradient hits Lanczos breakdown (NaN), with or without a
-    # preconditioner, which is a separate defect.
-    pcg = gaussx.PreconditionedCGSolver(
-        preconditioner_rank=5, shift=0.1, lanczos_order=10, **_TOL
-    )
+    # The default lanczos_order=30 = n exhausts the Krylov space of this
+    # low-rank-ish Gram; its gradient used to be NaN there (gh-520).
+    pcg = gaussx.PreconditionedCGSolver(preconditioner_rank=5, shift=0.1, **_TOL)
     composed = gaussx.ComposedSolver(
         solve_strategy=gaussx.DenseSolver(), logdet_strategy=pcg
     )
