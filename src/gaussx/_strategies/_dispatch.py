@@ -12,19 +12,26 @@ from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolveStrate
 def dispatch_solve(
     operator: lx.AbstractLinearOperator,
     vector: Float[Array, " n"],
-    solver: AbstractSolveStrategy | None = None,
+    solver: AbstractSolveStrategy | lx.AbstractLinearSolver | None = None,
 ) -> Float[Array, " n"]:
     """Solve ``A x = b`` via *solver* or structural-dispatch primitive.
 
     Args:
         operator: The linear operator A.
         vector: Right-hand side b.
-        solver: Optional solve strategy. When ``None``, falls back
-            to `gaussx.solve` (structural dispatch).
+        solver: Optional solve strategy, or a lineax solver (wrapped in
+            `gaussx.LineaxSolver`). When ``None``, falls back to
+            `gaussx.solve` (structural dispatch).
 
     Returns:
         Solution x.
+
+    Raises:
+        TypeError: If *solver* is neither kind.
     """
+    from gaussx._strategies._lineax import as_solve_strategy
+
+    solver = as_solve_strategy(solver)
     if solver is not None:
         return solver.solve(operator, vector)
     from gaussx._primitives._solve import solve

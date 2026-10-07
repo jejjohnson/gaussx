@@ -124,3 +124,33 @@ def test_preconditioner_operator(getkey):
         op, b, solver=CGSolver(rtol=1e-8, atol=1e-8), preconditioner=precond
     )
     assert tree_allclose(x, jnp.linalg.solve(mat, b), rtol=1e-4)
+
+
+# -- solver= takes a gaussx strategy or a lineax solver (gh-376) ------------
+
+
+@pytest.mark.parametrize("kind", ["gaussx", "lineax"])
+def test_linear_solve_accepts_both_solver_kinds(kind):
+    A = jnp.array([[4.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 2.0]])
+    b = jnp.array([1.0, 2.0, 3.0])
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+    if kind == "gaussx":
+        solver = CGSolver(rtol=1e-8, atol=1e-8)
+    else:
+        solver = lx.CG(rtol=1e-8, atol=1e-8)
+    x = linear_solve(op, b, solver=solver)
+    assert tree_allclose(x, jnp.array([2.0, 1.0, 13.0]) / 9.0, rtol=1e-6)
+
+
+def test_linear_solve_rejects_other_solver_types():
+    op = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
+    with pytest.raises(TypeError, match=r"gaussx\.AbstractSolveStrategy.*lineax"):
+        linear_solve(op, jnp.ones(3), solver="cg")
+
+
+def test_dispatch_solve_wraps_a_lineax_solver():
+    from gaussx._strategies._dispatch import dispatch_solve
+
+    A = jnp.array([[2.0, 0.0], [0.0, 4.0]])
+    x = dispatch_solve(lx.MatrixLinearOperator(A), jnp.array([2.0, 4.0]), lx.LU())
+    assert tree_allclose(x, jnp.ones(2))

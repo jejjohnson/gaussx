@@ -103,3 +103,42 @@ def test_solve_kronecker_sum_grad_with_repeated_eigenvalue():
     assert jnp.isfinite(grad)
     assert jnp.allclose(grad, jax.grad(dense)(1.5), rtol=1e-8, atol=1e-8)
     assert jnp.allclose(jax.jit(jax.grad(structured))(1.5), grad, rtol=1e-12)
+
+
+# -- solver= takes a lineax solver or a gaussx strategy (gh-376) ------------
+
+_A3 = jnp.array([[4.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 2.0]])
+_B3 = jnp.array([1.0, 2.0, 3.0])
+_X3 = jnp.array([2.0, 1.0, 13.0]) / 9.0
+
+
+@pytest.mark.x64_only(reason="rtol=1e-6 against CG at tolerance 1e-8")
+@pytest.mark.parametrize("kind", ["lineax", "gaussx"])
+def test_solve_accepts_both_solver_kinds(kind):
+    from gaussx import CGSolver
+
+    op = lx.MatrixLinearOperator(_A3, lx.positive_semidefinite_tag)
+    if kind == "lineax":
+        solver = lx.CG(rtol=1e-8, atol=1e-8)
+    else:
+        solver = CGSolver(rtol=1e-8, atol=1e-8)
+    assert tree_allclose(solve(op, _B3, solver=solver), _X3, rtol=1e-6)
+
+
+def test_solve_strategy_owns_a_structured_solve():
+    # A gaussx strategy takes the whole solve, Kronecker or not; a lineax
+    # solver keeps being threaded into the per-factor solves.
+    from gaussx import DenseSolver
+
+    factor = lx.MatrixLinearOperator(_A3, lx.positive_semidefinite_tag)
+    op = Kronecker(factor, factor)
+    b = jnp.arange(9.0)
+    expected = dense_solve(op, b)
+    assert tree_allclose(solve(op, b, solver=DenseSolver()), expected)
+    assert tree_allclose(solve(op, b, solver=lx.LU()), expected)
+
+
+def test_solve_rejects_other_solver_types():
+    op = lx.MatrixLinearOperator(_A3)
+    with pytest.raises(TypeError, match=r"lineax\.AbstractLinearSolver.*gaussx"):
+        solve(op, _B3, solver=object())

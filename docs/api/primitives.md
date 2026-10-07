@@ -16,6 +16,12 @@ The workhorses behind Gaussian densities: $A^{-1}b$, $\log|A|$, and $A = LL^\top
 `cholesky_logdet` turns an existing factor into $\log|A| = 2\sum_i \log L_{ii}$
 for free.
 
+`solve(A, b, solver=...)` takes either a *lineax* solver, such as
+`lineax.CG(...)`, which replaces the dense fallback and is threaded into the
+structural rules (per Kronecker factor, per block), or a *gaussx* strategy, such
+as `CGSolver()`, which then owns the whole solve. See
+[Solvers](solvers.md).
+
 ::: gaussx
     options:
       show_root_heading: false
