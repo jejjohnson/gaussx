@@ -251,3 +251,38 @@ def test_kronecker_sum_sqrt_keeps_diagonal_factors_lazy():
         ).sum()
     )(da)
     assert jnp.allclose(grad, dense_grad)
+
+
+@pytest.mark.parametrize("cls", [Kronecker, BlockDiag])
+@pytest.mark.parametrize(
+    ("wrap", "factor"),
+    [
+        pytest.param(lambda op, c: c * op, lambda c: c, id="mul"),
+        pytest.param(lambda op, c: op / c, lambda c: 1 / c, id="div"),
+    ],
+)
+def test_sqrt_scalar_multiple_keeps_structure(getkey, monkeypatch, cls, wrap, factor):
+    """``√(c A) = √c √A`` without materialising ``A`` (gh-326)."""
+    k1, k2 = jr.split(getkey())
+    a = lx.MatrixLinearOperator(random_pd_matrix(k1, 2), lx.positive_semidefinite_tag)
+    b = lx.MatrixLinearOperator(random_pd_matrix(k2, 3), lx.positive_semidefinite_tag)
+    op = cls(a, b)
+    expected = factor(2.0) * op.as_matrix()
+
+    def _forbidden(self):
+        raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+    monkeypatch.setattr(cls, "as_matrix", _forbidden)
+    S = sqrt(wrap(op, 2.0))
+    monkeypatch.undo()
+    assert isinstance(S, cls)
+    Sm = S.as_matrix()
+    assert tree_allclose(Sm @ Sm, expected)
+
+
+def test_sqrt_negated_operator_raises(getkey):
+    op = lx.MatrixLinearOperator(
+        random_pd_matrix(getkey(), 3), lx.positive_semidefinite_tag
+    )
+    with pytest.raises(ValueError, match="positive semi-definite"):
+        sqrt(-op)

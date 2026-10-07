@@ -137,7 +137,7 @@ instance, has no block-tridiagonal path and falls back there.
 | `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
-| Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | unwrap | unwrap + recurse | unwrap | unwrap + recurse |
+| Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse |
 | Everything else | lineax solver | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
 
 Several of the dense cells have an opt-in matrix-free escape hatch backed by

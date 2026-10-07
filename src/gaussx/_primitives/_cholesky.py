@@ -14,6 +14,7 @@ from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._primitives._scale import scaled_root
 
 
 if TYPE_CHECKING:
@@ -44,11 +45,19 @@ def cholesky(
     pattern), with ``solve``, ``logdet``, ``solve_lower_transpose`` and
     ``diag_inv``.
 
+    A scalar multiple ``c · A`` or ``A / c`` (``c > 0``) factors ``A`` and
+    scales the factor by ``√c``, keeping its structured type. A concretely
+    negative multiple such as ``-A`` is not PSD and raises.
+
     Args:
         operator: A positive-definite linear operator.
 
     Returns:
         Lower-triangular operator L, or a `SparseCholeskyFactor`.
+
+    Raises:
+        ValueError: If ``operator`` is a concretely negative multiple of a
+            non-NSD operator, such as ``-A``.
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator
@@ -66,6 +75,10 @@ def cholesky(
         return _cholesky_sparse(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return cholesky(operator.operator)
+    if isinstance(
+        operator, lx.MulLinearOperator | lx.DivLinearOperator | lx.NegLinearOperator
+    ):
+        return scaled_root(operator, cholesky, _cholesky_dense, "cholesky")
     return _cholesky_dense(operator)
 
 

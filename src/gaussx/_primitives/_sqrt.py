@@ -16,6 +16,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._operators._utils import register_lineax_structure_functions
+from gaussx._primitives._scale import scaled_root
 
 
 _DEFAULT_LANCZOS_ORDER = 50
@@ -34,6 +35,10 @@ def sqrt(
     that computes ``sqrt(A) @ v`` via matfree Lanczos without
     materializing the full square root matrix.
 
+    A scalar multiple ``c · A`` or ``A / c`` (``c > 0``) takes the root of
+    ``A`` and scales it by ``√c``, keeping its structured type. A concretely
+    negative multiple such as ``-A`` is not PSD and raises.
+
     Args:
         operator: A PSD linear operator.
         lanczos_order: Order of Lanczos iteration for matrix-free
@@ -46,6 +51,10 @@ def sqrt(
 
     Returns:
         Operator S satisfying S @ S = A.
+
+    Raises:
+        ValueError: If ``operator`` is a concretely negative multiple of a
+            non-NSD operator, such as ``-A``.
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator
@@ -53,6 +62,15 @@ def sqrt(
         return _sqrt_diagonal(operator)
     if isinstance(operator, lx.TaggedLinearOperator):
         return sqrt(operator.operator, lanczos_order=lanczos_order)
+    if isinstance(
+        operator, lx.MulLinearOperator | lx.DivLinearOperator | lx.NegLinearOperator
+    ):
+        return scaled_root(
+            operator,
+            lambda base: sqrt(base, lanczos_order=lanczos_order),
+            _sqrt_dense,
+            "sqrt",
+        )
     if isinstance(operator, DiagonalisedOperator):
         # S = V⁻¹ √Λ V satisfies S @ S = A for any diagonalisable A.
         return operator.with_eigenvalues(jnp.sqrt(operator.eigenvalues))
