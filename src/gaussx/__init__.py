@@ -352,8 +352,10 @@ from gaussx._strategies import (
     LSMRSolver as LSMRSolver,
     MINRESSolver as MINRESSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,
+    SketchAndPrecondLSMR as SketchAndPrecondLSMR,
     SLQLogdet as SLQLogdet,
     SparseCholeskySolver as SparseCholeskySolver,
+    sketch_and_solve as sketch_and_solve,
 )
 from gaussx._tags import (
     block_diagonal_tag as block_diagonal_tag,
@@ -464,6 +466,7 @@ __all__ = [
     "SLRResult",
     "SRHTSketch",
     "SVDLowRankUpdate",
+    "SketchAndPrecondLSMR",
     "SoftmaxLikelihood",
     "SparseCholeskyFactor",
     "SparseCholeskySolver",
@@ -669,6 +672,7 @@ __all__ = [
     "site_mean_var_from_natural",
     "site_natural_from_tilted",
     "sites_to_precision",
+    "sketch_and_solve",
     "solve",
     "solve_columns",
     "solve_matrix",

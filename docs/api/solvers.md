@@ -76,6 +76,37 @@ targets a fixed pseudo-likelihood. Pass `key=` to `gaussian_log_prob`,
 one, so wrap their strategy in [`KeyedSolver`](#gaussx.KeyedSolver), whose key
 is a PyTree leaf, or change `seed`.
 
+## Sketch-and-precondition least squares
+
+`SketchAndPrecondLSMR` solves tall (optionally ridge-damped) least squares
+$\min_x \|Ax - b\|^2 + \delta^2\|x\|^2$, $m \gg n$, in a number of LSMR
+steps that does not grow with $m$ or $\kappa(A)$. A sketch
+$S \in \mathbb{R}^{d \times m}$ ([Sketching](sketching.md)) of $A$ gives
+$[SA;\ \delta I] = QR$, and $M = R^{-1}$ is a right preconditioner with
+
+$$
+\kappa(\tilde A M) \le \frac{1+\varepsilon}{1-\varepsilon},
+\qquad \tilde A = [A;\ \delta I],
+$$
+
+when $S$ is an $\varepsilon$-embedding for $\operatorname{range}(A)$. The
+sketch-and-solve estimate $x_0 = R^{-1}Q_{1:d}^\top Sb$ is the warm start;
+`sketch_and_solve` returns it on its own (an $O(\varepsilon)$ approximation).
+The dense QR costs $O(dn^2)$, so this targets $n \lesssim 10^4$; for larger
+$n$, solve the normal equations with `PreconditionedCGSolver` and a
+`NystromPreconditioner` on $A^\top A$ with `shift=δ²`.
+
+```python
+# Gauss–Newton step on a (10⁶ pixels × 300 parameters) Jacobian J_op
+step = gx.SketchAndPrecondLSMR(damp=1e-3).solve(J_op, -residuals)
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [SketchAndPrecondLSMR, sketch_and_solve]
+
 ## Logdet strategies
 
 Dense eigendecomposition for exactness; stochastic Lanczos quadrature (SLQ) for
