@@ -87,16 +87,16 @@ operators get $O(n \log n)$ matvecs and sampling via FFT circulant embedding.
 
 ## Fast-diagonalisable operators
 
-`DiagonalisedOperator` is an operator diagonal in a fast transform basis,
+`DiagonalizedOperator` is an operator diagonal in a fast transform basis,
 $A = V^{-1}\Lambda V$, given by a forward/inverse transform pair (FFT,
 orthonormal DCT/DST, spherical harmonics, or a dense eigenvector matrix) and
 the eigenvalue array $\Lambda$. `solve`, `logdet`, `inv`, `sqrt` and `trace`
 are elementwise in $\Lambda$, and shifts/scalings such as $A - \lambda I$
 stay diagonalised, so a spectral Helmholtz solve is never materialised.
-`Circulant` / `circulant_from_symbol` are the FFT special case (periodic
+`circulant` / `circulant_from_symbol` are the FFT special case (periodic
 stencils, stationary covariances on periodic grids), and a `KroneckerSum` whose
 factors are all diagonalised solves through the composed per-axis transforms.
-Use `DiagonalisedOperator.from_eigen_factorization` for dense non-symmetric
+Use `DiagonalizedOperator.from_eigen_factorization` for dense non-symmetric
 diagonalisable factors such as Chebyshev collocation blocks.
 
 ```python
@@ -116,7 +116,7 @@ psi = gaussx.solve(helmholtz, f)  # two FFTs, no matrix
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [DiagonalisedOperator, Circulant, circulant_from_symbol, as_diagonalised]
+      members: [DiagonalizedOperator, circulant, circulant_from_symbol, as_diagonalized]
 
 `SpectralFunction` is $f(A_1\oplus\cdots\oplus A_d)$ for symmetric factors,
 stored as the factor eigendecompositions plus the elementwise function $f$:
@@ -157,7 +157,7 @@ bordered systems through the capacitance (Schur-complement) form.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [SumOperator, ScaledOperator, ProductOperator, kronecker_sum_sample, sum_of_kroneckers_sample, sumkronecker_sample, toeplitz_sample, CapacitanceSolver]
+      members: [sum_operator, scaled_operator, product_operator, kronecker_sum_sample, sum_of_kroneckers_sample, sumkronecker_sample, toeplitz_sample, CapacitanceSolver]
 
 ## Structural tags & predicates
 
@@ -166,7 +166,7 @@ the primitives consult when choosing an algorithm. The property tags
 (`positive_semidefinite_tag`, `symmetric_tag`, the triangular tags, …) are
 re-exported from lineax so user code only needs one import.
 `is_eigen_reducible` reports whether a [`SumOfKroneckers`](#gaussx.SumOfKroneckers)
-(or the equivalent `SumOperator` chain) takes the exact two-term reduction.
+(or the equivalent `sum_operator` chain) takes the exact two-term reduction.
 
 ::: gaussx
     options:

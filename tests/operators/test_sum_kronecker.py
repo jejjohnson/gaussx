@@ -569,7 +569,7 @@ class TestIsEigenReducible:
 
     def test_two_terms_through_sum_operator(self):
         main, anchor = self._terms()
-        assert gaussx.is_eigen_reducible(gaussx.SumOperator(main, anchor)) is True
+        assert gaussx.is_eigen_reducible(gaussx.sum_operator(main, anchor)) is True
 
     def test_three_terms_and_plain_kronecker_are_not(self):
         main, anchor = self._terms()

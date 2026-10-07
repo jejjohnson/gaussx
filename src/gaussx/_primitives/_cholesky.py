@@ -13,7 +13,7 @@ import lineax as lx
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
@@ -91,9 +91,9 @@ def cholesky(
         return _cholesky_sum_kronecker(operator)
     if isinstance(operator, SparseOperator):
         return _cholesky_sparse(operator)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         warn_dense_fallback(
-            "cholesky(DiagonalisedOperator) materialises the operator and runs "
+            "cholesky(DiagonalizedOperator) materialises the operator and runs "
             "a dense O(n^3) Cholesky. gaussx.sqrt(A) returns a symmetric root S "
             "with S S^T = A in O(n log n), which is enough for sampling."
         )

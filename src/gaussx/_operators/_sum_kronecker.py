@@ -37,7 +37,7 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
     term and eigendecomposing each factor of the other. That costs
     ``O(n_c³ + n_d³)`` rather than the ``O((n_c n_d)³)`` of a dense solve,
     and the same reduction is reachable through the ``AddLinearOperator``
-    chains `SumOperator` builds. The factors of the non-anchor term must
+    chains `sum_operator` builds. The factors of the non-anchor term must
     advertise symmetry, and the anchor's must be diagonal, a multiple of the
     identity, or tagged positive-semidefinite; anything else keeps the dense
     fallback.
@@ -477,7 +477,7 @@ def _kronecker_terms(
     r"""Normalize ``operator`` to a tuple of two-factor Kronecker terms.
 
     Accepts a `SumOfKroneckers`, a `Kronecker`, or an ``AddLinearOperator``
-    chain — the shape `SumOperator` produces — whose leaves are `Kronecker` /
+    chain — the shape `sum_operator` produces — whose leaves are `Kronecker` /
     `SumOfKroneckers` operators plus any number of scalar-identity shifts.
     The identity shifts are summed and returned as a single ``I ⊗ cI`` term.
 
@@ -618,7 +618,7 @@ def is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
 
     "Eigen-reducible" means ``operator`` is ``A₁ ⊗ B₁ + A₂ ⊗ B₂`` — a
     two-term `SumOfKroneckers`, or the same two terms built with
-    `SumOperator` — whose main factors are symmetric and whose other
+    `sum_operator` — whose main factors are symmetric and whose other
     ("anchor") term is positive definite. Then whitening by the anchor
     leaves one eigendecomposition per factor, so `gaussx.solve`,
     `gaussx.logdet` and `SumOfKroneckers.eigendecompose` cost
@@ -651,7 +651,7 @@ def _sum_of_kroneckers_eigen(
     r"""Factorize a two-term sum of Kronecker products, if one applies.
 
     Recognizes ``A₁ ⊗ B₁ + A₂ ⊗ B₂`` — written as a `SumOfKroneckers`, or as
-    the ``AddLinearOperator`` chain `SumOperator` builds — with one term
+    the ``AddLinearOperator`` chain `sum_operator` builds — with one term
     positive definite, and returns the simultaneous diagonalization that
     `gaussx.solve` and `gaussx.logdet` dispatch on. Returns ``None`` for
     anything else, including three or more Kronecker terms, which have no
@@ -696,7 +696,7 @@ def _shifted_factorization(
     r"""``A ⊗ B + c·I`` in the joint eigenbasis of its factors (G3).
 
     ``(A ⊗ B + cI)⁻¹ = (U_A ⊗ U_B)(Λ_A ⊗ Λ_B + c)⁻¹(U_A ⊗ U_B)ᵀ``. Each
-    factor keeps an eigenbasis it already carries (`DiagonalisedOperator`,
+    factor keeps an eigenbasis it already carries (`DiagonalizedOperator`,
     `KroneckerSum`, a diagonal), so a space-time ``AR(1) ⊗ grid + cI`` never
     forms the spatial factor; any other (symmetric) factor is decomposed
     densely with ``eigh``.

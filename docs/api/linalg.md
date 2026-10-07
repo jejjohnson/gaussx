@@ -53,7 +53,7 @@ falling back to dense Cholesky or Hutchinson:
 | $A \otimes B + cI$ | same, with $M_{ij} = 1/(\lambda^A_i \lambda^B_j + c)$ | per factor |
 
 `pinv=True` drops the zero eigenvalues of an intrinsic precision on a
-grid. A factor that already carries its eigenbasis (`DiagonalisedOperator`,
+grid. A factor that already carries its eigenbasis (`DiagonalizedOperator`,
 `KroneckerSum`) keeps it, so `solve`, `logdet` and `diag_inv` of a
 space-time $A \otimes B + cI$ never form the spatial factor $B$.
 
@@ -83,11 +83,11 @@ solves.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [solve_matrix, solve_columns, solve_rows, solve_tridiagonal, solve_tridiagonal_batched]
+      members: [solve_matrix, solve_columns, solve_rows, tridiagonal_solve, tridiagonal_solve_batched]
 
 ## Matrix diagonalization & shifted Kronecker-sum solves
 
-Factor each 1D operator once with `EigenFactorization` (non-symmetric
+Factor each 1D operator once with `EigenDecomposition` (non-symmetric
 diagonalizable factors with a real spectrum are supported), then solve
 $(A_0 \oplus A_1 \oplus \dots - \sigma I)\,x = b$ in tensor form for any
 shift $\sigma$ with `kronecker_sum_solve` — the matrix-diagonalization method
@@ -97,7 +97,7 @@ for separable operators such as tensor-product spectral Laplacians.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [EigenFactorization, kronecker_sum_solve]
+      members: [EigenDecomposition, kronecker_sum_solve]
 
 ## Stable distances & Lyapunov
 

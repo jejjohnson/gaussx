@@ -3,7 +3,7 @@
 Every constant-coefficient operator on a regular grid with periodic,
 Dirichlet or Neumann boundaries — and every spectral-method Laplacian — is
 diagonalised by a fast transform (FFT, DCT/DST, spherical harmonics, or a
-precomputed eigenvector matrix). `DiagonalisedOperator` represents such an
+precomputed eigenvector matrix). `DiagonalizedOperator` represents such an
 operator by its transform pair and eigenvalue array, so `solve`, `logdet`,
 `inv`, `sqrt` and `trace` are elementwise operations on the eigenvalues and
 nothing is ever materialised.
@@ -29,7 +29,7 @@ from gaussx._operators._block_diag import _to_frozenset
 Transform = Callable[[Array], Array]
 
 
-class DiagonalisedOperator(lx.AbstractLinearOperator):
+class DiagonalizedOperator(lx.AbstractLinearOperator):
     r"""Linear operator ``A x = V⁻¹(Λ ⊙ V x)`` given by a transform pair.
 
     ``forward`` applies ``V`` (field of shape ``in_shape`` → coefficients) and
@@ -41,15 +41,15 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
     Examples of ``(forward, inverse, Λ)``:
 
     - Periodic grid: ``fftn`` / ``ifftn`` and the symbol of the stencil — see
-      `Circulant` and `circulant_from_symbol`.
+      `circulant` and `circulant_from_symbol`.
     - Dirichlet / Neumann grid: an orthonormal DST / DCT pair and the
       corresponding finite-difference or spectral eigenvalues.
     - A dense diagonalisable matrix ``M = V Λ V⁻¹`` (e.g. a Chebyshev
-      collocation block): `DiagonalisedOperator.from_eigen_factorization`.
+      collocation block): `DiagonalizedOperator.from_eigen_factorization`.
 
     **Algebra stays closed.** ``A + c·I``, ``A − c·I``, ``c·A``, ``A / c``,
     ``−A`` and ``A ± B`` (for ``B`` with the same transform pair) return
-    another `DiagonalisedOperator` with updated eigenvalues, so a shifted
+    another `DiagonalizedOperator` with updated eigenvalues, so a shifted
     Helmholtz operator ``A − λI`` is never materialised.
 
     **Structured primitives.** `gaussx.solve` divides by ``Λ`` (eigenvalues
@@ -57,7 +57,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
     a normal operator); `gaussx.logdet` is ``Σ log|λ|`` (the ``slogdet``
     convention, so ``−inf`` for a singular operator); `gaussx.inv`,
     `gaussx.sqrt` and `gaussx.trace` are elementwise in ``Λ``. A
-    `gaussx.KroneckerSum` whose factors are all `DiagonalisedOperator` s is
+    `gaussx.KroneckerSum` whose factors are all `DiagonalizedOperator` s is
     solved through the composed per-axis transforms.
 
     **Transpose.** With ``normal=True`` (``V⁻¹ ∝ Vᴴ``, e.g. FFT or orthonormal
@@ -146,8 +146,8 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
         factorization,
         *,
         tags: object | frozenset[object] = frozenset(),
-    ) -> DiagonalisedOperator:
-        """Operator ``M = V Λ V⁻¹`` from a `gaussx.EigenFactorization`.
+    ) -> DiagonalizedOperator:
+        """Operator ``M = V Λ V⁻¹`` from a `gaussx.EigenDecomposition`.
 
         Uses the dense eigenvector matrices as the transform pair
         (``forward = V⁻¹ ·``, ``inverse = V ·``), so non-symmetric but
@@ -191,7 +191,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
 
     def with_eigenvalues(
         self, eigenvalues: Inexact[ArrayLike, " ..."]
-    ) -> DiagonalisedOperator:
+    ) -> DiagonalizedOperator:
         """Same transform pair with new eigenvalues.
 
         Structural tags are recomputed: the automatic ``symmetric_tag`` is
@@ -204,7 +204,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
             lx.positive_semidefinite_tag,
             lx.negative_semidefinite_tag,
         }
-        return DiagonalisedOperator(
+        return DiagonalizedOperator(
             jnp.asarray(eigenvalues),
             self.forward,
             self.inverse,
@@ -228,11 +228,11 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
         eye = jnp.eye(self.size, dtype=self.out_structure().dtype)
         return jax.vmap(self.mv, out_axes=1)(eye)
 
-    def transpose(self) -> DiagonalisedOperator:
+    def transpose(self) -> DiagonalizedOperator:
         tags = lx.transpose_tags(self.tags)
         if self.normal and not self.real_output:
             # Conjugated eigenvalues would give Aᴴ, not Aᵀ (gh-330).
-            return DiagonalisedOperator(
+            return DiagonalizedOperator(
                 self.eigenvalues,
                 _conjugated(self.forward),
                 _conjugated(self.inverse),
@@ -242,7 +242,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
                 tags=tags,
             )
         if self.normal:
-            return DiagonalisedOperator(
+            return DiagonalizedOperator(
                 jnp.conj(self.eigenvalues),
                 self.forward,
                 self.inverse,
@@ -254,10 +254,10 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
             )
         if self.transpose_pair is None:
             raise NotImplementedError(
-                "DiagonalisedOperator.transpose needs normal=True or a transpose_pair."
+                "DiagonalizedOperator.transpose needs normal=True or a transpose_pair."
             )
         forward_t, inverse_t = self.transpose_pair
-        return DiagonalisedOperator(
+        return DiagonalizedOperator(
             self.eigenvalues,
             forward_t,
             inverse_t,
@@ -285,7 +285,7 @@ class DiagonalisedOperator(lx.AbstractLinearOperator):
 
     def _same_basis(self, other: object) -> bool:
         return (
-            isinstance(other, DiagonalisedOperator)
+            isinstance(other, DiagonalizedOperator)
             and other.forward is self.forward
             and other.inverse is self.inverse
             and other.in_shape == self.in_shape
@@ -348,7 +348,7 @@ def circulant_from_symbol(
     *,
     real_output: bool = True,
     tags: object | frozenset[object] = frozenset(),
-) -> DiagonalisedOperator:
+) -> DiagonalizedOperator:
     r"""(Block-)circulant operator from its DFT symbol.
 
     ``A x = ifftn(symbol ⊙ fftn(x))`` on a periodic grid of shape
@@ -370,7 +370,7 @@ def circulant_from_symbol(
         tags: Additional lineax tags.
 
     Returns:
-        A `DiagonalisedOperator` with the FFT transform pair.
+        A `DiagonalizedOperator` with the FFT transform pair.
 
     Raises:
         ValueError: If ``real_output`` and a concrete ``symbol`` is not
@@ -380,7 +380,7 @@ def circulant_from_symbol(
     symbol = jnp.asarray(symbol)
     if real_output:
         symbol = _check_conjugate_even(symbol)
-    return DiagonalisedOperator(
+    return DiagonalizedOperator(
         symbol,
         _fftn,
         _ifftn,
@@ -391,12 +391,12 @@ def circulant_from_symbol(
     )
 
 
-def Circulant(
+def circulant(
     first_column: Inexact[ArrayLike, " ..."],
     *,
     symmetric: bool | None = None,
     tags: object | frozenset[object] = frozenset(),
-) -> DiagonalisedOperator:
+) -> DiagonalizedOperator:
     r"""(Block-)circulant operator from its first column.
 
     A circulant matrix ``C[i, j] = c[(i − j) mod n]`` (and its n-D
@@ -427,7 +427,7 @@ def Circulant(
         tags: Additional lineax tags.
 
     Returns:
-        A `DiagonalisedOperator` with eigenvalues ``fftn(c)``.
+        A `DiagonalizedOperator` with eigenvalues ``fftn(c)``.
 
     Raises:
         ValueError: If ``symmetric=True`` and the column is complex, or
@@ -492,7 +492,7 @@ def _check_conjugate_even(symbol: Array) -> Array:
 def _check_even_real_kernel(column: Array) -> None:
     """Reject a complex column, or a concrete one that is not even (gh-440)."""
     if jnp.iscomplexobj(column):
-        raise ValueError("Circulant(symmetric=True) needs a real column.")
+        raise ValueError("circulant(symmetric=True) needs a real column.")
     try:
         c = np.asarray(column)
     except jax.errors.TracerArrayConversionError:
@@ -506,7 +506,7 @@ def _check_even_real_kernel(column: Array) -> None:
     )
     if not np.allclose(c, reflected, rtol=0.0, atol=tol):
         raise ValueError(
-            "Circulant(symmetric=True) needs an even column, c[k] == c[-k mod n]."
+            "circulant(symmetric=True) needs an even column, c[k] == c[-k mod n]."
         )
 
 
@@ -531,10 +531,10 @@ def _is_even_real_kernel(column: Array) -> bool:
 # ----------------------------------------------------------------------
 
 
-def as_diagonalised(operator: lx.AbstractLinearOperator) -> DiagonalisedOperator | None:
-    """Express ``operator`` as one `DiagonalisedOperator`, if possible.
+def as_diagonalized(operator: lx.AbstractLinearOperator) -> DiagonalizedOperator | None:
+    """Express ``operator`` as one `DiagonalizedOperator`, if possible.
 
-    Returns the operator itself for a `DiagonalisedOperator`, the composed
+    Returns the operator itself for a `DiagonalizedOperator`, the composed
     operator for a `gaussx.KroneckerSum` whose factors are (recursively)
     diagonalisable, and ``None`` otherwise.
 
@@ -546,17 +546,17 @@ def as_diagonalised(operator: lx.AbstractLinearOperator) -> DiagonalisedOperator
     """
     from gaussx._operators._kronecker_sum import KroneckerSum
 
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return operator
     if not isinstance(operator, KroneckerSum):
         return None
-    a = as_diagonalised(operator.A)
-    b = as_diagonalised(operator.B)
+    a = as_diagonalized(operator.A)
+    b = as_diagonalized(operator.B)
     if a is None or b is None:
         return None
     lam = jnp.add.outer(a.eigenvalues_flat(), b.eigenvalues_flat())
     real_output = a.real_output and b.real_output
-    return DiagonalisedOperator(
+    return DiagonalizedOperator(
         lam,
         ft.partial(_kron_forward, a, b),
         ft.partial(_kron_inverse, a, b),
@@ -566,12 +566,12 @@ def as_diagonalised(operator: lx.AbstractLinearOperator) -> DiagonalisedOperator
     )
 
 
-def _kron_forward(a: DiagonalisedOperator, b: DiagonalisedOperator, x: Array) -> Array:
+def _kron_forward(a: DiagonalizedOperator, b: DiagonalizedOperator, x: Array) -> Array:
     x = _along_axis(a.forward_flat, x, axis=0)
     return _along_axis(b.forward_flat, x, axis=1)
 
 
-def _kron_inverse(a: DiagonalisedOperator, b: DiagonalisedOperator, c: Array) -> Array:
+def _kron_inverse(a: DiagonalizedOperator, b: DiagonalizedOperator, c: Array) -> Array:
     c = _along_axis(b.inverse_flat, c, axis=1)
     return _along_axis(a.inverse_flat, c, axis=0)
 

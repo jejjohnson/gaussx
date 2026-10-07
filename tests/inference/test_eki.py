@@ -20,12 +20,12 @@ import pytest
 from gaussx import (
     BlockDiag,
     Kronecker,
-    ScaledOperator,
     discrepancy_step_size,
     eki_step,
     enkf_analysis,
     etkf_transform,
     localization_matrix,
+    scaled_operator,
     tikhonov_augment,
 )
 from gaussx._primitives._cholesky import DenseFallbackWarning
@@ -316,10 +316,10 @@ def test_block_diag_step_dispatches(getkey):
     obs_noise = lx.DiagonalLinearOperator(jnp.linspace(0.2, 1.0, 3))
     perturbed_obs = observation[None, :] + 0.3 * jr.normal(getkey(), (6, 3))
     step = BlockDiag(
-        ScaledOperator(
+        scaled_operator(
             lx.IdentityLinearOperator(jax.eval_shape(lambda: jnp.zeros(2))), 0.3
         ),
-        ScaledOperator(
+        scaled_operator(
             lx.IdentityLinearOperator(jax.eval_shape(lambda: jnp.zeros(3))), 1.7
         ),
     )

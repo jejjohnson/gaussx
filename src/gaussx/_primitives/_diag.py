@@ -18,7 +18,7 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._diagonalised import (
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     _fftn,
     _ifftn,
 )
@@ -91,7 +91,7 @@ def diag(
     if isinstance(operator, Toeplitz):
         # A symmetric Toeplitz matrix has the constant diagonal c[0] (gh-373).
         return jnp.full(operator.in_size(), operator.column[0])
-    if isinstance(operator, DiagonalisedOperator) and _is_fft_pair(operator):
+    if isinstance(operator, DiagonalizedOperator) and _is_fft_pair(operator):
         # F⁻¹ diag(λ) F has the constant diagonal mean(λ) (gh-373).
         mean = jnp.mean(operator.eigenvalues)
         mean = jnp.real(mean) if operator.real_output else mean
@@ -111,16 +111,16 @@ def diag(
         return -rec(operator.operator)
     if stochastic:
         return _diag_stochastic(operator, num_probes, key, sampler)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         warn_dense_fallback(
-            "diag(DiagonalisedOperator) with a non-FFT transform pair "
+            "diag(DiagonalizedOperator) with a non-FFT transform pair "
             "materialises the operator; diag(..., stochastic=True) estimates "
             "it from matvecs."
         )
     return jnp.diag(operator.as_matrix())
 
 
-def _is_fft_pair(operator: DiagonalisedOperator) -> bool:
+def _is_fft_pair(operator: DiagonalizedOperator) -> bool:
     return operator.forward is _fftn and operator.inverse is _ifftn
 
 

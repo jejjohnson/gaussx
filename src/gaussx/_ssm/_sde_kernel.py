@@ -11,7 +11,7 @@ import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
 from gaussx._linalg._symmetrize import symmetrize
-from gaussx._ssm._discretise import discretise_mfd, process_noise_covariance
+from gaussx._ssm._discretise import discretize_mfd, process_noise_covariance
 
 
 class SDEParams(NamedTuple):
@@ -33,7 +33,7 @@ class SDEParams(NamedTuple):
             learned drift matrix, or a non-stationary kernel such as
             `gaussx.IntegratedWienerSDE`, which has no stationary
             covariance at all. `SDEKernel.discretise` then falls back to
-            `gaussx.discretise_mfd`, which needs no ``P_inf``, and the
+            `gaussx.discretize_mfd`, which needs no ``P_inf``, and the
             filter is started from `SDEKernel.initial_covariance`
             instead.
     """
@@ -120,7 +120,7 @@ class SDEKernel(eqx.Module):
 
         When ``sde_params()`` returns ``P_inf=None`` — a kernel with no
         closed-form stationary covariance, such as one whose drift is a
-        learned parameter — this falls back to `gaussx.discretise_mfd`,
+        learned parameter — this falls back to `gaussx.discretize_mfd`,
         which recovers both ``A`` and ``Q`` from one matrix exponential and
         is well defined for every ``F``. The fallback is chosen at trace
         time from a static ``None`` check, so kernels that do supply
@@ -138,7 +138,7 @@ class SDEKernel(eqx.Module):
         params = self.sde_params()
         if params.P_inf is None:
             diffusion = params.L @ params.Q_c @ params.L.T
-            return discretise_mfd(params.F, diffusion, dt)
+            return discretize_mfd(params.F, diffusion, dt)
         A = jsl.expm(params.F * dt)
         Q = symmetrize(process_noise_covariance(A, params.P_inf))
         return A, Q

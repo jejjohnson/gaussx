@@ -134,7 +134,7 @@ def _structured():
         "block_tridiag": _btd(),
         "kronecker": Kronecker(K1, K1),
         "kronecker_sum": gaussx.KroneckerSum(K1, K1, tags=_PSD),
-        "diagonalised": gaussx.DiagonalisedOperator(
+        "diagonalised": gaussx.DiagonalizedOperator(
             jnp.linspace(1.0, 2.0, 1200),
             lambda x: x,
             lambda x: x,

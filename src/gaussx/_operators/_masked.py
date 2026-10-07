@@ -15,7 +15,7 @@ from jaxtyping import Array, Bool, Float, Int
 
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._operators._capacitance import CapacitanceSolver, _replace_fields
-from gaussx._operators._diagonalised import as_diagonalised
+from gaussx._operators._diagonalised import as_diagonalized
 
 
 class MaskedOperator(lx.AbstractLinearOperator):
@@ -30,7 +30,7 @@ class MaskedOperator(lx.AbstractLinearOperator):
 
     **Fast masked solves (capacitance method).** For a square mask
     (``row_mask == col_mask == m``) whose base ``B`` has a fast solve (a
-    `gaussx.DiagonalisedOperator`, `gaussx.Circulant`, or a Kronecker sum of
+    `gaussx.DiagonalizedOperator`, `gaussx.circulant`, or a Kronecker sum of
     them), pass ``coupling_indices``: the flat indices ``C`` of the
     masked-*out* degrees of freedom that ``B`` couples to masked-in rows
     (``B[m, j] ≠ 0``). Then ``gaussx.solve(op, f)`` solves
@@ -271,7 +271,7 @@ def _build_capacitance(
 
 def _traced_eigenvalues(base: lx.AbstractLinearOperator) -> Array | None:
     """A diagonalised base's eigenvalues when they are traced, else ``None``."""
-    diagonalised = as_diagonalised(base)
+    diagonalised = as_diagonalized(base)
     if diagonalised is None:
         return None
     eigenvalues = diagonalised.eigenvalues_flat()
@@ -289,7 +289,7 @@ def _derived_null_vectors(
     eigenvectors, so ``r`` is also the left null vector. Zero detection is
     exact (``λ == 0``), matching the pseudo-inverse used by ``solve``.
     """
-    diagonalised = as_diagonalised(base)
+    diagonalised = as_diagonalized(base)
     if diagonalised is None:
         return None, None
     try:

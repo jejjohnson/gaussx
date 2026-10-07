@@ -151,7 +151,7 @@ class TestStructuredDiagInv:
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(dense), atol=1e-12)
 
     def test_diagonalised_operator(self):
-        circulant = gaussx.Circulant(
+        circulant = gaussx.circulant(
             jnp.array([2.5, -1.0, 0.0, 0.0, -1.0]), symmetric=True
         )
         op = gaussx.KroneckerSum(
@@ -203,7 +203,7 @@ class TestShiftedKronecker:
 
     @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_fft_spatial_factor(self):
-        spatial = gaussx.Circulant(
+        spatial = gaussx.circulant(
             jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0]), symmetric=True
         )
         temporal, shifted, _ = self._operators(spatial)
@@ -307,5 +307,5 @@ def test_diag_inv_low_rank_with_singular_base_stays_finite():
 
 
 def test_diag_inv_pinv_of_zero_multiple_is_zero():
-    Q = gaussx.Circulant(jnp.array([2.0, -1.0, 0.0, -1.0]), symmetric=True)
+    Q = gaussx.circulant(jnp.array([2.0, -1.0, 0.0, -1.0]), symmetric=True)
     assert jnp.array_equal(diag_inv(0.0 * Q, pinv=True), jnp.zeros(4))

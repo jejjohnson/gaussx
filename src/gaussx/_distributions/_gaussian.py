@@ -163,9 +163,9 @@ def kl_standard_normal(
     solver: AbstractLogdetStrategy | None = None,
     key: jax.Array | None = None,
 ) -> Float[Array, ""]:
-    """KL divergence ``KL(N(m, S) || N(0, I))``.
+    """KL(first ‖ second): ``KL(N(m, S) || N(0, I))``.
 
-    Special case of `dist_kl_divergence`
+    Special case of `gaussian_kl`
     with ``q_loc = 0`` and ``q_cov = I``.  The identity prior means no
     matrix inversion is required, making this more efficient than calling
     the general form directly.
@@ -189,7 +189,7 @@ def kl_standard_normal(
         Scalar KL divergence.
 
     See Also:
-        `dist_kl_divergence`: General KL
+        `gaussian_kl`: General KL
         between two multivariate normals with arbitrary lineax covariance
         operators.
     """

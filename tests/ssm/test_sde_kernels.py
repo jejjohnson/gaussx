@@ -24,7 +24,7 @@ from gaussx import (
     SDEParams,
     SumSDE,
     discrete_lyapunov_solve,
-    discretise_mfd,
+    discretize_mfd,
     kalman_filter,
     process_noise_covariance,
     sde_autocovariance,
@@ -222,9 +222,9 @@ class TestSumSDE:
         import gaussx._ssm._sde_kernel as sde_kernel
 
         def fail(*args, **kwargs):
-            raise AssertionError("SumSDE.discretise went through discretise_mfd")
+            raise AssertionError("SumSDE.discretise went through discretize_mfd")
 
-        monkeypatch.setattr(sde_kernel, "discretise_mfd", fail)
+        monkeypatch.setattr(sde_kernel, "discretize_mfd", fail)
         A_seq, _ = self._trend_plus_seasonal().discretise_sequence(
             jnp.linspace(0.01, 0.5, 4)
         )
@@ -770,7 +770,7 @@ class TestIntegratedWienerSDE:
         dt = jnp.array(0.37)
 
         A, Q = kern.discretise(dt)
-        A_mfd, Q_mfd = discretise_mfd(params.F, params.L @ params.Q_c @ params.L.T, dt)
+        A_mfd, Q_mfd = discretize_mfd(params.F, params.L @ params.Q_c @ params.L.T, dt)
 
         assert jnp.allclose(A, A_mfd, atol=1e-12)
         assert jnp.allclose(Q, Q_mfd, atol=1e-12)
@@ -851,7 +851,7 @@ class TestIntegratedWienerSDE:
 
         At ``order=1`` a negative step returns a negative-definite
         ``Q`` — not a covariance — which would propagate silently into
-        filtering. ``discretise_mfd`` rejects the same input.
+        filtering. ``discretize_mfd`` rejects the same input.
         """
         kern = IntegratedWienerSDE(diffusion=jnp.array(0.5))
 

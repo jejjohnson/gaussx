@@ -19,7 +19,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
-from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalised
+from gaussx._operators._diagonalised import DiagonalizedOperator, as_diagonalized
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import (
@@ -64,7 +64,7 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
         return jnp.zeros((), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _logdet_diagonal(operator)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return _logdet_diagonalised(operator)
     if isinstance(operator, BlockDiag):
         return _logdet_block_diag(operator)
@@ -137,7 +137,7 @@ def _has_structural_logdet(operator: lx.AbstractLinearOperator) -> bool:
         operator,
         lx.IdentityLinearOperator
         | lx.DiagonalLinearOperator
-        | DiagonalisedOperator
+        | DiagonalizedOperator
         | BlockDiag
         | Kronecker
         | LowRankUpdate
@@ -269,7 +269,7 @@ def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     eigensolver runs on CPU (LAPACK ``geev``) and on CUDA GPUs
     (cuSOLVER / MAGMA ``geev``).
     """
-    diagonalised = as_diagonalised(operator)
+    diagonalised = as_diagonalized(operator)
     if diagonalised is not None:
         return _logdet_diagonalised(diagonalised)
     evals_a = _factor_eigvals(operator.A)
@@ -285,7 +285,7 @@ def _factor_eigvals(operator: lx.AbstractLinearOperator) -> Array:
     return jnp.linalg.eigvals(operator.as_matrix())
 
 
-def _logdet_diagonalised(operator: DiagonalisedOperator) -> Float[Array, ""]:
+def _logdet_diagonalised(operator: DiagonalizedOperator) -> Float[Array, ""]:
     """``log|det A| = Σ log|λ|`` (``slogdet`` convention; ``−inf`` if singular)."""
     return jnp.sum(jnp.log(jnp.abs(operator.eigenvalues)))
 
@@ -387,7 +387,7 @@ def pseudo_logdet(
       default is `gaussx.logdet` of it (dense). The matrix determinant lemma
       does not apply because ``A`` is singular.
     - A `KroneckerSum` (recursively, with dense, diagonal or
-      `DiagonalisedOperator` factors) or a `DiagonalisedOperator`: all
+      `DiagonalizedOperator` factors) or a `DiagonalizedOperator`: all
       pairwise sums of the factor eigenvalues, with no factorisation of the
       full operator.
     - Anything else: dense ``eigvalsh``.
@@ -470,7 +470,7 @@ def pseudo_logdet(
             return _pseudo_logdet_laplacian_sparse(operator, strategy)
         if isinstance(operator, BlockTriDiag):
             return _pseudo_logdet_laplacian_banded(operator, strategy)
-        if not isinstance(operator, KroneckerSum | DiagonalisedOperator):
+        if not isinstance(operator, KroneckerSum | DiagonalizedOperator):
             raise TypeError(
                 "structure='laplacian' needs a SparseOperator, a BlockTriDiag "
                 "with 1 x 1 blocks or a KroneckerSum, got "
@@ -498,7 +498,7 @@ def _spectrum(operator: lx.AbstractLinearOperator) -> tuple[Float[Array, " n"], 
         b, n_b = _spectrum(operator.B)
         pairs = einx.add("i, j -> i j", a, b)
         return rearrange(pairs, "i j -> (i j)"), max(n_a, n_b)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return jnp.real(operator.eigenvalues_flat()), 1
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.diagonal(operator), 1

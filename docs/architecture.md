@@ -137,7 +137,7 @@ instance, has no block-tridiagonal path and falls back there.
 | `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumOfKroneckersSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
-| `DiagonalisedOperator` / `Circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
+| `DiagonalizedOperator` / `circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
 | `Toeplitz` | lineax solver | `slogdet` | dense | $c_0$ (constant diagonal) | dense eigh | lazy |
 | Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse |
 | Everything else | lineax solver | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
@@ -188,9 +188,9 @@ flowchart LR
     K --> K1["InterpolatedOperator"]
     K --> K2["MaskedOperator"]
 
-    LZ --> Z1["SumOperator"]
-    LZ --> Z2["ScaledOperator"]
-    LZ --> Z3["ProductOperator"]
+    LZ --> Z1["sum_operator"]
+    LZ --> Z2["scaled_operator"]
+    LZ --> Z3["product_operator"]
 ```
 
 | Operator | Represents | Why it is worth it |
@@ -335,7 +335,7 @@ flowchart LR
 
     subgraph OPSUGAR["Sugar operations"]
         LP["gaussian_log_prob · gaussian_entropy<br/>quadratic_form · add_jitter"]
-        KL["kl_standard_normal<br/>dist_kl_divergence"]
+        KL["kl_standard_normal<br/>gaussian_kl"]
         COND["conditional · project<br/>joseph_update"]
     end
 
@@ -564,8 +564,8 @@ moved out of gaussx in 0.2.0. kernellib builds on gaussx's `LowRankUpdate`,
 solver strategies and `trace_product`; gaussx never imports kernellib.
 
 **[finitevolX](https://github.com/jejjohnson/finitevolX)** takes the raw solver
-substrate: its tridiagonal solves are `gaussx.solve_tridiagonal` /
-`solve_tridiagonal_batched`, and its Nyström preconditioner wraps
+substrate: its tridiagonal solves are `gaussx.tridiagonal_solve` /
+`tridiagonal_solve_batched`, and its Nyström preconditioner wraps
 `gaussx.NystromPreconditioner` around a `gaussx.as_linear_operator` view of the
 (PSD-probed) finite-volume operator.
 

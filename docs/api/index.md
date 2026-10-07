@@ -52,6 +52,23 @@ A few patterns hold across the whole package:
   arrays and operators in, arrays and operators out. PRNG keys are explicit
   arguments for every stochastic routine.
 
+### Naming
+
+Each rule below is enforced for new names. Every rename it implied keeps the
+old name as a deprecated alias: `gaussx.<old>` returns the same object as the
+new name and emits a `DeprecationWarning` naming the replacement. The aliases
+will be removed in gaussx 0.7.0.
+`tests/test_naming.py` checks the mechanical parts (CamelCase and spelling).
+
+| Family | Rule | Renamed (old → new) |
+|---|---|---|
+| Solves | `solve_<rhs-shape>` when variants differ only in the right-hand side's shape (`solve_columns`, `solve_rows`, `solve_matrix`); `<structure-or-algorithm>_solve` when the name says which structure or algorithm is used (`woodbury_solve`, `kronecker_sum_solve`, `tridiagonal_solve`, `discrete_lyapunov_solve`, `linear_solve`) | `solve_tridiagonal` → `tridiagonal_solve`, `solve_tridiagonal_batched` → `tridiagonal_solve_batched` |
+| KL divergence | Every KL function computes **KL(first ‖ second)**, and its docstring's first line says so. Operator-level Gaussian helpers use the `gaussian_*` prefix (`gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`). `gauss_kl` keeps its GPflow name; `kl_divergence` is the exponential-family form; `AbstractMultivariateNormal.kl` is the distribution-level form | `dist_kl_divergence` → `gaussian_kl` |
+| Parameter conversions | `mean_cov` = `(mean, covariance operator)`; `mean_chol` = `(mean, lower Cholesky factor array)` | `meanvar_to_natural` → `mean_chol_to_natural`, `natural_to_meanvar` → `natural_to_mean_chol`, `meanvar_to_expectation` → `mean_chol_to_expectation`, `expectation_to_meanvar` → `expectation_to_mean_chol` |
+| Spelling | US English (`-ize`, `-ization`) in public identifiers, matching jax, numpy and scipy and the majority of existing names (`symmetrize`, `localization_matrix`, `randomized_svd`, …). Prose and private names may use either | `DiagonalisedOperator` → `DiagonalizedOperator`, `as_diagonalised` → `as_diagonalized`, `discretise_mfd` → `discretize_mfd`, `discretise_mfd_sequence` → `discretize_mfd_sequence` |
+| Result containers | `*Result`: immutable output of a one-shot computation; `*State`: the carry of a sequential or recursive algorithm; `*Cache`: a precomputation reused across later calls; `*Decomposition`: a matrix factorization; `*Params`: model parameters; domain nouns (`GaussianSites`) are allowed | `EigenFactorization` → `EigenDecomposition` |
+| Classes vs factories | CamelCase is reserved for classes, so `isinstance` works on every CamelCase name. A function that builds and returns some other type is snake_case | `Circulant` → `circulant`, `SumOperator` → `sum_operator`, `ScaledOperator` → `scaled_operator`, `ProductOperator` → `product_operator` |
+
 Every public class and function carries a Google-style docstring with shapes in
 [jaxtyping](https://docs.kidger.site/jaxtyping/) notation; tensor contraction and
 reshaping inside the package go through [einx](https://github.com/fferflo/einx).

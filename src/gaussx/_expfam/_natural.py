@@ -12,8 +12,8 @@ supported:
 - **Dense mean/variance (Cholesky)**: ``(mu, S_sqrt)`` where
   ``Sigma = S_sqrt @ S_sqrt^T``. All six conversion directions between
   mean/variance, natural, and expectation parameterizations operate on plain
-  JAX arrays. See `meanvar_to_natural`, `natural_to_meanvar`,
-  `meanvar_to_expectation`, `expectation_to_meanvar`,
+  JAX arrays. See `mean_chol_to_natural`, `natural_to_mean_chol`,
+  `mean_chol_to_expectation`, `expectation_to_mean_chol`,
   `natural_to_expectation`, and `expectation_to_natural`.
 
 For **block-tridiagonal** (SSM / Gauss-Markov) parameterizations see
@@ -57,7 +57,7 @@ def natural_to_mean_cov(
 
     Operator structure (diagonal, Kronecker, …) is exploited via
     structural dispatch. For dense-array inputs see
-    `natural_to_meanvar`.
+    `natural_to_mean_chol`.
 
     For block-tridiagonal (SSM) inputs see
     `gaussx._ssm._ssm_natural.naturals_to_ssm`.
@@ -93,7 +93,7 @@ def mean_cov_to_natural(
 
     Operator structure (diagonal, Kronecker, …) is exploited via
     structural dispatch. For dense-array inputs see
-    `meanvar_to_natural`.
+    `mean_chol_to_natural`.
 
     For block-tridiagonal (SSM) inputs see
     `gaussx._ssm._ssm_natural.ssm_to_naturals`.
@@ -118,7 +118,7 @@ def mean_cov_to_natural(
 # ---------------------------------------------------------------------------
 
 
-def meanvar_to_natural(
+def mean_chol_to_natural(
     mu: Float[Array, "*batch N"],
     S_sqrt: Float[Array, "*batch N N"],
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
@@ -161,7 +161,7 @@ def meanvar_to_natural(
     return eta1_flat.reshape(mu.shape), eta2_flat.reshape(S_sqrt.shape)
 
 
-def natural_to_meanvar(
+def natural_to_mean_chol(
     eta1: Float[Array, "*batch N"],
     eta2: Float[Array, "*batch N N"],
     *,
@@ -202,7 +202,7 @@ def natural_to_meanvar(
     return mu_flat.reshape(eta1.shape), s_flat.reshape(eta2.shape)
 
 
-def meanvar_to_expectation(
+def mean_chol_to_expectation(
     mu: Float[Array, "*batch N"],
     S_sqrt: Float[Array, "*batch N N"],
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:
@@ -225,7 +225,7 @@ def meanvar_to_expectation(
     return m1, m2
 
 
-def expectation_to_meanvar(
+def expectation_to_mean_chol(
     m1: Float[Array, "*batch N"],
     m2: Float[Array, "*batch N N"],
 ) -> tuple[Float[Array, "*batch N"], Float[Array, "*batch N N"]]:

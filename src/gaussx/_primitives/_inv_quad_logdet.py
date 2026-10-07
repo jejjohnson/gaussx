@@ -20,7 +20,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
-from gaussx._operators._diagonalised import as_diagonalised
+from gaussx._operators._diagonalised import as_diagonalized
 from gaussx._primitives._logdet import _has_structural_logdet, logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
 from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
@@ -119,7 +119,7 @@ def inv_quad_logdet(
             f"rhs has {rhs.shape[0]} rows but operator has size {operator.in_size()}"
         )
     if strategy is None and (
-        as_diagonalised(operator) is not None or _has_structural_logdet(operator)
+        as_diagonalized(operator) is not None or _has_structural_logdet(operator)
     ):
         # Exact and cheap: a structural solve per column plus the structural
         # log-determinant, instead of BBMM's stochastic one (gh-340).

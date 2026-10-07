@@ -26,14 +26,14 @@ def gauss_kl(
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
-    r"""KL divergence ``KL[q(u) || p(u)]`` between Gaussian distributions.
+    r"""KL(first ‖ second): ``KL[q(u) || p(u)]`` with ``p(u) = N(0, K)``.
 
     Cholesky-parameterised variant of
-    `dist_kl_divergence` designed for
+    `gaussian_kl` designed for
     GP/SVGP models.  The Cholesky representation avoids explicit covariance
     matrix construction and supports both full and diagonal ``q_sqrt``.
     For lineax-operator covariances, use
-    `dist_kl_divergence` instead.
+    `gaussian_kl` instead.
 
     Computes the KL divergence where:
 
@@ -61,7 +61,7 @@ def gauss_kl(
         Scalar KL divergence summed over all ``R`` output dimensions.
 
     See Also:
-        `dist_kl_divergence`: General KL
+        `gaussian_kl`: General KL
         between two multivariate normals with lineax covariance operators.
     """
     if solver is not None:

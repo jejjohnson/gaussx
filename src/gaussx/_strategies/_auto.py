@@ -18,7 +18,7 @@ class AutoSolver(AbstractSolverStrategy):
 
     - Structured, i.e. any operator with an exact structural solve and
       log-determinant (Diagonal,
-      DiagonalisedOperator, BlockDiag, Kronecker, LowRankUpdate,
+      DiagonalizedOperator, BlockDiag, Kronecker, LowRankUpdate,
       KroneckerSum, SpectralFunction, BlockTriDiag and its bidiagonal
       factors, eigen-reducible sums of Kronecker products; also inside
       ``TaggedLinearOperator``, ``c * A``, ``A / c`` and ``-A``):

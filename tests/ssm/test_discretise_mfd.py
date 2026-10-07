@@ -12,8 +12,8 @@ from gaussx import (
     CosineSDE,
     MaternSDE,
     PeriodicSDE,
-    discretise_mfd,
-    discretise_mfd_sequence,
+    discretize_mfd,
+    discretize_mfd_sequence,
 )
 from gaussx._testing import tree_allclose
 
@@ -54,7 +54,7 @@ def test_agrees_with_stationary_route_on_matern(dt):
     params = kernel.sde_params()
 
     A_stat, Q_stat = kernel.discretise(jnp.asarray(dt))
-    A_mfd, Q_mfd = discretise_mfd(
+    A_mfd, Q_mfd = discretize_mfd(
         params.F, params.L @ params.Q_c @ params.L.T, jnp.asarray(dt)
     )
 
@@ -71,7 +71,7 @@ def test_matches_quadrature_on_unstable_drift():
     dt = jnp.asarray(0.5)
     Q_c = jnp.eye(2)
 
-    _, Q_mfd = discretise_mfd(_UNSTABLE, Q_c, dt)
+    _, Q_mfd = discretize_mfd(_UNSTABLE, Q_c, dt)
 
     assert tree_allclose(Q_mfd, _quadrature_Q(_UNSTABLE, Q_c, dt), atol=1e-9)
 
@@ -88,7 +88,7 @@ def test_undamped_oscillator_where_lyapunov_fails():
     Q_c = jnp.eye(2)
     truth = _quadrature_Q(_OSCILLATOR, Q_c, dt)
 
-    _, Q_mfd = discretise_mfd(_OSCILLATOR, Q_c, dt)
+    _, Q_mfd = discretize_mfd(_OSCILLATOR, Q_c, dt)
     assert tree_allclose(Q_mfd, truth, atol=1e-9)
 
     # The stationary route is not merely less accurate here -- it is wrong.
@@ -120,7 +120,7 @@ def test_degeneracy_sweep(lambda_2):
     F = jnp.array([[0.3, 0.0], [0.0, lambda_2]])
     truth = _quadrature_Q(F, Q_c, dt)
 
-    _, Q_mfd = discretise_mfd(F, Q_c, dt)
+    _, Q_mfd = discretize_mfd(F, Q_c, dt)
     assert tree_allclose(Q_mfd, truth, atol=1e-9)
 
     Q_lyap, residual = _lyapunov_Q(F, Q_c, dt)
@@ -148,7 +148,7 @@ def test_diagonal_degeneracy_is_benign_for_uncorrelated_diffusion():
     F = jnp.array([[0.3, 0.0], [0.0, -0.3]])
     truth = _quadrature_Q(F, jnp.eye(2), dt)
 
-    _, Q_mfd = discretise_mfd(F, jnp.eye(2), dt)
+    _, Q_mfd = discretize_mfd(F, jnp.eye(2), dt)
     Q_lyap, residual = _lyapunov_Q(F, jnp.eye(2), dt)
 
     assert tree_allclose(Q_mfd, truth, atol=1e-9)
@@ -161,7 +161,7 @@ def test_diagonal_degeneracy_is_benign_for_uncorrelated_diffusion():
 )
 def test_process_noise_is_psd_and_symmetric(F):
     """``Q`` is a covariance: exactly symmetric and non-negative definite."""
-    _, Q = discretise_mfd(F, jnp.eye(2), jnp.asarray(0.7))
+    _, Q = discretize_mfd(F, jnp.eye(2), jnp.asarray(0.7))
 
     # Exactly, not approximately -- the symmetrise call is not optional,
     # since ``C @ A.T`` is asymmetric to floating point.
@@ -171,7 +171,7 @@ def test_process_noise_is_psd_and_symmetric(F):
 
 def test_zero_timestep_is_the_identity():
     """A step of zero transitions nothing and accumulates no noise."""
-    A, Q = discretise_mfd(_OSCILLATOR, jnp.eye(2), jnp.asarray(0.0))
+    A, Q = discretize_mfd(_OSCILLATOR, jnp.eye(2), jnp.asarray(0.0))
 
     assert tree_allclose(A, jnp.eye(2), atol=1e-14)
     assert tree_allclose(Q, jnp.zeros((2, 2)), atol=1e-14)
@@ -181,20 +181,20 @@ def test_negative_timestep_is_rejected():
     """A negative step is an error, not a silently reversed exponential."""
     with pytest.raises(Exception, match="dt >= 0"):
         jax.block_until_ready(
-            discretise_mfd(_OSCILLATOR, jnp.eye(2), jnp.asarray(-0.5))
+            discretize_mfd(_OSCILLATOR, jnp.eye(2), jnp.asarray(-0.5))
         )
 
 
 @pytest.mark.slow
 def test_sequence_matches_vmap_of_scalar():
-    """``discretise_mfd_sequence`` is the vectorised scalar function."""
+    """``discretize_mfd_sequence`` is the vectorised scalar function."""
     steps = jnp.array([0.0, 0.1, 0.5, 2.0])
     Q_c = jnp.eye(2)
 
-    A_seq, Q_seq = discretise_mfd_sequence(_OSCILLATOR, Q_c, steps)
+    A_seq, Q_seq = discretize_mfd_sequence(_OSCILLATOR, Q_c, steps)
 
     for i, step in enumerate(steps):
-        A_i, Q_i = discretise_mfd(_OSCILLATOR, Q_c, step)
+        A_i, Q_i = discretize_mfd(_OSCILLATOR, Q_c, step)
         assert tree_allclose(A_seq[i], A_i, atol=1e-14)
         assert tree_allclose(Q_seq[i], Q_i, atol=1e-14)
 
@@ -256,7 +256,7 @@ def test_fallback_engages_when_p_inf_is_none():
 
     dt = jnp.asarray(0.5)
     A, Q = kernel.discretise(dt)
-    A_ref, Q_ref = discretise_mfd(_OSCILLATOR, jnp.eye(2), dt)
+    A_ref, Q_ref = discretize_mfd(_OSCILLATOR, jnp.eye(2), dt)
 
     assert tree_allclose(A, A_ref, atol=1e-14)
     assert tree_allclose(Q, Q_ref, atol=1e-14)
@@ -275,7 +275,7 @@ def test_grad_through_drift_is_finite():
     """``jax.grad`` w.r.t. ``F`` returns finite values."""
 
     def loss(F):
-        _, Q = discretise_mfd(F, jnp.eye(2), jnp.asarray(0.4))
+        _, Q = discretize_mfd(F, jnp.eye(2), jnp.asarray(0.4))
         return jnp.sum(Q**2)
 
     grad = jax.grad(loss)(_UNSTABLE)
@@ -286,8 +286,8 @@ def test_grad_through_drift_is_finite():
 def test_jit():
     """The function is traceable."""
     dt = jnp.asarray(0.5)
-    jitted = jax.jit(discretise_mfd)(_OSCILLATOR, jnp.eye(2), dt)
-    eager = discretise_mfd(_OSCILLATOR, jnp.eye(2), dt)
+    jitted = jax.jit(discretize_mfd)(_OSCILLATOR, jnp.eye(2), dt)
+    eager = discretize_mfd(_OSCILLATOR, jnp.eye(2), dt)
 
     assert tree_allclose(jitted[0], eager[0], atol=1e-14)
     assert tree_allclose(jitted[1], eager[1], atol=1e-14)
@@ -391,7 +391,7 @@ def test_stiff_stable_drift_does_not_overflow(decay):
     Q_c = jnp.array([[1.0]])
     dt = jnp.asarray(1.0)
 
-    A, Q = discretise_mfd(F, Q_c, dt)
+    A, Q = discretize_mfd(F, Q_c, dt)
 
     assert bool(jnp.all(jnp.isfinite(A)))
     assert bool(jnp.all(jnp.isfinite(Q)))
@@ -413,7 +413,7 @@ def test_scaling_and_squaring_is_exact_where_it_is_not_needed():
 
     for dt in (0.01, 0.5, 3.0):
         A_stat, Q_stat = kernel.discretise(jnp.asarray(dt))
-        A_mfd, Q_mfd = discretise_mfd(params.F, diffusion, jnp.asarray(dt))
+        A_mfd, Q_mfd = discretize_mfd(params.F, diffusion, jnp.asarray(dt))
         assert tree_allclose(A_mfd, A_stat, atol=1e-13)
         assert tree_allclose(Q_mfd, Q_stat, atol=1e-13)
 
@@ -427,7 +427,7 @@ def test_stiff_drift_stays_differentiable():
     """
 
     def loss(decay):
-        _, Q = discretise_mfd(-decay * jnp.eye(1), jnp.eye(1), jnp.asarray(1.0))
+        _, Q = discretize_mfd(-decay * jnp.eye(1), jnp.eye(1), jnp.asarray(1.0))
         return jnp.sum(Q)
 
     grad = jax.grad(loss)(jnp.asarray(500.0))
@@ -445,7 +445,7 @@ def test_drift_too_stiff_for_one_step_is_rejected():
     """
     with pytest.raises(Exception, match="too large to discretise"):
         jax.block_until_ready(
-            discretise_mfd(jnp.array([[-1e9]]), jnp.eye(1), jnp.asarray(1.0))
+            discretize_mfd(jnp.array([[-1e9]]), jnp.eye(1), jnp.asarray(1.0))
         )
 
 
@@ -456,10 +456,10 @@ def test_sequence_is_unaffected_by_the_doubling_path():
     F = jnp.array([[-50.0, 1.0], [0.0, -60.0]])
     Q_c = jnp.eye(2)
 
-    A_seq, Q_seq = discretise_mfd_sequence(F, Q_c, steps)
+    A_seq, Q_seq = discretize_mfd_sequence(F, Q_c, steps)
 
     for i, step in enumerate(steps):
-        A_i, Q_i = discretise_mfd(F, Q_c, step)
+        A_i, Q_i = discretize_mfd(F, Q_c, step)
         assert tree_allclose(A_seq[i], A_i, atol=1e-12)
         assert tree_allclose(Q_seq[i], Q_i, atol=1e-12)
 
@@ -475,7 +475,7 @@ def test_large_diffusion_does_not_overflow(magnitude):
     and multiplied back -- scaling the *step* instead would not help, since
     the growth here is linear rather than exponential.
     """
-    A, Q = discretise_mfd(jnp.zeros((1, 1)), jnp.array([[magnitude]]), jnp.asarray(1.0))
+    A, Q = discretize_mfd(jnp.zeros((1, 1)), jnp.array([[magnitude]]), jnp.asarray(1.0))
 
     assert tree_allclose(A, jnp.eye(1), atol=1e-12)
     assert tree_allclose(Q, jnp.array([[magnitude]]), rtol=1e-10)
@@ -483,7 +483,7 @@ def test_large_diffusion_does_not_overflow(magnitude):
 
 def test_zero_diffusion_is_handled():
     """A kernel with no diffusion at all must not divide by zero."""
-    A, Q = discretise_mfd(
+    A, Q = discretize_mfd(
         jnp.array([[0.0, -1.4], [1.4, 0.0]]), jnp.zeros((2, 2)), jnp.asarray(0.5)
     )
 
@@ -502,7 +502,7 @@ def test_ordinary_diffusions_are_not_rescaled():
     F = jnp.array([[-1.0, 0.5], [0.0, -2.0]])
     modest = jnp.diag(jnp.array([1.0, 1e-6]))
 
-    _, Q = discretise_mfd(F, modest, jnp.asarray(0.5))
+    _, Q = discretize_mfd(F, modest, jnp.asarray(0.5))
     truth = _quadrature_Q(F, modest, jnp.asarray(0.5))
 
     # The small mode survives intact rather than being scaled away.
@@ -515,7 +515,7 @@ def test_large_diffusion_preserves_smaller_modes():
     magnitude = 1e8
     Q_c = jnp.diag(jnp.array([magnitude, 1.0]))
 
-    A, Q = discretise_mfd(jnp.zeros((2, 2)), Q_c, jnp.asarray(1.0))
+    A, Q = discretize_mfd(jnp.zeros((2, 2)), Q_c, jnp.asarray(1.0))
 
     assert tree_allclose(A, jnp.eye(2), atol=1e-12)
     # Both channels come back, across eight orders of magnitude.
@@ -531,7 +531,7 @@ def test_long_step_with_modest_diffusion_does_not_overflow():
     a short step: ``Q_c = 1e3`` with ``dt = 1e5`` is the same 1e8 that NaNs
     at ``Q_c = 1e8``, ``dt = 1``.
     """
-    A, Q = discretise_mfd(jnp.zeros((1, 1)), jnp.array([[1e3]]), jnp.asarray(1e5))
+    A, Q = discretize_mfd(jnp.zeros((1, 1)), jnp.array([[1e3]]), jnp.asarray(1e5))
 
     assert tree_allclose(A, jnp.eye(1), atol=1e-12)
     assert tree_allclose(Q, jnp.array([[1e8]]), rtol=1e-10)

@@ -11,7 +11,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
@@ -52,7 +52,7 @@ def inv(
         return operator.original
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _inv_diagonal(operator)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return _inv_diagonalised(operator)
     if isinstance(operator, BlockDiag):
         return _inv_block_diag(operator)
@@ -93,7 +93,7 @@ def _inv_diagonal(
     return lx.DiagonalLinearOperator(1.0 / diag)
 
 
-def _inv_diagonalised(operator: DiagonalisedOperator) -> DiagonalisedOperator:
+def _inv_diagonalised(operator: DiagonalizedOperator) -> DiagonalizedOperator:
     """Same basis with ``1/λ`` (zero eigenvalues map to zero: pseudo-inverse)."""
     lam = operator.eigenvalues
     zero = lam == 0

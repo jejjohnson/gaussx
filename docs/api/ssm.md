@@ -58,7 +58,7 @@ the $P_\infty$ it needs. `IntegratedWienerSDE` overrides `discretise`
 with an exact closed form instead — its nilpotent drift makes the
 exponential terminate — so it needs neither route.
 
-`discretise_mfd` is the fallback for when that covariance is not
+`discretize_mfd` is the fallback for when that covariance is not
 available — most importantly when $F$ is a **learned parameter** rather
 than derived from a kernel. Recovering $P_\infty$ then means solving the
 Lyapunov equation $F P + P F^\top + Q_c = 0$, which has a unique solution
@@ -80,7 +80,7 @@ oscillatory modes MFD exists to support.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [discretise_mfd, discretise_mfd_sequence]
+      members: [discretize_mfd, discretize_mfd_sequence]
 
 ## Nonlinear filters
 

@@ -13,7 +13,7 @@ from gaussx._distributions._gaussian import (
     quadratic_form,
 )
 from gaussx._distributions._joseph import joseph_update
-from gaussx._distributions._kl import dist_kl_divergence
+from gaussx._distributions._kl import gaussian_kl
 from gaussx._distributions._project import project
 from gaussx._distributions._sample import sample_joint_conditional, sample_mvn
 
@@ -32,8 +32,8 @@ __all__ = [
     "MultivariateNormalPrecision",
     "add_jitter",
     "conditional",
-    "dist_kl_divergence",
     "gaussian_entropy",
+    "gaussian_kl",
     "gaussian_log_prob",
     "joseph_update",
     "kl_standard_normal",

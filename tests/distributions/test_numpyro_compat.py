@@ -348,7 +348,7 @@ def test_trace_mean_field_elbo_uses_the_analytic_kl():
     elbo = TraceMeanField_ELBO()
     loss_a = elbo.loss(jr.key(0), {}, model, guide)
     loss_b = elbo.loss(jr.key(1), {}, model, guide)
-    expected = gaussx.dist_kl_divergence(jnp.ones(3), cov, jnp.zeros(3), cov)
+    expected = gaussx.gaussian_kl(jnp.ones(3), cov, jnp.zeros(3), cov)
     assert jnp.allclose(loss_a, loss_b, rtol=1e-12)
     assert jnp.allclose(loss_a, expected, rtol=1e-10)
 
@@ -372,5 +372,5 @@ def test_kl_survives_plate_expansion():
     cov = lx.MatrixLinearOperator(2 * jnp.eye(3), lx.positive_semidefinite_tag)
     p = gaussx.MultivariateNormal(jnp.zeros(3), cov).expand((4,))
     q = gaussx.MultivariateNormal(jnp.ones(3), cov).expand((4,))
-    expected = gaussx.dist_kl_divergence(jnp.zeros(3), cov, jnp.ones(3), cov)
+    expected = gaussx.gaussian_kl(jnp.zeros(3), cov, jnp.ones(3), cov)
     assert jnp.allclose(nd.kl_divergence(p, q), jnp.full(4, expected), rtol=1e-12)

@@ -122,7 +122,7 @@ def _van_loan(
     Q_c: Float[Array, "d d"],
     dt: Float[Array, ""],
 ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
-    """One unscaled Van Loan discretisation; see `discretise_mfd`."""
+    """One unscaled Van Loan discretisation; see `discretize_mfd`."""
     d = F.shape[0]
     dtype = jnp.result_type(F, Q_c)
 
@@ -165,7 +165,7 @@ def _van_loan(
     return A, symmetrize(cross @ A.T)
 
 
-def discretise_mfd(
+def discretize_mfd(
     F: Float[Array, "d d"],
     Q_c: Float[Array, "d d"],
     dt: Float[Array, ""],
@@ -226,7 +226,7 @@ def discretise_mfd(
     # A negative step would silently run the exponential backwards and
     # return a Q that is not a covariance. error_if defers the check to
     # evaluation time so this stays traceable under jit.
-    dt = eqx.error_if(dt, dt < 0, "discretise_mfd requires dt >= 0.")
+    dt = eqx.error_if(dt, dt < 0, "discretize_mfd requires dt >= 0.")
 
     # How many doublings are needed to keep the augmented exponential in
     # range. The 1-norm bounds the spectral radius, so this is
@@ -243,7 +243,7 @@ def discretise_mfd(
     dt = eqx.error_if(
         dt,
         required > _MFD_MAX_SQUARINGS,
-        f"discretise_mfd: ||F|| * dt is too large to discretise in one step "
+        f"discretize_mfd: ||F|| * dt is too large to discretise in one step "
         f"(more than {_MFD_MAX_SQUARINGS} doublings would be needed). Split "
         f"the interval into shorter steps, or rescale time.",
     )
@@ -288,7 +288,7 @@ def discretise_mfd(
     # pays nothing here. lax.cond is used over a while_loop because it
     # stays reverse-mode differentiable.
     #
-    # Under vmap (as in discretise_mfd_sequence) a cond with a batched
+    # Under vmap (as in discretize_mfd_sequence) a cond with a batched
     # predicate lowers back to a select, so batched callers do pay for the
     # inactive branches; that is a JAX limitation, not an oversight.
     def _double(operands):
@@ -301,12 +301,12 @@ def discretise_mfd(
     return A, Q * diffusion_scale
 
 
-def discretise_mfd_sequence(
+def discretize_mfd_sequence(
     F: Float[Array, "d d"],
     Q_c: Float[Array, "d d"],
     dt: Float[Array, " N"],
 ) -> tuple[Float[Array, "N d d"], Float[Array, "N d d"]]:
-    """Vectorised `gaussx.discretise_mfd` over a vector of time steps.
+    """Vectorised `gaussx.discretize_mfd` over a vector of time steps.
 
     Args:
         F: Continuous-time drift matrix, shape ``(d, d)``.
@@ -316,4 +316,4 @@ def discretise_mfd_sequence(
     Returns:
         Tuple ``(A_seq, Q_seq)``, both shape ``(N, d, d)``.
     """
-    return jax.vmap(lambda step: discretise_mfd(F, Q_c, step))(dt)
+    return jax.vmap(lambda step: discretize_mfd(F, Q_c, step))(dt)

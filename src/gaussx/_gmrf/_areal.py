@@ -21,7 +21,7 @@ from gaussx._einx import einsum, rearrange
 from gaussx._gmrf._temporal import _as_float
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._sparse import (
     _PLAN_CACHE_SIZE,
@@ -138,7 +138,7 @@ def generalized_variance_scale(
     Two exact paths:
 
     - **Eigen-structured** ``R`` (a `KroneckerSum` grid Laplacian, a
-      `DiagonalisedOperator` or a `SpectralFunction`): the diagonal of the
+      `DiagonalizedOperator` or a `SpectralFunction`): the diagonal of the
       pseudo-inverse from the factor eigenvectors (`gaussx.diag_inv` with
       ``pinv=True``). This assumes ``null_space`` spans exactly the zero
       eigenspace.
@@ -290,7 +290,7 @@ def bym2_precision(
 def _has_eigenbasis(operator: lx.AbstractLinearOperator) -> bool:
     if isinstance(operator, lx.TaggedLinearOperator):
         return _has_eigenbasis(operator.operator)
-    return isinstance(operator, KroneckerSum | DiagonalisedOperator | SpectralFunction)
+    return isinstance(operator, KroneckerSum | DiagonalizedOperator | SpectralFunction)
 
 
 def _add_ridge(

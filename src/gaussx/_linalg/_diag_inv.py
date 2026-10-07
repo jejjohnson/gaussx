@@ -13,7 +13,7 @@ from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._linalg._selected_inverse import selected_inverse
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._factored_eigen import factored_eigen
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
@@ -54,7 +54,7 @@ def diag_inv(
       `gaussx.selected_inverse`, ``O(N d³)``.
     - `Kronecker` ``A ⊗ B``: ``diag_inv(A) ⊗ diag_inv(B)``, each factor
       dispatched in turn.
-    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalisedOperator`, or a
+    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalizedOperator`, or a
       `SpectralFunction` ``f(A ⊕ B)``, with ``M_ij = 1/f(λ^A_i + λ^B_j)``): with
       ``A = U_A Λ_A U_Aᵀ``, ``B = U_B Λ_B U_Bᵀ``,
       ``diag((A ⊕ B)⁻¹) = (U_A ∘ U_A) M (U_B ∘ U_B)ᵀ`` with
@@ -90,7 +90,7 @@ def diag_inv(
             intrinsic (singular) precisions on grids, e.g. the exact ICAR /
             BYM2 scaling constant on a raster. Only the eigenvalue-based
             paths (Kronecker sums and products of such operators, shifted
-            Kronecker products, `DiagonalisedOperator`, `SpectralFunction`)
+            Kronecker products, `DiagonalizedOperator`, `SpectralFunction`)
             support it.
 
     Returns:
@@ -133,7 +133,7 @@ def diag_inv(
     if pinv:
         msg = (
             "pinv=True needs an eigenvalue-based structure (KroneckerSum, "
-            "Kronecker, a shifted Kronecker product or DiagonalisedOperator) "
+            "Kronecker, a shifted Kronecker product or DiagonalizedOperator) "
             f"and method='auto'; got {type(operator).__name__} with "
             f"method={method!r}."
         )
@@ -246,7 +246,7 @@ def _diag_inv_structured(
                 else einsum(result, factor_diag, "a, b -> (a b)")
             )
         return result
-    if isinstance(operator, KroneckerSum | DiagonalisedOperator | SpectralFunction):
+    if isinstance(operator, KroneckerSum | DiagonalizedOperator | SpectralFunction):
         factorization = factored_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     if isinstance(operator, SumOfKroneckers | lx.AddLinearOperator):

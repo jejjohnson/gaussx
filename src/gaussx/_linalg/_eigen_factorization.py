@@ -6,7 +6,7 @@ separable operators (e.g. tensor-product spectral discretizations of
 a handful of dense rotations plus a pointwise division.
 
 Unlike `gaussx.KroneckerSum`'s structured solve, which needs symmetric
-factors (it uses ``Qᵀ`` as the inverse rotation), `EigenFactorization`
+factors (it uses ``Qᵀ`` as the inverse rotation), `EigenDecomposition`
 stores the explicit inverse eigenvector matrix and therefore handles
 non-symmetric but diagonalizable factors with a real spectrum — such as
 Chebyshev collocation second-derivative matrices.
@@ -29,7 +29,7 @@ from gaussx._einx import einsum
 _IMAG_TOLERANCE_FACTOR = 1e3
 
 
-class EigenFactorization(eqx.Module):
+class EigenDecomposition(eqx.Module):
     r"""Precomputed eigendecomposition ``A = V diag(λ) V⁻¹`` of a square matrix.
 
     Built once (on the host, outside ``jit``) and then reused for any number
@@ -48,7 +48,7 @@ class EigenFactorization(eqx.Module):
 
     Example:
         ```python
-        fac = gaussx.EigenFactorization.from_matrix(A)
+        fac = gaussx.EigenDecomposition.from_matrix(A)
         x = fac.solve_shifted(b, shift=2.0)  # (A - 2 I) x = b
         ```
     """
@@ -63,7 +63,7 @@ class EigenFactorization(eqx.Module):
         matrix: ArrayLike | lx.AbstractLinearOperator,
         *,
         symmetric: bool | None = None,
-    ) -> EigenFactorization:
+    ) -> EigenDecomposition:
         """Eigendecompose a concrete square matrix on the host.
 
         Uses NumPy (``eigh`` for symmetric input, ``eig`` otherwise), so it
@@ -93,7 +93,7 @@ class EigenFactorization(eqx.Module):
             mat = np.asarray(matrix)
         except jax.errors.TracerArrayConversionError as err:
             raise ValueError(
-                "EigenFactorization.from_matrix needs a concrete matrix "
+                "EigenDecomposition.from_matrix needs a concrete matrix "
                 "(it factorizes on the host with NumPy); call it outside jit."
             ) from err
         if mat.ndim != 2 or mat.shape[0] != mat.shape[1]:
@@ -108,7 +108,7 @@ class EigenFactorization(eqx.Module):
             tol = _IMAG_TOLERANCE_FACTOR * np.finfo(mat.dtype).eps * scale
             if np.max(np.abs(lam.imag)) > tol:
                 raise ValueError(
-                    "EigenFactorization supports real spectra only; the largest "
+                    "EigenDecomposition supports real spectra only; the largest "
                     f"imaginary part is {np.max(np.abs(lam.imag)):.3e}."
                 )
             lam, V = lam.real, V.real
@@ -156,7 +156,7 @@ def _apply_along_axis(matrix: Float[Array, "m n"], tensor: Array, axis: int) -> 
 
 
 def kronecker_sum_solve(
-    factors: Sequence[EigenFactorization],
+    factors: Sequence[EigenDecomposition],
     rhs: Float[Array, "*dims"],
     shift: float | Float[Array, ""] = 0.0,
     *,
@@ -184,12 +184,12 @@ def kronecker_sum_solve(
     symmetric.
 
     Args:
-        factors: One `EigenFactorization` per leading axis of ``rhs``.
+        factors: One `EigenDecomposition` per leading axis of ``rhs``.
         rhs: Right-hand side, shape ``(n_0, …, n_{d−1}, *batch)``.
         shift: Scalar shift ``σ`` (may be traced).
         drop: Optional boolean mask of shape ``(n_0, …, n_{d−1})``; masked
             eigen-combinations get a zero coefficient (restricted
-            pseudo-inverse), as in `EigenFactorization.solve_shifted`.
+            pseudo-inverse), as in `EigenDecomposition.solve_shifted`.
 
     Returns:
         ``X``, same shape as ``rhs``.

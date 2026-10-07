@@ -14,7 +14,7 @@ from gaussx._einx import einsum, reduce
 from gaussx._linalg._schur import conditional_variance as _conditional_variance
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -407,7 +407,7 @@ _STRUCTURED_SOLVE = (
     LowRankUpdate,
     KroneckerSum,
     BlockTriDiag,
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     SparseOperator,
 )
 

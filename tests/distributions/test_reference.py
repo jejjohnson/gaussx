@@ -62,7 +62,7 @@ def test_kl_matches_numpyro(n):
         nd.MultivariateNormal(mu, covariance_matrix=S),
         nd.MultivariateNormal(nu, covariance_matrix=T),
     )
-    dist_kl = gaussx.dist_kl_divergence(mu, psd_operator(S), nu, psd_operator(T))
+    dist_kl = gaussx.gaussian_kl(mu, psd_operator(S), nu, psd_operator(T))
     expfam_kl = gaussx.kl_divergence(
         gaussx.GaussianExpFam.from_mean_cov(mu, psd_operator(S)),
         gaussx.GaussianExpFam.from_mean_cov(nu, psd_operator(T)),

@@ -18,7 +18,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
-from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalised
+from gaussx._operators._diagonalised import DiagonalizedOperator, as_diagonalized
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import (
     KroneckerSum,
@@ -63,7 +63,7 @@ def solve(
     solver that does not converge.
 
     Structured rules keep their own semantics for singular operators: a
-    singular `gaussx.DiagonalisedOperator`, for example, returns the
+    singular `gaussx.DiagonalizedOperator`, for example, returns the
     minimum-norm pseudo-inverse solution.
 
     Args:
@@ -101,7 +101,7 @@ def solve(
         return operator.original.mv(vector)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _solve_diagonal(operator, vector)
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return _solve_diagonalised(operator, vector)
     if isinstance(operator, MaskedOperator) and operator.capacitance is not None:
         return _solve_masked(operator, vector)
@@ -146,7 +146,7 @@ def solve(
         y = solve(operator.operator1, vector, solver=solver)
         return solve(operator.operator2, y, solver=solver)
     if isinstance(operator, lx.AddLinearOperator):
-        # ``SumOperator`` builds native lineax sums rather than a
+        # ``sum_operator`` builds native lineax sums rather than a
         # `SumOfKroneckers`, so the same reduction has to be reachable here.
         x = _sum_of_kroneckers_solve(operator, vector)
         if x is not None:
@@ -196,7 +196,7 @@ def _solve_masked_jvp(primals, tangents):
 
 
 def _solve_diagonalised(
-    operator: DiagonalisedOperator,
+    operator: DiagonalizedOperator,
     vector: Float[Array, " n"],
 ) -> Float[Array, " n"]:
     """``x = V⁻¹ (V b / Λ)``; exactly-zero eigenvalues get a zero coefficient.
@@ -351,10 +351,10 @@ def _solve_kronecker_sum(
 
     (A (+) B) = (Q_A (x) Q_B) diag(lambda_A_i + lambda_B_j) (Q_A (x) Q_B)^T.
 
-    When every factor is a `DiagonalisedOperator` (recursively), the solve
+    When every factor is a `DiagonalizedOperator` (recursively), the solve
     goes through the composed transforms with no eigendecomposition at all —
     this covers non-symmetric factors via
-    `DiagonalisedOperator.from_eigen_factorization`.
+    `DiagonalizedOperator.from_eigen_factorization`.
 
     The formula uses ``Q^T`` as the inverse rotation, which is only valid
     for symmetric factors, so the structured path is taken only when both
@@ -362,10 +362,10 @@ def _solve_kronecker_sum(
     goes to the generic lineax fallback: treating an untagged non-symmetric
     factor as symmetric used to return a silently wrong answer. For a fast
     solve with non-symmetric but diagonalizable factors, precompute
-    `gaussx.EigenFactorization` per factor and call
+    `gaussx.EigenDecomposition` per factor and call
     `gaussx.kronecker_sum_solve`.
     """
-    diagonalised = as_diagonalised(operator)
+    diagonalised = as_diagonalized(operator)
     if diagonalised is not None:
         return _solve_diagonalised(diagonalised, vector)
     if not (lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)):
@@ -373,8 +373,8 @@ def _solve_kronecker_sum(
             warn_dense_fallback(
                 "solve(KroneckerSum) with factors not tagged symmetric "
                 "materialises the operator. Tag both factors with "
-                "lineax.symmetric_tag, or wrap them as DiagonalisedOperator "
-                "(e.g. DiagonalisedOperator.from_eigen_factorization)."
+                "lineax.symmetric_tag, or wrap them as DiagonalizedOperator "
+                "(e.g. DiagonalizedOperator.from_eigen_factorization)."
             )
         return _solve_fallback(operator, vector, solver)
 
@@ -510,7 +510,7 @@ def _solve_tagged(
     can still exploit the tags (e.g. PSD -> Cholesky).
     """
     if isinstance(operator.operator, SumOfKroneckers | lx.AddLinearOperator):
-        # ``SumOperator(..., tags=...)`` wraps the sum; unwrapping
+        # ``sum_operator(..., tags=...)`` wraps the sum; unwrapping
         # unconditionally would cost the fallback its PSD tag, so only take
         # the structured path when the exact reduction actually applies.
         x = _sum_of_kroneckers_solve(operator.operator, vector)
@@ -531,7 +531,7 @@ def _solve_tagged(
         LowRankUpdate,
         KroneckerSum,
         KroneckerSumSqrt,
-        DiagonalisedOperator,
+        DiagonalizedOperator,
         BlockTriDiag,
         LowerBlockTriDiag,
         UpperBlockTriDiag,

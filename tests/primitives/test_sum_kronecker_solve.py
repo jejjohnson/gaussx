@@ -20,7 +20,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._operators import Kronecker, KroneckerSum, SumOfKroneckers, SumOperator
+from gaussx._operators import Kronecker, KroneckerSum, SumOfKroneckers, sum_operator
 from gaussx._operators._sum_kronecker import (
     _DiagonalWhitener,
     _is_eigen_reducible,
@@ -146,7 +146,7 @@ class TestExactTwoTermPaths:
 
 
 class TestAddLinearOperatorForms:
-    """``SumOperator`` builds ``AddLinearOperator`` chains, not the operator."""
+    """``sum_operator`` builds ``AddLinearOperator`` chains, not the operator."""
 
     def test_kronecker_plus_scalar_identity(self):
         operator = _kronecker_of_psd(jr.key(0)) + 0.7 * _identity(N_A * N_B)
@@ -155,7 +155,7 @@ class TestAddLinearOperatorForms:
 
     def test_sum_operator_with_tags(self):
         """A tagged sum takes the structured path without losing its tags."""
-        operator = SumOperator(
+        operator = sum_operator(
             _kronecker_of_psd(jr.key(0)),
             0.7 * _identity(N_A * N_B),
             tags=lx.positive_semidefinite_tag,

@@ -101,7 +101,7 @@ def test_diagonal_with_rectangular_blocks_is_dense():
 
 def test_conj_keeps_structural_tags():
     operator = ZOO["circulant_complex"](jr.key(0))
-    tagged = gaussx.Circulant(
+    tagged = gaussx.circulant(
         operator.as_matrix()[:, 0], tags=lx.positive_semidefinite_tag
     )
     assert lx.is_positive_semidefinite(lx.conj(tagged)) == lx.is_positive_semidefinite(

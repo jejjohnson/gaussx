@@ -271,9 +271,9 @@ def test_negative_definite_keeps_structure_with_explicit_strategy(monkeypatch):
     expected = jnp.linalg.solve(op.as_matrix(), b)
 
     def _forbidden(self):
-        raise AssertionError("DiagonalisedOperator.as_matrix called")
+        raise AssertionError("DiagonalizedOperator.as_matrix called")
 
-    monkeypatch.setattr(gaussx.DiagonalisedOperator, "as_matrix", _forbidden)
+    monkeypatch.setattr(gaussx.DiagonalizedOperator, "as_matrix", _forbidden)
     x = linear_solve(op, b, solver=gaussx.DenseSolver())
     monkeypatch.undo()
     assert tree_allclose(x, expected)
