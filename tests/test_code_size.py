@@ -40,7 +40,7 @@ FUNCTION_ALLOWLIST = {
 
 # "<path relative to src/gaussx>": ceiling.
 MODULE_ALLOWLIST = {
-    "__init__.py": 834,  # the public re-export list
+    "__init__.py": 846,  # the public re-export list (grows with the API)
     "_distributions/_gmrf.py": 1213,
     "_operators/_sum_kronecker.py": 903,
 }
