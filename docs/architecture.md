@@ -476,6 +476,10 @@ src/gaussx/
 │                           #   BlockDiag, BlockTriDiag, LowRankUpdate, SVD
 │                           #   low-rank, Toeplitz, interpolated/masked operators,
 │                           #   KISS-GP grids, lazy algebra, capacitance
+├── _sparse/                # Layer 1 — symbolic + numeric sparse Cholesky for
+│                           #   SparseOperator
+├── _gmrf/                  # Layer 1 — GMRF precision builders (RW, AR(1),
+│                           #   Besag/BYM2, SPDE Matérn)
 │
 ├── _strategies/            # Layer 1.5 — Dense, Auto, CG, PreconditionedCG,
 │                           #   MINRES, LSMR, BBMM, Composed, SLQ logdets
@@ -492,7 +496,11 @@ src/gaussx/
 │                           #   parallel, sqrt, infinite-horizon), SpInGP, CVI
 ├── _quadrature/            # Layer 3 — integrators, likelihoods, expectations,
 │                           #   Ψ-statistics, uncertain-input GP prediction, ADF
-└── _inference/             # Layer 3 — BLR, natural gradient, EnKF, localization
+├── _inference/             # Layer 3 — BLR, natural gradient, EnKF, localization
+│
+├── _sketching/             # Outside the stack — random subspace embeddings
+└── _randomized/            # Outside the stack — randomized SVD / eigh,
+                            #   Nyström, RP-Cholesky
 ```
 
 Layer 3 lives in *named* subpackages (`_gp/`, `_ssm/`, …) rather than a single
