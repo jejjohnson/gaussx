@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -29,6 +30,20 @@ def kernel_expectations(
         Psi_1_i = E[k(x, x_i)]                  (N_train,)
         Psi_2_{ij} = E[k(x, x_i) k(x, x_j)]    (N_train, N_train)
 
+    For a point-based rule with points ``chi_p`` and mean weights ``w_p``
+    they are computed directly from the ``(P, N_train)`` kernel evaluations
+    ``K_{pi} = k(chi_p, x_i)``:
+
+    $$
+    \Psi_0 = \sum_p w_p\, k(\chi_p, \chi_p), \quad
+    \Psi_{1,i} = \sum_p w_p K_{pi}, \quad
+    \Psi_{2,ij} = \sum_p w_p K_{pi} K_{pj},
+    $$
+
+    so no ``(N_train^2, N_train^2)`` output covariance or per-point outer
+    product is ever built. Integrators without points (e.g. Taylor) go
+    through `mean_expectation` on the flattened outer product.
+
     Args:
         kernel_fn: Kernel function ``k(x, x') -> scalar``.
         state: Uncertain input distribution ``x ~ N(mu, Sigma)``.
@@ -38,7 +53,24 @@ def kernel_expectations(
     Returns:
         Tuple ``(Psi_0, Psi_1, Psi_2)``.
     """
-    from gaussx._quadrature._expectations import mean_expectation
+    from gaussx._einx import einsum, rearrange
+    from gaussx._quadrature._expectations import (
+        _points_and_weights_or_none,
+        mean_expectation,
+    )
+
+    def k_row(x: Float[Array, " D"]) -> Float[Array, " N_train"]:
+        return jax.vmap(lambda xi: kernel_fn(x, xi))(X_train)
+
+    rule = _points_and_weights_or_none(integrator, state)
+    if rule is not None:
+        chi, w, _ = rule
+        K_self = jax.vmap(lambda x: kernel_fn(x, x))(chi)  # (P,)
+        Kx = jax.vmap(k_row)(chi)  # (P, N_train)
+        Psi_0 = einsum(w, K_self, "p, p ->")
+        Psi_1 = einsum(w, Kx, "p, p i -> i")
+        Psi_2 = einsum(einx.multiply("p, p i -> p i", w, Kx), Kx, "p i, p j -> i j")
+        return Psi_0, Psi_1, Psi_2
 
     # Psi_0 = E[k(x, x)]
     Psi_0 = mean_expectation(
@@ -48,22 +80,15 @@ def kernel_expectations(
     )[0]
 
     # Psi_1_i = E[k(x, x_i)]
-    def psi1_fn(x: Float[Array, " D"]) -> Float[Array, " N_train"]:
-        return jax.vmap(lambda xi: kernel_fn(x, xi))(X_train)
-
-    Psi_1 = mean_expectation(psi1_fn, state, integrator)
+    Psi_1 = mean_expectation(k_row, state, integrator)
 
     # Psi_2_{ij} = E[k(x, x_i) * k(x, x_j)]
-    def psi2_fn(
-        x: Float[Array, " D"],
-    ) -> Float[Array, "N_train N_train"]:
-        k_vec = jax.vmap(lambda xi: kernel_fn(x, xi))(X_train)
-        return jnp.outer(k_vec, k_vec)
-
-    from gaussx._einx import rearrange
-
     N_train = X_train.shape[0]
-    psi2_flat_fn = lambda x: rearrange(psi2_fn(x), "i j -> (i j)")
+
+    def psi2_flat_fn(x: Float[Array, " D"]) -> Float[Array, " NN"]:
+        k_vec = k_row(x)
+        return rearrange(jnp.outer(k_vec, k_vec), "i j -> (i j)")
+
     Psi_2_flat = mean_expectation(psi2_flat_fn, state, integrator)
     Psi_2 = rearrange(Psi_2_flat, "(i j) -> i j", i=N_train, j=N_train)
 

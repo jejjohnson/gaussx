@@ -5,11 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol, cast, runtime_checkable
 
-import jax
-import jax.numpy as jnp
 from jaxtyping import Array, Float
 
-from gaussx._einx import rearrange
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 
@@ -90,36 +87,7 @@ def compute_psi_statistics(
         )
         raise ValueError(msg)
 
-    # ── Numerical fallback ────────────────────────────────────────
-    k_call = cast(Callable, kernel)
+    # ── Numerical fallback: one implementation, `kernel_expectations` ──
+    from gaussx._quadrature._gp_predict import kernel_expectations
 
-    # Ψ₀ = E[k(x, x)]
-    def _k_self(x: Float[Array, " D"]) -> Float[Array, " 1"]:
-        return jnp.atleast_1d(k_call(x, x))
-
-    psi0_result = integrator.integrate(_k_self, state)
-    psi0 = psi0_result.state.mean[0]  # scalar
-
-    # Ψ₁ᵢ = E[k(x, xᵢ)]
-    def _k_cross(x: Float[Array, " D"]) -> Float[Array, " M"]:
-        return jax.vmap(lambda xj: k_call(x, xj))(X_train)
-
-    psi1_result = integrator.integrate(_k_cross, state)
-    psi1 = psi1_result.state.mean  # (M,)
-
-    # Ψ₂ᵢⱼ = E[k(x, xᵢ) k(x, xⱼ)]
-    M = X_train.shape[0]
-
-    def _k_outer(x: Float[Array, " D"]) -> Float[Array, " flat"]:
-        kx = jax.vmap(lambda xj: k_call(x, xj))(X_train)
-        return rearrange(jnp.outer(kx, kx), "i j -> (i j)")  # (M²,)
-
-    psi2_result = integrator.integrate(_k_outer, state)
-    psi2 = rearrange(
-        psi2_result.state.mean,
-        "(i j) -> i j",
-        i=M,
-        j=M,
-    )  # (M, M)
-
-    return psi0, psi1, psi2
+    return kernel_expectations(cast(Callable, kernel), state, X_train, integrator)

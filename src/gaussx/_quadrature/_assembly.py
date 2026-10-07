@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-import jax.numpy as jnp
+import einx
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
@@ -37,24 +38,19 @@ def assemble_propagation_result(
         w_c = w_m
 
     # Output mean: μ_y = Σᵢ wᵢᵐ yᵢ
-    mu_y = jnp.sum(w_m[:, None] * Y, axis=0)  # (M,)
+    mu_y = einsum(w_m, Y, "p, p m -> m")  # (M,)
 
     # Residuals
-    dy = Y - mu_y[None, :]  # (P, M)
-    dx = chi - mu[None, :]  # (P, N)
+    dy = einx.subtract("p m, m -> p m", Y, mu_y)  # (P, M)
+    dx = einx.subtract("p n, n -> p n", chi, mu)  # (P, N)
 
-    # Output covariance: Σ_y = Σᵢ wᵢᶜ (yᵢ − μ_y)(yᵢ − μ_y)ᵀ
-    Sigma_y = jnp.sum(
-        w_c[:, None, None] * (dy[:, :, None] * dy[:, None, :]),
-        axis=0,
-    )
-    Sigma_y = symmetrize(Sigma_y)
+    # Output covariance: Σ_y = Σᵢ wᵢᶜ (yᵢ − μ_y)(yᵢ − μ_y)ᵀ, contracted over
+    # the points without a (P, M, M) temporary.
+    w_dy = einx.multiply("p, p m -> p m", w_c, dy)
+    Sigma_y = symmetrize(einsum(w_dy, dy, "p i, p j -> i j"))
 
     # Cross-covariance: C_xy = Σᵢ wᵢᶜ (xᵢ − μ)(yᵢ − μ_y)ᵀ
-    cross_cov = jnp.sum(
-        w_c[:, None, None] * (dx[:, :, None] * dy[:, None, :]),
-        axis=0,
-    )
+    cross_cov = einsum(dx, w_dy, "p n, p m -> n m")
 
     cov_y = lx.MatrixLinearOperator(Sigma_y, lx.symmetric_tag)
     out_state = GaussianState(mean=mu_y, cov=cov_y)

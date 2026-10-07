@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import pytest
 
 from gaussx._quadrature._expectations import (
     cost_expectation,
@@ -13,6 +14,7 @@ from gaussx._quadrature._expectations import (
 from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._taylor import TaylorIntegrator
 from gaussx._quadrature._types import GaussianState
+from gaussx._testing import default_tolerances
 
 
 def _make_state():
@@ -99,3 +101,52 @@ class TestCostExpectation:
         assert result.shape == ()
         assert jnp.isfinite(result)
         assert result > 0  # state mean != target
+
+
+# gh-323: mean-only path and the contraction in assemble_propagation_result.
+
+
+def test_mean_expectation_point_rule_matches_integrate():
+    from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
+
+    state = _make_state()
+    fn = lambda x: jnp.stack([jnp.sin(x[0]) * x[1], jnp.exp(-(x**2).sum())])
+    for integ in (
+        GaussHermiteIntegrator(order=8),
+        MonteCarloIntegrator(n_samples=64, key=jax.random.key(0)),
+    ):
+        got = mean_expectation(fn, state, integ)
+        ref = integ.integrate(fn, state).state.mean
+        assert jnp.allclose(got, ref, rtol=1e-12, atol=1e-14)
+
+
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        jnp.float32,
+        pytest.param(jnp.float64, marks=pytest.mark.x64_only(reason="float64 case")),
+    ],
+)
+def test_assemble_matches_broadcast_formula(dtype):
+    from gaussx._quadrature._assembly import assemble_propagation_result
+
+    keys = jax.random.split(jax.random.key(0), 4)
+    P, N, M = 9, 3, 4
+    chi = jax.random.normal(keys[0], (P, N), dtype)
+    Y = jax.random.normal(keys[1], (P, M), dtype)
+    w_m = jax.random.uniform(keys[2], (P,), dtype)
+    w_c = w_m - 0.05  # signed, like the scaled unscented centre weight
+    mu = jnp.ones(N, dtype)
+
+    r = assemble_propagation_result(chi, Y, mu, w_m, w_c)
+
+    mu_y = w_m @ Y
+    dy, dx = Y - mu_y, chi - mu
+    Sigma = sum(w_c[p] * jnp.outer(dy[p], dy[p]) for p in range(P))
+    cross = sum(w_c[p] * jnp.outer(dx[p], dy[p]) for p in range(P))
+    rtol, atol = default_tolerances(chi)
+    assert r.state.mean.dtype == r.cross_cov.dtype == dtype
+    assert r.state.cov.as_matrix().dtype == dtype
+    assert jnp.allclose(r.state.mean, mu_y, rtol=rtol, atol=atol)
+    assert jnp.allclose(r.state.cov.as_matrix(), Sigma, rtol=rtol, atol=atol)
+    assert jnp.allclose(r.cross_cov, cross, rtol=rtol, atol=atol)

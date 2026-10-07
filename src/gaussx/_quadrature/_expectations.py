@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._likelihood import AbstractLikelihood
 from gaussx._quadrature._types import GaussianState
@@ -19,6 +21,13 @@ def mean_expectation(
 ) -> Float[Array, " M"]:
     r"""Compute ``E[f(x)]`` where ``x ~ N(mu, Sigma)``.
 
+    For a point-based rule (one that implements ``points_and_weights``)
+    this is the weighted sum ``\sum_p w^{(m)}_p f(\chi_p)`` alone: the
+    output covariance that ``integrator.integrate`` would also assemble is
+    never built, which matters for wide outputs (``M = N^2`` for a
+    flattened outer product). Other integrators (e.g. Taylor) fall back to
+    ``integrator.integrate(fn, state).state.mean``.
+
     Args:
         fn: Function mapping ``(N,) -> (M,)``.
         state: Input Gaussian distribution.
@@ -27,8 +36,22 @@ def mean_expectation(
     Returns:
         Expected function value, shape ``(M,)``.
     """
-    result = integrator.integrate(fn, state)
-    return result.state.mean
+    rule = _points_and_weights_or_none(integrator, state)
+    if rule is None:
+        return integrator.integrate(fn, state).state.mean
+    chi, w_m, _ = rule
+    return einsum(w_m, jax.vmap(fn)(chi), "p, p m -> m")
+
+
+def _points_and_weights_or_none(
+    integrator: AbstractIntegrator,
+    state: GaussianState,
+) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]] | None:
+    """The rule's points and weights, or ``None`` if it is not point-based."""
+    try:
+        return integrator.points_and_weights(state)
+    except NotImplementedError:
+        return None
 
 
 def gradient_expectation(
