@@ -26,6 +26,7 @@ import pytest
 
 import gaussx as gx
 from gaussx._einx import einsum
+from gaussx._strategies._sketch_precond import _sketch
 from gaussx._testing import random_pd_operator
 
 
@@ -185,6 +186,40 @@ def test_logdet_delegates_to_lsmr_solver():
     op = random_pd_operator(jr.key(16), 8)
     got = gx.SketchAndPrecondLSMR(seed=3).logdet(op)
     assert jnp.allclose(got, gx.LSMRSolver(seed=3).logdet(op))
+
+
+@pytest.mark.parametrize(
+    "sample",
+    [
+        lambda key, d, m: gx.SparseSignSketch.sample(key, d, m, nnz=3),
+        lambda key, d, m: gx.SRHTSketch.sample(key, d, m),
+    ],
+    ids=["sparse_sign", "srht"],
+)
+def test_matrix_free_sketch_matches_dense(sample):
+    """The batched matrix-free sketch never forms S^T, but equals S A."""
+    m, n, d = 100, 5, 40  # d > _ROW_BATCH: more than one batch
+    A = jr.normal(jr.key(19), (m, n))
+    S = sample(jr.key(20), d, m)
+    op = lx.FunctionLinearOperator(
+        lambda v: einsum(A, v, "m n, n -> m"), jax.ShapeDtypeStruct((n,), A.dtype)
+    )
+    got = eqx.filter_jit(_sketch)(op, S)
+    assert jnp.allclose(got, S.apply(A), atol=1e-10)
+
+
+def test_rank_deficient_undamped_raises_and_ridge_does_not():
+    m, n = 200, 6
+    A = jr.normal(jr.key(21), (m, n))
+    A = A.at[:, -1].set(A[:, 0])  # a duplicated column
+    b = jr.normal(jr.key(22), (m,))
+    op = lx.MatrixLinearOperator(A)
+    S = gx.GaussianSketch.sample(jr.key(23), 40, m)
+    with pytest.raises(eqx.EquinoxRuntimeError, match="rank-deficient"):
+        gx.sketch_and_solve(op, b, sketch=S)
+    with pytest.raises(eqx.EquinoxRuntimeError, match="rank-deficient"):
+        gx.SketchAndPrecondLSMR().solve(op, b)
+    assert jnp.all(jnp.isfinite(gx.sketch_and_solve(op, b, sketch=S, damp=0.1)))
 
 
 @pytest.mark.parametrize(

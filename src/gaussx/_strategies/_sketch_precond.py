@@ -26,6 +26,51 @@ from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 SketchName = Literal["sparse_sign", "srht", "gaussian"]
 
+# A matrix-free operator is sketched this many rows of S at a time, so the
+# peak extra memory is _ROW_BATCH * m (rows of S^T) rather than d * m.
+_ROW_BATCH = 32
+
+
+def _sketch(
+    operator: lx.AbstractLinearOperator, sketch: AbstractSketch
+) -> Float[Array, "d n"]:
+    r"""$SA$, without materialising $S^\top$ for a matrix-free $A$.
+
+    `AbstractSketch.sketch_operator` vmaps over all $d$ rows of $S$ at once,
+    which forms the $(m, d)$ block $S^\top$: 4.8 GB in float32 at $m =
+    10^6$, $d = 1200$. Row $i$ of $SA$ is $A^\top (S^\top e_i)$, so this
+    maps over the rows of $S$ in batches of ``_ROW_BATCH``.
+    """
+    if operator.out_size() != sketch.in_size:
+        raise ValueError(
+            f"Cannot sketch an operator with {operator.out_size()} rows using a "
+            f"sketch with in_size={sketch.in_size}."
+        )
+    if isinstance(operator, lx.MatrixLinearOperator):
+        return sketch.apply(operator.matrix)
+    transpose = operator.transpose()
+    unit_rows = jnp.eye(sketch.out_size, dtype=operator.out_structure().dtype)
+    return jax.lax.map(
+        lambda e: transpose.mv(sketch.apply_transpose(e)),
+        unit_rows,
+        batch_size=min(_ROW_BATCH, sketch.out_size),
+    )
+
+
+def _check_full_rank(
+    R: Float[Array, "n n"], x: Float[Array, " n"]
+) -> Float[Array, " n"]:
+    """Raise (at run time) when the undamped triangular factor is singular."""
+    magnitudes = jnp.abs(jnp.diagonal(R))
+    threshold = R.shape[0] * jnp.finfo(R.dtype).eps * jnp.max(magnitudes)
+    return eqx.error_if(
+        x,
+        jnp.min(magnitudes) <= threshold,
+        "The sketch SA is numerically rank-deficient: A has (numerically) "
+        "dependent columns, so the least-squares solution is not unique. "
+        "Pass damp > 0 for the ridge solution.",
+    )
+
 
 def _sketch_qr(
     operator: lx.AbstractLinearOperator, sketch: AbstractSketch, damp: float
@@ -34,7 +79,7 @@ def _sketch_qr(
 
     Returns the first $d$ rows of $Q$ (the block that meets $Sb$) and $R$.
     """
-    SA = sketch.sketch_operator(operator)
+    SA = _sketch(operator, sketch)
     n = operator.in_size()
     stacked = SA
     if damp != 0.0:
@@ -104,6 +149,8 @@ def sketch_and_solve(
 
     Raises:
         ValueError: If ``damp < 0`` or the sketch's ``in_size`` is not $m$.
+        equinox.EquinoxRuntimeError: If ``damp == 0`` and $SA$ is
+            numerically rank-deficient ($A$ has dependent columns).
 
     References:
         Woodruff, D. P. (2014). Sketching as a tool for numerical linear
@@ -123,7 +170,8 @@ def sketch_and_solve(
     if damp < 0:
         raise ValueError(f"sketch_and_solve needs damp >= 0, got {damp}.")
     Q_top, R = _sketch_qr(operator, sketch, damp)
-    return _warm_start(Q_top, R, sketch, vector)
+    x = _warm_start(Q_top, R, sketch, vector)
+    return x if damp != 0.0 else _check_full_rank(R, x)
 
 
 class SketchAndPrecondLSMR(AbstractSolverStrategy):
@@ -168,6 +216,12 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
     The inner solve is `lineax.LSMR` on the composed operator $\tilde A M$
     (the undamped path of `LSMRSolver`), so gradients use lineax's implicit
     differentiation. Only $A$ is sketched; the ridge block is exact.
+
+    With ``damp == 0``, $A$ must have full column rank (otherwise the
+    solution is not unique and $R$ is singular; ``throw=True`` raises);
+    ``damp > 0`` always has a unique solution. A matrix-free $A$ is
+    sketched with $d$ transpose-matvecs, a batch of rows of $S$ at a time,
+    so the extra memory is $O(m)$ per batch, not $O(dm)$.
 
     **Scope.** The dense QR of the $d \times n$ sketch costs $O(d n^2)$ and
     $O(dn)$ memory, so this targets $n \lesssim 10^4$ (e.g. Gauss-Newton
@@ -265,6 +319,8 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
         sketch = self._sample_sketch(m, n)
         Q_top, R = _sketch_qr(operator, sketch, self.damp)
         x0 = _warm_start(Q_top, R, sketch, vector)
+        if self.damp == 0.0 and self.throw:
+            x0 = _check_full_rank(R, x0)
         damp = self.damp
 
         def precondition(y: Float[Array, " n"]) -> Float[Array, " n"]:
@@ -312,6 +368,9 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
 
         Raises:
             ValueError: If ``damp == 0`` and $m < n$.
+            equinox.EquinoxRuntimeError: With ``throw=True``, if ``damp == 0``
+                and $A$ has numerically dependent columns (the solution is
+                not unique; pass ``damp > 0``), or LSMR does not converge.
         """
         return self._solve(operator, vector)[0]
 
