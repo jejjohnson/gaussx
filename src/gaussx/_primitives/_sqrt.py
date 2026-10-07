@@ -68,7 +68,10 @@ def sqrt(
         return scaled_root(
             operator,
             lambda base: sqrt(base, lanczos_order=lanczos_order),
-            _sqrt_dense,
+            # The unscaled route keeps a requested matrix-free Lanczos root.
+            _sqrt_dense
+            if lanczos_order is None
+            else lambda op: SqrtOperator(op, lanczos_order),
             "sqrt",
         )
     if isinstance(operator, DiagonalisedOperator):

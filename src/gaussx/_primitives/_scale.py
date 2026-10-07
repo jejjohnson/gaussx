@@ -104,8 +104,20 @@ def scaled_root(
             f"{name} requires a positive semi-definite operator; got a "
             f"negative multiple of a {type(base).__name__}."
         )
-    factor = root(base)
-    if not isinstance(factor, lx.AbstractLinearOperator):
-        # A `SparseCholeskyFactor` is a permuted factor, not an operator.
+    if _contains_sparse(base):
+        # A sparse Cholesky is a permuted `SparseCholeskyFactor`, not an
+        # operator, so it can neither be scaled nor sit in a BlockDiag.
         return dense(operator)
-    return scale_factor(factor, jnp.sqrt(scale))
+    return scale_factor(root(base), jnp.sqrt(scale))
+
+
+def _contains_sparse(operator: lx.AbstractLinearOperator) -> bool:
+    from gaussx._operators._sparse import SparseOperator
+
+    if isinstance(operator, SparseOperator):
+        return True
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _contains_sparse(operator.operator)
+    if isinstance(operator, BlockDiag | Kronecker):
+        return any(_contains_sparse(op) for op in operator.operators)
+    return False

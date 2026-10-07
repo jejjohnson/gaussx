@@ -11,7 +11,7 @@ import pytest
 from gaussx._einx import rearrange
 from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, KroneckerSumSqrt
 from gaussx._primitives import solve, sqrt
-from gaussx._primitives._sqrt import dense_symmetric_sqrt
+from gaussx._primitives._sqrt import SqrtOperator, dense_symmetric_sqrt
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -286,3 +286,13 @@ def test_sqrt_negated_operator_raises(getkey):
     )
     with pytest.raises(ValueError, match="positive semi-definite"):
         sqrt(-op)
+
+
+def test_sqrt_negated_nsd_keeps_lanczos(getkey):
+    """``-A`` with NSD ``A`` is PSD; a requested Lanczos root stays lazy."""
+    S = random_pd_matrix(getkey(), 3)
+    op = -lx.MatrixLinearOperator(-S, lx.negative_semidefinite_tag)
+    root = sqrt(op, lanczos_order=3)
+    assert isinstance(root, SqrtOperator)
+    v = jnp.ones(3)
+    assert tree_allclose(root.mv(root.mv(v)), S @ v, rtol=1e-3, atol=1e-3)
