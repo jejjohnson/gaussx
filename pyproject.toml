@@ -24,7 +24,7 @@ dependencies = [
     "jaxlib>=0.10",
     "equinox>=0.13.8",
     "lineax>=0.1.1",
-    "matfree>=0.6",
+    "matfree>=0.6.2",
     "jaxtyping>=0.3",
     "einx>=0.4.3",
 ]

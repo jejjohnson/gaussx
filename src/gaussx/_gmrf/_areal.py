@@ -150,6 +150,31 @@ def generalized_variance_scale(
       ``Σ = S − S V (Vᵀ S V)⁻¹ Vᵀ S`` with ``S = (R + εI)⁻¹``, which needs
       ``k`` solves.
 
+    **Graphs too large to factor.** The ridge path cancels two
+    $O(1/\varepsilon)$ terms, so it needs exact variances. Instead, with
+    ``V`` orthonormal, $(R + VV^\top)^{-1} = R^{+} + VV^\top$ is a
+    well-conditioned system, and
+
+    $$
+    \Sigma_{ii} = \big[(R + VV^\top)^{-1}\big]_{ii} - \textstyle\sum_j V_{ij}^2,
+    $$
+
+    whose first term `gaussx.diag_inv` estimates with ``method="xdiag"`` and
+    a CG solve on the matrix-free ``R + VVᵀ``; then
+    ``s = exp(mean(log Σ_ii))``:
+
+    ```python
+    V = null_space / jnp.linalg.norm(null_space)  # one component: constants
+    shifted = lx.TaggedLinearOperator(
+        gaussx.LowRankUpdate(R, einx.id("n -> n 1", V)),
+        lx.positive_semidefinite_tag,
+    )
+    var = gaussx.diag_inv(
+        shifted, method="xdiag", num_probes=64, key=key, solver=gaussx.CGSolver()
+    ) - V**2
+    s = jnp.exp(jnp.mean(jnp.log(var)))
+    ```
+
     For a disconnected graph scale each connected component separately.
     ``structure`` may have one more row than ``null_space``: the decoupled
     padding node of an odd-size `gaussx.rw2_structure`, which is then
