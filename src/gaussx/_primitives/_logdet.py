@@ -59,6 +59,17 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
 
     Returns:
         Scalar log |det(A)|.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
+        >>> K = gaussx.Kronecker(A, B)  # diag(4, 5, 8, 10)
+        >>> round(float(gaussx.logdet(K)), 4)  # n_B logdet(A) + n_A logdet(B)
+        7.3778
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return jnp.zeros((), dtype=operator.in_structure().dtype)

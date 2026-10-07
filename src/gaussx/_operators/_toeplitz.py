@@ -28,6 +28,17 @@ class Toeplitz(lx.AbstractLinearOperator):
     Raises:
         TypeError: If ``column`` is complex.
         ValueError: If ``column`` is not rank 1 or is empty.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> T = gaussx.Toeplitz(jnp.array([2.0, 0.5, 0.25]))  # first column
+        >>> T.as_matrix().tolist()
+        [[2.0, 0.5, 0.25], [0.5, 2.0, 0.5], [0.25, 0.5, 2.0]]
+        >>> [float(v) for v in T.mv(jnp.ones(3))]  # FFT matvec
+        [2.75, 3.0, 2.75]
     """
 
     column: Float[Array, " n"]

@@ -55,7 +55,8 @@ class MultivariateNormalPrecision(AbstractMultivariateNormal):
         ...     2.0 * jnp.eye(3), lx.positive_semidefinite_tag
         ... )
         >>> d = MultivariateNormalPrecision(jnp.zeros(3), Lambda)
-        >>> d.log_prob(jnp.ones(3))
+        >>> round(float(d.log_prob(jnp.ones(3))), 4)
+        -4.7171
     """
 
     pytree_data_fields = ("loc", "prec_operator", "solver")

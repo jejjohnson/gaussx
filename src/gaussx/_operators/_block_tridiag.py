@@ -69,6 +69,21 @@ class BlockTriDiag(lx.AbstractLinearOperator):
     Raises:
         ValueError: If ``symmetric=True`` and a concrete ``D_k`` is not
             symmetric to within ``sqrt(eps)`` of its largest entry.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> diagonal = jnp.stack([3.0 * jnp.eye(2)] * 3)  # three 2 x 2 blocks
+        >>> sub_diagonal = jnp.stack([0.5 * jnp.eye(2)] * 2)
+        >>> T = gaussx.BlockTriDiag(diagonal, sub_diagonal)
+        >>> T.as_matrix().shape
+        (6, 6)
+        >>> b = jnp.ones(6)
+        >>> x = gaussx.solve(T, b)  # block-banded, O(N d³)
+        >>> bool(jnp.allclose(T.as_matrix() @ x, b, atol=1e-5))
+        True
     """
 
     diagonal: Float[Array, "N d d"]

@@ -56,7 +56,8 @@ class MultivariateNormal(AbstractMultivariateNormal):
         ...     jnp.eye(3), lx.positive_semidefinite_tag
         ... )
         >>> d = MultivariateNormal(jnp.zeros(3), Sigma)
-        >>> d.log_prob(jnp.ones(3))
+        >>> round(float(d.log_prob(jnp.ones(3))), 4)
+        -4.2568
     """
 
     pytree_data_fields = ("loc", "cov_operator", "solver")

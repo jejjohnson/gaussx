@@ -76,7 +76,8 @@ git --no-pager diff --no-prefix --unified=100000 --minimal "$BASE_BRANCH"...HEAD
 - Inline comments explaining *why*, not *what* — except for complex logic or function calls where a brief *what* comment aids comprehension
 - Complex algorithms should have step-by-step explanations
 - All scientific algorithms should include Unicode equations in docstrings and inline where appropriate (e.g. `# σ² = Σ(xᵢ − μ)² / N`)
-- All docstrings for public classes and functions should include 2–3 example use cases
+- Examples are doctests (`>>>` under an `Examples:` section) and must pass: `tests/test_doctests.py` runs every one in the fast lane and in the float32 lane, so print rounded floats, shapes or type names rather than raw arrays (whose repr carries the dtype)
+- Every **new** public function or class gets at least one runnable example; the Layer-0 primitives and the headline operators must have one (`_MUST_HAVE_EXAMPLES` in `tests/test_doctests.py`). Existing public APIs gain examples when they are next touched; a notebook covering the API does not replace the docstring example
 - Type hints serve as documentation — ensure they are accurate and complete
 
 ### 5. Error Handling

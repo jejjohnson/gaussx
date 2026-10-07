@@ -44,6 +44,20 @@ def inv(
 
     Returns:
         An operator representing A^{-1}.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
+        >>> K = gaussx.Kronecker(A, B)  # diag(4, 5, 8, 10)
+        >>> K_inv = gaussx.inv(K)  # Kronecker(inv(A), inv(B)), never densified
+        >>> type(K_inv).__name__
+        'Kronecker'
+        >>> [round(float(v), 4) for v in K_inv.mv(jnp.ones(4))]
+        [0.25, 0.2, 0.125, 0.1]
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator
