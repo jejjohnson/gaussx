@@ -674,7 +674,7 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.5" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=0.25" },
 ]
-lint = [{ name = "ruff", specifier = ">=0.15.10" }]
+lint = [{ name = "ruff", specifier = ">=0.16.10" }]
 typecheck = [
     { name = "numpyro", specifier = ">=0.21" },
     { name = "ty", specifier = ">=0.0.34" },
