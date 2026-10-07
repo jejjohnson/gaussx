@@ -24,16 +24,20 @@ class TestDiagInv:
         expected = jnp.diag(jnp.linalg.inv(K))
         assert jnp.allclose(result, expected, atol=1e-5)
 
-    def test_hutchinson_converges(self, getkey):
+    def test_hutchinson_converges(self):
         """Hutchinson estimate is close with many probes."""
-        N = 12
-        A = jax.random.normal(getkey(), (N, N))
+        N, m = 12, 1000
+        A = jax.random.normal(jax.random.key(0), (N, N))
         K = A @ A.T + jnp.eye(N)
         op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
-        key = jax.random.PRNGKey(42)
-        result = diag_inv(op, method="hutchinson", num_probes=1000, key=key)
-        expected = jnp.diag(jnp.linalg.inv(K))
-        assert jnp.allclose(result, expected, rtol=0.2, atol=0.05)
+        result = diag_inv(op, method="hutchinson", num_probes=m, key=jax.random.key(42))
+        B = jnp.linalg.inv(K)
+        # Rademacher probes: each entry of the m-probe mean has variance
+        # sum_{j != i} B_ij^2 / m with B = K^{-1}, so 5 standard deviations
+        # per entry is a real bound (gh-303). Matrix and probes are pinned.
+        off_diagonal = B - jnp.diag(jnp.diag(B))
+        sd = jnp.sqrt(jnp.sum(off_diagonal**2, axis=1) / m)
+        assert jnp.all(jnp.abs(result - jnp.diag(B)) <= 5.0 * sd)
 
     def test_solve_matches_dense(self, getkey):
         """Solve method matches jnp.diag(jnp.linalg.inv(A))."""
