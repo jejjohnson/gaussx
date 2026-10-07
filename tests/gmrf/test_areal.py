@@ -48,7 +48,14 @@ def laplacian_from_edges(n, senders, receivers):
 
 def dense_scale(R: np.ndarray) -> float:
     """exp(mean(log(diag(R⁺)))), the dense definition for a connected graph."""
-    return float(np.exp(np.mean(np.log(np.diag(np.linalg.pinv(R))))))
+    # Every dense pseudo-inverse of a singular structure in the tests takes
+    # `hermitian=True, rtol=None`: pinv's legacy default cutoff (rcond=1e-15
+    # x sigma_max) sits below the round-off of the null singular value, and
+    # numpy 2.5's SVD puts that value at ~3 eps x sigma_max, so the default
+    # inverts the null space (#523). rtol=None cuts at max(M, N) eps instead.
+    return float(
+        np.exp(np.mean(np.log(np.diag(np.linalg.pinv(R, hermitian=True, rtol=None)))))
+    )
 
 
 class TestBesagStructure:
@@ -189,7 +196,8 @@ class TestBYM2:
         Sa = S @ a
         constrained = S - einx.multiply("i, j -> i j", Sa, Sa) / (a @ Sa)
         expected = (
-            (1 - phi) * np.eye(n) + phi * np.linalg.pinv(R_star.as_matrix())
+            (1 - phi) * np.eye(n)
+            + phi * np.linalg.pinv(R_star.as_matrix(), hermitian=True, rtol=None)
         ) / tau
         assert np.allclose(constrained[:n, :n], expected, atol=1e-6)
 

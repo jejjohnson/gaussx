@@ -485,7 +485,7 @@ def test_intrinsic_hard_marginal_variances_equal_pinv(kind):
     op, factors, null, dense = intrinsic_structure(kind, 4)
     n = dense.shape[0]
     d = gx.IntrinsicGMRF(jnp.zeros(n), 2.0, op, null, factors)
-    expected = np.diag(np.linalg.pinv(2.0 * dense))
+    expected = np.diag(np.linalg.pinv(2.0 * dense, hermitian=True, rtol=None))
     # The ε-shift biases the kriged path by ~ε/λ_min ≈ 1e-7 (relative).
     np.testing.assert_allclose(d.marginal_variances(), expected, rtol=1e-6)
 
@@ -541,7 +541,7 @@ def test_intrinsic_odd_rw2_padding_node():
     coeffs = einsum(draws, null, "s n, n c -> s c")
     assert jnp.max(jnp.abs(coeffs)) < 1e-10
     variances = d.marginal_variances()
-    pinv = np.linalg.pinv(tau * R_n)
+    pinv = np.linalg.pinv(tau * R_n, hermitian=True, rtol=None)
     np.testing.assert_allclose(variances[:n], np.diag(pinv), rtol=1e-6)
     np.testing.assert_allclose(variances[n], 1 / tau, rtol=1e-6)
 
@@ -560,7 +560,7 @@ def test_intrinsic_sampling_branches_covariance(kind, constraint):
         loc, 2.0, op, null, factors, constraint, soft_constraint_scale=scale
     )
     outer = einsum(null, null, "i c, j c -> i j")
-    cov = np.linalg.pinv(2.0 * dense)
+    cov = np.linalg.pinv(2.0 * dense, hermitian=True, rtol=None)
     if constraint == "soft":
         cov = cov + scale**2 * outer
     draws = d.sample(jr.key(16), (4000,))
