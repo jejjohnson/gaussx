@@ -144,6 +144,7 @@ class TestCachedFactor:
         for v in (v1, v2, v3):
             assert jnp.allclose(v, expected, rtol=1e-10)
 
+    @pytest.mark.slow  # a jit + grad + vmap sweep: ~4-5 s in CI
     def test_jit_vmap_grad(self):
         x = jnp.linspace(0.0, 3.0, 8)
         xt = jnp.array([0.5, 1.7])

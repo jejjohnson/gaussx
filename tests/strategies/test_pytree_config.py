@@ -95,11 +95,39 @@ def test_distribution_leaves_are_only_arrays():
     assert doubled.solver == dist.solver
 
 
-@pytest.mark.parametrize("cls", [MultivariateNormal, MultivariateNormalPrecision])
+_SOLVERS = [s for s in _STRATEGIES if isinstance(s, gaussx.AbstractSolverStrategy)]
+
+
+def _pytest_ids(objs) -> list[str]:
+    """pytest's ids: the class name, plus its occurrence index when repeated."""
+    names = [_id(o) for o in objs]
+    return [
+        f"{name}{names[:i].count(name)}" if names.count(name) > 1 else name
+        for i, name in enumerate(names)
+    ]
+
+
+_SOLVER_IDS = _pytest_ids(_SOLVERS)
+
+
+# The covariance form with an iterative strategy traces its Krylov solve and
+# logdet both jitted and eagerly: ~2-3.5 s in CI per strategy, so those cases
+# are slow. The precision form keeps every strategy in the fast lane.
 @pytest.mark.parametrize(
-    "strategy",
-    [s for s in _STRATEGIES if isinstance(s, gaussx.AbstractSolverStrategy)],
-    ids=_id,
+    ("cls", "strategy"),
+    [
+        pytest.param(
+            cls,
+            strategy,
+            id=f"{sid}-{cls.__name__}",
+            marks=pytest.mark.slow
+            if cls is MultivariateNormal
+            and not isinstance(strategy, gaussx.DenseSolver | gaussx.AutoSolver)
+            else (),
+        )
+        for cls in [MultivariateNormal, MultivariateNormalPrecision]
+        for strategy, sid in zip(_SOLVERS, _SOLVER_IDS, strict=True)
+    ],
 )
 def test_jax_jit_log_prob_with_distribution_argument(cls, strategy):
     op = random_pd_operator(jr.key(0), 3)

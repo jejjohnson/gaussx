@@ -142,7 +142,8 @@ class TestGaussianLikelihood:
     @pytest.mark.parametrize(
         "case",
         [
-            "banded",
+            # Each case traces a Laplace fit and the VB loop: ~3-5 s in CI.
+            pytest.param("banded", marks=pytest.mark.slow),
             pytest.param("sparse_projector", marks=pytest.mark.slow),
             pytest.param("intrinsic", marks=pytest.mark.slow),
         ],
@@ -380,7 +381,8 @@ def test_moves_towards_importance_sampled_mean():
 @pytest.mark.parametrize(
     ("key", "subspace"),
     [
-        ("mean_vb_fixed", "fixed"),
+        # Every subspace traces the whole VB loop: ~4-6 s in CI.
+        pytest.param("mean_vb_fixed", "fixed", marks=pytest.mark.slow),
         pytest.param("mean_vb_sparse", "sparse", marks=pytest.mark.slow),
         pytest.param("mean_vb_all", "all", marks=pytest.mark.slow),
     ],

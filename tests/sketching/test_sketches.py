@@ -22,7 +22,7 @@ import gaussx as gx
 from gaussx._einx import einsum, reduce
 
 
-M, D = 300, 24
+M, D = 60, 24
 
 
 def _sketches(d=D, m=M, probabilities=None):
@@ -40,8 +40,15 @@ def _sketches(d=D, m=M, probabilities=None):
 
 SKETCH_NAMES = list(_sketches())
 
+# Tracing SRHT's jitted apply builds an einx graph per butterfly pass, ~1-5 s
+# per distinct input shape in CI, so its fixture cases run in the slow lane;
+# test_srht_small_adjoint keeps apply and apply_transpose in the fast lane.
+_SLOW_SRHT = pytest.param("srht", marks=pytest.mark.slow)
 
-@pytest.fixture(params=SKETCH_NAMES)
+
+@pytest.fixture(
+    params=[_SLOW_SRHT if name == "srht" else name for name in SKETCH_NAMES]
+)
 def sketch(request):
     return _sketches()[request.param]
 
@@ -180,6 +187,16 @@ def test_srht_equals_dense_construction():
     dense = math.sqrt(m2 / d) * R @ H @ pad @ Dg @ P
     np.testing.assert_allclose(_dense(S), dense, atol=1e-12)
     assert len(np.unique(np.asarray(S.rows))) == d
+
+
+def test_srht_small_adjoint():
+    """<S x, y> = <x, S^T y> at m = 6 (three butterfly passes)."""
+    S = gx.SRHTSketch.sample(jr.key(0), 4, 6)
+    x = jr.normal(jr.key(1), (6,))
+    y = jr.normal(jr.key(2), (4,))
+    lhs = jnp.sum(S.apply(x) * y)
+    rhs = jnp.sum(x * S.apply_transpose(y))
+    assert jnp.allclose(lhs, rhs, rtol=1e-12, atol=1e-12)
 
 
 def test_srht_rejects_d_above_padded_size():

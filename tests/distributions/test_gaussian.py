@@ -126,6 +126,9 @@ def test_add_jitter_default():
     assert tree_allclose(jittered.as_matrix(), expected, atol=1e-10)
 
 
+# A fresh interpreter re-imports gaussx and recompiles without the persistent
+# cache: ~10 s in CI.
+@pytest.mark.slow
 def test_log_prob_is_exact_when_x64_is_enabled_after_import():
     """gh-369: the log(2 pi) constant must not freeze the import-time dtype.
 
