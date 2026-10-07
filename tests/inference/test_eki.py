@@ -677,6 +677,7 @@ def test_discrepancy_schedule_sums_to_one(getkey):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("deterministic", [False, True])
+@pytest.mark.slow
 def test_jit_and_grad(getkey, deterministic):
     """Both variants trace under ``jit`` and differentiate w.r.t. ``observation``."""
     key = getkey()

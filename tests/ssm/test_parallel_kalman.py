@@ -56,8 +56,17 @@ def test_parallel_kf_matches_sequential(getkey, T):
     assert tree_allclose(par_state.log_likelihood, seq_state.log_likelihood, rtol=1e-3)
 
 
-@pytest.mark.slow
-@pytest.mark.parametrize("T", [1, 2, 8, 64])
+# T = 1, 2 exercise the associative combine in the fast lane; the longer
+# sequences only add compile time.
+@pytest.mark.parametrize(
+    "T",
+    [
+        1,
+        2,
+        pytest.param(8, marks=pytest.mark.slow),
+        pytest.param(64, marks=pytest.mark.slow),
+    ],
+)
 def test_parallel_rts_matches_sequential(getkey, T):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     obs = jr.normal(getkey(), (T, 2))
@@ -318,6 +327,7 @@ def test_parallel_kf_mask_predict_only(getkey):
     assert tree_allclose(par.filtered_means[idx], par.predicted_means[idx], atol=1e-7)
 
 
+@pytest.mark.slow
 def test_parallel_rts_smoother_tv(getkey):
     A, H, Q, R, x0, P0 = _make_model(getkey)
     T = 6
@@ -426,8 +436,10 @@ def _random_tv_model():
     return (A, H, Q, R, y, m0, P0), masks
 
 
+# The unmasked cases are slow: the masked ones run the same time-varying
+# path and add the mask handling on top.
 _TV_CASES = [
-    (mask, psd_project)
+    pytest.param(mask, psd_project, marks=[pytest.mark.slow] if mask == "none" else [])
     for mask in ("none", "steps", "channels")
     for psd_project in (False, True)
     if not (psd_project and mask == "channels")  # rejected by design
