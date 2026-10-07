@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -9,6 +10,7 @@ import lineax as lx
 import pytest
 
 from gaussx._einx import einsum
+from gaussx._primitives._samplers import resolve_sampler
 from gaussx._strategies import (
     AbstractLogdetStrategy,
     ComposedSolver,
@@ -172,3 +174,68 @@ def test_composed_with_dense_logdet(getkey):
     )
     assert tree_allclose(composed.solve(op, v), ref.solve(op, v))
     assert tree_allclose(composed.logdet(op), ref.logdet(op))
+
+
+# ── Gradients through a Lanczos breakdown (gh-520) ─────────────────
+
+_X30 = jnp.linspace(0.0, 1.0, 30)
+
+
+def _rbf_gram(lengthscale):
+    """A 30-point RBF Gram plus 0.1 noise: numerical rank well below 30."""
+    sq = einx.subtract("i, j -> i j", _X30, _X30) ** 2
+    return jnp.exp(-0.5 * sq / lengthscale**2) + 0.1 * jnp.eye(30)
+
+
+def _dense_estimate(lengthscale, probes, fun):
+    """mean_p zₚᵀ f(A) zₚ with an eigendecomposition: SLQ's exact limit."""
+    eigenvalues, eigenvectors = jnp.linalg.eigh(_rbf_gram(lengthscale))
+    coeffs = einsum(eigenvectors, probes, "n k, p n -> p k")
+    return jnp.mean(einsum(coeffs**2, fun(eigenvalues), "p k, k -> p"))
+
+
+@pytest.mark.x64_only(reason="central differences at rtol=1e-6 need float64")
+@pytest.mark.parametrize(
+    ("strategy", "fun"),
+    [
+        (SLQLogdet, jnp.log),
+        pytest.param(
+            IndefiniteSLQLogdet,
+            lambda x: jnp.log(jnp.abs(x)),
+            marks=pytest.mark.slow,
+        ),
+    ],
+    ids=["slq", "indefinite_slq"],
+)
+@pytest.mark.parametrize(
+    "order",
+    [
+        pytest.param(10, marks=pytest.mark.slow),
+        pytest.param(28, marks=pytest.mark.slow),
+        30,
+        pytest.param(40, marks=pytest.mark.slow),
+    ],
+)
+def test_logdet_grad_is_finite_through_lanczos_breakdown(strategy, fun, order):
+    # gh-520: from lanczos_order = 28 the Krylov space is exhausted and the
+    # gradient was NaN. Once it is exhausted the quadrature is exact for each
+    # (pinned) probe, so value and gradient equal the dense estimator's with
+    # the same probes; below that (order 10) the gradient is only finite.
+    key = jr.key(0)
+    slq = strategy(num_probes=20, lanczos_order=order)
+    probes = resolve_sampler("signs", 30, 20, jnp.float64)(key)
+
+    def estimate(lengthscale):
+        op = lx.MatrixLinearOperator(_rbf_gram(lengthscale), lx.symmetric_tag)
+        return slq.logdet(op, key=key)
+
+    grad = jax.grad(estimate)(0.3)
+    assert jnp.isfinite(grad)
+    if order >= 28:
+        h = 1e-5
+        reference = (
+            _dense_estimate(0.3 + h, probes, fun)
+            - _dense_estimate(0.3 - h, probes, fun)
+        ) / (2 * h)
+        assert tree_allclose(estimate(0.3), _dense_estimate(0.3, probes, fun))
+        assert tree_allclose(grad, reference, rtol=1e-6)

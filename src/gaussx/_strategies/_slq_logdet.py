@@ -2,27 +2,156 @@
 
 from __future__ import annotations
 
+import functools as ft
 from collections.abc import Callable
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import matfree.decomp
-import matfree.funm
 import matfree.stochtrace
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 from gaussx._strategies._base import AbstractLogdetStrategy
 
 
+def _lanczos(
+    matvec: Callable[..., Array],
+    v0: Float[Array, " n"],
+    order: int,
+    *parameters,
+) -> tuple[Float[Array, " k"], Float[Array, " k"]]:
+    """Fully reorthogonalised Lanczos that stops cleanly at breakdown (gh-520).
+
+    Once the Krylov space is exhausted (``β_j ≤ sqrt(eps) · ‖T‖``) the
+    remaining steps are padded: ``β = 0`` and ``α = 1``, a decoupled
+    identity block that carries no quadrature weight. Every division and
+    square root is double-``where`` guarded, so reverse mode through the
+    breakdown is finite instead of ``0 · ∞ = NaN``.
+
+    Args:
+        matvec: ``(v, *parameters) -> A v`` for a symmetric ``A``.
+        v0: Unit-norm starting vector.
+        order: Number of Lanczos steps ``k``.
+        *parameters: Passed to ``matvec``.
+
+    Returns:
+        ``(alphas, betas)``, the diagonal and the off-diagonal (in
+        ``betas[:-1]``) of the ``k × k`` tridiagonal.
+    """
+    n = v0.shape[0]
+    dtype = v0.dtype
+    sqrt_eps = jnp.sqrt(jnp.finfo(dtype).eps)
+    zero = jnp.zeros((), dtype=dtype)
+
+    def step(carry, j):
+        basis, q, q_prev, beta_prev, broken, scale = carry
+        basis = basis.at[j].set(q)
+        w = matvec(q, *parameters) - beta_prev * q_prev
+        alpha = jnp.dot(q, w)
+        w = w - alpha * q
+        # Full reorthogonalisation against every stored vector, twice.
+        for _ in range(2):
+            w = w - einsum(basis, einsum(basis, w, "k n, n -> k"), "k n, k -> n")
+        squared = jnp.dot(w, w)
+        scale = jnp.maximum(scale, jnp.abs(alpha) + beta_prev)
+        broken_now = broken | (squared <= (sqrt_eps * scale) ** 2)
+        safe = jnp.where(broken_now, jnp.ones((), dtype=dtype), squared)
+        norm = jnp.sqrt(safe)
+        beta = jnp.where(broken_now, zero, norm)
+        q_next = jnp.where(broken_now, jnp.zeros_like(w), w / norm)
+        alpha = jnp.where(broken, jnp.ones((), dtype=dtype), alpha)
+        return (basis, q_next, q, beta, broken_now, scale), (alpha, beta)
+
+    init = (
+        jnp.zeros((order, n), dtype=dtype),
+        v0,
+        jnp.zeros_like(v0),
+        zero,
+        jnp.zeros((), dtype=bool),
+        zero,
+    )
+    _, (alphas, betas) = jax.lax.scan(step, init, jnp.arange(order))
+    return alphas, betas
+
+
+@ft.partial(jax.custom_jvp, nondiff_argnums=(0, 1))
+def _gauss_quadrature(
+    fun: Callable[[Array], Array],
+    dfun: Callable[[Array], Array],
+    tridiagonal: Float[Array, "k k"],
+) -> Float[Array, ""]:
+    """``e₁ᵀ f(T) e₁`` for a symmetric tridiagonal ``T`` (Gauss quadrature)."""
+    del dfun
+    eigenvalues, eigenvectors = jnp.linalg.eigh(tridiagonal)
+    return jnp.sum(eigenvectors[0] ** 2 * fun(eigenvalues))
+
+
+@_gauss_quadrature.defjvp
+def _gauss_quadrature_jvp(fun, dfun, primals, tangents):
+    r"""Daleckii-Krein derivative of ``e₁ᵀ f(T) e₁``.
+
+    $$
+    d\,e_1^\top f(T) e_1 = \sum_{ij} c_i\, (V^\top dT\, V)_{ij}\,
+    f[\lambda_i, \lambda_j]\, c_j, \qquad c = V^\top e_1,
+    $$
+
+    with the divided difference $f[\lambda_i, \lambda_j]$ (and
+    $f'(\lambda_i)$ on ties). Unlike differentiating ``eigh``, which divides
+    by eigenvalue gaps, this stays finite when eigenvalues coincide, as they
+    do in the padded block after a Lanczos breakdown (gh-520).
+    """
+    (tridiagonal,) = primals
+    (tangent,) = tangents
+    eigenvalues, eigenvectors = jnp.linalg.eigh(tridiagonal)
+    weights = eigenvectors[0]
+    gaps = einx.subtract("i, j -> i j", eigenvalues, eigenvalues)
+    rises = einx.subtract("i, j -> i j", fun(eigenvalues), fun(eigenvalues))
+    mids = 0.5 * einx.add("i, j -> i j", eigenvalues, eigenvalues)
+    sizes = einx.add("i, j -> i j", jnp.abs(eigenvalues), jnp.abs(eigenvalues))
+    tie = jnp.abs(gaps) <= jnp.sqrt(jnp.finfo(gaps.dtype).eps) * sizes
+    safe_gaps = jnp.where(tie, jnp.ones_like(gaps), gaps)
+    divided = jnp.where(tie, dfun(mids), rises / safe_gaps)
+    rotated = einsum(eigenvectors, tangent, eigenvectors, "a i, a b, b j -> i j")
+    primal = jnp.sum(weights**2 * fun(eigenvalues))
+    return primal, einsum(weights, rotated * divided, weights, "i, i j, j ->")
+
+
+def _quadform_integrand(
+    order: int, fun: Callable[[Array], Array], dfun: Callable[[Array], Array]
+):
+    """SLQ integrand ``‖v‖² e₁ᵀ f(T) e₁`` in matfree's integrand signature."""
+
+    def quadform(matvec, v0, *parameters):
+        length = jnp.linalg.norm(v0)
+        alphas, betas = _lanczos(matvec, v0 / length, order, *parameters)
+        off = betas[:-1]
+        tridiagonal = jnp.diag(alphas) + jnp.diag(off, 1) + jnp.diag(off, -1)
+        return length**2 * _gauss_quadrature(fun, dfun, tridiagonal)
+
+    return quadform
+
+
+def _reciprocal(x: Array) -> Array:
+    return 1.0 / x
+
+
+def _log_abs(x: Array) -> Array:
+    return jnp.log(jnp.abs(x))
+
+
+def _logdet_integrand(order: int):
+    """SLQ integrand for ``log det(A)`` of a PSD operator."""
+    return _quadform_integrand(order, jnp.log, _reciprocal)
+
+
 def _logabsdet_integrand(order: int):
-    """Build an SLQ integrand for ``log|det(A)|`` of a symmetric operator."""
-    tridiag = matfree.decomp.tridiag_sym(order, reortho="full")
-    dense_funm = matfree.funm.dense_funm_sym_eigh(lambda x: jnp.log(jnp.abs(x)))
-    return matfree.funm.monte_carlo_funm_sym(dense_funm, tridiag)
+    """SLQ integrand for ``log|det(A)|`` of a symmetric operator."""
+    return _quadform_integrand(order, _log_abs, _reciprocal)
 
 
 def _slq_estimators(
@@ -82,9 +211,7 @@ class SLQLogdet(AbstractLogdetStrategy):
     sampler: SamplerName = eqx.field(static=True, default="signs")
 
     def _integrand(self, n: int):
-        order = min(self.lanczos_order, n)
-        tridiag = matfree.decomp.tridiag_sym(order, reortho="full")
-        return matfree.funm.monte_carlo_funm_sym_logdet(tridiag)
+        return _logdet_integrand(min(self.lanczos_order, n))
 
     def logdet(
         self,
