@@ -94,18 +94,25 @@ class TestHandlers:
 
 class TestLogDensity:
     def test_log_density_covariance(self):
+        """Matches the same model written with numpyro's own MVN (gh-324)."""
         obs = jnp.array([1.0, 0.5, -0.5])
-        params = {"mu": jnp.zeros(3)}
-        ld, _ = log_density(_cov_model, (obs,), {}, params)
-
-        assert jnp.isfinite(ld)
+        mu = jnp.array([0.2, -0.1, 0.3])
+        ld, _ = log_density(_cov_model, (obs,), {}, {"mu": mu})
+        Sigma = jnp.eye(3) + 0.3 * jnp.ones((3, 3))
+        expected = dist.Normal(0, 5).log_prob(mu).sum() + dist.MultivariateNormal(
+            mu, covariance_matrix=Sigma
+        ).log_prob(obs)
+        assert jnp.allclose(ld, expected, rtol=1e-12)
 
     def test_log_density_precision(self):
+        """Matches the same model written with numpyro's own MVN (gh-324)."""
         obs = jnp.array([1.0, 0.5, -0.5])
-        params = {"mu": jnp.zeros(3)}
-        ld, _ = log_density(_prec_model, (obs,), {}, params)
-
-        assert jnp.isfinite(ld)
+        mu = jnp.array([0.2, -0.1, 0.3])
+        ld, _ = log_density(_prec_model, (obs,), {}, {"mu": mu})
+        expected = dist.Normal(0, 5).log_prob(mu).sum() + dist.MultivariateNormal(
+            mu, precision_matrix=2.0 * jnp.eye(3)
+        ).log_prob(obs)
+        assert jnp.allclose(ld, expected, rtol=1e-12)
 
     def test_log_density_grad(self):
         obs = jnp.array([1.0, 0.5, -0.5])
