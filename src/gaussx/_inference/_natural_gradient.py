@@ -16,7 +16,7 @@ def damped_natural_update(
     nat2_old: lx.AbstractLinearOperator | Float[Array, "d d"],
     nat1_target: Float[Array, " d"],
     nat2_target: lx.AbstractLinearOperator | Float[Array, "d d"],
-    lr: float = 1.0,
+    lr: float | Float[Array, ""] = 1.0,
 ) -> tuple[Float[Array, " d"], lx.AbstractLinearOperator | Float[Array, "d d"]]:
     r"""Damped update in natural parameter space.
 
@@ -49,6 +49,13 @@ def damped_natural_update(
     """
     nat1_new = (1.0 - lr) * nat1_old + lr * nat1_target
 
+    # Anything that is not an operator is an array-like (NumPy arrays and
+    # nested lists included); normalise those before dispatching on type.
+    if not isinstance(nat2_old, lx.AbstractLinearOperator):
+        nat2_old = jnp.asarray(nat2_old)
+    if not isinstance(nat2_target, lx.AbstractLinearOperator):
+        nat2_target = jnp.asarray(nat2_target)
+
     if isinstance(nat2_old, jax.Array) and isinstance(nat2_target, jax.Array):
         nat2_new: lx.AbstractLinearOperator | Float[Array, "d d"] = (
             1.0 - lr
@@ -61,7 +68,11 @@ def damped_natural_update(
         nat2_new_mat = (1.0 - lr) * nat2_old.as_matrix() + lr * nat2_target.as_matrix()
         nat2_new = lx.MatrixLinearOperator(nat2_new_mat)
     else:
-        msg = "nat2_old and nat2_target must be the same type"
+        msg = (
+            "nat2_old and nat2_target must both be arrays or both be linear "
+            f"operators, got {type(nat2_old).__name__} and "
+            f"{type(nat2_target).__name__}."
+        )
         raise TypeError(msg)
 
     return nat1_new, nat2_new
@@ -71,17 +82,32 @@ def riemannian_psd_correction(
     hessian: Float[Array, "d d"],
     site_precision: Float[Array, "d d"],
     site_covariance: Float[Array, "d d"],
-    lr: float = 1.0,
+    lr: float | Float[Array, ""] = 1.0,
 ) -> Float[Array, "d d"]:
     r"""Riemannian gradient correction for PSD precision updates.
 
-    Ensures the corrected Hessian remains negative semi-definite,
-    stabilizing Newton/EP/VI when the raw Hessian is indefinite:
+    Stabilises Newton/EP/VI when the raw Hessian is indefinite:
 
         G = site\_precision + hessian
         H_{psd} = hessian - 0.5 \cdot lr \cdot G \cdot S \cdot G
 
     where ``S`` is the site covariance.
+
+    The corrected Hessian itself is **not** guaranteed to be negative
+    semi-definite (with ``H = diag(-1, 2)``, ``Lambda = I`` and ``lr = 0.1``
+    it has eigenvalues ``[-1, 1.55]``). What the correction guarantees is
+    that the damped precision update stays positive definite: with
+    ``S = Lambda^{-1}``,
+
+    $$
+    (1 - \mathrm{lr})\,\Lambda - \mathrm{lr}\,H_{psd}
+      = \tfrac12 \Lambda
+        + \tfrac12 (I - \mathrm{lr}\,G S)\,\Lambda\,(I - \mathrm{lr}\,S G),
+    $$
+
+    which follows by expanding both sides to
+    ``Lambda - lr G + lr^2/2 G S G``. The right-hand side is a positive
+    definite matrix plus a positive semi-definite one.
 
     Args:
         hessian: Raw second derivative, shape ``(d, d)``.

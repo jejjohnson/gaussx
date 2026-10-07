@@ -51,6 +51,16 @@ def ensemble_covariance(
     Returns:
         A ``LowRankUpdate`` operator representing the empirical
         covariance, with a zero base and ``J``-column low-rank factor.
+
+    Note:
+        The ``bessel`` default differs across this module: these two
+        covariance helpers default to ``bessel=False`` (``1 / J``), while
+        `ensemble_kalman_gain`, `localized_kalman_gain`, `enkf_analysis`,
+        `eki_step` and `discrepancy_step_size` default to ``True``
+        (``1 / (J - 1)``) and `etkf_transform` is ``1 / (J - 1)``
+        throughout. A gain assembled by hand from these helpers with their
+        defaults therefore differs from `ensemble_kalman_gain`'s; pass
+        ``bessel=True`` to match it.
     """
     J, N = particles.shape
     _check_ensemble_size(J, bessel)
@@ -86,6 +96,16 @@ def ensemble_cross_covariance(
 
     Returns:
         Cross-covariance array of shape ``(N, M)``.
+
+    Note:
+        The ``bessel`` default differs across this module: these two
+        covariance helpers default to ``bessel=False`` (``1 / J``), while
+        `ensemble_kalman_gain`, `localized_kalman_gain`, `enkf_analysis`,
+        `eki_step` and `discrepancy_step_size` default to ``True``
+        (``1 / (J - 1)``) and `etkf_transform` is ``1 / (J - 1)``
+        throughout. A gain assembled by hand from these helpers with their
+        defaults therefore differs from `ensemble_kalman_gain`'s; pass
+        ``bessel=True`` to match it.
     """
     J = particles_theta.shape[0]
     _check_ensemble_size(J, bessel)
@@ -190,7 +210,9 @@ def ensemble_kalman_gain(
 # ---------------------------------------------------------------------------
 
 
-def gaspari_cohn(r: Float[Array, "*shape"], c: float) -> Float[Array, "*shape"]:
+def gaspari_cohn(
+    r: Float[Array, "*shape"], c: float | Float[Array, ""]
+) -> Float[Array, "*shape"]:
     r"""Gaspari-Cohn (1999) fifth-order compactly-supported taper.
 
     The standard positive-definite, approximately-Gaussian localization
@@ -305,7 +327,7 @@ def haversine_distance(
 def localization_matrix(
     coords_a: Float[Array, "Na D"],
     coords_b: Float[Array, "Nb D"],
-    c: float,
+    c: float | Float[Array, ""],
     metric: Callable[
         [Float[Array, "Na D"], Float[Array, "Nb D"]], Float[Array, "Na Nb"]
     ] = euclidean_distance,
@@ -634,8 +656,9 @@ def enkf_analysis(
 
     Two ways to supply the observation perturbations:
 
-    - ``key`` -- draw $\varepsilon_j \sim N(0, R)$ internally, via a Cholesky
-      factor of ``obs_noise``.
+    - ``key`` -- draw $\varepsilon_j \sim N(0, R)$ internally, via an exact
+      PSD factor $L L^\top = R$ of ``obs_noise`` that keeps its structure (a
+      symmetric square root at dense leaves, so a singular $R$ is fine).
     - ``perturbed_obs`` -- pass a pre-built perturbed-observation ensemble
       $y + \varepsilon_j$. Preferred when the same noise realisation must be
       reused across filters, and when the perturbations come from a nonlinear
@@ -822,7 +845,7 @@ def enkf_analysis(
 
 def inflate_multiplicative(
     ensemble: Float[Array, "J N"],
-    factor: float,
+    factor: float | Float[Array, ""],
 ) -> Float[Array, "J N"]:
     r"""Multiplicative ensemble inflation about the mean.
 
@@ -843,7 +866,7 @@ def inflate_multiplicative(
 def inflate_rtpp(
     posterior: Float[Array, "J N"],
     prior: Float[Array, "J N"],
-    alpha: float,
+    alpha: float | Float[Array, ""],
 ) -> Float[Array, "J N"]:
     r"""Relaxation to prior perturbations (RTPP; Zhang et al. 2004).
 
@@ -869,7 +892,7 @@ def inflate_rtpp(
 def inflate_rtps(
     posterior: Float[Array, "J N"],
     prior: Float[Array, "J N"],
-    beta: float,
+    beta: float | Float[Array, ""],
     eps: float = 1e-12,
 ) -> Float[Array, "J N"]:
     r"""Relaxation to prior spread (RTPS; Whitaker & Hamill 2012).
@@ -932,8 +955,8 @@ def etkf_transform(
 
     The symmetric (eigendecomposition) square root -- not a Cholesky factor --
     is required: because the observation perturbations are zero-mean, ``1`` is
-    an eigenvector of ``W`` with eigenvalue ``1``, which makes the transform
-    exactly mean-preserving (``sum_j X'^a_j = 0``).
+    an eigenvector of ``W`` (with eigenvalue ``sqrt(lambda)``), which makes the
+    transform exactly mean-preserving (``sum_j X'^a_j = 0``).
 
     Cost. ``R^{-1}`` is applied to the ``J + 1`` right-hand sides
     ``[Y^T, d]`` in one `solve_rows` call, so a structured ``R`` (diagonal,
@@ -1182,6 +1205,9 @@ def eki_step(
         dense_innovation: Whether to form the ``(M, M)`` innovation densely.
             ``None`` chooses by shape. Same contract as `enkf_analysis`,
             including that a positive *semi*-definite $R$ needs ``True``.
+            Stochastic variant only: the deterministic one forms no gain --
+            `etkf_transform` supplies the mean update as well -- and solves
+            against $R$ itself.
         bessel: Use the $1/(J-1)$ divisor. Must stay ``True`` when
             ``deterministic``, since `etkf_transform` is $1/(J-1)$ throughout
             and a mismatched gain would move the mean and the anomalies by
@@ -1261,6 +1287,23 @@ def eki_step(
     # exactly 1.0 and every route is bit-for-bit `enkf_analysis`.
     tempered_noise = ScaledOperator(obs_noise, 1.0 / dt)
 
+    if deterministic:
+        # By the push-through identity K (y - G_bar) = U'^T w_mean, so the
+        # ETKF weights give the mean update too, and no separate innovation
+        # solve for the gain is needed.
+        anomalies = particles - jnp.mean(particles, axis=0, keepdims=True)  # (J, N)
+        w_mean, transform = etkf_transform(
+            obs_particles, observation, tempered_noise, solver=solver
+        )
+        mean_increment = einsum(w_mean, anomalies, "J, J N -> N")  # (N,)
+        # The increment, not the transformed anomalies: Lambda acts on
+        # differences, so Lambda = I leaves `transform @ anomalies` exactly.
+        anomaly_increment = transform @ anomalies - anomalies  # (J, N)
+        if step is not None:
+            mean_increment = step.mv(mean_increment)
+            anomaly_increment = jax.vmap(step.mv)(anomaly_increment)
+        return particles + mean_increment[None, :] + anomaly_increment
+
     use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
     gain = _analysis_gain(
         particles,
@@ -1272,21 +1315,6 @@ def eki_step(
         use_dense=use_dense,
         bessel=bessel,
     )  # (N, M)
-
-    if deterministic:
-        obs_mean = jnp.mean(obs_particles, axis=0)  # (M,)
-        anomalies = particles - jnp.mean(particles, axis=0, keepdims=True)  # (J, N)
-        _, transform = etkf_transform(
-            obs_particles, observation, tempered_noise, solver=solver
-        )
-        mean_increment = gain @ (observation - obs_mean)  # (N,)
-        # The increment, not the transformed anomalies: Lambda acts on
-        # differences, so Lambda = I leaves `transform @ anomalies` exactly.
-        anomaly_increment = transform @ anomalies - anomalies  # (J, N)
-        if step is not None:
-            mean_increment = step.mv(mean_increment)
-            anomaly_increment = jax.vmap(step.mv)(anomaly_increment)
-        return particles + mean_increment[None, :] + anomaly_increment
 
     if key is not None:
         # eps_j ~ N(0, R) drawn against the *unscaled* R, then scaled by

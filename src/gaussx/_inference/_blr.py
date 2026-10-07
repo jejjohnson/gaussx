@@ -41,7 +41,7 @@ def blr_diag_update(
     nat2_diag: Float[Array, " d"],
     grad: Float[Array, " d"],
     hessian_diag: Float[Array, " d"],
-    lr: float,
+    lr: float | Float[Array, ""],
     *,
     convention: NaturalConvention = "expfam",
 ) -> tuple[Float[Array, " d"], Float[Array, " d"]]:
@@ -103,7 +103,7 @@ def blr_full_update(
     nat2: Float[Array, "d d"],
     grad: Float[Array, " d"],
     hessian: Float[Array, "d d"],
-    lr: float,
+    lr: float | Float[Array, ""],
     *,
     solver: AbstractSolverStrategy | None = None,
     convention: NaturalConvention = "expfam",

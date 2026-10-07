@@ -161,6 +161,39 @@ def test_deterministic_does_not_materialise_diagonal_noise(monkeypatch):
     assert jnp.all(jnp.isfinite(out))
 
 
+def _count_primitive(jaxpr, name):
+    count = 0
+    for eqn in jaxpr.eqns:
+        count += eqn.primitive.name == name
+        for param in eqn.params.values():
+            for sub in param if isinstance(param, (list, tuple)) else (param,):
+                inner = getattr(sub, "jaxpr", sub)
+                if hasattr(inner, "eqns"):
+                    count += _count_primitive(inner, name)
+    return count
+
+
+def test_deterministic_takes_the_mean_update_from_the_etkf_weights():
+    """gh-394: one R solve, not a gain solve on top of `etkf_transform`'s.
+
+    The mean update K (y - G_bar) equals the ETKF weights applied to the
+    anomalies (push-through identity), so the gain is not formed. With a
+    dense R and J >= M the old route LU-factored the (M, M) innovation as
+    well as R.
+    """
+    nextkey = key_sequence(1)
+    J, N, M = 7, 4, 3
+    particles = jr.normal(nextkey(), (J, N))
+    obs_particles = jr.normal(nextkey(), (J, M))
+    observation = jr.normal(nextkey(), (M,))
+    obs_noise = lx.MatrixLinearOperator(random_pd_matrix(nextkey(), M))
+
+    jaxpr = jax.make_jaxpr(
+        lambda p, o, y: eki_step(p, o, y, obs_noise, deterministic=True, dt=0.5)
+    )(particles, obs_particles, observation)
+    assert _count_primitive(jaxpr.jaxpr, "lu") == 1
+
+
 # ---------------------------------------------------------------------------
 # 3. Tempering exactness -- the load-bearing test
 # ---------------------------------------------------------------------------
