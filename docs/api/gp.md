@@ -67,7 +67,7 @@ cross-validation from a single factorization.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [love_cache, love_variance, LOVECache, leave_one_out_cv, LOOResult]
+      members: [love_cache, love_variance, love_residual, LOVECache, leave_one_out_cv, LOOResult]
 
 ## Multi-output projections
 
