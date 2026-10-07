@@ -111,12 +111,23 @@ class LSMRSolver(AbstractSolverStrategy):
     ) -> Float[Array, ""]:
         """Stochastic log-determinant via Lanczos quadrature.
 
+        LSMR itself does not use this: it is SLQ on a *square* symmetric
+        PSD operator, for the `AbstractSolverStrategy` interface.
+
         Args:
-            operator: A PSD linear operator.
+            operator: A square symmetric PSD linear operator.
 
         Returns:
             Scalar estimate of log |det(A)|.
+
+        Raises:
+            ValueError: If the operator is not square (gh-402).
         """
+        if operator.in_size() != operator.out_size():
+            raise ValueError(
+                "LSMRSolver.logdet needs a square operator; got shape "
+                f"({operator.out_size()}, {operator.in_size()})."
+            )
         return SLQLogdet(
             num_probes=self.num_probes,
             lanczos_order=self.lanczos_order,
