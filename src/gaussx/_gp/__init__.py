@@ -4,7 +4,7 @@ from gaussx._gp._base_conditional import base_conditional
 from gaussx._gp._collapsed_elbo import collapsed_elbo
 from gaussx._gp._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._gp._gauss_kl import gauss_kl
-from gaussx._gp._interpolation import conditional_interpolate
+from gaussx._gp._interpolation import conditional_interpolate, rts_interpolate
 from gaussx._gp._kronecker_gp import (
     kronecker_mll,
     kronecker_posterior_predictive,
@@ -51,6 +51,7 @@ __all__ = [
     "oilmm_project",
     "predict_mean",
     "predict_variance",
+    "rts_interpolate",
     "svgp_variance_adjustment",
     "unwhiten",
     "unwhiten_covariance",

@@ -22,7 +22,7 @@ Kronecker-structured path for separable kernels on grids.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [base_conditional, build_prediction_cache, PredictionCache, predict_mean, predict_variance, conditional_interpolate, kronecker_posterior_predictive, kronecker_mll]
+      members: [base_conditional, build_prediction_cache, PredictionCache, predict_mean, predict_variance, conditional_interpolate, rts_interpolate, kronecker_posterior_predictive, kronecker_mll]
 
 ## Pathwise sampling
 
