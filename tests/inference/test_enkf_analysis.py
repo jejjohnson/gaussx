@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -16,6 +17,7 @@ from gaussx import (
     ensemble_kalman_gain,
     localization_matrix,
 )
+from gaussx._einx import einsum
 from gaussx._operators import (
     BlockDiag,
     BlockTriDiag,
@@ -25,7 +27,12 @@ from gaussx._operators import (
     SumOfKroneckers,
 )
 from gaussx._primitives._cholesky import DenseFallbackWarning
-from gaussx._testing import random_pd_matrix
+from gaussx._testing import (
+    assert_sample_moments,
+    empirical_moments,
+    key_sequence,
+    random_pd_matrix,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -60,30 +67,30 @@ def _draw_ensemble(key, mean, cov, n_ens):
 
 
 @pytest.mark.slow
-def test_converges_to_exact_kalman_posterior(getkey):
-    key = getkey()
+def test_converges_to_exact_kalman_posterior():
+    # The property is not about which model, so the model is pinned; the
+    # analysis is then bounded by its own sampling distribution
+    # (`assert_sample_moments`, 7 sigma) rather than a relative threshold
+    # against a random posterior mean (gh-401). The members share the sample
+    # gain, so they are not exactly i.i.d. and the band is approximate; at
+    # J = 200 000 the gain's sampling error is negligible against it.
+    nextkey = key_sequence(0)
     mu, prior_cov, obs_model, obs_noise, y, post_mean, post_cov, _ = (
-        _linear_gaussian_problem(key)
+        _linear_gaussian_problem(nextkey())
     )
-    k_ens, k_analysis = jr.split(getkey())
+    k_ens, k_analysis = nextkey(), nextkey()
     n_ens = 200_000
 
     prior = _draw_ensemble(k_ens, mu, prior_cov, n_ens)  # (J, N)
     analysis = enkf_analysis(
         prior,
-        prior @ obs_model.T,
+        einsum(prior, obs_model, "J N, M N -> J M"),
         y,
         lx.MatrixLinearOperator(obs_noise, lx.positive_semidefinite_tag),
         key=k_analysis,
     )
 
-    mean_err = jnp.linalg.norm(jnp.mean(analysis, axis=0) - post_mean)
-    mean_err /= jnp.linalg.norm(post_mean)
-    cov_err = jnp.linalg.norm(jnp.cov(analysis.T, bias=False) - post_cov)
-    cov_err /= jnp.linalg.norm(post_cov)
-
-    assert mean_err < 0.02
-    assert cov_err < 0.02
+    assert_sample_moments(analysis, post_mean, post_cov)
 
 
 # ---------------------------------------------------------------------------
@@ -92,50 +99,48 @@ def test_converges_to_exact_kalman_posterior(getkey):
 
 
 @pytest.mark.slow
-def test_analysis_spread_is_not_underdispersive(getkey):
+def test_analysis_spread_is_not_underdispersive():
     """The stochastic update gives (I-KH)P; the deterministic one is smaller.
 
     Dropping the observation perturbation would pass a mean-only test but
     shrink the analysis covariance to (I-KH)P(I-KH)^T -- short by K R K^T.
     This test is what catches that.
     """
-    key = getkey()
-    mu, prior_cov, obs_model, obs_noise, y, _, post_cov, gain = (
-        _linear_gaussian_problem(key)
+    # Pinned model, sampling-distribution bounds (gh-401); see
+    # `test_converges_to_exact_kalman_posterior`.
+    nextkey = key_sequence(1)
+    mu, prior_cov, obs_model, obs_noise, y, post_mean, post_cov, gain = (
+        _linear_gaussian_problem(nextkey())
     )
-    k_ens, k_analysis = jr.split(getkey())
+    k_ens, k_analysis = nextkey(), nextkey()
     n_ens = 200_000
     noise_op = lx.MatrixLinearOperator(obs_noise, lx.positive_semidefinite_tag)
 
     prior = _draw_ensemble(k_ens, mu, prior_cov, n_ens)  # (J, N)
-    obs_prior = prior @ obs_model.T  # (J, M)
+    obs_prior = einsum(prior, obs_model, "J N, M N -> J M")  # (J, M)
     analysis = enkf_analysis(prior, obs_prior, y, noise_op, key=k_analysis)
 
     # The deterministic (unperturbed) update, using the exact gain so the
-    # contrast is analytic rather than a second Monte-Carlo estimate.
-    deterministic = prior + (y[None, :] - obs_prior) @ gain.T  # (J, N)
-
-    stochastic_cov = jnp.cov(analysis.T, bias=False)
-    deterministic_cov = jnp.cov(deterministic.T, bias=False)
+    # contrast is analytic rather than a second Monte-Carlo estimate. It is
+    # an affine map of i.i.d. prior draws, so its members are exactly i.i.d.
+    innovation = einx.subtract("M, J M -> J M", y, obs_prior)
+    deterministic = prior + einsum(innovation, gain, "J M, N M -> J N")  # (J, N)
 
     # The stochastic analysis reproduces the true posterior covariance ...
-    # The bound: a sample covariance of J draws in N dimensions has relative
-    # Frobenius error O(sqrt(N / J)); with N = 3, J = 200 000 that is a few
-    # times 1e-3, so 0.02 leaves several standard errors of margin (gh-303).
-    stochastic_err = jnp.linalg.norm(stochastic_cov - post_cov)
-    stochastic_err /= jnp.linalg.norm(post_cov)
-    assert stochastic_err < 0.02
+    assert_sample_moments(analysis, post_mean, post_cov)
 
-    # ... while the deterministic one collapses to the Joseph-squared form.
-    spread = jnp.eye(mu.shape[0]) - gain @ obs_model
-    joseph = spread @ prior_cov @ spread.T  # (I - KH) P (I - KH)^T
-    joseph_err = jnp.linalg.norm(deterministic_cov - joseph)
-    joseph_err /= jnp.linalg.norm(joseph)
-    assert joseph_err < 0.02
+    # ... while the deterministic one collapses to the Joseph-squared form,
+    # (I - KH) P (I - KH)^T, with the same mean (I - KH) mu + K y.
+    spread = jnp.eye(mu.shape[0]) - einsum(gain, obs_model, "N M, M K -> N K")
+    joseph = einsum(spread, prior_cov, spread, "N a, a b, K b -> N K")
+    assert_sample_moments(deterministic, post_mean, joseph)
 
     # The shortfall is exactly K R K^T, so it is strictly under-dispersive.
+    _, stochastic_cov = empirical_moments(analysis)
+    _, deterministic_cov = empirical_moments(deterministic)
     assert jnp.trace(deterministic_cov) < jnp.trace(stochastic_cov)
-    assert jnp.allclose(post_cov - joseph, gain @ obs_noise @ gain.T, atol=1e-10)
+    gain_noise = einsum(gain, obs_noise, gain, "N a, a b, K b -> N K")
+    assert jnp.allclose(post_cov - joseph, gain_noise, atol=1e-10)
 
 
 # ---------------------------------------------------------------------------

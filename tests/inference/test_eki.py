@@ -30,7 +30,7 @@ from gaussx import (
 )
 from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
-from gaussx._testing import empirical_moments, random_pd_matrix
+from gaussx._testing import empirical_moments, key_sequence, random_pd_matrix
 
 
 # ---------------------------------------------------------------------------
@@ -142,6 +142,28 @@ def test_reduces_to_etkf_transform(getkey):
     expected = (mean + w_mean @ anomalies)[None, :] + transform @ anomalies
 
     assert jnp.allclose(got, expected, atol=1e-10, rtol=0.0)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="gh-367: etkf_transform densifies obs_noise via as_matrix()",
+)
+def test_deterministic_does_not_materialise_diagonal_noise(monkeypatch):
+    """``deterministic=True`` with J < M keeps a diagonal R structured (gh-282)."""
+    nextkey = key_sequence(0)
+    J, N, M = 4, 3, 8
+    particles = jr.normal(nextkey(), (J, N))
+    obs_particles = jr.normal(nextkey(), (J, M))
+    observation = jr.normal(nextkey(), (M,))
+    obs_noise = lx.DiagonalLinearOperator(0.5 + jnp.arange(M) / 10.0)
+
+    def _explode(self):
+        raise AssertionError("obs_noise was materialised via as_matrix()")
+
+    monkeypatch.setattr(lx.DiagonalLinearOperator, "as_matrix", _explode)
+    out = eki_step(particles, obs_particles, observation, obs_noise, deterministic=True)
+    assert jnp.all(jnp.isfinite(out))
 
 
 # ---------------------------------------------------------------------------

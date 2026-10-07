@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx import (
+    enkf_analysis,
     ensemble_kalman_gain,
     etkf_transform,
     euclidean_distance,
@@ -20,7 +23,15 @@ from gaussx import (
     localization_matrix,
     localized_kalman_gain,
 )
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._einx import einsum, rearrange, reduce
+from gaussx._testing import (
+    assert_sample_moments,
+    empirical_moments,
+    key_sequence,
+    psd_operator,
+    random_pd_matrix,
+    tree_allclose,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -198,33 +209,175 @@ def test_etkf_preserves_mean(getkey):
     assert tree_allclose(analysis_pert.mean(0), jnp.zeros(5), atol=1e-6)
 
 
+def _etkf_analysis(Xf, H, y, R_op, *, inflation=1.0):
+    """Apply `etkf_transform` to a state ensemble under a linear ``H``."""
+    obs_particles = einsum(Xf, H, "J N, M N -> J M")
+    w_mean, transform = etkf_transform(obs_particles, y, R_op, inflation=inflation)
+    xbar_f = reduce(Xf, "J N -> N", "mean")
+    Xp = einx.subtract("J N, N -> J N", Xf, xbar_f)
+    xbar_a = xbar_f + einsum(w_mean, Xp, "J, J N -> N")
+    return einx.add("J N, N -> J N", einsum(transform, Xp, "J K, K N -> J N"), xbar_a)
+
+
+def _kf_update(mean, cov, H, R, y):
+    """Dense Kalman update, the reference for the ETKF identities."""
+    S = einsum(H, cov, H, "M N, N K, L K -> M L") + R
+    K = rearrange(
+        jnp.linalg.solve(S, einsum(H, cov, "M N, N K -> M K")), "M N -> N M"
+    )  # P H^T S^{-1}, S symmetric
+    post_mean = mean + einsum(K, y - einsum(H, mean, "M N, N -> M"), "N M, M -> N")
+    post_cov = cov - einsum(K, H, cov, "N M, M L, L K -> N K")
+    return post_mean, post_cov
+
+
 @pytest.mark.slow
-def test_etkf_matches_kalman_filter(getkey):
-    """ETKF analysis mean/cov equal the KF update for the sample prior."""
+@pytest.mark.x64_only(reason="exact identity checked to float64 round-off")
+def test_etkf_matches_kalman_filter():
+    """ETKF analysis mean/cov equal the KF update for the sample prior.
+
+    An exact algebraic identity, so the model is pinned (the randomness is
+    incidental) and the tolerance is round-off (gh-401).
+    """
+    nextkey = key_sequence(0)
     J, N, M = 16, 4, 2
-    Xf = jr.normal(getkey(), (J, N))
-    H = jr.normal(getkey(), (M, N))
-    R = random_pd_matrix(getkey(), M)
-    R_op = lx.MatrixLinearOperator(R, lx.positive_semidefinite_tag)
-    y = jr.normal(getkey(), (M,))
+    Xf = jr.normal(nextkey(), (J, N))
+    H = jr.normal(nextkey(), (M, N))
+    R = random_pd_matrix(nextkey(), M, jitter=0.5)
+    y = jr.normal(nextkey(), (M,))
 
-    # ETKF
-    obs_particles = Xf @ H.T
-    w_mean, transform = etkf_transform(obs_particles, y, R_op)
-    xbar_f = Xf.mean(0)
-    Xp = Xf - xbar_f
-    xbar_a = xbar_f + w_mean @ Xp
-    Xa = xbar_a[None, :] + transform @ Xp
+    Xa = _etkf_analysis(Xf, H, y, psd_operator(R))
+    mean_f, cov_f = empirical_moments(Xf)
+    mean_kf, cov_kf = _kf_update(mean_f, cov_f, H, R, y)
 
-    # Kalman filter reference using the sample prior covariance
-    Pf = jnp.cov(Xf, rowvar=False)
-    S = H @ Pf @ H.T + R
-    K = Pf @ H.T @ jnp.linalg.inv(S)
-    xbar_kf = xbar_f + K @ (y - H @ xbar_f)
-    Pa_kf = (jnp.eye(N) - K @ H) @ Pf
+    mean_a, cov_a = empirical_moments(Xa)
+    assert tree_allclose(mean_a, mean_kf, rtol=1e-10, atol=1e-10)
+    assert tree_allclose(cov_a, cov_kf, rtol=1e-10, atol=1e-10)
 
-    assert tree_allclose(xbar_a, xbar_kf, rtol=1e-4, atol=1e-5)
-    assert tree_allclose(jnp.cov(Xa, rowvar=False), Pa_kf, rtol=1e-3, atol=1e-5)
+
+@pytest.mark.x64_only(reason="exact identity checked to float64 round-off")
+@pytest.mark.parametrize("inflation", [1.0, 1.5])
+def test_etkf_inflation_matches_inflated_kalman_prior(inflation):
+    """``inflation=lambda`` is the KF update of the prior ``lambda * P_f``.
+
+    Pins where the inflation enters the ensemble-space precision -- the
+    ``(J - 1) / lambda`` prior term (gh-401). The tolerance is round-off.
+    """
+    nextkey = key_sequence(1)
+    J, N, M = 16, 4, 2
+    Xf = jr.normal(nextkey(), (J, N))
+    H = jr.normal(nextkey(), (M, N))
+    R = random_pd_matrix(nextkey(), M, jitter=0.5)
+    y = jr.normal(nextkey(), (M,))
+
+    Xa = _etkf_analysis(Xf, H, y, psd_operator(R), inflation=inflation)
+    mean_f, cov_f = empirical_moments(Xf)
+    mean_kf, cov_kf = _kf_update(mean_f, inflation * cov_f, H, R, y)
+
+    mean_a, cov_a = empirical_moments(Xa)
+    assert jnp.allclose(mean_a, mean_kf, atol=1e-10, rtol=0.0)
+    assert jnp.allclose(cov_a, cov_kf, atol=1e-10, rtol=0.0)
+
+
+def _linear_dynamics(nextkey, N, M, T):
+    """A stable linear model with a fixed observation record."""
+    A = 0.9 * jnp.linalg.qr(jr.normal(nextkey(), (N, N)))[0]  # spectral radius 0.9
+    H = jr.normal(nextkey(), (M, N))
+    R = random_pd_matrix(nextkey(), M, jitter=0.5)
+    ys = jr.normal(nextkey(), (T, M))
+    return A, H, R, ys
+
+
+@pytest.mark.x64_only(reason="exact identity checked to float64 round-off")
+def test_etkf_multi_cycle_matches_kalman_filter():
+    """Six ETKF cycles reproduce `gaussx.kalman_filter` exactly.
+
+    With linear dynamics and no process noise, propagating the ensemble keeps
+    its sample moments equal to the KF prediction, and each ETKF analysis is
+    the KF update of those moments, so the identity holds at every cycle to
+    round-off (gh-401). `kalman_filter` predicts before the first update, so
+    the ensemble is propagated before each analysis, the first included.
+    """
+    nextkey = key_sequence(2)
+    J, N, M, T = 12, 3, 2, 6
+    A, H, R, ys = _linear_dynamics(nextkey, N, M, T)
+    X = jr.normal(nextkey(), (J, N))
+    init_mean, init_cov = empirical_moments(X)
+
+    kf = gaussx.kalman_filter(A, H, jnp.zeros((N, N)), R, ys, init_mean, init_cov)
+
+    R_op = psd_operator(R)
+    for t in range(T):
+        X = einsum(X, A, "J K, N K -> J N")
+        X = _etkf_analysis(X, H, ys[t], R_op)
+        mean_a, cov_a = empirical_moments(X)
+        assert jnp.allclose(mean_a, kf.filtered_means[t], atol=1e-10, rtol=0.0)
+        assert jnp.allclose(cov_a, kf.filtered_covs[t], atol=1e-10, rtol=0.0)
+
+
+@pytest.mark.slow
+def test_stochastic_enkf_multi_cycle_matches_kalman_filter():
+    """Six stochastic EnKF cycles track `gaussx.kalman_filter` in distribution.
+
+    Process noise is added to the ensemble after each propagation, and the
+    analysis ensemble is compared to the KF filtered moments with
+    `assert_sample_moments`. The analysis members share the sample gain, so
+    they are not exactly i.i.d. and the 7-sigma band is approximate; at
+    J = 20 000 the gain's sampling error is O(1 / sqrt(J)) relative and the
+    band is dominated by the members' own spread (gh-401).
+    """
+    nextkey = key_sequence(3)
+    J, N, M, T = 20_000, 3, 2, 6
+    A, H, R, ys = _linear_dynamics(nextkey, N, M, T)
+    Q = 0.1 * random_pd_matrix(nextkey(), N, jitter=0.5)
+    init_mean = jr.normal(nextkey(), (N,))
+    init_cov = random_pd_matrix(nextkey(), N, jitter=0.5)
+
+    kf = gaussx.kalman_filter(A, H, Q, R, ys, init_mean, init_cov)
+
+    chol_p, chol_q = jnp.linalg.cholesky(init_cov), jnp.linalg.cholesky(Q)
+    X = einx.add(
+        "J N, N -> J N",
+        einsum(jr.normal(nextkey(), (J, N)), chol_p, "J K, N K -> J N"),
+        init_mean,
+    )
+    R_op = psd_operator(R)
+    for t in range(T):
+        noise = einsum(jr.normal(nextkey(), (J, N)), chol_q, "J K, N K -> J N")
+        X = einsum(X, A, "J K, N K -> J N") + noise
+        obs = einsum(X, H, "J N, M N -> J M")
+        X = enkf_analysis(X, obs, ys[t], R_op, key=nextkey())
+        assert_sample_moments(X, kf.filtered_means[t], kf.filtered_covs[t])
+
+
+def _forbid_as_matrix(monkeypatch, *classes):
+    def _explode(self):
+        raise AssertionError(f"{type(self).__name__}.as_matrix() was called")
+
+    for cls in classes:
+        monkeypatch.setattr(cls, "as_matrix", _explode)
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="gh-367: etkf_transform densifies obs_noise via as_matrix()",
+)
+def test_etkf_does_not_materialise_structured_noise(monkeypatch):
+    """A diagonal / block-diagonal R must stay structured (gh-282, gh-367)."""
+    nextkey = key_sequence(4)
+    J, M = 5, 8
+    obs_particles = jr.normal(nextkey(), (J, M))
+    y = jr.normal(nextkey(), (M,))
+    variances = 0.5 + jnp.arange(M) / 10.0
+    diag = lx.DiagonalLinearOperator(variances)
+    block = gaussx.BlockDiag(
+        lx.DiagonalLinearOperator(variances[:3]),
+        lx.MatrixLinearOperator(jnp.diag(variances[3:]), lx.positive_semidefinite_tag),
+    )
+    _forbid_as_matrix(monkeypatch, lx.DiagonalLinearOperator, gaussx.BlockDiag)
+    for R_op in (diag, block):
+        w_mean, transform = etkf_transform(obs_particles, y, R_op)
+        assert jnp.all(jnp.isfinite(w_mean)) and jnp.all(jnp.isfinite(transform))
 
 
 def test_etkf_jit(getkey):
