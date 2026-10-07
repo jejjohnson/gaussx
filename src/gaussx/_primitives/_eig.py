@@ -70,19 +70,44 @@ def eig(
         raise ValueError(f"method must be 'lanczos' or 'randomized', got {method!r}.")
     if method == "randomized" and rank is None:
         raise ValueError("method='randomized' needs a rank.")
+    return _eig(operator, rank, method, key, symmetric=False)
+
+
+def _eig(
+    operator: lx.AbstractLinearOperator,
+    rank: int | None,
+    method: Literal["lanczos", "randomized"],
+    key: jax.Array | None,
+    *,
+    symmetric: bool,
+) -> tuple[Array, Array]:
+    """`eig` dispatch; ``symmetric`` carries an outer wrapper's tags (gh-314)."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        # Tags cannot change the spectrum, but a PSD/NSD tag implies a real
+        # symmetric operator, so the inner one takes ``eigh`` (gh-314).
+        return _eig(
+            operator.operator,
+            rank,
+            method,
+            key,
+            symmetric=symmetric or _is_real_symmetric(operator),
+        )
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _eig_diagonal(operator)
-    if isinstance(operator, BlockDiag):
-        return _eig_block_diag(operator)
-    if isinstance(operator, Kronecker):
-        return _eig_kronecker(operator)
+    # Per-factor paths need square factors; a square product of rectangular
+    # ones (e.g. ``A ⊗ Aᵀ``) is decomposed whole. The outer symmetry carries
+    # into the blocks/factors, so they take ``eigh`` too.
+    if isinstance(operator, BlockDiag) and _square_factors(operator):
+        return _eig_block_diag(operator, symmetric=symmetric)
+    if isinstance(operator, Kronecker) and _square_factors(operator):
+        return _eig_kronecker(operator, symmetric=symmetric)
     if isinstance(operator, KroneckerSum):
-        return _eig_kronecker_sum(operator)
+        return _eig_kronecker_sum(operator, symmetric=symmetric)
     if rank is not None:
         if method == "randomized":
             return randomized_eigh(operator, rank, key=key)
         return _eig_partial(operator, rank, key)
-    return _eig_dense(operator)
+    return _eig_dense(operator, symmetric=symmetric)
 
 
 def eigvals(
@@ -104,18 +129,38 @@ def eigvals(
     Returns:
         Eigenvalues array of shape ``(K,)``.
     """
+    return _eigvals(operator, rank, key, symmetric=False)
+
+
+def _eigvals(
+    operator: lx.AbstractLinearOperator,
+    rank: int | None,
+    key: jax.Array | None,
+    *,
+    symmetric: bool,
+) -> Array:
+    """`eigvals` dispatch; ``symmetric`` as in ``_eig`` (gh-314)."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _eigvals(
+            operator.operator,
+            rank,
+            key,
+            symmetric=symmetric or _is_real_symmetric(operator),
+        )
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.diagonal(operator)
-    if isinstance(operator, BlockDiag):
-        return jnp.concatenate([eigvals(op) for op in operator.operators])
-    if isinstance(operator, Kronecker):
-        return _eigvals_kronecker(operator)
+    if isinstance(operator, BlockDiag) and _square_factors(operator):
+        return jnp.concatenate(
+            [_eigvals(op, None, None, symmetric=symmetric) for op in operator.operators]
+        )
+    if isinstance(operator, Kronecker) and _square_factors(operator):
+        return _eigvals_kronecker(operator, symmetric=symmetric)
     if isinstance(operator, KroneckerSum):
-        return _eigvals_kronecker_sum(operator)
+        return _eigvals_kronecker_sum(operator, symmetric=symmetric)
     if rank is not None:
         vals, _ = _eig_partial(operator, rank, key)
         return vals
-    return _eigvals_dense(operator)
+    return _eigvals_dense(operator, symmetric=symmetric)
 
 
 def _eig_diagonal(
@@ -126,13 +171,25 @@ def _eig_diagonal(
     return d, jnp.eye(n, dtype=d.dtype)
 
 
+def _square_factors(operator: BlockDiag | Kronecker) -> bool:
+    return all(op.in_size() == op.out_size() for op in operator.operators)
+
+
+def _factor_eig(
+    operator: lx.AbstractLinearOperator, symmetric: bool
+) -> tuple[Array, Array]:
+    return _eig(operator, None, "lanczos", None, symmetric=symmetric)
+
+
 def _eig_block_diag(
     operator: BlockDiag,
+    *,
+    symmetric: bool = False,
 ) -> tuple[Array, Array]:
     vals_list = []
     vecs_list = []
     for op in operator.operators:
-        v, V = eig(op)
+        v, V = _factor_eig(op, symmetric)
         vals_list.append(v)
         vecs_list.append(V)
     vals = jnp.concatenate(vals_list)
@@ -142,28 +199,35 @@ def _eig_block_diag(
 
 def _eig_kronecker(
     operator: Kronecker,
+    *,
+    symmetric: bool = False,
 ) -> tuple[Array, Array]:
     """eig(A kron B) = (kron(eigvals), kron(eigvecs))."""
-    factor_eigs = [eig(op) for op in operator.operators]
+    factor_eigs = [_factor_eig(op, symmetric) for op in operator.operators]
     vals = ft.reduce(jnp.kron, (v for v, _ in factor_eigs))
     vecs = ft.reduce(jnp.kron, (V for _, V in factor_eigs))
     return vals, vecs
 
 
-def _eigvals_kronecker(operator: Kronecker) -> Array:
+def _eigvals_kronecker(operator: Kronecker, *, symmetric: bool = False) -> Array:
     """eigvals(A kron B) = kron(eigvals(A), eigvals(B))."""
-    return ft.reduce(jnp.kron, (eigvals(op) for op in operator.operators))
+    return ft.reduce(
+        jnp.kron,
+        (_eigvals(op, None, None, symmetric=symmetric) for op in operator.operators),
+    )
 
 
 def _eig_kronecker_sum(
     operator: KroneckerSum,
+    *,
+    symmetric: bool = False,
 ) -> tuple[Array, Array]:
     """eig(A (+) B) via per-factor eigendecomposition.
 
     A (+) B = (Q_A ⊗ Q_B) diag(λ^A_i + λ^B_j) (Q_A ⊗ Q_B)^T.
     """
-    evals_a, evecs_a = eig(operator.A)
-    evals_b, evecs_b = eig(operator.B)
+    evals_a, evecs_a = _factor_eig(operator.A, symmetric)
+    evals_b, evecs_b = _factor_eig(operator.B, symmetric)
     eigenvalues = jnp.reshape(
         evals_a[:, None] + evals_b[None, :],
         (-1,),
@@ -172,10 +236,10 @@ def _eig_kronecker_sum(
     return eigenvalues, Q
 
 
-def _eigvals_kronecker_sum(operator: KroneckerSum) -> Array:
+def _eigvals_kronecker_sum(operator: KroneckerSum, *, symmetric: bool = False) -> Array:
     """eigvals(A (+) B) = sum-pairs of eigvals — no factor materialization."""
-    evals_a = eigvals(operator.A)
-    evals_b = eigvals(operator.B)
+    evals_a = _eigvals(operator.A, None, None, symmetric=symmetric)
+    evals_b = _eigvals(operator.B, None, None, symmetric=symmetric)
     return jnp.reshape(evals_a[:, None] + evals_b[None, :], (-1,))
 
 
@@ -200,18 +264,42 @@ def _eig_partial(
     return vals, vecs.T
 
 
+def _is_real_symmetric(operator: lx.AbstractLinearOperator) -> bool:
+    """Symmetric, or PSD/NSD-tagged with a real dtype (lineax's own rule).
+
+    lineax reports ``is_symmetric(Tagged(X, positive_semidefinite_tag))`` as
+    ``False``, yet a real PSD/NSD operator is symmetric (gh-314).
+    """
+    if lx.is_symmetric(operator):
+        return True
+    definite = lx.is_positive_semidefinite(operator) or lx.is_negative_semidefinite(
+        operator
+    )
+    structures = (operator.in_structure(), operator.out_structure())
+    return definite and not any(
+        jnp.issubdtype(leaf.dtype, jnp.complexfloating)
+        for leaf in jax.tree_util.tree_leaves(structures)
+    )
+
+
 def _eig_dense(
     operator: lx.AbstractLinearOperator,
+    *,
+    symmetric: bool = False,
 ) -> tuple[Array, Array]:
     mat = operator.as_matrix()
-    if lx.is_symmetric(operator):
+    if symmetric or _is_real_symmetric(operator):
         return jnp.linalg.eigh(mat)
     return jnp.linalg.eig(mat)
 
 
-def _eigvals_dense(operator: lx.AbstractLinearOperator) -> Array:
+def _eigvals_dense(
+    operator: lx.AbstractLinearOperator,
+    *,
+    symmetric: bool = False,
+) -> Array:
     mat = operator.as_matrix()
-    if lx.is_symmetric(operator):
+    if symmetric or _is_real_symmetric(operator):
         return jnp.linalg.eigvalsh(mat)
     return jnp.linalg.eigvals(mat)
 
