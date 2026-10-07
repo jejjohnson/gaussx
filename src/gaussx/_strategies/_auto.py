@@ -24,7 +24,8 @@ class AutoSolver(AbstractSolverStrategy):
       DenseSolver, whose structural dispatch is exact and cheap
     - Small dense (N <= size_threshold): DenseSolver
     - Large PSD: CGSolver. Its ``logdet`` is a **stochastic**, fixed-seed
-      SLQ estimate; for an exact one at that size use
+      SLQ estimate (the same probes on every call unless a ``key`` is
+      passed, e.g. through `gaussx.KeyedSolver`); for an exact one use
       ``ComposedSolver(CGSolver(), DenseLogdet())``
     - Large general: DenseSolver (fallback)
 

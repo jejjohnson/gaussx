@@ -35,6 +35,9 @@ class CGSolver(AbstractSolverStrategy):
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
+        seed: Seed of the SLQ probes when `logdet` gets no ``key``. With no
+            key every call reuses the same probes (common random numbers);
+            see `gaussx.KeyedSolver`.
         preconditioner: Optional preconditioner. When set, its approximate
             inverse is passed to lineax CG to accelerate convergence.
         throw: Raise when CG does not converge within ``max_steps`` (the
@@ -48,6 +51,7 @@ class CGSolver(AbstractSolverStrategy):
     max_steps: int = eqx.field(static=True, default=1000)
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
+    seed: int = eqx.field(static=True, default=0)
     preconditioner: AbstractPreconditioner | None = None
     throw: bool = eqx.field(static=True, default=True)
 
@@ -99,7 +103,8 @@ class CGSolver(AbstractSolverStrategy):
         Args:
             operator: A PSD linear operator.
             key: PRNG key for probe vector sampling. If None,
-                uses ``jax.random.PRNGKey(0)``.
+                uses ``jax.random.PRNGKey(seed)``: the same probes on
+                every call.
 
         Returns:
             Scalar estimate of log |det(A)|.
@@ -107,4 +112,5 @@ class CGSolver(AbstractSolverStrategy):
         return SLQLogdet(
             num_probes=self.num_probes,
             lanczos_order=self.lanczos_order,
+            seed=self.seed,
         ).logdet(operator, key=key)

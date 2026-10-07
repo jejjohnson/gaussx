@@ -340,6 +340,7 @@ from gaussx._strategies import (
     DenseLogdet as DenseLogdet,
     DenseSolver as DenseSolver,
     IndefiniteSLQLogdet as IndefiniteSLQLogdet,
+    KeyedSolver as KeyedSolver,
     LSMRSolver as LSMRSolver,
     MINRESSolver as MINRESSolver,
     PreconditionedCGSolver as PreconditionedCGSolver,

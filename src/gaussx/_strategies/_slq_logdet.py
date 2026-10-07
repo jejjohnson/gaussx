@@ -61,6 +61,12 @@ class SLQLogdet(AbstractLogdetStrategy):
     Lanczos decomposition with sign-flip ("Rademacher") probe vectors
     by default.
 
+    With no ``key``, `logdet` uses ``PRNGKey(seed)``, so every call sees the
+    same probes: common random numbers, which suit stochastic-gradient
+    training but give no variance reduction when estimates are averaged and
+    a fixed pseudo-likelihood under MCMC. Pass a fresh ``key`` (or wrap a
+    strategy in `gaussx.KeyedSolver`) to decorrelate calls.
+
     Attributes:
         num_probes: Number of probe vectors for Hutchinson estimator.
         lanczos_order: Order of the Lanczos decomposition.

@@ -288,3 +288,15 @@ def test_exhausting_max_steps_raises_unless_throw_false():
         MINRESSolver(max_steps=5).solve(op, b)
     x = MINRESSolver(max_steps=5, throw=False).solve(op, b)
     assert jnp.all(jnp.isfinite(x))
+
+
+def test_seed_changes_the_probes():
+    # gh-384: MINRESSolver had no seed.
+    op = random_pd_operator(jr.key(0), 10, jitter=10.0)
+    s0 = MINRESSolver(num_probes=4, lanczos_order=4)
+    s1 = MINRESSolver(num_probes=4, lanczos_order=4, seed=1)
+    assert tree_allclose(s0.logdet(op), s0.logdet(op))
+    assert not tree_allclose(s0.logdet(op), s1.logdet(op))
+    assert s0.logdet(op) == IndefiniteSLQLogdet(num_probes=4, lanczos_order=4).logdet(
+        op
+    )

@@ -43,7 +43,13 @@ def _default(cls: type):
     return cls()
 
 
-_STRATEGIES = [_default(cls) for cls in _exported_strategy_classes()] + [
+# KeyedSolver's key is deliberately a leaf, so that it can change under jit
+# (gh-384); see test_keyed_solver_key_is_its_only_leaf.
+_STRATEGIES = [
+    _default(cls)
+    for cls in _exported_strategy_classes()
+    if cls is not gaussx.KeyedSolver
+] + [
     gaussx.ComposedSolver(gaussx.DenseSolver(), gaussx.IndefiniteSLQLogdet()),
     gaussx.CGSolver(preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2)),
     gaussx.PartialCholeskyPreconditioner(),
@@ -59,6 +65,12 @@ def test_every_exported_strategy_is_covered():
     # the parametrisation below.
     names = {c.__name__ for c in _exported_strategy_classes()}
     assert {"AutoSolver", "CGSolver", "ComposedSolver", "SLQLogdet"} <= names
+
+
+def test_keyed_solver_key_is_its_only_leaf():
+    key = jr.key(0)
+    keyed = gaussx.KeyedSolver(gaussx.CGSolver(), key)
+    assert jax.tree_util.tree_leaves(keyed) == [key]
 
 
 @pytest.mark.parametrize("strategy", _STRATEGIES, ids=_id)

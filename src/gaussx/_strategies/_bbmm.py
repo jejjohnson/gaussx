@@ -30,7 +30,9 @@ class BBMMSolver(AbstractSolverStrategy):
 
     Only the integer ``seed`` is stored. With no ``key``, `logdet` draws
     its probes from ``PRNGKey(seed)`` at every call, so it is a
-    deterministic function of the operator.
+    deterministic function of the operator: the same probes every time
+    (common random numbers). Pass ``key`` or use `gaussx.KeyedSolver` to
+    vary them.
 
     Attributes:
         cg_max_iter: Maximum CG iterations.
