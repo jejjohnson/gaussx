@@ -12,6 +12,25 @@ operator, so `sample` / `log_prob` inherit every structured fast path.
 natural home for natural-parameter guides, where materializing $\Sigma$ would
 be wasted work. Both require `numpyro` to be installed.
 
+Both subclass `AbstractMultivariateNormal`, so code written against the base
+works for either parameterisation. It provides `covariance_operator` and
+`precision_operator` (one native, the other a lazy `inv`), numpyro's dense
+`covariance_matrix` / `precision_matrix` / `scale_tril`, and `p.kl(q)` for any
+mix of the two classes:
+
+$$
+\mathrm{KL}(p \,\|\, q) = \tfrac12\Big(\operatorname{tr}(\Lambda_q \Sigma_p)
++ (\mu_q - \mu_p)^\top \Lambda_q (\mu_q - \mu_p) - N
++ \log\lvert\Sigma_q\rvert - \log\lvert\Sigma_p\rvert\Big),
+\qquad \Lambda_q = \Sigma_q^{-1}.
+$$
+
+When `q` is precision-parameterised, $\Lambda_q$ is its native operator, so
+the trace and quadratic terms need no solve. `MultivariateNormalPrecision.variance`
+takes `diag_inv`'s exact structured paths (for example, the $O(N d^3)$ selected
+inverse of a `BlockTriDiag` precision) and densifies only an unstructured
+precision.
+
 With a stochastic `solver` (e.g. `CGSolver()`), `log_prob` and `entropy`
 estimate the log-determinant from the strategy's fixed seed, so every call
 reuses the same probes. That is fine for SVI gradients, but averaging calls
@@ -24,7 +43,7 @@ probes, pass `solver=KeyedSolver(CGSolver(), key)` with a fresh key per step
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [MultivariateNormal, MultivariateNormalPrecision]
+      members: [AbstractMultivariateNormal, MultivariateNormal, MultivariateNormalPrecision]
 
 ## Gaussian Markov random fields
 

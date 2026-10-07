@@ -20,24 +20,24 @@ from numpyro.distributions.kl import kl_divergence
 
 from gaussx._distributions._kl import dist_kl_divergence
 from gaussx._distributions._mvn import MultivariateNormal
-from gaussx._distributions._mvn_prec import MultivariateNormalPrecision
+from gaussx._distributions._mvn_base import AbstractMultivariateNormal
 from gaussx._distributions._utils import _reshape_batch
 from gaussx._einx import rearrange
-from gaussx._primitives._inv import inv
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._dense import DenseSolver
 
 
-_Gaussian = MultivariateNormal | MultivariateNormalPrecision | nd.MultivariateNormal
+_Gaussian = AbstractMultivariateNormal | nd.MultivariateNormal
 
 
 def _shared_covariance(d: _Gaussian) -> lx.AbstractLinearOperator | None:
-    """The batch-shared covariance operator of a gaussx class, else ``None``."""
-    if isinstance(d, MultivariateNormal):
-        return d.cov_operator
-    if isinstance(d, MultivariateNormalPrecision):
-        # Lazy: the KL's structural dispatch sees the inverse of the precision.
-        return inv(d.prec_operator)
+    """The batch-shared covariance operator of a gaussx class, else ``None``.
+
+    For a precision-parameterised class this is the lazy inverse, so the
+    KL's structural dispatch sees the inverse of the precision.
+    """
+    if isinstance(d, AbstractMultivariateNormal):
+        return d.covariance_operator
     return None
 
 
@@ -51,7 +51,11 @@ def _has_exact_kl(d: _Gaussian) -> bool:
     """
     if isinstance(d, nd.MultivariateNormal):
         return True
-    operator = d.cov_operator if isinstance(d, MultivariateNormal) else d.prec_operator
+    operator = (
+        d.covariance_operator
+        if isinstance(d, MultivariateNormal)
+        else d.precision_operator
+    )
     if isinstance(d.solver, DenseSolver):
         return True
     if isinstance(d.solver, AutoSolver):
@@ -68,17 +72,21 @@ def _flat_dense_covariance(
     return rearrange(cov, "... i j -> (...) i j")
 
 
+def _check_event_shapes(p: _Gaussian, q: _Gaussian) -> None:
+    if p.event_shape != q.event_shape:
+        raise ValueError(
+            "Distributions must have the same event shape, but are"
+            f" {p.event_shape} and {q.event_shape} for p and q, respectively."
+        )
+
+
 def _gaussian_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
     """``KL(p || q)`` with numpyro's batch semantics.
 
     Mirrors numpyro's own MVN-MVN KL: equal event shapes, batch shapes
     broadcast together, and the result has the broadcast batch shape.
     """
-    if p.event_shape != q.event_shape:
-        raise ValueError(
-            "Distributions must have the same event shape, but are"
-            f" {p.event_shape} and {q.event_shape} for p and q, respectively."
-        )
+    _check_event_shapes(p, q)
     if not (_has_exact_kl(p) and _has_exact_kl(q)):
         # numpyro's callers (TraceMeanField_ELBO) catch this and estimate the
         # KL by Monte Carlo through each distribution's own log_prob, which
@@ -87,6 +95,17 @@ def _gaussian_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
             "The closed-form KL needs exact solves: both distributions must use "
             "DenseSolver, or an AutoSolver that routes to it."
         )
+    return closed_form_kl(p, q)
+
+
+def closed_form_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
+    """``KL(p || q)`` in closed form, whatever the solver strategies.
+
+    Batch shapes broadcast as in numpyro's MVN-MVN KL. Backs
+    `AbstractMultivariateNormal.kl` and, behind the exact-solver check, the
+    numpyro ``kl_divergence`` registrations.
+    """
+    _check_event_shapes(p, q)
     batch_shape = jnp.broadcast_shapes(p.batch_shape, q.batch_shape)
     (n,) = p.event_shape
 
@@ -117,9 +136,10 @@ def _gaussian_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
     return _reshape_batch(flat, batch_shape)
 
 
-_GAUSSX = (MultivariateNormal, MultivariateNormalPrecision)
-
-for _p in _GAUSSX:
-    for _q in (*_GAUSSX, nd.MultivariateNormal):
-        kl_divergence.register(_p, _q)(_gaussian_kl)
-    kl_divergence.register(nd.MultivariateNormal, _p)(_gaussian_kl)
+# One registration per pair of families: subclasses of the shared base
+# (gh-360) dispatch through it.
+kl_divergence.register(AbstractMultivariateNormal, AbstractMultivariateNormal)(
+    _gaussian_kl
+)
+kl_divergence.register(AbstractMultivariateNormal, nd.MultivariateNormal)(_gaussian_kl)
+kl_divergence.register(nd.MultivariateNormal, AbstractMultivariateNormal)(_gaussian_kl)

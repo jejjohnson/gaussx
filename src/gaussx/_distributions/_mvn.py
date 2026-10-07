@@ -7,25 +7,28 @@ import math
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import numpyro.distributions as dist
 from jaxtyping import Array, Float
-from numpyro.distributions.util import lazy_property, validate_sample
+from numpyro.distributions.util import lazy_property
 
 from gaussx._distributions._gaussian import (
     _gaussian_log_prob_residual,
     gaussian_entropy,
 )
+from gaussx._distributions._mvn_base import AbstractMultivariateNormal
 from gaussx._distributions._sample import sample_mvn
-from gaussx._distributions._utils import _reshape_batch, _unflatten_sample_axis
-from gaussx._einx import rearrange
+from gaussx._distributions._utils import _unflatten_sample_axis
 from gaussx._primitives._diag import diag as _diag
+from gaussx._primitives._inv import inv as _inv
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
-class MultivariateNormal(dist.Distribution):
+class MultivariateNormal(AbstractMultivariateNormal):
     """Multivariate normal parameterized by a lineax linear operator.
 
+    Covariance-parameterised member of `AbstractMultivariateNormal`, which
+    supplies the shared accessors (``covariance_operator``,
+    ``precision_operator``, ``covariance_matrix``, ``scale_tril``, `kl`, ...).
     Unlike ``numpyro.distributions.MultivariateNormal`` which requires
     dense arrays, this distribution accepts any
     ``lineax.AbstractLinearOperator`` as its covariance. This enables
@@ -56,9 +59,6 @@ class MultivariateNormal(dist.Distribution):
         >>> d.log_prob(jnp.ones(3))
     """
 
-    arg_constraints = {"loc": dist.constraints.real_vector}  # noqa: RUF012
-    support = dist.constraints.real_vector
-    reparametrized_params = ["loc"]  # noqa: RUF012
     pytree_data_fields = ("loc", "cov_operator", "solver")
 
     def __init__(
@@ -82,18 +82,20 @@ class MultivariateNormal(dist.Distribution):
             validate_args=validate_args,
         )
 
+    @property
+    def covariance_operator(self) -> lx.AbstractLinearOperator:
+        """The covariance operator (native; the same object as ``cov_operator``)."""
+        return self.cov_operator
+
+    @property
+    def precision_operator(self) -> lx.AbstractLinearOperator:
+        """The precision: the lazy `gaussx.inv` of ``cov_operator``."""
+        return _inv(self.cov_operator)
+
     def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
         return _gaussian_log_prob_residual(
             residual, self.cov_operator, solver=self.solver
         )
-
-    @validate_sample
-    def log_prob(self, value: Float[Array, "*batch N"]) -> Float[Array, "*batch"]:
-        residual = value - self.loc
-        leading_shape = residual.shape[:-1]
-        residual_flat = rearrange(residual, "... D -> (...) D")
-        log_prob_flat = jax.vmap(self._log_prob_single)(residual_flat)
-        return _reshape_batch(log_prob_flat, leading_shape)
 
     def sample(
         self,
@@ -119,10 +121,6 @@ class MultivariateNormal(dist.Distribution):
             return jnp.zeros(sample_shape + one.shape[1:], dtype=one.dtype)
         draws = sample_mvn(loc, self.cov_operator, key=key, num_samples=num_samples)
         return _unflatten_sample_axis(draws, sample_shape)
-
-    @lazy_property
-    def mean(self) -> Float[Array, "*batch N"]:
-        return self.loc
 
     @lazy_property
     def variance(self) -> Float[Array, "*batch N"]:
