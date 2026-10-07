@@ -12,6 +12,13 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, reduce
 from gaussx._linalg._schur import conditional_variance as _conditional_variance
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._sparse import SparseOperator
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolveStrategy
@@ -361,13 +368,17 @@ def solve_matrix(
 ) -> Float[Array, "N K"]:
     """Solve ``A X = B`` with a single factorization on the matrix RHS.
 
-    When ``solver`` is ``None`` and ``A`` is positive semidefinite, this
-    factors ``A = L L^T`` once via `gaussx.cholesky` and then uses
-    a single ``cho_solve`` on the full matrix RHS — avoiding the
-    per-column re-factorization incurred by `solve_columns`.
+    When ``solver`` is ``None`` and ``A`` is a positive semidefinite
+    operator without a structured solve (dense, possibly behind ``Tagged`` /
+    scalar wrappers, or a composition or sum), this factors
+    ``A = L L^T`` once via `gaussx.cholesky` and then uses a single
+    ``cho_solve`` on the full matrix RHS — avoiding the per-column
+    re-factorization incurred by `solve_columns`.
 
-    For non-PSD operators (or when a custom ``solver`` is supplied),
-    falls back to `solve_columns`.
+    Structured operators (``LowRankUpdate``, ``Kronecker``, ``BlockDiag``,
+    ...), non-PSD operators and a custom ``solver`` go to `solve_columns`,
+    whose per-column structured `gaussx.solve` (Woodbury, Roth's lemma,
+    per block) is cheaper than densifying a Cholesky factor (gh-356).
 
     Args:
         operator: Linear operator A, shape ``(N, N)``.
@@ -378,10 +389,50 @@ def solve_matrix(
     Returns:
         Solution X = A⁻¹ B, shape ``(N, K)``.
     """
-    if solver is None and lx.is_positive_semidefinite(operator):
+    if (
+        solver is None
+        and lx.is_positive_semidefinite(operator)
+        and not _has_structured_solve(operator)
+    ):
         L = cholesky(operator).as_matrix()
         return jax.scipy.linalg.cho_solve((L, True), matrix)
     return solve_columns(operator, matrix, solver=solver)
+
+
+_STRUCTURED_SOLVE = (
+    lx.IdentityLinearOperator,
+    lx.DiagonalLinearOperator,
+    BlockDiag,
+    Kronecker,
+    LowRankUpdate,
+    KroneckerSum,
+    BlockTriDiag,
+    DiagonalisedOperator,
+    SparseOperator,
+)
+
+
+def _has_structured_solve(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether `gaussx.solve` has a structured rule under the scalar wrappers.
+
+    Dense operators, compositions (whose factors may be rectangular) and
+    sums keep the single full-system factorisation (gh-356).
+    """
+    while isinstance(
+        operator,
+        lx.TaggedLinearOperator
+        | lx.MulLinearOperator
+        | lx.DivLinearOperator
+        | lx.NegLinearOperator,
+    ):
+        operator = operator.operator
+    if not isinstance(operator, _STRUCTURED_SOLVE):
+        return False
+    if isinstance(operator, BlockDiag | Kronecker):
+        return all(op.in_size() == op.out_size() for op in operator.operators)
+    if isinstance(operator, LowRankUpdate):
+        return operator.base.in_size() == operator.base.out_size()
+    return True
 
 
 def solve_rows(
