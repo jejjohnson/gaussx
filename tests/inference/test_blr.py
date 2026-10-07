@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
+import gaussx
 from gaussx._einx import einsum
 from gaussx._inference._blr import (
     blr_diag_update,
@@ -12,7 +13,7 @@ from gaussx._inference._blr import (
     ggn_diagonal,
     hutchinson_hessian_diag,
 )
-from gaussx._testing import key_sequence, random_pd_matrix
+from gaussx._testing import default_tolerances, key_sequence, random_pd_matrix
 
 
 class TestBLRDiagUpdate:
@@ -132,6 +133,87 @@ class TestBLRGaussianExactness:
 
         assert jnp.allclose(nat2_new, -0.5 * p, atol=1e-12, rtol=0.0)
         assert jnp.allclose(nat1_new, p * m, atol=1e-12, rtol=0.0)
+
+
+# gh-378: blr_* store eta2 = -Lambda/2 (exponential family) while
+# newton_update / cavity_distribution store +Lambda. These pin the relation
+# and the opt-in ``convention="precision"`` that bridges the two.
+class TestNaturalConventions:
+    def _site(self):
+        nextkey = key_sequence(1)
+        d = 4
+        f = jr.normal(nextkey(), (d,))
+        g = jr.normal(nextkey(), (d,))
+        h = -jnp.exp(jr.normal(nextkey(), (d,)))  # log-concave sites
+        return f, g, h
+
+    def test_newton_update_is_minus_two_times_blr_eta2(self):
+        f, g, h = self._site()
+        nat1_newton, nat2_newton = gaussx.newton_update(f, g, h)
+        # Start the BLR at the same mean f (eta1 = f, eta2 = -1/2 => mu = f).
+        n1, n2 = blr_diag_update(f, -0.5 * jnp.ones_like(f), g, h, lr=1.0)
+        rtol, atol = default_tolerances(n2)
+        assert jnp.allclose(nat2_newton, -2.0 * n2, rtol=rtol, atol=atol)
+        assert jnp.allclose(nat1_newton, n1, rtol=rtol, atol=atol)
+
+    def test_precision_convention_matches_newton_update(self):
+        f, g, h = self._site()
+        nat1_newton, nat2_newton = gaussx.newton_update(f, g, h)
+        n1, n2 = blr_diag_update(
+            f, jnp.ones_like(f), g, h, lr=1.0, convention="precision"
+        )
+        rtol, atol = default_tolerances(n2)
+        assert jnp.allclose(n2, nat2_newton, rtol=rtol, atol=atol)
+        assert jnp.allclose(n1, nat1_newton, rtol=rtol, atol=atol)
+
+    @pytest.mark.parametrize("lr", [0.3, 1.0])
+    def test_precision_convention_is_the_converted_expfam_update(self, lr):
+        nextkey = key_sequence(2)
+        d = 3
+        nat1 = jr.normal(nextkey(), (d,))
+        Lam = random_pd_matrix(nextkey(), d, jitter=1.0)
+        grad = jr.normal(nextkey(), (d,))
+        hess = -random_pd_matrix(nextkey(), d, jitter=1.0)
+
+        e1, e2 = blr_full_update(nat1, -0.5 * Lam, grad, hess, lr)
+        p1, p2 = blr_full_update(nat1, Lam, grad, hess, lr, convention="precision")
+        rtol, atol = default_tolerances(p2)
+        assert jnp.allclose(p1, e1, rtol=rtol, atol=atol)
+        assert jnp.allclose(p2, -2.0 * e2, rtol=rtol, atol=atol)
+
+        lam_diag = jnp.diag(Lam)
+        e1, e2 = blr_diag_update(nat1, -0.5 * lam_diag, grad, jnp.diag(hess), lr)
+        p1, p2 = blr_diag_update(
+            nat1, lam_diag, grad, jnp.diag(hess), lr, convention="precision"
+        )
+        assert jnp.allclose(p1, e1, rtol=rtol, atol=atol)
+        assert jnp.allclose(p2, -2.0 * e2, rtol=rtol, atol=atol)
+
+    def test_precision_sites_round_trip_through_cavity_distribution(self):
+        """Removing the BLR site from a posterior that holds only it."""
+        f, g, h = self._site()
+        site1, site2 = blr_diag_update(
+            f, jnp.ones_like(f), g, h, lr=1.0, convention="precision"
+        )
+        post_var = 1.0 / (1.0 + site2)  # unit prior precision times the site
+        post_mean = post_var * site1
+        cav_mean, cav_var = gaussx.cavity_distribution(
+            post_mean, post_var, site1, site2
+        )
+        rtol, atol = default_tolerances(cav_var)
+        assert jnp.allclose(cav_var, jnp.ones_like(cav_var), rtol=rtol, atol=atol)
+        assert jnp.allclose(cav_mean, jnp.zeros_like(cav_mean), atol=10 * atol)
+
+    def test_rejects_unknown_convention(self):
+        with pytest.raises(ValueError, match="convention must be"):
+            blr_diag_update(
+                jnp.zeros(2),
+                -0.5 * jnp.ones(2),
+                jnp.zeros(2),
+                -jnp.ones(2),
+                1.0,
+                convention="natural",  # ty: ignore[invalid-argument-type]
+            )
 
 
 class TestGGNDiagonal:

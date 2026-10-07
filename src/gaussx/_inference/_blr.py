@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
@@ -15,12 +16,34 @@ from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_solve
 
 
+NaturalConvention = Literal["expfam", "precision"]
+
+
+def _to_expfam(nat2, convention: NaturalConvention):
+    """``eta2 = -Lambda / 2`` from either convention."""
+    if convention == "expfam":
+        return nat2
+    if convention == "precision":
+        return -0.5 * nat2
+    raise ValueError(
+        f"convention must be 'expfam' (eta2 = -Lambda/2) or 'precision' "
+        f"(nat2 = +Lambda), got {convention!r}."
+    )
+
+
+def _from_expfam(eta2, convention: NaturalConvention):
+    """Back to the caller's convention; inverse of `_to_expfam`."""
+    return eta2 if convention == "expfam" else -2.0 * eta2
+
+
 def blr_diag_update(
     nat1: Float[Array, " d"],
     nat2_diag: Float[Array, " d"],
     grad: Float[Array, " d"],
     hessian_diag: Float[Array, " d"],
     lr: float,
+    *,
+    convention: NaturalConvention = "expfam",
 ) -> tuple[Float[Array, " d"], Float[Array, " d"]]:
     r"""Diagonal natural parameter BLR update step.
 
@@ -42,10 +65,25 @@ def blr_diag_update(
         hessian_diag: Diagonal of Hessian (negative for log-concave),
             shape ``(d,)``.
         lr: Learning rate / damping factor.
+        convention: Convention of ``nat2_diag`` and of the returned
+            ``nat2_new``. ``"expfam"`` (default) is ``eta2 = -Lambda/2``;
+            ``"precision"`` is ``nat2 = +Lambda``, the convention of
+            `gaussx.newton_update` and `gaussx.cavity_distribution`.
+            ``nat1`` is ``Lambda mu`` in both.
 
     Returns:
         Tuple ``(nat1_new, nat2_new)`` — updated natural parameters.
+
+    Note:
+        By default ``nat2`` is the exponential-family ``eta2 = -Lambda/2``,
+        matching `gaussx.mean_cov_to_natural`. `gaussx.newton_update` and
+        `gaussx.cavity_distribution` use ``nat2 = +Lambda`` instead; convert
+        with ``nat2_plus = -2 * eta2``, or pass ``convention="precision"`` to
+        read and return ``+Lambda`` directly. `gaussx.damped_natural_update`
+        is linear, so it works in either convention as long as both of its
+        arguments share it.
     """
+    nat2_diag = _to_expfam(nat2_diag, convention)
     # Current mean from natural parameters
     mu = nat1 / (-2.0 * nat2_diag)
 
@@ -57,7 +95,7 @@ def blr_diag_update(
     nat1_new = (1.0 - lr) * nat1 + lr * nat1_target
     nat2_new = (1.0 - lr) * nat2_diag + lr * nat2_target
 
-    return nat1_new, nat2_new
+    return nat1_new, _from_expfam(nat2_new, convention)
 
 
 def blr_full_update(
@@ -68,6 +106,7 @@ def blr_full_update(
     lr: float,
     *,
     solver: AbstractSolverStrategy | None = None,
+    convention: NaturalConvention = "expfam",
 ) -> tuple[Float[Array, " d"], Float[Array, "d d"]]:
     r"""Full-rank natural parameter BLR update step.
 
@@ -86,10 +125,25 @@ def blr_full_update(
         lr: Learning rate / damping factor.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
+        convention: Convention of ``nat2`` and of the returned ``nat2_new``.
+            ``"expfam"`` (default) is ``eta2 = -Lambda/2``; ``"precision"``
+            is ``nat2 = +Lambda``, the convention of `gaussx.newton_update`
+            and `gaussx.cavity_distribution`. ``nat1`` is ``Lambda mu`` in
+            both.
 
     Returns:
         Tuple ``(nat1_new, nat2_new)`` — updated natural parameters.
+
+    Note:
+        By default ``nat2`` is the exponential-family ``eta2 = -Lambda/2``,
+        matching `gaussx.mean_cov_to_natural`. `gaussx.newton_update` and
+        `gaussx.cavity_distribution` use ``nat2 = +Lambda`` instead; convert
+        with ``nat2_plus = -2 * eta2``, or pass ``convention="precision"`` to
+        read and return ``+Lambda`` directly. `gaussx.damped_natural_update`
+        is linear, so it works in either convention as long as both of its
+        arguments share it.
     """
+    nat2 = _to_expfam(nat2, convention)
     # Current mean from natural parameters: mu = solve(-2*eta2, eta1)
     Lambda = -2.0 * nat2
     Lambda_op = lx.MatrixLinearOperator(Lambda, lx.positive_semidefinite_tag)
@@ -103,7 +157,7 @@ def blr_full_update(
     nat1_new = (1.0 - lr) * nat1 + lr * nat1_target
     nat2_new = (1.0 - lr) * nat2 + lr * nat2_target
 
-    return nat1_new, nat2_new
+    return nat1_new, _from_expfam(nat2_new, convention)
 
 
 def ggn_diagonal(

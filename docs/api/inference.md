@@ -4,10 +4,11 @@ Layer 3 recipes for conjugate updates, second-order variational steps, and
 ensemble data assimilation. All covariances are operators, so the updates
 inherit structured solves; all stochastic routines take explicit PRNG keys.
 
-## Bayesian linear regression
+## Bayesian learning rule
 
-Closed-form Gaussian posterior updates — full covariance or diagonal-only —
-plus the marginal likelihood and expected log-likelihood that score them.
+Damped natural-parameter updates of the Bayesian learning rule (BLR) — full
+covariance or diagonal-only — plus the marginal likelihood and expected
+log-likelihood that score Gaussian posteriors.
 
 ::: gaussx
     options:
@@ -27,6 +28,20 @@ on the manifold.
       show_root_heading: false
       show_root_toc_entry: false
       members: [newton_update, damped_natural_update, gauss_newton_precision, ggn_diagonal, hutchinson_hessian_diag, riemannian_psd_correction, cavity_distribution, trace_correction]
+
+### Natural-parameter conventions
+
+Two conventions for the second natural parameter coexist. Both share the
+first one, $\eta_1 = \Lambda\mu$. Feeding the output of one family into the
+other silently flips the sign and halves the precision. Convert with
+$\text{nat2} = -2\,\eta_2$.
+
+| Function | Convention of `nat2` |
+|---|---|
+| `blr_diag_update`, `blr_full_update` | $\eta_2 = -\tfrac12\Lambda$ by default; $+\Lambda$ with `convention="precision"` |
+| `mean_cov_to_natural`, `natural_to_mean_cov` | $\eta_2 = -\tfrac12\Lambda$ |
+| `newton_update`, `cavity_distribution` | $+\Lambda$ |
+| `damped_natural_update` | either (it is linear), as long as both arguments share it |
 
 ## Precision-form Laplace (INLA)
 

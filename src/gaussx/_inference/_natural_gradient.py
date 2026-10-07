@@ -27,6 +27,14 @@ def damped_natural_update(
         nat1_{new} = (1 - lr) \cdot nat1_{old} + lr \cdot nat1_{target}
         nat2_{new} = (1 - lr) \cdot nat2_{old} + lr \cdot nat2_{target}
 
+    Note:
+        The update is linear, so it is convention-agnostic: it works with
+        the ``nat2 = +Λ`` convention of `gaussx.newton_update` /
+        `gaussx.cavity_distribution` and with the exponential-family
+        ``η₂ = −Λ/2`` of `gaussx.blr_diag_update` /
+        `gaussx.mean_cov_to_natural` alike. Both arguments must use the same
+        one; mixing them silently flips the sign and halves the precision.
+
     Args:
         nat1_old: Current natural location parameter.
         nat2_old: Current natural precision-like parameter.
