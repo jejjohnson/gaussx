@@ -112,37 +112,74 @@ def ensemble_kalman_gain(
     *,
     solver: AbstractSolverStrategy | None = None,
     bessel: bool = True,
+    dense_innovation: bool | None = None,
 ) -> Float[Array, "N M"]:
     r"""Kalman gain from an ensemble and its image in observation space.
 
     Computes ``K = C^{xH} (C^{HH} + R)^{-1}``, where ``C^{xH}`` is the
     state-observation cross-covariance and ``C^{HH}`` is the
     observation-space ensemble covariance. The innovation covariance
-    ``S = C^{HH} + R`` is assembled as a ``LowRankUpdate`` so
-    ``solve_rows`` can use structural dispatch via the Woodbury identity.
+    ``S = C^{HH} + R`` is assembled by one of two routes, which solve the
+    same system and agree to round-off:
+
+    - **Woodbury** (``dense_innovation=False``): ``S`` is a `LowRankUpdate`
+      of ``R``, and ``solve_rows`` inverts a ``(J, J)`` capacitance through
+      ``R``'s own structured solve. Costs ``O(J^3 + J^2 M)`` and never
+      materialises ``R`` -- the route for a few dozen members against many
+      observations. It solves against ``R`` itself, so ``R`` must be
+      positive **definite**.
+    - **Dense** (``dense_innovation=True``): ``S`` is formed as an ``(M, M)``
+      matrix, calling ``obs_noise.as_matrix()``, and solved directly. Costs
+      ``O(J M^2 + M^3)`` -- the route for many members against few
+      observations, where the capacitance would be the larger matrix
+      (3.2 GB in float64 at ``J = 20 000``). It also handles a positive
+      *semi*-definite ``R``.
+
+    ``dense_innovation=None`` (the default) picks dense when ``J >= M`` and
+    Woodbury otherwise, the same rule as `enkf_analysis` and `eki_step`.
 
     Args:
         particles: Prior ensemble in state space, shape ``(J, N)``.
         obs_particles: Prior ensemble in observation space, shape ``(J, M)``.
         obs_noise: Observation error covariance operator, shape ``(M, M)``.
         solver: Optional solver strategy. ``None`` uses structural dispatch.
+            A matrix-free strategy (e.g. `CGSolver`) wants
+            ``dense_innovation=False`` so it is handed the structured operator.
         bessel: Defaults to True, unlike the lower-level covariance helpers,
             because this recipe follows the unbiased EnKF convention. Use
             False for maximum-likelihood recipes with a ``1 / J`` divisor.
+        dense_innovation: Whether to form the ``(M, M)`` innovation densely.
+            ``None`` chooses by shape (dense when ``J >= M``); ``True`` /
+            ``False`` force the dense / Woodbury route.
 
     Returns:
         Dense Kalman gain of shape ``(N, M)``.
     """
-    if particles.shape[0] != obs_particles.shape[0]:
+    n_ens, n_obs = obs_particles.shape
+    if particles.shape[0] != n_ens:
         raise ValueError(
             "particles and obs_particles must share the same ensemble size, "
-            f"got J={particles.shape[0]} and J={obs_particles.shape[0]}."
+            f"got J={particles.shape[0]} and J={n_ens}."
         )
+    use_dense = n_ens >= n_obs if dense_innovation is None else dense_innovation
     cross_cov = ensemble_cross_covariance(
         particles,
         obs_particles,
         bessel=bessel,
     )
+    if use_dense:
+        # A `LowRankUpdate` innovation would send `solve_rows` through Woodbury
+        # and form a (J, J) capacitance matrix -- 320 GB at J = 200_000 -- so
+        # assemble the (M, M) innovation densely instead. Same solve, same
+        # answer.
+        obs_cov = ensemble_cross_covariance(obs_particles, obs_particles, bessel=bessel)
+        innovation = symmetrize(obs_cov + obs_noise.as_matrix())  # (M, M)
+        innovation_op = lx.MatrixLinearOperator(
+            innovation, lx.positive_semidefinite_tag
+        )
+        return solve_rows(innovation_op, cross_cov, solver=solver)  # (N, M)
+    # Fewer members than observations: the Woodbury capacitance is (J, J) and
+    # cheap, so keep the ensemble term low-rank.
     innovation_cov = ensemble_covariance(obs_particles, bessel=bessel)
     innovation_cov = LowRankUpdate(obs_noise, innovation_cov.U)
     return solve_rows(innovation_cov, cross_cov, solver=solver)
@@ -535,24 +572,15 @@ def _analysis_gain(
     bessel: bool,
 ) -> Float[Array, "N M"]:
     """``K = C^{xH} (C^{HH} + R)^{-1}`` by whichever route ``use_dense`` picks."""
-    if localization is None and not use_dense:
-        # Fewer members than observations: the Woodbury capacitance is (J, J)
-        # and cheap, so let `ensemble_kalman_gain` keep the low-rank structure.
-        return ensemble_kalman_gain(
-            particles, obs_particles, obs_noise, solver=solver, bessel=bessel
-        )  # (N, M)
     if localization is None:
-        # A `LowRankUpdate` innovation would send `solve_rows` through Woodbury
-        # and form a (J, J) capacitance matrix -- 320 GB at J = 200_000 -- so
-        # assemble the (M, M) innovation densely instead. Same solve, same
-        # answer.
-        cross_cov = ensemble_cross_covariance(particles, obs_particles, bessel=bessel)
-        obs_cov = ensemble_cross_covariance(obs_particles, obs_particles, bessel=bessel)
-        innovation = symmetrize(obs_cov + obs_noise.as_matrix())  # (M, M)
-        innovation_op = lx.MatrixLinearOperator(
-            innovation, lx.positive_semidefinite_tag
-        )
-        return solve_rows(innovation_op, cross_cov, solver=solver)  # (N, M)
+        return ensemble_kalman_gain(
+            particles,
+            obs_particles,
+            obs_noise,
+            solver=solver,
+            bessel=bessel,
+            dense_innovation=use_dense,
+        )  # (N, M)
     rho_yy = (
         jnp.ones((obs_particles.shape[1],) * 2, dtype=particles.dtype)
         if obs_localization is None

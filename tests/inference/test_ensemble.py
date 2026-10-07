@@ -198,10 +198,6 @@ def test_ensemble_covariance_rejects_empty_ensemble():
         ensemble_covariance(jnp.zeros((0, 4)))
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="gh-372: ensemble_kalman_gain always forms the (J, J) capacitance",
-)
 def test_ensemble_kalman_gain_avoids_capacitance_when_ensemble_is_large():
     """With J >> M the gain needs only an (M, M) solve (gh-282, gh-372)."""
     nextkey = key_sequence(0)
@@ -215,3 +211,43 @@ def test_ensemble_kalman_gain_avoids_capacitance_when_ensemble_is_large():
         )
     )
     assert f"[{J},{J}]" not in jaxpr
+
+
+@pytest.mark.x64_only(reason="routes compared to rtol=1e-10")
+@pytest.mark.parametrize("J", [5, 50])
+@pytest.mark.parametrize("M", [2, 20])
+def test_ensemble_kalman_gain_routes_agree(J, M):
+    """gh-372: ``dense_innovation`` forces each route; they agree."""
+    nextkey = key_sequence(1)
+    N = 3
+    particles = jr.normal(nextkey(), (J, N))
+    obs_particles = jr.normal(nextkey(), (J, M))
+    R = lx.DiagonalLinearOperator(jnp.linspace(0.2, 0.6, M))
+
+    dense = ensemble_kalman_gain(particles, obs_particles, R, dense_innovation=True)
+    woodbury = ensemble_kalman_gain(particles, obs_particles, R, dense_innovation=False)
+    default = ensemble_kalman_gain(particles, obs_particles, R)
+    assert tree_allclose(dense, woodbury, rtol=1e-10, atol=1e-12)
+    # The default is exactly one of the two routes, chosen by J >= M.
+    assert jnp.array_equal(default, dense if J >= M else woodbury)
+
+
+def test_ensemble_kalman_gain_woodbury_route_forms_the_capacitance():
+    """``dense_innovation=False`` keeps the (J, J) Woodbury route on request."""
+    nextkey = key_sequence(2)
+    J, N, M = 40, 3, 2
+    particles = jr.normal(nextkey(), (J, N))
+    obs_particles = jr.normal(nextkey(), (J, M))
+    R = lx.DiagonalLinearOperator(jnp.full(M, 0.5))
+
+    def jaxpr(dense_innovation):
+        return str(
+            jax.make_jaxpr(
+                lambda p, o: ensemble_kalman_gain(
+                    p, o, R, dense_innovation=dense_innovation
+                )
+            )(particles, obs_particles)
+        )
+
+    assert f"[{J},{J}]" in jaxpr(False)
+    assert f"[{J},{J}]" not in jaxpr(True)
