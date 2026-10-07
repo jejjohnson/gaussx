@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import warnings
+
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
@@ -57,6 +60,39 @@ def gauss_hermite_points(
     return points, weights
 
 
+def _warn_cancelling_centre_weight(
+    mean: Float[Array, " N"], alpha: float, kappa: float
+) -> None:
+    """Warn when a float32 rule's centre mean weight cancels catastrophically.
+
+    Skipped for traced ``alpha`` / ``kappa`` (no concrete value to test).
+    """
+    if jnp.finfo(mean.dtype).bits >= 64:
+        return
+    try:
+        a, k = float(alpha), float(kappa)
+    except jax.errors.ConcretizationTypeError:  # traced under jit / vmap
+        return
+    N = mean.shape[0]
+    lam = a**2 * (N + k) - N
+    if N + lam <= 0:
+        return
+    w0 = lam / (N + lam)
+    if abs(w0) >= _CENTRE_WEIGHT_WARN:
+        warnings.warn(
+            f"sigma_points/UnscentedIntegrator with alpha={a:g}, "
+            f"kappa={k:g} in {jnp.dtype(mean.dtype).name}: the centre "
+            f"mean weight is {w0:.1e}, so the moments are recovered by "
+            "cancellation and lose about log10|w0| digits. Use alpha=1.0 (gh-310).",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+# |centre mean weight| at which float32 has lost about half its ~7 digits.
+_CENTRE_WEIGHT_WARN = 1e3
+
+
 def sigma_points(
     mean: Float[Array, " N"],
     cov: lx.AbstractLinearOperator,
@@ -75,10 +111,27 @@ def sigma_points(
         mean: Mean vector, shape ``(N,)``.
         cov: Covariance operator, shape ``(N, N)``.
         alpha: Spread parameter. Controls how far sigma points are
-            from the mean. Default ``1e-3``.
+            from the mean. Default ``1e-3`` (the classic Wan-van der Merwe
+            scaled transform). See the warning below; ``alpha=1.0`` is the
+            recommended choice, especially in float32.
         beta: Prior distribution parameter. ``beta=2`` is optimal for
             Gaussians. Default ``2.0``.
         kappa: Secondary scaling parameter. Default ``0.0``.
+
+    Warning:
+        With ``lambda = alpha^2 (N + kappa) - N`` the centre mean weight is
+        ``lambda / (N + lambda) \approx 1 - 1/alpha^2``: about ``-1e6`` at
+        the default ``alpha=1e-3``. The moments are then recovered by
+        cancellation between weights of order ``1e6``, which costs about
+        six digits; in float32 a smooth nonlinearity comes out wrong in
+        the second digit (gh-310). ``alpha=1.0`` (with ``beta=2``,
+        ``kappa=0``) is the symmetric ``2N+1`` rule with a zero centre mean
+        weight, exact for affine maps, and is what every gaussx-internal
+        default (`moment_transform`, the nonlinear Kalman filters) uses.
+        A `UserWarning` is emitted when the actual centre mean weight
+        (computed from ``alpha``, ``kappa`` and ``N``) has magnitude
+        ``>= 1e3`` with a float32 (or lower precision) mean; it is skipped
+        when ``alpha`` or ``kappa`` is traced.
 
     Returns:
         Tuple ``(chi, w_m, w_c)`` where:
@@ -86,6 +139,7 @@ def sigma_points(
         - ``w_m``: Mean weights, shape ``(2N+1,)``.
         - ``w_c``: Covariance weights, shape ``(2N+1,)``.
     """
+    _warn_cancelling_centre_weight(mean, alpha, kappa)
     N = mean.shape[0]
     lam = alpha**2 * (N + kappa) - N
     c = N + lam

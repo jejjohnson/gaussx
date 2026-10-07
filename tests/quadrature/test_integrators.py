@@ -497,3 +497,63 @@ class TestFloat32Preservation:
         assert chi.dtype == jnp.float32
         assert w_m.dtype == jnp.float32
         assert w_c.dtype == jnp.float32
+
+
+class TestUnscentedFloat32Alpha:
+    """gh-310: alpha=1e-3 loses ~6 digits to cancellation; alpha=1 does not."""
+
+    @staticmethod
+    def _sin_moments(alpha, dtype):
+        mu = jnp.array([0.3, -0.7], dtype)
+        C = jnp.array([[0.5, 0.1], [0.1, 0.3]], dtype)
+        state = GaussianState(
+            mean=mu, cov=lx.MatrixLinearOperator(C, lx.positive_semidefinite_tag)
+        )
+        scale = jnp.array([1.0, 2.0], dtype)
+        r = UnscentedIntegrator(alpha=alpha).integrate(
+            lambda x: jnp.sin(x) * scale, state
+        )
+        return r.state.mean, r.state.cov.as_matrix()
+
+    @pytest.mark.x64_only(reason="float64 run of the same rule is the reference")
+    def test_alpha_one_float32_matches_float64(self):
+        m32, S32 = self._sin_moments(1.0, jnp.float32)
+        m64, S64 = self._sin_moments(1.0, jnp.float64)
+        # Observed ~4e-8 / 2e-7 (float32 rounding); default alpha gives 4e-2.
+        assert jnp.allclose(m32, m64, atol=1e-5)
+        assert jnp.allclose(S32, S64, atol=1e-5)
+
+    def test_small_alpha_float32_warns(self):
+        with pytest.warns(UserWarning, match="alpha=0.001"):
+            self._sin_moments(1e-3, jnp.float32)
+
+    @pytest.mark.filterwarnings("error::UserWarning")
+    def test_alpha_one_float32_does_not_warn(self):
+        self._sin_moments(1.0, jnp.float32)
+
+    @pytest.mark.x64_only(reason="float64 input")
+    @pytest.mark.filterwarnings("error::UserWarning")
+    def test_default_alpha_float64_does_not_warn(self):
+        UnscentedIntegrator().points_and_weights(_make_state())
+
+
+def test_traced_alpha_does_not_break_sigma_points():
+    """Review follow-up: alpha may be traced (no warning check then)."""
+    from gaussx._quadrature._quadrature import sigma_points
+
+    state = _make_state()
+    chi = jax.jit(lambda a: sigma_points(state.mean, state.cov, alpha=a)[0])(1.0)
+    assert chi.shape == (5, 2)
+
+
+@pytest.mark.filterwarnings("error::UserWarning")
+def test_no_warning_when_kappa_cancels_the_centre_weight():
+    """N=1, alpha=1e-3, kappa=999999 gives lambda = 0: zero centre weight."""
+    from gaussx._quadrature._quadrature import sigma_points
+
+    mean = jnp.zeros(1, jnp.float32)
+    cov = lx.MatrixLinearOperator(
+        jnp.eye(1, dtype=jnp.float32), lx.positive_semidefinite_tag
+    )
+    _, w_m, _ = sigma_points(mean, cov, alpha=1e-3, kappa=999999.0)
+    assert abs(float(w_m[0])) < 1e-3

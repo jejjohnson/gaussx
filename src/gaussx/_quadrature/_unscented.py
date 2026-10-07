@@ -28,8 +28,20 @@ class UnscentedIntegrator(AbstractIntegrator):
 
     where ``lambda = alpha^2 * (N + kappa) - N``.
 
+    Warning:
+        The default ``alpha=1e-3`` (the classic Wan-van der Merwe scaled
+        transform) puts a centre mean weight of about ``-1e6`` on the
+        points and recovers the moments by cancellation, losing about six
+        digits: in float32 a smooth nonlinearity is wrong in the second
+        digit (gh-310). Prefer ``UnscentedIntegrator(alpha=1.0)``, the
+        symmetric ``2N+1`` rule with a zero centre mean weight (exact for
+        affine maps and positive covariance weights), which is what
+        `moment_transform` and the nonlinear Kalman filters use by
+        default. A `UserWarning` is emitted when the centre
+        mean weight reaches magnitude ``1e3`` with a float32 state.
+
     Attributes:
-        alpha: Spread parameter. Default ``1e-3``.
+        alpha: Spread parameter. Default ``1e-3``; ``1.0`` recommended.
         beta: Prior knowledge parameter (2.0 optimal for Gaussian).
         kappa: Secondary scaling. Default ``0.0``.
     """
