@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import lineax as lx
 import matfree.lstsq
 from jaxtyping import Array, Float
@@ -38,6 +39,9 @@ class LSMRSolver(AbstractSolverStrategy):
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Lanczos iterations for SLQ logdet.
         seed: Seed for probe vector generation.
+        throw: Raise when LSMR stops without converging (``maxiter``
+            reached), on both the lineax and the damped matfree path. With
+            ``False`` the last iterate is returned unchecked (gh-336).
     """
 
     atol: float | None = eqx.field(static=True, default=None)
@@ -48,6 +52,7 @@ class LSMRSolver(AbstractSolverStrategy):
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
+    throw: bool = eqx.field(static=True, default=True)
 
     def solve(
         self,
@@ -73,7 +78,7 @@ class LSMRSolver(AbstractSolverStrategy):
                 max_steps=self.maxiter,
                 conlim=1.0 / self.ctol if self.ctol > 0 else 1e8,
             )
-            return lx.linear_solve(operator, vector, solver).value
+            return lx.linear_solve(operator, vector, solver, throw=self.throw).value
 
         # Tikhonov damping: not supported by lineax's LSMR, so the
         # damped path stays on matfree.
@@ -87,8 +92,16 @@ class LSMRSolver(AbstractSolverStrategy):
         def vecmat(v):
             return operator.T.mv(v)
 
-        result = lsmr_fn(vecmat, vector, damp=self.damp)
-        return result[0]
+        x, stats = lsmr_fn(vecmat, vector, damp=self.damp)
+        if self.throw:
+            # matfree reports success but never raises; match lineax.
+            x = eqx.error_if(
+                x,
+                jnp.logical_not(stats["success"]),
+                "LSMR did not converge within `maxiter` steps. Increase "
+                "`maxiter`, loosen `atol`/`btol`, or pass `throw=False`.",
+            )
+        return x
 
     def logdet(
         self,

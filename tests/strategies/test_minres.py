@@ -10,6 +10,7 @@ import lineax as lx
 import pytest
 
 from gaussx._einx import einsum
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._strategies import IndefiniteSLQLogdet, MINRESSolver
 from gaussx._testing import (
     dense_logdet,
@@ -212,3 +213,78 @@ class TestGradient:
         g = jax.grad(loss)(v)
         assert jnp.all(jnp.isfinite(g))
         assert g.shape == (4,)
+
+
+# -------------------------------------------------------------------
+# Early exit, implicit gradients and exhaustion (gh-336)
+# -------------------------------------------------------------------
+
+_M5 = jnp.array(
+    [
+        [4.0, 1, 0, 0, 0],
+        [1, 3, 1, 0, 0],
+        [0, 1, 2, 1, 0],
+        [0, 0, 1, 3, 1],
+        [0, 0, 0, 1, 4],
+    ]
+)
+
+
+def _counting_operator(mat, counter):
+    def mv(v):
+        jax.debug.callback(lambda: counter.__setitem__(0, counter[0] + 1))
+        return mat @ v
+
+    return lx.FunctionLinearOperator(
+        mv, jax.ShapeDtypeStruct((mat.shape[0],), mat.dtype), lx.symmetric_tag
+    )
+
+
+def _indefinite(n):
+    """Symmetric indefinite, |eigenvalues| in [1, 1e4] (the gh-336 system)."""
+    q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n)))
+    ev = jnp.concatenate([-jnp.logspace(0, 4, n // 2), jnp.logspace(0, 4, n // 2)])
+    return symmetrize(einsum(q * ev, q, "i k, j k -> i j"))
+
+
+def test_stops_when_converged():
+    # gh-336: a 1000-step scan applied the operator 1000 times on this 5x5
+    # system; MINRES converges in at most 5 steps here.
+    count = [0]
+    b = jnp.arange(1.0, 6.0, dtype=_M5.dtype)
+    x = MINRESSolver().solve(_counting_operator(_M5, count), b)
+    jax.effects_barrier()
+    assert count[0] <= 10
+    assert tree_allclose(x, jnp.linalg.solve(_M5, b), rtol=1e-4)
+
+
+@pytest.mark.x64_only(reason="rtol=1e-6 gradient check against a dense solve")
+def test_grad_matches_dense_on_indefinite_system():
+    # gh-336: gradients are implicit (lineax), so they match the dense solve's
+    # and do not depend on max_steps.
+    A = _indefinite(20)
+    b = jr.normal(jr.key(1), (20,), dtype=A.dtype)
+    solver = MINRESSolver(rtol=1e-12, atol=1e-12, max_steps=200)
+
+    def loss(A, b, iterative):
+        if iterative:
+            x = solver.solve(lx.MatrixLinearOperator(A, lx.symmetric_tag), b)
+        else:
+            x = jnp.linalg.solve(A, b)
+        return jnp.sum(x**2)
+
+    got = jax.grad(loss, argnums=(0, 1))(A, b, True)
+    expected = jax.grad(loss, argnums=(0, 1))(A, b, False)
+    assert tree_allclose(got, expected, rtol=1e-6, atol=1e-10)
+
+
+def test_exhausting_max_steps_raises_unless_throw_false():
+    # gh-336: on this system MINRES(max_steps=5) returned a relative residual
+    # of 0.92 with no error.
+    A = _indefinite(200)
+    b = jr.normal(jr.key(1), (200,), dtype=A.dtype)
+    op = lx.MatrixLinearOperator(A, lx.symmetric_tag)
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        MINRESSolver(max_steps=5).solve(op, b)
+    x = MINRESSolver(max_steps=5, throw=False).solve(op, b)
+    assert jnp.all(jnp.isfinite(x))
