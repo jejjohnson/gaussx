@@ -8,30 +8,35 @@ from gaussx._inference._blr import (
     ggn_diagonal,
     hutchinson_hessian_diag,
 )
-from gaussx._inference._ensemble import (
+from gaussx._inference._eki import (
     discrepancy_step_size,
     eki_step,
-    enkf_analysis,
-    ensemble_covariance,
-    ensemble_cross_covariance,
-    ensemble_kalman_gain,
-    etkf_transform,
-    euclidean_distance,
-    gaspari_cohn,
-    haversine_distance,
-    inflate_multiplicative,
-    inflate_rtpp,
-    inflate_rtps,
-    localization_matrix,
-    localized_kalman_gain,
     tikhonov_augment,
 )
+from gaussx._inference._enkf import enkf_analysis, ensemble_kalman_gain
+from gaussx._inference._ensemble_stats import (
+    ensemble_covariance,
+    ensemble_cross_covariance,
+)
+from gaussx._inference._etkf import etkf_transform
 from gaussx._inference._inference import (
     cavity_distribution,
     gaussian_expected_log_lik,
     log_marginal_likelihood,
     newton_update,
     trace_correction,
+)
+from gaussx._inference._inflation import (
+    inflate_multiplicative,
+    inflate_rtpp,
+    inflate_rtps,
+)
+from gaussx._inference._localization import (
+    euclidean_distance,
+    gaspari_cohn,
+    haversine_distance,
+    localization_matrix,
+    localized_kalman_gain,
 )
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
