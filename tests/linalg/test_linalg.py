@@ -21,6 +21,7 @@ from gaussx import (
     solve_matrix,
     trace_product,
 )
+from gaussx._einx import rearrange
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -408,3 +409,25 @@ def test_solve_matrix_dense_factors_once(tagged):
     jaxpr = str(jax.make_jaxpr(lambda b: solve_matrix(op, b))(B))
     assert len(re.findall(r"= cholesky\b", jaxpr)) == 1
     assert tree_allclose(solve_matrix(op, B), jnp.linalg.solve(op.as_matrix(), B))
+
+
+def test_solve_matrix_scaled_dense_factors_once():
+    """Scalar wrappers of a dense operator keep the single factorisation."""
+    op = lx.TaggedLinearOperator(2.0 * _psd(jr.key(0), 4), lx.positive_semidefinite_tag)
+    B = jr.normal(jr.key(1), (4, 5))
+    jaxpr = str(jax.make_jaxpr(lambda b: solve_matrix(op, b))(B))
+    assert len(re.findall(r"= cholesky\b", jaxpr)) == 1
+    assert tree_allclose(solve_matrix(op, B), jnp.linalg.solve(op.as_matrix(), B))
+
+
+def test_solve_matrix_gram_of_rectangular_factors():
+    """A square PSD composition of rectangular factors is factored whole."""
+    A = jr.normal(jr.key(0), (6, 3))
+    gram = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(rearrange(A, "n i -> i n"))
+        @ lx.MatrixLinearOperator(A),
+        lx.positive_semidefinite_tag,
+    )
+    B = jr.normal(jr.key(1), (3, 2))
+    expected = jnp.linalg.solve(gram.as_matrix(), B)
+    assert tree_allclose(solve_matrix(gram, B), expected)
