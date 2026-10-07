@@ -14,6 +14,7 @@ from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._taylor import TaylorIntegrator
 from gaussx._quadrature._types import GaussianState
 from gaussx._quadrature._unscented import UnscentedIntegrator
+from gaussx._testing import default_tolerances
 
 
 def _linear_fn(x):
@@ -557,3 +558,52 @@ def test_no_warning_when_kappa_cancels_the_centre_weight():
     )
     _, w_m, _ = sigma_points(mean, cov, alpha=1e-3, kappa=999999.0)
     assert abs(float(w_m[0])) < 1e-3
+
+
+# gh-375: covariance tag convention; ADF built on the Monte Carlo rule.
+
+_ALL_RULES = [
+    pytest.param(GaussHermiteIntegrator(order=5), id="gh"),
+    pytest.param(UnscentedIntegrator(alpha=1.0), id="unscented-1"),
+    pytest.param(UnscentedIntegrator(alpha=0.5), id="unscented-0.5"),
+    pytest.param(CubatureIntegrator(), id="cubature"),
+    pytest.param(FifthOrderCubatureIntegrator(), id="fifth"),
+    pytest.param(TaylorIntegrator(), id="taylor"),
+    pytest.param(MonteCarloIntegrator(n_samples=20), id="mc"),
+    pytest.param(AssumedDensityFilter(n_samples=20), id="adf"),
+]
+
+
+@pytest.mark.parametrize("integrator", _ALL_RULES)
+def test_output_cov_tag_follows_guarantees_psd(integrator):
+    state = _make_state()
+    cov = integrator.integrate(jnp.sin, state).state.cov
+    assert lx.is_symmetric(cov)
+    assert lx.is_positive_semidefinite(cov) == integrator.guarantees_psd(2)
+
+
+def test_adf_points_are_monte_carlo_points():
+    state = _make_state()
+    adf = AssumedDensityFilter(n_samples=16, key=jax.random.key(3))
+    mc = MonteCarloIntegrator(n_samples=16, key=jax.random.key(3))
+    for a, b in zip(
+        adf.points_and_weights(state), mc.points_and_weights(state), strict=True
+    ):
+        assert jnp.array_equal(a, b)
+    with pytest.raises(ValueError, match="n_samples >= 2"):
+        AssumedDensityFilter(n_samples=1).integrate(jnp.sin, state)
+
+
+def test_adf_moments_are_mc_moments_plus_regularisation():
+    state = _make_state()
+    adf = AssumedDensityFilter(
+        n_samples=64, key=jax.random.key(3), adaptive_regularization=False
+    )
+    mc = MonteCarloIntegrator(n_samples=64, key=jax.random.key(3), regularization=1e-6)
+    a, b = adf.integrate(jnp.sin, state), mc.integrate(jnp.sin, state)
+    rtol, atol = default_tolerances(a.state.mean)
+    assert jnp.allclose(a.state.mean, b.state.mean, rtol=rtol, atol=atol)
+    assert jnp.allclose(
+        a.state.cov.as_matrix(), b.state.cov.as_matrix(), rtol=rtol, atol=atol
+    )
+    assert jnp.allclose(a.cross_cov, b.cross_cov, rtol=rtol, atol=atol)

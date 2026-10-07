@@ -58,7 +58,14 @@ def leave_one_out_cv(
             and for the ``diag_inv`` computation. When ``None``,
             falls back to structural dispatch.
         diag_inv_method: Method passed to `diag_inv`. Defaults to
-            ``"solve"`` so the LOO variances remain deterministic.
+            ``"solve"`` (exact, deterministic, and honours ``solver``)
+            rather than `diag_inv`'s own ``"auto"``, which switches to the
+            stochastic Hutchinson estimator for unstructured ``N > 2048``.
+            ``"cholesky"`` is equally exact and deterministic and is
+            usually faster for a dense ``K_y`` (one factorisation instead
+            of ``N`` solves); ``"auto"`` is preferable for structured
+            operators with an exact fast path (`Kronecker`,
+            `BlockTriDiag`, ...).
         diag_inv_num_probes: Number of Hutchinson probes when
             ``diag_inv_method="hutchinson"``.
         diag_inv_key: PRNG key for probe generation when

@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import reduce
 from gaussx._linalg._symmetrize import symmetrize
-from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._eig import eigvals as _gaussx_eigvals
+from gaussx._quadrature._assembly import assemble_propagation_result
 from gaussx._quadrature._integrator import AbstractIntegrator
+from gaussx._quadrature._monte_carlo import MonteCarloIntegrator
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
 
@@ -42,6 +44,27 @@ class AssumedDensityFilter(AbstractIntegrator):
     regularization: float = eqx.field(static=True, default=1e-6)
     adaptive_regularization: bool = eqx.field(static=True, default=True)
     key: jax.Array | None = None
+
+    def guarantees_psd(self, dim: int) -> bool:
+        """A regularised sample covariance is PSD."""
+        del dim
+        return True
+
+    def points_and_weights(
+        self,
+        state: GaussianState,
+    ) -> tuple[Float[Array, "P N"], Float[Array, " P"], Float[Array, " P"]]:
+        """The `MonteCarloIntegrator` samples and weights for this rule.
+
+        Lets `gaussx.moment_match` / `gaussx.statistical_linear_regression`
+        use the same samples ``integrate`` does.
+
+        Raises:
+            ValueError: If ``n_samples < 2``.
+        """
+        return MonteCarloIntegrator(
+            n_samples=self.n_samples, key=self.key
+        ).points_and_weights(state)
 
     def integrate(
         self,
@@ -77,23 +100,13 @@ class AssumedDensityFilter(AbstractIntegrator):
         compute_diagnostics: bool = False,
     ) -> tuple[PropagationResult, dict]:
         """Core implementation with optional diagnostics."""
-        mu = state.mean
-        N = mu.shape[0]
-
-        key = self.key if self.key is not None else jr.key(0)
-
-        # Sample from input Gaussian
-        L = cholesky(state.cov).as_matrix()
-        eps = jr.normal(key, (self.n_samples, N), dtype=mu.dtype)
-        x_samples = mu[None, :] + eps @ L.T
-
-        # Propagate samples
-        y_samples = jax.vmap(fn)(x_samples)
-
-        # Moment matching (KL-optimal Gaussian projection)
-        mu_y = jnp.mean(y_samples, axis=0)
-        dy = y_samples - mu_y[None, :]
-        Sigma_y = (dy.T @ dy) / (self.n_samples - 1)
+        # Same samples and Bessel-corrected moments as MonteCarloIntegrator
+        # (shared points_and_weights + assemble_propagation_result).
+        chi, w_m, w_c = self.points_and_weights(state)
+        y_samples = jax.vmap(fn)(chi)
+        moments = assemble_propagation_result(chi, y_samples, state.mean, w_m, w_c)
+        mu_y = moments.state.mean
+        Sigma_y = moments.state.cov.as_matrix()
         M = mu_y.shape[0]
 
         # Adaptive regularization
@@ -101,16 +114,11 @@ class AssumedDensityFilter(AbstractIntegrator):
             eps_reg = self.regularization * jnp.trace(Sigma_y) / M
         else:
             eps_reg = self.regularization
-        Sigma_y = Sigma_y + eps_reg * jnp.eye(M, dtype=Sigma_y.dtype)
-        Sigma_y = symmetrize(Sigma_y)
-
-        # Cross-covariance
-        dx = x_samples - mu[None, :]
-        cross_cov = (dx.T @ dy) / (self.n_samples - 1)
+        Sigma_y = symmetrize(Sigma_y + eps_reg * jnp.eye(M, dtype=Sigma_y.dtype))
 
         cov_y = lx.MatrixLinearOperator(Sigma_y, lx.positive_semidefinite_tag)
         out_state = GaussianState(mean=mu_y, cov=cov_y)
-        result = PropagationResult(state=out_state, cross_cov=cross_cov)
+        result = PropagationResult(state=out_state, cross_cov=moments.cross_cov)
 
         diagnostics: dict = {}
         if compute_diagnostics:
@@ -122,9 +130,10 @@ class AssumedDensityFilter(AbstractIntegrator):
             cond = max_eigval / jnp.maximum(min_eigval, 1e-30)
 
             # Per-dimension skewness and kurtosis
-            std_dy = dy / jnp.sqrt(jnp.diag(Sigma_y))[None, :]
-            skewness = jnp.mean(std_dy**3, axis=0)
-            kurtosis = jnp.mean(std_dy**4, axis=0)
+            dy = einx.subtract("s m, m -> s m", y_samples, mu_y)
+            std_dy = einx.divide("s m, m -> s m", dy, jnp.sqrt(jnp.diag(Sigma_y)))
+            skewness = reduce(std_dy**3, "s m -> m", "mean")
+            kurtosis = reduce(std_dy**4, "s m -> m", "mean")
 
             diagnostics = {
                 "skewness": skewness,

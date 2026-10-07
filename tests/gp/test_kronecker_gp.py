@@ -6,6 +6,7 @@ import lineax as lx
 import pytest
 
 from gaussx._gp._kronecker_gp import (
+    _normalize_axis,
     kronecker_mll,
     kronecker_posterior_predictive,
 )
@@ -221,3 +222,53 @@ class TestKroneckerPosteriorPredictive:
                 (n1, n2),
                 [K_cross_1, K_cross_2],
             )
+
+
+# gh-375: axis bounds and grid validation.
+
+
+@pytest.mark.parametrize("axis", [2, -3, 5, -7])
+def test_normalize_axis_rejects_out_of_range(axis):
+    with pytest.raises(ValueError, match="out of bounds"):
+        _normalize_axis(axis, 2)
+
+
+@pytest.mark.parametrize(("axis", "expected"), [(0, 0), (1, 1), (-1, 1), (-2, 0)])
+def test_normalize_axis_valid(axis, expected):
+    assert _normalize_axis(axis, 2) == expected
+
+
+def _grid_factors():
+    K1 = lx.MatrixLinearOperator(jnp.eye(2) + 0.5, lx.positive_semidefinite_tag)
+    K2 = lx.MatrixLinearOperator(jnp.eye(3) + 0.5, lx.positive_semidefinite_tag)
+    return [K1, K2]
+
+
+@pytest.mark.parametrize(
+    ("grid_shape", "match"),
+    [((6,), "one entry per Kronecker factor"), ((3, 2), r"grid_shape\[0\] = 3")],
+)
+def test_kronecker_mll_validates_grid(grid_shape, match):
+    with pytest.raises(ValueError, match=match):
+        kronecker_mll(_grid_factors(), jnp.ones(6), 0.1, grid_shape)
+
+
+def test_kronecker_mll_validates_observation_count():
+    with pytest.raises(ValueError, match="observations"):
+        kronecker_mll(_grid_factors(), jnp.ones(5), 0.1, (2, 3))
+
+
+@pytest.mark.parametrize(
+    ("grid_shape", "match"),
+    [((6,), "one entry per Kronecker factor"), ((3, 2), r"grid_shape\[0\] = 3")],
+)
+def test_posterior_predictive_validates_grid(grid_shape, match):
+    with pytest.raises(ValueError, match=match):
+        kronecker_posterior_predictive(
+            _grid_factors(),
+            jnp.ones(6),
+            0.1,
+            grid_shape,
+            [jnp.ones((1, 2)), jnp.ones((1, 3))],
+            K_test_diag_factors=[jnp.ones(1), jnp.ones(1)],
+        )

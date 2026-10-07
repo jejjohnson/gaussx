@@ -1,9 +1,14 @@
 """Tests for OILMM projection."""
 
+import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
+import pytest
 
 from gaussx import oilmm_back_project, oilmm_project
+from gaussx._einx import einsum
 
 
 class TestOILMM:
@@ -38,18 +43,37 @@ class TestOILMM:
         assert y_means.shape == (N, P)
         assert y_vars.shape == (N, P)
 
-    def test_heteroscedastic_noise(self, getkey):
-        """Per-output noise variance is handled correctly."""
-        N, P, L = 10, 4, 2
-        Y = jax.random.normal(getkey(), (N, P))
-        W, _ = jnp.linalg.qr(jax.random.normal(getkey(), (P, L)))
-        noise_var = jnp.array([0.1, 0.2, 0.3, 0.4])
+    def test_heteroscedastic_noise_is_diag_of_projected_noise(self):
+        """Latent noise is diag(WᵀDW): the OILMM independence approximation."""
+        P = 4
+        W, _ = jnp.linalg.qr(jr.normal(jr.key(0), (P, 2)))
+        D = jnp.array([0.05, 0.1, 0.2, 0.4])
+        _, noise_lat = oilmm_project(jnp.ones((3, P)), W, D)
+        projected = einsum(einx.multiply("p i, p -> p i", W, D), W, "p i, p j -> i j")
+        assert jnp.allclose(noise_lat, jnp.diag(projected), atol=1e-12)
+        # The dropped off-diagonal is genuinely non-zero for this D.
+        assert jnp.abs(projected[0, 1]) > 1e-3
 
-        _Y_lat, noise_lat = oilmm_project(Y, W, noise_var)
-        assert noise_lat.shape == (L,)
-        # noise_latent = W^2 @ noise_var
-        expected = (W**2).T @ noise_var
-        assert jnp.allclose(noise_lat, expected, atol=1e-6)
+    def test_isotropic_noise_projects_exactly(self):
+        P = 4
+        W, _ = jnp.linalg.qr(jr.normal(jr.key(0), (P, 2)))
+        _, noise_lat = oilmm_project(jnp.ones((3, P)), W, 0.1)
+        projected = 0.1 * einsum(W, W, "p i, p j -> i j")
+        assert jnp.allclose(projected, jnp.diag(jnp.diag(projected)), atol=1e-12)
+        assert jnp.allclose(noise_lat, 0.1, atol=1e-12)
+
+    def test_check_orthonormal(self):
+        P = 4
+        W, _ = jnp.linalg.qr(jr.normal(jr.key(0), (P, 2)))
+        Y = jnp.ones((3, P))
+        oilmm_project(Y, W, 0.1, check_orthonormal=True)  # passes
+        with pytest.raises(eqx.EquinoxRuntimeError, match="orthonormal"):
+            oilmm_project(Y, 2.0 * W, 0.1, check_orthonormal=True)
+        # Under jit the error surfaces through the runtime callback.
+        with pytest.raises(
+            (eqx.EquinoxRuntimeError, jax.errors.JaxRuntimeError), match="orthonormal"
+        ):
+            jax.jit(lambda w: oilmm_project(Y, w, 0.1, check_orthonormal=True))(2.0 * W)
 
     def test_jit_compatible(self, getkey):
         """Both functions work under jax.jit."""

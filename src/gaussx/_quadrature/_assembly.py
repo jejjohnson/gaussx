@@ -17,6 +17,8 @@ def assemble_propagation_result(
     mu: Float[Array, " N"],
     w_m: Float[Array, " P"],
     w_c: Float[Array, " P"] | None = None,
+    *,
+    psd: bool = False,
 ) -> PropagationResult:
     """Assemble output distribution from sigma points and function values.
 
@@ -30,6 +32,9 @@ def assemble_propagation_result(
         mu: Input mean, shape ``(N,)``.
         w_m: Mean weights, shape ``(P,)``.
         w_c: Covariance weights, shape ``(P,)``. Defaults to ``w_m``.
+        psd: Tag the output covariance ``positive_semidefinite_tag``
+            (pass the rule's ``guarantees_psd(N)``); otherwise it is tagged
+            ``symmetric_tag``. See `PropagationResult`.
 
     Returns:
         ``PropagationResult`` with output Gaussian and cross-covariance.
@@ -52,6 +57,7 @@ def assemble_propagation_result(
     # Cross-covariance: C_xy = Σᵢ wᵢᶜ (xᵢ − μ)(yᵢ − μ_y)ᵀ
     cross_cov = einsum(dx, w_dy, "p n, p m -> n m")
 
-    cov_y = lx.MatrixLinearOperator(Sigma_y, lx.symmetric_tag)
+    tag = lx.positive_semidefinite_tag if psd else lx.symmetric_tag
+    cov_y = lx.MatrixLinearOperator(Sigma_y, tag)
     out_state = GaussianState(mean=mu_y, cov=cov_y)
     return PropagationResult(state=out_state, cross_cov=cross_cov)

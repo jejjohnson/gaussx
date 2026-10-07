@@ -43,7 +43,9 @@ class CubatureIntegrator(AbstractIntegrator):
         """Propagate Gaussian via third-order cubature."""
         chi, weights = cubature_points(state.mean, state.cov)
         Y = jax.vmap(fn)(chi)
-        return assemble_propagation_result(chi, Y, state.mean, weights)
+        return assemble_propagation_result(
+            chi, Y, state.mean, weights, psd=self.guarantees_psd(state.mean.shape[0])
+        )
 
     def points_and_weights(
         self,

@@ -48,7 +48,9 @@ class FifthOrderCubatureIntegrator(AbstractIntegrator):
         """Propagate Gaussian via fifth-order cubature."""
         chi, weights = fifth_order_cubature_points(state.mean, state.cov)
         Y = jax.vmap(fn)(chi)
-        return assemble_propagation_result(chi, Y, state.mean, weights)
+        return assemble_propagation_result(
+            chi, Y, state.mean, weights, psd=self.guarantees_psd(state.mean.shape[0])
+        )
 
     def guarantees_psd(self, dim: int) -> bool:
         """The axis-shell weights are negative for ``N > 4``."""
