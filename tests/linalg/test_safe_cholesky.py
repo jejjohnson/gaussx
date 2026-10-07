@@ -2,10 +2,13 @@
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx import safe_cholesky
+from gaussx import BlockTriDiag, safe_cholesky
+from gaussx._einx import einsum
+from gaussx._testing import random_spd_block_tridiag
 
 
 class TestSafeCholesky:
@@ -105,3 +108,21 @@ class TestSafeCholesky:
         K = A @ A.T + jnp.eye(N)
         grad = jax.jit(jax.grad(loss))(K)
         assert jnp.all(jnp.isfinite(grad))
+
+
+def test_happy_path_does_not_materialise_structured_operator(monkeypatch):
+    """The dense operator is built only on the retry branch (gh-365)."""
+    op = random_spd_block_tridiag(jr.key(0), 3, 2)
+    executed = []
+    original = BlockTriDiag.as_matrix
+
+    def _counting(self):
+        jax.debug.callback(lambda: executed.append(1))
+        return original(self)
+
+    monkeypatch.setattr(BlockTriDiag, "as_matrix", _counting)
+    L = jax.jit(safe_cholesky)(op)
+    jax.block_until_ready(L)
+    monkeypatch.undo()
+    assert executed == []
+    assert jnp.allclose(einsum(L, L, "i k, j k -> i j"), op.as_matrix(), atol=1e-5)

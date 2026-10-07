@@ -67,16 +67,16 @@ def safe_cholesky(
     L0 = _chol_matrix(operator)
     has_nan0 = jnp.any(jnp.isnan(L0))
 
-    A = operator.as_matrix()
-    n = A.shape[0]
-    eye = jnp.eye(n, dtype=A.dtype)
-
     # State: (L, jitter, still_bad). The jitter must be a concrete array so
     # both cond branches carry identical avals.
-    init_state = (L0, jnp.asarray(initial_jitter, dtype=A.dtype), has_nan0)
+    init_state = (L0, jnp.asarray(initial_jitter, dtype=L0.dtype), has_nan0)
 
     def _retry(state):
         _, eps, _ = state
+        # The dense operator is built only on the (rare) retry branch, so the
+        # happy path of a structured operator never materialises it (gh-365).
+        A = operator.as_matrix()
+        eye = jnp.eye(A.shape[0], dtype=A.dtype)
         jittered = lx.MatrixLinearOperator(A + eps * eye, lx.positive_semidefinite_tag)
         L = _chol_matrix(jittered)
         has_nan = jnp.any(jnp.isnan(L))

@@ -10,7 +10,11 @@ import gaussx
 from gaussx import diag_inv
 from gaussx._einx import rearrange
 from gaussx._strategies import DenseSolver
-from gaussx._testing import random_pd_operator
+from gaussx._testing import (
+    default_tolerances,
+    random_low_rank_update,
+    random_pd_operator,
+)
 
 
 class TestDiagInv:
@@ -217,3 +221,76 @@ class TestShiftedKronecker:
         K = self._dense(temporal, spatial.as_matrix())
         got = jax.jit(diag_inv)(shifted)
         assert jnp.allclose(got, jnp.diag(jnp.linalg.inv(K)), atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# method="auto" takes the exact structured inverse where one exists (gh-365)
+# ---------------------------------------------------------------------------
+
+
+def _forbid_as_matrix(monkeypatch, cls):
+    def _forbidden(self):
+        raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+    monkeypatch.setattr(cls, "as_matrix", _forbidden)
+
+
+@pytest.mark.parametrize(
+    ("cls", "build"),
+    [
+        pytest.param(
+            gaussx.Kronecker,
+            lambda k: gaussx.Kronecker(
+                random_pd_operator(jr.fold_in(k, 0), 3),
+                random_pd_operator(jr.fold_in(k, 1), 4),
+            ),
+            id="kronecker",
+        ),
+        pytest.param(
+            gaussx.BlockDiag,
+            lambda k: gaussx.BlockDiag(
+                random_pd_operator(jr.fold_in(k, 0), 3),
+                random_pd_operator(jr.fold_in(k, 1), 4),
+            ),
+            id="block_diag",
+        ),
+        pytest.param(
+            lx.DiagonalLinearOperator,
+            lambda k: lx.DiagonalLinearOperator(jr.uniform(k, (5,)) + 0.5),
+            id="diagonal",
+        ),
+        pytest.param(
+            gaussx.LowRankUpdate,
+            lambda k: random_low_rank_update(k, 6, 2),
+            id="low_rank_update",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "wrap",
+    [
+        pytest.param(lambda op: op, id="plain"),
+        pytest.param(lambda op: 2.0 * op, id="mul"),
+        pytest.param(lambda op: op / 2.0, id="div"),
+    ],
+)
+def test_diag_inv_auto_structured_no_materialisation(monkeypatch, cls, build, wrap):
+    op = wrap(build(jr.key(0)))
+    expected = jnp.diag(jnp.linalg.inv(op.as_matrix()))
+    _forbid_as_matrix(monkeypatch, cls)
+    result = diag_inv(op)
+    monkeypatch.undo()
+    rtol, atol = default_tolerances(result)
+    assert jnp.allclose(result, expected, rtol=rtol, atol=atol)
+
+
+def test_diag_inv_negated_structured(monkeypatch):
+    op = gaussx.Kronecker(
+        random_pd_operator(jr.key(0), 2), random_pd_operator(jr.key(1), 3)
+    )
+    expected = jnp.diag(jnp.linalg.inv(-op.as_matrix()))
+    _forbid_as_matrix(monkeypatch, gaussx.Kronecker)
+    result = diag_inv(-op)
+    monkeypatch.undo()
+    rtol, atol = default_tolerances(result)
+    assert jnp.allclose(result, expected, rtol=rtol, atol=atol)
