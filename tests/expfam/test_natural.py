@@ -57,3 +57,14 @@ def test_natural_to_mean_cov_diagonal(getkey):
 
     mu_rec, _Sigma_rec = natural_to_mean_cov(eta1, eta2)
     assert tree_allclose(mu_rec, mu, rtol=1e-5)
+
+
+def test_roundtrip_has_no_factorisation(getkey):
+    """inv(inv(Σ)) is Σ, so the round trip is exact (gh-349)."""
+    Sigma = lx.MatrixLinearOperator(
+        random_pd_matrix(getkey(), 4), lx.positive_semidefinite_tag
+    )
+    mu = jr.normal(getkey(), (4,))
+    mu_back, Sigma_back = natural_to_mean_cov(*mean_cov_to_natural(mu, Sigma))
+    assert jnp.array_equal(Sigma_back.as_matrix(), Sigma.as_matrix())
+    assert tree_allclose(mu_back, mu)

@@ -33,6 +33,7 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
 )
+from gaussx._primitives._inv import InverseOperator
 
 
 if TYPE_CHECKING:
@@ -91,6 +92,9 @@ def solve(
         )
     if isinstance(operator, lx.IdentityLinearOperator):
         return vector
+    if isinstance(operator, InverseOperator):
+        # (A⁻¹)⁻¹ b = A b: one matvec, no factorisation (gh-349).
+        return operator.original.mv(vector)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _solve_diagonal(operator, vector)
     if isinstance(operator, DiagonalisedOperator):
