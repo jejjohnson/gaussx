@@ -86,8 +86,8 @@ class SRHTSketch(AbstractSketch):
             out_size=d,
         )
 
-    # Jitted: eagerly, each of the log2(m2) butterfly passes dispatches its own
-    # einx rearrangements, which is far slower than one compiled transform.
+    # Jitted: eagerly, the gather, padding, transform and row selection would
+    # each dispatch (and compile) as separate programs.
     @eqx.filter_jit
     def apply(self, A: Float[Array, "m ..."]) -> Float[Array, "d ..."]:
         x = einsum(self.signs.astype(A.dtype), A[self.permutation], "m, m ... -> m ...")

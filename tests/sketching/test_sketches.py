@@ -40,15 +40,8 @@ def _sketches(d=D, m=M, probabilities=None):
 
 SKETCH_NAMES = list(_sketches())
 
-# Tracing SRHT's jitted apply builds an einx graph per butterfly pass, ~1-5 s
-# per distinct input shape in CI, so its fixture cases run in the slow lane;
-# test_srht_small_adjoint keeps apply and apply_transpose in the fast lane.
-_SLOW_SRHT = pytest.param("srht", marks=pytest.mark.slow)
 
-
-@pytest.fixture(
-    params=[_SLOW_SRHT if name == "srht" else name for name in SKETCH_NAMES]
-)
+@pytest.fixture(params=SKETCH_NAMES)
 def sketch(request):
     return _sketches()[request.param]
 
@@ -174,7 +167,6 @@ def test_sparse_sign_columns(d, nnz):
     np.testing.assert_allclose(np.abs(dense[dense != 0]), 1 / math.sqrt(k))
 
 
-@pytest.mark.slow
 def test_srht_equals_dense_construction():
     m, d = 100, 16
     S = gx.SRHTSketch.sample(jr.key(0), d, m)
