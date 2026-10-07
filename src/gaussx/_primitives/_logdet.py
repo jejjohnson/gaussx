@@ -22,7 +22,10 @@ from gaussx._operators._block_tridiag import (
 from gaussx._operators._diagonalised import DiagonalisedOperator, as_diagonalised
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
-from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._low_rank_update import (
+    LowRankUpdate,
+    orthonormal_scaled_identity,
+)
 from gaussx._operators._sparse import _PLAN_CACHE_SIZE, SparseOperator, SparsityPattern
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
@@ -70,6 +73,9 @@ def logdet(operator: lx.AbstractLinearOperator) -> Float[Array, ""]:
     if isinstance(operator, LowRankUpdate):
         if operator.rank == 0:
             return logdet(operator.base)
+        c = orthonormal_scaled_identity(operator)
+        if c is not None:
+            return _logdet_low_rank_orthonormal(operator, c)
         return _logdet_low_rank(operator)
     if isinstance(operator, SumOfKroneckers):
         return _logdet_sum_of_kroneckers(operator)
@@ -216,6 +222,18 @@ def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
     _, K = _low_rank_capacitance(operator, solver=None)
     _, ld_K = jnp.linalg.slogdet(K)
     return ld_base + ld_K
+
+
+def _logdet_low_rank_orthonormal(
+    operator: LowRankUpdate, c: Float[Array, ""]
+) -> Float[Array, ""]:
+    """``log|det(cI + U D Uᵀ)| = (n − k) log|c| + Σᵢ log|c + dᵢ|`` for ``UᵀU = I``.
+
+    The eigenvalues are ``c + dᵢ`` on the span of ``U`` and ``c`` on its
+    ``n − k``-dimensional complement; ``O(k)`` (gh-333).
+    """
+    n, k = operator.in_size(), operator.rank
+    return (n - k) * jnp.log(jnp.abs(c)) + jnp.sum(jnp.log(jnp.abs(c + operator.d)))
 
 
 def _logdet_sum_of_kroneckers(operator: SumOfKroneckers) -> Float[Array, ""]:

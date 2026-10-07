@@ -27,7 +27,18 @@ class LowRankUpdate(lx.AbstractLinearOperator):
             square operators, yielding the symmetric update
             ``L + U diag(d) Uᵀ``.
         tags: Extra lineax tags -- the caller's structural claims.
-        orthonormal: Marks *U* and *V* as having orthonormal columns.
+        orthonormal: The caller's claim that *U* (and *V*) have orthonormal
+            columns, ``UᵀU = I_k``. Like a tag, it is never checked. It
+            takes effect only for a symmetric update (*V* omitted or *U*
+            itself) on a scaled-identity base ``c·I`` (a lineax
+            ``IdentityLinearOperator``, possibly scaled, negated or
+            tagged -- ``low_rank_plus_identity(..., orthonormal=True)``
+            builds one): `gaussx.solve` and `gaussx.logdet` then take
+            ``O(nk)`` / ``O(k)`` closed forms with no ``k x k``
+            factorisation, and `gaussx.inv` / `gaussx.sqrt` return another
+            orthonormal ``LowRankUpdate`` on a scaled-identity base. On any
+            other base (e.g. a general diagonal, where orthonormality does
+            not simplify Woodbury) it has no effect on the result.
 
     Tags are inferred from structure only, never from array values, so the
     same call gives the same tags (and pytree structure) eagerly and under
@@ -203,6 +214,7 @@ def low_rank_plus_identity(
     *,
     scale: float = 1.0,
     psd: bool = False,
+    orthonormal: bool = False,
 ) -> LowRankUpdate:
     """Construct ``scale * I + U diag(d) Vᵀ``.
 
@@ -218,13 +230,29 @@ def low_rank_plus_identity(
             A Python-number ``scale >= 0`` already makes the base PSD
             (it is static, not an array value), so the default
             ``low_rank_plus_identity(U)`` is PSD-tagged without it.
+        orthonormal: Claim that *U* has orthonormal columns (unchecked).
+            The base is then a scaled lineax ``IdentityLinearOperator``
+            rather than a ``DiagonalLinearOperator``, so a symmetric update
+            (*V* omitted) takes the closed-form orthonormal ``solve`` /
+            ``logdet`` / ``inv`` / ``sqrt`` (see `LowRankUpdate`).
 
     Returns:
         A ``LowRankUpdate`` with a scaled identity base.
     """
     n = U.shape[0]
-    diag = jnp.full(n, scale, dtype=U.dtype)
     static_nonnegative = isinstance(scale, (int, float)) and scale >= 0
+    if orthonormal:
+        identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((n,), U.dtype))
+        base: lx.AbstractLinearOperator = jnp.asarray(scale, dtype=U.dtype) * identity
+        if psd or static_nonnegative:
+            base = lx.TaggedLinearOperator(base, lx.positive_semidefinite_tag)
+        tags = (
+            frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+            if psd
+            else frozenset()
+        )
+        return LowRankUpdate(base, U, d, V, tags=tags, orthonormal=True)
+    diag = jnp.full(n, scale, dtype=U.dtype)
     return _low_rank_update_with_diag_base(
         diag, U, d, V, psd=psd, psd_base=static_nonnegative
     )
@@ -274,6 +302,54 @@ def _infer_tags(
     if unit_weights and _safe_query(lx.is_positive_semidefinite, base):
         inferred.add(lx.positive_semidefinite_tag)
     return frozenset(inferred)
+
+
+def orthonormal_scaled_identity(operator: LowRankUpdate) -> Array | None:
+    """The scalar ``c`` when ``operator`` is ``c·I + U diag(d) Uᵀ``, orthonormal.
+
+    Decided from static structure only -- the ``orthonormal`` claim, shared
+    factors and the base's operator types -- so the same operator takes the
+    same branch eagerly and under ``jax.jit`` (gh-328, gh-333). Returns
+    ``None`` when the orthonormal closed forms do not apply.
+    """
+    if not (operator.orthonormal and operator.symmetric_factors):
+        return None
+    return _scaled_identity_scalar(operator.base)
+
+
+def scaled_identity_like(
+    base: lx.AbstractLinearOperator,
+    c: Array,
+    tags: frozenset[object] = frozenset(),
+) -> lx.AbstractLinearOperator:
+    """``c·I`` on ``base``'s structure, wrapped in ``tags`` when given."""
+    identity = lx.IdentityLinearOperator(base.in_structure())
+    scaled = c * identity
+    return lx.TaggedLinearOperator(scaled, tuple(tags)) if tags else scaled
+
+
+def _scaled_identity_scalar(base: lx.AbstractLinearOperator) -> Array | None:
+    """``c`` for a structurally scaled identity ``c·I``, else ``None``."""
+    if isinstance(base, lx.TaggedLinearOperator):
+        return _scaled_identity_scalar(base.operator)
+    if isinstance(base, lx.IdentityLinearOperator):
+        if base.in_size() != base.out_size():
+            return None
+        return jnp.ones((), dtype=base.in_structure().dtype)
+    if isinstance(base, lx.NegLinearOperator):
+        inner = _scaled_identity_scalar(base.operator)
+        return None if inner is None else -inner
+    if isinstance(base, lx.MulLinearOperator | lx.DivLinearOperator):
+        inner = _scaled_identity_scalar(base.operator)
+        if inner is None:
+            return None
+        scalar = jnp.asarray(base.scalar)
+        if scalar.ndim != 0:
+            return None
+        if isinstance(base, lx.MulLinearOperator):
+            return scalar * inner
+        return inner / scalar
+    return None
 
 
 def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
