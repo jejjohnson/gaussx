@@ -16,7 +16,7 @@ from gaussx import (
     ensemble_kalman_gain,
 )
 from gaussx._operators import LowRankUpdate
-from gaussx._testing import tree_allclose
+from gaussx._testing import key_sequence, tree_allclose
 
 
 def test_ensemble_covariance_shape(getkey):
@@ -196,3 +196,22 @@ def test_ensemble_kalman_gain_rejects_bessel_with_singleton(getkey):
 def test_ensemble_covariance_rejects_empty_ensemble():
     with pytest.raises(ValueError, match="at least one particle"):
         ensemble_covariance(jnp.zeros((0, 4)))
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="gh-372: ensemble_kalman_gain always forms the (J, J) capacitance",
+)
+def test_ensemble_kalman_gain_avoids_capacitance_when_ensemble_is_large():
+    """With J >> M the gain needs only an (M, M) solve (gh-282, gh-372)."""
+    nextkey = key_sequence(0)
+    J, N, M = 200, 3, 2
+    particles = jr.normal(nextkey(), (J, N))
+    obs_particles = particles[:, :M] + 0.1 * jr.normal(nextkey(), (J, M))
+    R = lx.DiagonalLinearOperator(jnp.full(M, 0.5))
+    jaxpr = str(
+        jax.make_jaxpr(lambda p, o: ensemble_kalman_gain(p, o, R))(
+            particles, obs_particles
+        )
+    )
+    assert f"[{J},{J}]" not in jaxpr

@@ -2,13 +2,17 @@
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
+import pytest
 
+from gaussx._einx import einsum
 from gaussx._inference._blr import (
     blr_diag_update,
     blr_full_update,
     ggn_diagonal,
     hutchinson_hessian_diag,
 )
+from gaussx._testing import key_sequence, random_pd_matrix
 
 
 class TestBLRDiagUpdate:
@@ -78,6 +82,56 @@ class TestBLRFullUpdate:
 
         assert jnp.allclose(n1_diag, n1_full, atol=1e-6)
         assert jnp.allclose(jnp.diag(n2_full), n2_diag, atol=1e-6)
+
+
+# gh-401: one lr = 1 BLR step on a Gaussian log-joint
+# log p(x) = -1/2 (x - m)^T P (x - m) lands on the exact natural parameters
+# eta1 = P m, eta2 = -P / 2, whatever the current iterate: the gradient at the
+# current mean mu is -P (mu - m) and the Hessian is -P, so the target
+# eta1 = grad - H mu = P m does not depend on mu. The tolerance is round-off
+# on a d = 4 problem in float64, nothing statistical.
+@pytest.mark.x64_only(reason="exactness to 1e-10 needs float64 round-off")
+class TestBLRGaussianExactness:
+    d = 4
+
+    def _target(self):
+        nextkey = key_sequence(0)
+        P = random_pd_matrix(nextkey(), self.d, jitter=1.0)
+        m = jr.normal(nextkey(), (self.d,))
+        return P, m, nextkey
+
+    @pytest.mark.parametrize("start", ["standard", "random"])
+    def test_full_update_lands_on_the_posterior(self, start):
+        P, m, nextkey = self._target()
+        if start == "standard":
+            nat1, nat2 = jnp.zeros(self.d), -0.5 * jnp.eye(self.d)
+        else:
+            nat1 = jr.normal(nextkey(), (self.d,))
+            nat2 = -0.5 * random_pd_matrix(nextkey(), self.d, jitter=1.0)
+        mu = jnp.linalg.solve(-2.0 * nat2, nat1)
+        grad = -einsum(P, mu - m, "i j, j -> i")
+
+        nat1_new, nat2_new = blr_full_update(nat1, nat2, grad, -P, lr=1.0)
+
+        assert jnp.allclose(nat2_new, -0.5 * P, atol=1e-12, rtol=0.0)
+        assert jnp.allclose(nat1_new, einsum(P, m, "i j, j -> i"), atol=1e-10, rtol=0.0)
+
+    @pytest.mark.parametrize("start", ["standard", "random"])
+    def test_diag_update_lands_on_the_posterior(self, start):
+        _, m, nextkey = self._target()
+        p = jnp.exp(jr.normal(nextkey(), (self.d,)))  # diagonal precision
+        if start == "standard":
+            nat1, nat2 = jnp.zeros(self.d), -0.5 * jnp.ones(self.d)
+        else:
+            nat1 = jr.normal(nextkey(), (self.d,))
+            nat2 = -0.5 * jnp.exp(jr.normal(nextkey(), (self.d,)))
+        mu = nat1 / (-2.0 * nat2)
+        grad = -p * (mu - m)
+
+        nat1_new, nat2_new = blr_diag_update(nat1, nat2, grad, -p, lr=1.0)
+
+        assert jnp.allclose(nat2_new, -0.5 * p, atol=1e-12, rtol=0.0)
+        assert jnp.allclose(nat1_new, p * m, atol=1e-12, rtol=0.0)
 
 
 class TestGGNDiagonal:

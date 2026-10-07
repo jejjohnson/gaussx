@@ -6,12 +6,14 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._einx import einsum, rearrange
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
     gauss_newton_precision,
     riemannian_psd_correction,
 )
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._testing import key_sequence, random_pd_matrix
 
 
 def _make_block_tridiag(getkey, N=3, d=2):
@@ -105,6 +107,51 @@ class TestRiemannianPSDCorrection:
 
         result = riemannian_psd_correction(H, S_prec, S_cov, lr=0.0)
         assert jnp.allclose(result, H)
+
+    # gh-401: what the correction guarantees is not that the corrected Hessian
+    # is negative semi-definite (for H = diag(-1, 2), Lambda = I, lr = 0.1 it
+    # has eigenvalues [-1, 1.55]) but that the damped precision update
+    # (1 - lr) Lambda - lr H_psd is positive definite: with Sigma = Lambda^-1
+    # and G = Lambda + H it equals
+    # 1/2 Lambda + 1/2 (I - lr G Sigma) Lambda (I - lr Sigma G),
+    # PD plus PSD. The 1e-12 tolerance is float64 round-off on a 2 x 2 or
+    # 3 x 3 problem.
+    @pytest.mark.x64_only(reason="identity checked to float64 round-off")
+    @pytest.mark.parametrize("lr", [0.1, 0.5, 1.0])
+    def test_damped_precision_update_is_positive_definite(self, lr):
+        H = jnp.diag(jnp.array([-1.0, 2.0]))
+        Lam = jnp.eye(2)
+
+        H_psd = riemannian_psd_correction(H, Lam, jnp.linalg.inv(Lam), lr=lr)
+        updated = (1.0 - lr) * Lam - lr * H_psd
+
+        assert jnp.min(jnp.linalg.eigvalsh(updated)) > 0.0
+        if lr == 0.1:
+            # The corrected Hessian itself stays indefinite.
+            assert jnp.allclose(
+                jnp.linalg.eigvalsh(H_psd), jnp.array([-1.0, 1.55]), atol=1e-12
+            )
+
+    @pytest.mark.x64_only(reason="identity checked to float64 round-off")
+    @pytest.mark.parametrize("lr", [0.1, 0.5, 1.0])
+    def test_damped_precision_update_identity(self, lr):
+        nextkey = key_sequence(0)
+        d = 3
+        A = jax.random.normal(nextkey(), (d, d))
+        H = 0.5 * (A + rearrange(A, "i j -> j i"))  # symmetric, indefinite
+        Lam = random_pd_matrix(nextkey(), d, jitter=1.0)
+        Sigma = jnp.linalg.inv(Lam)
+        G = Lam + H
+
+        H_psd = riemannian_psd_correction(H, Lam, Sigma, lr=lr)
+        updated = (1.0 - lr) * Lam - lr * H_psd
+
+        left = jnp.eye(d) - lr * einsum(G, Sigma, "i k, k j -> i j")
+        right = jnp.eye(d) - lr * einsum(Sigma, G, "i k, k j -> i j")
+        expected = 0.5 * Lam + 0.5 * einsum(left, Lam, right, "i a, a b, b j -> i j")
+        assert jnp.min(jnp.linalg.eigvalsh(H)) < 0.0
+        assert jnp.allclose(updated, expected, atol=1e-12, rtol=0.0)
+        assert jnp.min(jnp.linalg.eigvalsh(updated)) > 0.0
 
 
 class TestGaussNewtonPrecision:
