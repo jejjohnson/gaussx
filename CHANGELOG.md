@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.6.4](https://github.com/jejjohnson/gaussx/compare/v0.6.3...v0.6.4) (2026-10-07)
+
+
+### Features
+
+* **expfam:** add to_mean_cov and deprecate the misnamed to_expectation/to_natural ([#545](https://github.com/jejjohnson/gaussx/issues/545)) ([51cf276](https://github.com/jejjohnson/gaussx/commit/51cf276d5608a00e3155082baa1288090d56ee76))
+* **quadrature:** let ep_tilted_moments take any point-based integrator ([#575](https://github.com/jejjohnson/gaussx/issues/575)) ([bc4d10a](https://github.com/jejjohnson/gaussx/commit/bc4d10a2fc5ae2bffc4dd2830d27bfbc55d75068))
+* **strategies:** thread a PRNG key to stochastic logdets and seed CGSolver/MINRESSolver ([#590](https://github.com/jejjohnson/gaussx/issues/590)) ([8710dfa](https://github.com/jejjohnson/gaussx/commit/8710dfa3e99854c147a2b2f30890ac99a3c98fd6))
+
+
+### Bug Fixes
+
+* **distributions:** let project take an untagged Cholesky factor, and sufficient_stats any batch rank ([#347](https://github.com/jejjohnson/gaussx/issues/347)) ([#547](https://github.com/jejjohnson/gaussx/issues/547)) ([9fc76af](https://github.com/jejjohnson/gaussx/commit/9fc76af2dd2ca6bc8ce406bdb87c1833a7ec5ac1))
+* **frontend:** default linear_solve to AutoSolver and attach preconditioners through Composed/Auto ([#596](https://github.com/jejjohnson/gaussx/issues/596)) ([efd32cf](https://github.com/jejjohnson/gaussx/commit/efd32cfeddc496099db7d606d9f859b81bd39b88))
+* **gp, quadrature:** small-fixes checklist from the v0.2.0 review ([#589](https://github.com/jejjohnson/gaussx/issues/589)) ([6b31bad](https://github.com/jejjohnson/gaussx/commit/6b31badd00ef8cb873feaa848781a4a4aadac27a))
+* **gp:** cache the Cholesky factor in PredictionCache and take the cache first in predict_variance ([#582](https://github.com/jejjohnson/gaussx/issues/582)) ([071d748](https://github.com/jejjohnson/gaussx/commit/071d7487155eaf3fece0a3a061c2f69865d7cc91))
+* **gp:** document conditional_interpolate as two-filter fusion and add rts_interpolate ([#566](https://github.com/jejjohnson/gaussx/issues/566)) ([662253d](https://github.com/jejjohnson/gaussx/commit/662253dc45de56c9d17e1847ee0ddd11eb52568a))
+* **gp:** document love_cache's one-signed Lanczos bias and add a convergence diagnostic ([#564](https://github.com/jejjohnson/gaussx/issues/564)) ([d57c2d9](https://github.com/jejjohnson/gaussx/commit/d57c2d9515cfaf2673b8a9192897e7ce627dbab0))
+* **linalg:** diag_inv takes structured inverses and safe_cholesky densifies only on retry ([#573](https://github.com/jejjohnson/gaussx/issues/573)) ([a79d0a4](https://github.com/jejjohnson/gaussx/commit/a79d0a4f92549bae8a6b6813f29d8142d3cc864f))
+* **linalg:** solve_matrix factors once only for dense PSD operators ([#570](https://github.com/jejjohnson/gaussx/issues/570)) ([56cbba7](https://github.com/jejjohnson/gaussx/commit/56cbba7dbdd90f1264baeacae20c6da93fbffecf))
+* **operators:** add Circulant(symmetric=) and deprecate value-inferred symmetry ([#567](https://github.com/jejjohnson/gaussx/issues/567)) ([681900d](https://github.com/jejjohnson/gaussx/commit/681900d84cc8ccb20f2a71f09233ceb3b3e46119))
+* **primitives:** cholesky and sqrt unwrap scalar Mul/Div and keep structure ([#563](https://github.com/jejjohnson/gaussx/issues/563)) ([398757e](https://github.com/jejjohnson/gaussx/commit/398757e32c61399dcd160a12cdee070a42c42a9e))
+* **primitives:** close small dispatch gaps in trace, tagged MaskedOperator solve and linear_solve negation ([#585](https://github.com/jejjohnson/gaussx/issues/585)) ([8b2953a](https://github.com/jejjohnson/gaussx/commit/8b2953a329b44b04ca216d0776158702d7d020fa)), closes [#391](https://github.com/jejjohnson/gaussx/issues/391)
+* **primitives:** flag silent densification with DenseFallbackWarning at the caller ([#587](https://github.com/jejjohnson/gaussx/issues/587)) ([4a8b52a](https://github.com/jejjohnson/gaussx/commit/4a8b52a9bb9b231bccfa44c3775215c4785ee969)), closes [#406](https://github.com/jejjohnson/gaussx/issues/406)
+* **primitives:** forward stochastic options through every wrapper in trace/diag/frobenius_norm ([#581](https://github.com/jejjohnson/gaussx/issues/581)) ([6ac0201](https://github.com/jejjohnson/gaussx/commit/6ac0201fb53f0bf79f5e074a575ce43fb7eb02f4)), closes [#320](https://github.com/jejjohnson/gaussx/issues/320)
+* **primitives:** logdet(KroneckerSum) uses general eigvals for non-symmetric factors ([#560](https://github.com/jejjohnson/gaussx/issues/560)) ([a670b31](https://github.com/jejjohnson/gaussx/commit/a670b317abf14ebe5f1afb80f42b4e5324629125))
+* **primitives:** one rank= rule for eig, eigvals and svd ([#584](https://github.com/jejjohnson/gaussx/issues/584)) ([b708680](https://github.com/jejjohnson/gaussx/commit/b70868015c047e772ed6489a3ac404f788368744)), closes [#383](https://github.com/jejjohnson/gaussx/issues/383)
+* **primitives:** sqrt_matmul shifts KroneckerSum and BlockTriDiag structurally ([#579](https://github.com/jejjohnson/gaussx/issues/579)) ([6eb2310](https://github.com/jejjohnson/gaussx/commit/6eb2310de9e82feab8c70d808f610964a9b370fe)), closes [#337](https://github.com/jejjohnson/gaussx/issues/337)
+* **primitives:** structured diag/trace for Toeplitz and FFT-diagonalised operators ([#574](https://github.com/jejjohnson/gaussx/issues/574)) ([2d10a88](https://github.com/jejjohnson/gaussx/commit/2d10a88120520b616800d4343e47aaceefb09d4a)), closes [#373](https://github.com/jejjohnson/gaussx/issues/373)
+* **primitives:** submatrix keeps LowRankUpdate and lineax wrapper structure ([#576](https://github.com/jejjohnson/gaussx/issues/576)) ([269162d](https://github.com/jejjohnson/gaussx/commit/269162d144b5ba44ba4a59ed9de9bd6fc4bc1021))
+* **quadrature:** warn about the unscented alpha=1e-3 default in float32 ([#572](https://github.com/jejjohnson/gaussx/issues/572)) ([e2340c7](https://github.com/jejjohnson/gaussx/commit/e2340c7653d9b85cb71c3d15db27351666107c79))
+* **solve:** accept a gaussx strategy in gaussx.solve and a lineax solver in linear_solve ([#595](https://github.com/jejjohnson/gaussx/issues/595)) ([1bd1540](https://github.com/jejjohnson/gaussx/commit/1bd1540bb13de1109103e5d0951230e9541c289a))
+* **strategies:** check SLQ symmetry, make Jacobi gradient- and sign-safe, reject rectangular LSMR logdets ([#597](https://github.com/jejjohnson/gaussx/issues/597)) ([b7caaa9](https://github.com/jejjohnson/gaussx/commit/b7caaa962cfd8cb0984b158fa6dc2b06673c01e7))
+* **strategies:** keep the SLQ logdet gradient finite through a Lanczos breakdown ([#593](https://github.com/jejjohnson/gaussx/issues/593)) ([8eb9c8d](https://github.com/jejjohnson/gaussx/commit/8eb9c8dae44c5d34d117a0648ecfd3672c863836))
+* **strategies:** resolve CG tolerances from the dtype and add throw= to the CG family ([#571](https://github.com/jejjohnson/gaussx/issues/571)) ([1e2ad62](https://github.com/jejjohnson/gaussx/commit/1e2ad62f382c650c19eb159cf2cd18df8ae79fc7))
+* **strategies:** stop MINRES at convergence, differentiate it implicitly, and raise on exhaustion ([#577](https://github.com/jejjohnson/gaussx/issues/577)) ([52452f3](https://github.com/jejjohnson/gaussx/commit/52452f31fde33381a18c22b6548191fb04f1bb02))
+
+
+### Performance Improvements
+
+* **preconditioners:** read the diagonal without materialising, and take a column function in from_operator ([#594](https://github.com/jejjohnson/gaussx/issues/594)) ([2325beb](https://github.com/jejjohnson/gaussx/commit/2325beb3aa643859508452b6f25416fd12b14611))
+* **quadrature:** compute kernel expectations without the dead (P, N², N²) covariance ([#578](https://github.com/jejjohnson/gaussx/issues/578)) ([5e4b643](https://github.com/jejjohnson/gaussx/commit/5e4b6438fe37cfcf53491fb5e7f09cb97dcd1c2a))
+
 ## [0.6.3](https://github.com/jejjohnson/gaussx/compare/v0.6.2...v0.6.3) (2026-10-05)
 
 
