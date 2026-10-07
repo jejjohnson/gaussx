@@ -353,7 +353,10 @@ class TestStructuredInducingCovariance:
         q_sqrt = _q_layouts(16, 2)["full"]
         return K_zz, K_xz, K_xx, q_mu, q_sqrt
 
-    @pytest.mark.parametrize("white", [False, True])
+    # white=False also traces the K_zz^{-1} whitening solve: ~5 s in CI.
+    @pytest.mark.parametrize(
+        "white", [pytest.param(False, marks=pytest.mark.slow), True]
+    )
     def test_matches_dense_and_no_16x16_cholesky(self, white):
         K_zz, K_xz, K_xx, q_mu, q_sqrt = self._model()
 

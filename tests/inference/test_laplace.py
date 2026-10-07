@@ -117,7 +117,16 @@ def rw2_null(n: int) -> jnp.ndarray:
 
 
 class TestGaussianConjugate:
-    @pytest.mark.parametrize("structure", ["sparse", "banded", "dense"])
+    # The sparse and banded paths each trace their own Newton solve: ~3-5 s
+    # in CI. TestStructures::test_matches_dense covers them in the slow lane.
+    @pytest.mark.parametrize(
+        "structure",
+        [
+            pytest.param("sparse", marks=pytest.mark.slow),
+            pytest.param("banded", marks=pytest.mark.slow),
+            "dense",
+        ],
+    )
     def test_mode_and_log_marginal_are_exact(self, structure):
         n, m, noise = 10, 7, 0.3
         rng = np.random.default_rng(1)
@@ -293,7 +302,9 @@ class TestModes:
 
 
 # The structure paths that the fast lane covers; the rest of the grid is slow.
-_FAST_CASES = {("banded", "sparse"), ("kronecker_sum", "selection"), ("dense", "dense")}
+# ("banded", "sparse") traces the banded Hessian path: ~3-6 s in CI, so slow;
+# TestGaussianConjugate keeps a banded-free fast case.
+_FAST_CASES = {("kronecker_sum", "selection"), ("dense", "dense")}
 
 
 class TestStructures:

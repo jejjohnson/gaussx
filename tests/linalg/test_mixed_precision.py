@@ -106,6 +106,9 @@ def test_near_duplicates_far_from_origin(accumulate_dtype):
     assert rel.max() <= 1e-2
 
 
+# A fresh interpreter re-imports gaussx and recompiles without the persistent
+# cache: ~3-4 s in CI.
+@pytest.mark.slow
 def test_default_arguments_are_stable_without_x64():
     """gh-414: with x64 off the default call is stable and does not warn, and
     an explicit float64 accumulate dtype raises instead of truncating.

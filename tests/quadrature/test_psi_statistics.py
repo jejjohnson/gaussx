@@ -113,7 +113,8 @@ _STATE_2D = GaussianState(
 @pytest.mark.parametrize(
     "integrator",
     [
-        pytest.param(GaussHermiteIntegrator(order=6), id="gh"),
+        # Compile-bound (~3-4 s in CI) at any order; the other rules stay fast.
+        pytest.param(GaussHermiteIntegrator(order=6), id="gh", marks=pytest.mark.slow),
         pytest.param(UnscentedIntegrator(alpha=1.0), id="unscented"),
         pytest.param(CubatureIntegrator(), id="cubature"),
         pytest.param(TaylorIntegrator(), id="taylor"),
