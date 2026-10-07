@@ -10,8 +10,8 @@ import lineax as lx
 import pytest
 
 from gaussx._einx import einsum
-from gaussx._operators import BlockDiag, Kronecker
-from gaussx._primitives import cholesky
+from gaussx._operators import BlockDiag, Circulant, Kronecker
+from gaussx._primitives import DenseFallbackWarning, cholesky
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -133,3 +133,13 @@ def test_cholesky_negated_nsd_operator_stays_dense(getkey):
     op = -lx.MatrixLinearOperator(-S, lx.negative_semidefinite_tag)
     Lm = cholesky(op).as_matrix()
     assert tree_allclose(einsum(Lm, Lm, "i k, j k -> i j"), S)
+
+
+def test_cholesky_diagonalised_warns_dense_fallback():
+    """The dense path is flagged and attributed to the caller (gh-373)."""
+    op = Circulant(jnp.array([3.0, 1.0, 0.5, 1.0]), symmetric=True)
+    with pytest.warns(DenseFallbackWarning, match="gaussx.sqrt") as record:
+        L = cholesky(op)
+    assert record[0].filename == __file__
+    Lm = L.as_matrix()
+    assert tree_allclose(einsum(Lm, Lm, "i k, j k -> i j"), op.as_matrix())

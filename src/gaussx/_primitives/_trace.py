@@ -18,6 +18,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._operators._toeplitz import Toeplitz
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 
 
@@ -58,6 +59,9 @@ def trace(
     if isinstance(operator, DiagonalisedOperator):
         total = jnp.sum(operator.eigenvalues)
         return jnp.real(total) if operator.real_output else total
+    if isinstance(operator, Toeplitz):
+        # Constant diagonal c[0] (gh-373).
+        return operator.in_size() * operator.column[0]
     if isinstance(operator, BlockDiag):
         return _trace_block_diag(operator)
     if isinstance(operator, Kronecker):
