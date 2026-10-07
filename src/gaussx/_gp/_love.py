@@ -2,24 +2,54 @@
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
+import matfree.decomp
+import matfree.eig
 from jaxtyping import Array, Float
 
-from gaussx._primitives._root import root_inv_decomposition
+from gaussx._einx import einsum, rearrange, reduce
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._primitives._root import (
+    _safe_psd,
+    _top_real_eigenpairs,
+    root_inv_decomposition,
+)
+
+
+_EXACT_EIG = (lx.DiagonalLinearOperator, BlockDiag, Kronecker, KroneckerSum)
 
 
 class LOVECache(eqx.Module):
-    r"""Cached Lanczos factorization for fast predictive variance.
+    r"""Cached rank-``k`` Lanczos approximation of ``K^{-1}``.
 
-    Stores the eigenvector basis ``Q`` and inverse eigenvalues such that
-    ``K^{-1} \approx Q \Lambda^{-1} Q^T``.
+    ``k`` steps of symmetric Lanczos from a start vector ``v_0`` build an
+    orthonormal basis of the Krylov space
+    ``\mathcal{K}_k(K, v_0) = \mathrm{span}\{v_0, K v_0, \dots, K^{k-1} v_0\}``
+    and the tridiagonal ``T_k = Q_k^\top K Q_k``. With the eigendecomposition
+    ``T_k = S \Theta S^\top``, the cache stores the Ritz vectors
+    ``Q = Q_k S`` and the inverse Ritz values ``1 / \theta_i``, so that
+
+    $$
+    K^{-1} \approx Q_k T_k^{-1} Q_k^\top = Q \Theta^{-1} Q^\top .
+    $$
+
+    Ritz pairs approximate eigenpairs of ``K`` only once they have converged
+    (first at the extremes of the spectrum); for ``k < N`` they are not the
+    eigenpairs of ``K``. ``K^{-1} - Q \Theta^{-1} Q^\top`` is positive
+    semi-definite, so the approximation never over-estimates a quadratic form
+    ``k_*^\top K^{-1} k_*`` (see `love_variance`).
 
     Attributes:
-        Q: Lanczos eigenvector basis, shape ``(N, k)``.
-        inv_eigvals: Inverse eigenvalues ``1 / lambda_i``, shape ``(k,)``.
+        Q: Ritz vectors (an orthonormal basis of the Krylov space),
+            shape ``(N, k)``.
+        inv_eigvals: Inverse Ritz values ``1 / \theta_i``, shape ``(k,)``.
     """
 
     Q: Float[Array, "N k"]
@@ -30,54 +60,120 @@ def love_cache(
     K_op: lx.AbstractLinearOperator,
     lanczos_order: int = 50,
     key: jax.Array | None = None,
+    *,
+    initial_vector: Float[Array, " N"] | None = None,
 ) -> LOVECache:
-    r"""Precompute Lanczos factorization of ``K^{-1}`` for fast variance.
+    r"""Precompute a Lanczos approximation of ``K^{-1}`` for fast variance.
 
-    Builds a rank-``k`` approximation ``K^{-1} \approx Q \Lambda^{-1} Q^T``
-    using the symmetric Lanczos algorithm via partial eigendecomposition.
+    Runs ``k = min(lanczos_order, N)`` steps of symmetric Lanczos (with full
+    reorthogonalisation) on ``K`` from the start vector ``v_0`` and returns
+    the Galerkin approximation
 
-    This amortizes the cost of predictive variance: once cached, each
-    test point needs only ``O(Nk)`` instead of ``O(N^2)`` for a solve.
+    $$
+    K^{-1} \approx Q_k T_k^{-1} Q_k^\top
+    = K^{-1/2} P_k K^{-1/2},
+    $$
+
+    where ``P_k`` is the orthogonal projector onto
+    ``K^{1/2} \mathcal{K}_k(K, v_0)``. Because ``P_k \preceq I`` the
+    approximation is a lower bound on ``K^{-1}`` in the Loewner order: the
+    quadratic form returned by `love_variance` is biased low and the GP
+    predictive variance ``k_{**} - k_*^\top K^{-1} k_*`` built from it is
+    biased **high**, until the Krylov space captures every direction in
+    which ``k_*`` has weight. At ``k = N`` the result is exact.
+
+    Choosing ``lanczos_order``: the required ``k`` is set by the number of
+    eigenvalues of ``K`` well above the noise level (the kernel's effective
+    rank at the noise variance), not by ``N``. A smooth kernel with small
+    noise can need noticeably more steps than its numerical rank suggests.
+    Check convergence with `love_residual` / `love_variance_error_bound` on
+    representative test points.
+
+    Pseudocode:
+
+    ```text
+    v0 = initial_vector or normal(key, (N,))
+    Q_k, T_k = lanczos(K, v0, k)            # k matvecs with K
+    theta, S = eigh(T_k)
+    Q = Q_k @ S;  inv_eigvals = 1 / theta
+    ```
+
+    Once cached, each test point costs ``O(Nk)`` instead of an ``O(N^2)``
+    solve (Pleiss et al., 2018).
 
     Args:
-        K_op: Training kernel operator, shape ``(N, N)``. Must be
+        K_op: Training kernel operator ``K``, shape ``(N, N)``. Must be
             symmetric positive definite.
-        lanczos_order: Number of Lanczos iterations (rank of approximation).
-            Default ``50``.
-        key: PRNG key for the initial random vector. If ``None``, uses
-            ``jax.random.PRNGKey(0)``.
+        lanczos_order: Number of Lanczos steps ``k`` (rank of the
+            approximation), clamped to ``N``. Default ``50``.
+        key: PRNG key for a random start vector. If ``None`` (and no
+            ``initial_vector`` is given), uses ``jax.random.PRNGKey(0)``.
+        initial_vector: Deterministic start vector ``v_0``, shape ``(N,)``,
+            e.g. the training targets ``y`` (the right-hand side of the mean
+            solve, as in LOVE). Takes precedence over ``key``. A zero vector
+            is replaced by the all-ones vector.
+
+    A `lineax.DiagonalLinearOperator`, `BlockDiag`, `Kronecker` or
+    `KroneckerSum` ``K`` is not run through Lanczos: its exact structured
+    eigendecomposition is truncated to the top ``k`` eigenpairs (``key``
+    and ``initial_vector`` are unused). That is also a Galerkin
+    approximation, with the same one-signed bias.
 
     Returns:
         A `LOVECache` object.
     """
-    inverse_root = root_inv_decomposition(
-        K_op,
-        rank=lanczos_order,
-        method="lanczos",
-        key=key,
-    ).root
-    # For Lanczos inverse roots, recover 1 / λᵢ via ||R⁻[:, i]||² = 1 / λᵢ.
-    inv_eigvals = jnp.sum(inverse_root**2, axis=0)
-    floor = jnp.finfo(inv_eigvals.dtype).tiny
-    Q = inverse_root / jnp.sqrt(jnp.maximum(inv_eigvals, floor))[None, :]
-    return LOVECache(Q=Q, inv_eigvals=inv_eigvals)
+    n = K_op.in_size()
+    rank = min(lanczos_order, n)
+    if isinstance(K_op, _EXACT_EIG):
+        # Exact (structured) eigendecomposition, top-``rank`` pairs: no
+        # Krylov breakdown on repeated eigenvalues (e.g. a diagonal K).
+        root = root_inv_decomposition(K_op, rank=rank, method="lanczos", key=key).root
+        inv_eigvals = reduce(root**2, "n k -> k", "sum")  # ||R[:, i]||² = 1/λᵢ
+        scale = jnp.sqrt(_safe_psd(inv_eigvals))
+        return LOVECache(
+            Q=einx.divide("n k, k -> n k", root, scale), inv_eigvals=inv_eigvals
+        )
+
+    dtype = K_op.in_structure().dtype
+    if initial_vector is None:
+        if key is None:
+            key = jr.PRNGKey(0)
+        v0 = jr.normal(key, (n,), dtype=dtype)
+    else:
+        v0 = jnp.asarray(initial_vector, dtype=dtype)
+        # A zero start vector would make the first Lanczos normalisation 0/0.
+        v0 = jnp.where(jnp.linalg.norm(v0) > 0, v0, jnp.ones_like(v0))
+
+    tridiag = matfree.decomp.tridiag_sym(rank, reortho="full")
+    # matfree returns Ritz values (k,) and Ritz vectors (k, N).
+    vals, vecs = matfree.eig.eigh_partial(tridiag)(K_op.mv, v0)
+    vals, Q = _top_real_eigenpairs(vals, rearrange(vecs, "k n -> n k"), rank)
+    return LOVECache(Q=Q, inv_eigvals=1.0 / _safe_psd(vals))
 
 
 def love_variance(
     cache: LOVECache,
     K_star_row: Float[Array, " N"],
 ) -> Float[Array, ""]:
-    r"""Fast predictive variance using a LOVE cache.
+    r"""Approximate ``k_*^\top K^{-1} k_*`` from a LOVE cache.
 
-    Computes ``k_*^T K^{-1} k_*`` in ``O(Nk)`` via the cached Lanczos
-    factorization:
+    Computes, in ``O(Nk)``,
 
-        k_*^T K^{-1} k_* \approx k_*^T Q \Lambda^{-1} Q^T k_*
-                              = \sum_i (q_i^T k_*)^2 / \lambda_i
+    $$
+    k_*^\top Q \Theta^{-1} Q^\top k_*
+    = \sum_i (q_i^\top k_*)^2 / \theta_i
+    \;\le\; k_*^\top K^{-1} k_* .
+    $$
 
-    The predictive variance for a GP is then:
+    The inequality is the one-signed bias of the Lanczos approximation
+    (see `love_cache`): the GP predictive variance
 
-        var_* = k(x_*, x_*) - love\_variance(cache, k_*)
+    $$
+    \sigma_*^2 = k_{**} - \mathrm{love\_variance}(\mathrm{cache}, k_*)
+    $$
+
+    is an **upper bound** on the exact predictive variance, tight once the
+    cache has converged for this ``k_*`` (check with `love_residual`).
 
     Args:
         cache: A `LOVECache` from `love_cache`.
@@ -85,9 +181,93 @@ def love_variance(
             shape ``(N,)``.
 
     Returns:
-        Scalar ``k_*^T K^{-1} k_*``.
+        Scalar approximation of ``k_*^T K^{-1} k_*``.
     """
-    # Project onto eigenvector basis: z = Q^T k_*  -> (k,)
-    z = cache.Q.T @ K_star_row
-    # Weighted sum: sum_i z_i^2 / lambda_i
+    z = einsum(cache.Q, K_star_row, "n k, n -> k")
     return jnp.sum(z**2 * cache.inv_eigvals)
+
+
+def love_residual(
+    cache: LOVECache,
+    K_op: lx.AbstractLinearOperator,
+    K_star_row: Float[Array, " N"],
+) -> Float[Array, ""]:
+    r"""Relative solve residual of a LOVE cache for one cross-covariance.
+
+    Convergence diagnostic for `love_variance`: with
+    ``a = Q \Theta^{-1} Q^\top k_*`` (the cache's approximation of
+    ``K^{-1} k_*``), returns
+
+    $$
+    r(k_*) = \frac{\lVert K a - k_* \rVert_2}{\lVert k_* \rVert_2}.
+    $$
+
+    ``r = 0`` exactly when the cache solves ``K a = k_*``, in which case
+    `love_variance` is exact for this ``k_*`` (``k_* = 0`` returns ``0``).
+    A value well above the working precision means ``lanczos_order`` is
+    too small for this test point. A *small* value is not sufficient on its
+    own for an ill-conditioned ``K``: the variance error is
+    ``r^\top K^{-1} r``, which can be large for a small ``\lVert r \rVert``
+    when ``K`` has tiny eigenvalues; `love_variance_error_bound` turns the
+    residual into a bound in variance units. Costs one matvec with ``K``.
+
+    Args:
+        cache: A `LOVECache` from `love_cache`.
+        K_op: The operator the cache was built from, shape ``(N, N)``.
+        K_star_row: Cross-covariance vector ``k(X_{train}, x_*)``,
+            shape ``(N,)``.
+
+    Returns:
+        Scalar relative residual ``r(k_*)``.
+    """
+    r = _residual(cache, K_op, K_star_row)
+    num = jnp.linalg.norm(r)
+    den = jnp.linalg.norm(K_star_row)
+    # k_* = 0 is solved exactly (a = 0, r = 0): report 0, not 0/0.
+    return jnp.where(den > 0, num / jnp.where(den > 0, den, 1.0), 0.0)
+
+
+def love_variance_error_bound(
+    cache: LOVECache,
+    K_op: lx.AbstractLinearOperator,
+    K_star_row: Float[Array, " N"],
+    lambda_min: float | Float[Array, ""],
+) -> Float[Array, ""]:
+    r"""Upper bound on the variance over-estimate of a LOVE cache.
+
+    The cache is a Galerkin approximation, so with
+    ``a = Q \Theta^{-1} Q^\top k_*`` and ``r = K a - k_*`` (``Q^\top r = 0``)
+    the error of the quadratic form is exactly ``r^\top K^{-1} r``:
+
+    $$
+    0 \le k_*^\top K^{-1} k_* - \mathrm{love\_variance}(\mathrm{cache}, k_*)
+      = r^\top K^{-1} r \le \frac{\lVert r \rVert_2^2}{\lambda_{\min}(K)} .
+    $$
+
+    Unlike the relative residual of `love_residual`, this is in the units
+    of the variance and accounts for the conditioning of ``K``. For a GP
+    with ``K = K_f + \sigma^2 I`` the noise variance ``\sigma^2`` is a
+    valid ``lambda_min``.
+
+    Args:
+        cache: A `LOVECache` from `love_cache`.
+        K_op: The operator the cache was built from, shape ``(N, N)``.
+        K_star_row: Cross-covariance vector, shape ``(N,)``.
+        lambda_min: A lower bound on the smallest eigenvalue of ``K``.
+
+    Returns:
+        Scalar upper bound on the absolute predictive-variance error.
+    """
+    r = _residual(cache, K_op, K_star_row)
+    return jnp.sum(r**2) / lambda_min
+
+
+def _residual(
+    cache: LOVECache,
+    K_op: lx.AbstractLinearOperator,
+    K_star_row: Float[Array, " N"],
+) -> Float[Array, " N"]:
+    """``K Q Θ⁻¹ Qᵀ k_* − k_*``."""
+    z = einsum(cache.Q, K_star_row, "n k, n -> k") * cache.inv_eigvals
+    a = einsum(cache.Q, z, "n k, k -> n")
+    return K_op.mv(a) - K_star_row

@@ -166,8 +166,9 @@ print(f"Kernel matrix:    {K_noisy.shape}")
 # kernel operator, producing a low-rank approximation of $\tilde{K}^{-1}$.
 # The result is a `LOVECache` containing:
 #
-# - **Q** — orthonormal Lanczos basis, shape `(n, m)`
-# - **inv_eigvals** — reciprocal eigenvalues of the tridiagonal matrix, shape `(m,)`
+# - **Q** — Ritz vectors (an orthonormal Krylov basis), shape `(n, m)`
+# - **inv_eigvals** — inverse Ritz values (reciprocal eigenvalues of the
+#   tridiagonal matrix), shape `(m,)`
 
 # %%
 cache = gaussx.love_cache(K_op, lanczos_order=50, key=jax.random.PRNGKey(0))
@@ -177,8 +178,12 @@ print(f"  Q shape:            {cache.Q.shape}")
 print(f"  inv_eigvals shape:  {cache.inv_eigvals.shape}")
 
 # %% [markdown]
-# The Lanczos order $m = 50$ is half the matrix size here, but in
-# practice $m \ll n$ suffices. The cache can be reused for any number
+# The Lanczos order $m = 50$ is half the matrix size here. The required
+# $m$ is set by the number of eigenvalues of $\tilde{K}$ above the noise
+# level, not by $n$: for $m$ below that the approximation under-estimates
+# $k_*^\top \tilde{K}^{-1} k_*$, so the predictive variance is too large.
+# `gaussx.love_residual` reports the relative solve residual per test
+# point; check it before trusting a small $m$. The cache can be reused for any number
 # of test points.
 
 # %% [markdown]
