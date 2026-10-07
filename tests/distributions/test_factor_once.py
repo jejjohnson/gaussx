@@ -63,7 +63,7 @@ def test_entropy_factors_once():
 
 def test_kl_factors_each_covariance_once():
     def f(S, T):
-        return gaussx.dist_kl_divergence(
+        return gaussx.gaussian_kl(
             jnp.zeros(3), psd_operator(S), jnp.ones(3), psd_operator(T)
         )
 
@@ -90,7 +90,7 @@ def test_values_match_scipy_and_numpyro(n):
         nd.MultivariateNormal(mu, covariance_matrix=S),
         nd.MultivariateNormal(x, covariance_matrix=T),
     )
-    kl = gaussx.dist_kl_divergence(mu, psd_operator(S), x, psd_operator(T))
+    kl = gaussx.gaussian_kl(mu, psd_operator(S), x, psd_operator(T))
     assert jnp.allclose(kl, kl_ref, rtol=1e-10)
 
 

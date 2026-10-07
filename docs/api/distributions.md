@@ -227,7 +227,7 @@ covariance update.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [gaussian_log_prob, gaussian_entropy, quadratic_form, kl_standard_normal, dist_kl_divergence, conditional, joseph_update, add_jitter, project]
+      members: [gaussian_log_prob, gaussian_entropy, quadratic_form, kl_standard_normal, gaussian_kl, conditional, joseph_update, add_jitter, project]
 
 ## Structured sampling
 
@@ -275,10 +275,10 @@ statistics that natural-gradient and EP updates are built from.
         - to_expectation
         - mean_cov_to_natural
         - natural_to_mean_cov
-        - meanvar_to_natural
-        - natural_to_meanvar
-        - meanvar_to_expectation
-        - expectation_to_meanvar
+        - mean_chol_to_natural
+        - natural_to_mean_chol
+        - mean_chol_to_expectation
+        - expectation_to_mean_chol
         - expectation_to_natural
         - natural_to_expectation
         - log_partition

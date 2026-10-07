@@ -196,7 +196,7 @@ class IntegratedWienerSDE(SDEKernel):
         $$
 
         Both are exact, so this route is cheaper *and* more accurate than
-        the `gaussx.discretise_mfd` fallback the ``P_inf=None`` base
+        the `gaussx.discretize_mfd` fallback the ``P_inf=None`` base
         implementation would otherwise take.
 
         Note:
@@ -213,7 +213,7 @@ class IntegratedWienerSDE(SDEKernel):
                 it is negative definite), rather than the harmless
                 reverse-time transition the sign might suggest. Checked
                 with `equinox.error_if`, matching
-                `gaussx.discretise_mfd`, so under ``jit`` the error
+                `gaussx.discretize_mfd`, so under ``jit`` the error
                 fires at evaluation rather than trace time.
 
         Returns:

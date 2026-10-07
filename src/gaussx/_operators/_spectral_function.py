@@ -21,7 +21,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
-from gaussx._linalg._eigen_factorization import EigenFactorization
+from gaussx._linalg._eigen_factorization import EigenDecomposition
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._operators._factored_eigen import FactoredEigen, factored_eigen
 from gaussx._operators._kronecker_sum import KroneckerSum
@@ -52,7 +52,7 @@ class SpectralFunction(lx.AbstractLinearOperator):
 
     Args:
         base: The symmetric operator ``B`` (a `gaussx.KroneckerSum`, a
-            `gaussx.DiagonalisedOperator`, a diagonal or a symmetric dense
+            `gaussx.DiagonalizedOperator`, a diagonal or a symmetric dense
             operator). Its factors are eigendecomposed with ``eigh``; build
             it from concrete values (outside ``jit``), or use
             `from_eigen_factorizations` to supply the decompositions.
@@ -122,7 +122,7 @@ class SpectralFunction(lx.AbstractLinearOperator):
     @classmethod
     def from_eigen_factorizations(
         cls,
-        factors: Sequence[EigenFactorization],
+        factors: Sequence[EigenDecomposition],
         fn: Callable[[Array], Array],
         *,
         tags: object | frozenset[object] = frozenset(),
@@ -133,7 +133,7 @@ class SpectralFunction(lx.AbstractLinearOperator):
         base is the nested `gaussx.KroneckerSum` of the reassembled factors.
 
         Args:
-            factors: One `gaussx.EigenFactorization` per axis, in Kronecker
+            factors: One `gaussx.EigenDecomposition` per axis, in Kronecker
                 (row-major) order, each of a symmetric matrix (orthonormal
                 eigenvectors, as from ``from_matrix(..., symmetric=True)``).
             fn: The elementwise function ``f`` (see the class docstring).

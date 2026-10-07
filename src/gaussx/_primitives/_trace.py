@@ -17,7 +17,7 @@ from gaussx._operators._block_tridiag import (
     LowerBlockTriDiag,
     UpperBlockTriDiag,
 )
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -78,7 +78,7 @@ def trace(
         return jnp.asarray(operator.in_size(), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return jnp.sum(lx.diagonal(operator))
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         total = jnp.sum(operator.eigenvalues)
         return jnp.real(total) if operator.real_output else total
     if isinstance(operator, Toeplitz):

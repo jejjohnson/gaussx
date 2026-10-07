@@ -12,7 +12,7 @@ from jaxtyping import Array, ArrayLike
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import LowerBlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 
 
@@ -26,7 +26,7 @@ def scale_factor(
     on the factor's type (``solve(L, ·)``, ``logdet(L)``), so the scale is
     folded into one Kronecker factor, every block of a `BlockDiag`, the
     entries of a diagonal / dense / block-bidiagonal factor or the
-    eigenvalues of a `DiagonalisedOperator`; anything else becomes a lineax
+    eigenvalues of a `DiagonalizedOperator`; anything else becomes a lineax
     ``MulLinearOperator``.
     """
     scale = jnp.asarray(scale)
@@ -53,7 +53,7 @@ def scale_factor(
             scale * operator.sub_diagonal,
             tags=operator.tags,
         )
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return operator.with_eigenvalues(scale * operator.eigenvalues)
     return scale * operator
 

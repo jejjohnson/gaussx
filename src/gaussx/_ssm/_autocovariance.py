@@ -45,10 +45,10 @@ def sde_autocovariance(
             f"'no closed form', not necessarily 'not stationary': a Hurwitz "
             f"drift does have a stationary covariance, recoverable as the "
             f"solution of F P + P F^T + L Q_c L^T = 0, but that Lyapunov "
-            f"solve is exactly the fragile step gaussx.discretise_mfd "
+            f"solve is exactly the fragile step gaussx.discretize_mfd "
             f"exists to avoid, so it is not done implicitly here. Supply "
             f"P_inf on the kernel if you have it; to discretise rather than "
-            f"evaluate the autocovariance, use gaussx.discretise_mfd, which "
+            f"evaluate the autocovariance, use gaussx.discretize_mfd, which "
             f"needs no P_inf."
         )
         raise ValueError(msg)

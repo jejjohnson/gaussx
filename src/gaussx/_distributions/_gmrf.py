@@ -6,7 +6,7 @@ operator, and every operation dispatches on that structure (roadmap §3):
 - **sample**, in order: (1) a factorisable precision (dense, `BlockTriDiag`,
   or a `SparseOperator` through its sparse Cholesky factor) gives
   $\mu + L^{-\top}z$; (2) a Kronecker-structured one (`Kronecker`,
-  `KroneckerSum`, `SpectralFunction`, `DiagonalisedOperator`) the symmetric
+  `KroneckerSum`, `SpectralFunction`, `DiagonalizedOperator`) the symmetric
   root $V^{-1}\Lambda^{-1/2}Vz$ in its factored eigenbasis; (3) otherwise
   perturbation-optimisation: with $Q = \sum_k F_k^\top F_k$ and
   $r = \sum_k F_k^\top z_k$, $\operatorname{Cov}(Q^{-1}r) = Q^{-1}$, so one
@@ -42,7 +42,7 @@ from gaussx._einx import einsum, rearrange, reduce
 from gaussx._gmrf._areal import _add_ridge, _as_sparse, bym2_precision
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._operators._diagonalised import DiagonalisedOperator
+from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._factored_eigen import FactoredEigen, _reciprocal, factored_eigen
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
@@ -60,7 +60,7 @@ from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 _LOG_2PI = math.log(2.0 * math.pi)
 _PSD = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
 # Operators sampled in their factored eigenbasis (dispatch branch 2).
-_EIGEN = (Kronecker, KroneckerSum, SpectralFunction, DiagonalisedOperator)
+_EIGEN = (Kronecker, KroneckerSum, SpectralFunction, DiagonalizedOperator)
 # Operators factored by Cholesky even when factors are given (branch 1).
 _FACTORABLE = (
     lx.MatrixLinearOperator,
@@ -896,7 +896,7 @@ class IntrinsicGMRF(dist.Distribution):
         """``½ log|R|₊``: eigenvalues of a Kronecker sum, else via the null space."""
         operator = _unwrap(self.structure)
         if isinstance(
-            operator, KroneckerSum | DiagonalisedOperator | lx.DiagonalLinearOperator
+            operator, KroneckerSum | DiagonalizedOperator | lx.DiagonalLinearOperator
         ):
             return 0.5 * pseudo_logdet(operator)
         return 0.5 * pseudo_logdet(operator, null_space=self.null_space)

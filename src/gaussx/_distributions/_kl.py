@@ -13,13 +13,13 @@ from gaussx._primitives._logdet import _cholesky_logdet, _dense_psd_matrix, logd
 from gaussx._primitives._solve import solve
 
 
-def dist_kl_divergence(
+def gaussian_kl(
     p_loc: Float[Array, " N"],
     p_cov: lx.AbstractLinearOperator,
     q_loc: Float[Array, " N"],
     q_cov: lx.AbstractLinearOperator,
 ) -> Float[Array, ""]:
-    r"""KL divergence ``KL(p || q)`` between two multivariate normals.
+    r"""KL(first ‖ second): ``KL(p || q)`` between two multivariate normals.
 
     This is the **canonical KL implementation** for lineax-operator covariances.
     The specialised variants below all compute the same quantity but with

@@ -221,7 +221,7 @@ def _negate(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     *positive*-semidefinite one, which CG can solve directly. Plain negation
     keeps the structure (a lineax ``NegLinearOperator``, which every gaussx
     primitive unwraps, or an operator that negates in place such as a
-    `gaussx.DiagonalisedOperator`), so structural dispatch still sees (and
+    `gaussx.DiagonalizedOperator`), so structural dispatch still sees (and
     solves exactly) a diagonal or Kronecker ``A`` (gh-390). The tags are set
     explicitly because they do not always follow the negation (gh-391).
     """

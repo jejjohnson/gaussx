@@ -86,8 +86,8 @@ ZOO: dict[str, Callable[[jax.Array], lx.AbstractLinearOperator]] = {
     "upper_block_tridiag": lambda k: (
         gaussx.LowerBlockTriDiag(*_lower_upper_blocks(k)).T
     ),
-    "circulant": lambda k: gaussx.Circulant(_toeplitz_column(5)),
-    "circulant_complex": lambda k: gaussx.Circulant(
+    "circulant": lambda k: gaussx.circulant(_toeplitz_column(5)),
+    "circulant_complex": lambda k: gaussx.circulant(
         jr.normal(k, (4,), dtype=_float()) * (1.0 + 0.5j)
     ),
     "interpolated": _interpolated,

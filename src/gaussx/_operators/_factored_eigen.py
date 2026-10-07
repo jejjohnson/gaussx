@@ -3,7 +3,7 @@
 A Kronecker sum ``A ⊕ B``, a Kronecker product ``A ⊗ B`` and a shifted
 product ``A ⊗ B + c·I`` are all diagonalised by the Kronecker product of
 their factors' eigenbases. `FactoredEigen` keeps that basis per axis (a dense
-orthonormal matrix, the transform pair of a `DiagonalisedOperator`, or the
+orthonormal matrix, the transform pair of a `DiagonalizedOperator`, or the
 identity) next to the eigenvalue tensor, so ``solve``, ``logdet`` and the
 diagonal of the inverse act on the ``(n_1, …, n_k)`` grid one axis at a time
 and the joint basis is never formed.
@@ -20,7 +20,7 @@ from jaxtyping import Array, Float, Inexact
 
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._diagonalised import (
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     _along_axis,
     _flatten,
     _unflatten,
@@ -30,8 +30,8 @@ from gaussx._operators._kronecker_sum import KroneckerSum
 
 
 # One axis of the basis: a dense orthonormal ``Q`` (``A = Q Λ Qᵀ``), a
-# `DiagonalisedOperator` (``A = V⁻¹ Λ V``), or ``None`` for the identity.
-_AxisBasis = Float[Array, "n n"] | DiagonalisedOperator | None
+# `DiagonalizedOperator` (``A = V⁻¹ Λ V``), or ``None`` for the identity.
+_AxisBasis = Float[Array, "n n"] | DiagonalizedOperator | None
 
 
 class FactoredEigen(eqx.Module):
@@ -50,7 +50,7 @@ class FactoredEigen(eqx.Module):
         return all(
             basis.real_output
             for basis in self.bases
-            if isinstance(basis, DiagonalisedOperator)
+            if isinstance(basis, DiagonalizedOperator)
         )
 
     def _output(self, values: Array, like: Array | None = None) -> Array:
@@ -111,7 +111,7 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
     """The factored eigenbasis of ``operator``, or ``None`` if it has none.
 
     Kronecker sums and products recurse into their factors, so a factor that
-    carries its own basis (a `DiagonalisedOperator`, a nested `KroneckerSum`,
+    carries its own basis (a `DiagonalizedOperator`, a nested `KroneckerSum`,
     a `SpectralFunction` of one) keeps it; a diagonal factor needs no basis
     at all. Any other factor must be symmetric, and is materialised and
     eigendecomposed with ``eigh`` — only that factor, never the joint
@@ -128,7 +128,7 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
 
     if isinstance(operator, lx.TaggedLinearOperator) and isinstance(
         operator.operator,
-        KroneckerSum | Kronecker | DiagonalisedOperator | SpectralFunction,
+        KroneckerSum | Kronecker | DiagonalizedOperator | SpectralFunction,
     ):
         return factored_eigen(operator.operator)
     if isinstance(operator, SpectralFunction):
@@ -138,7 +138,7 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
         return FactoredEigen((None,), jnp.ones(operator.in_size(), dtype=dtype))
     if isinstance(operator, lx.DiagonalLinearOperator):
         return FactoredEigen((None,), lx.diagonal(operator))
-    if isinstance(operator, DiagonalisedOperator):
+    if isinstance(operator, DiagonalizedOperator):
         return FactoredEigen((operator,), operator.eigenvalues_flat())
     if isinstance(operator, KroneckerSum):
         return _combine((operator.A, operator.B), "add")
@@ -190,7 +190,7 @@ def _apply_axis(basis: _AxisBasis, values: Array, axis: int, *, inverse: bool) -
         return values
     names = _axis_names(values.ndim)
     joined = " ".join(names)
-    if isinstance(basis, DiagonalisedOperator):
+    if isinstance(basis, DiagonalizedOperator):
         transform = basis.inverse_flat if inverse else basis.forward_flat
         rest = [n for m, n in enumerate(names) if m != axis]
         sizes = {n: values.shape[m] for m, n in enumerate(names) if m != axis}
@@ -205,9 +205,9 @@ def _apply_axis(basis: _AxisBasis, values: Array, axis: int, *, inverse: bool) -
     return einsum(basis, values, f"{lhs}, {summed} -> {joined}")
 
 
-def _basis_weights(basis: Float[Array, "n n"] | DiagonalisedOperator) -> Array:
+def _basis_weights(basis: Float[Array, "n n"] | DiagonalizedOperator) -> Array:
     """``P[h, i] = V⁻¹[h, i] · V[i, h]`` — ``Q ∘ Q`` for an orthonormal axis."""
-    if not isinstance(basis, DiagonalisedOperator):
+    if not isinstance(basis, DiagonalizedOperator):
         return basis * basis
     eye = jnp.eye(basis.size, dtype=basis.in_structure().dtype)
     columns = jax.vmap(basis.inverse_flat)(eye)  # rows: V⁻¹ e_i

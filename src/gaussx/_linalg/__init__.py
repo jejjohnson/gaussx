@@ -2,7 +2,7 @@
 
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._linalg._eigen_factorization import (
-    EigenFactorization,
+    EigenDecomposition,
     kronecker_sum_solve,
 )
 from gaussx._linalg._linalg import (
@@ -21,14 +21,14 @@ from gaussx._linalg._schur import conditional_variance, schur_complement
 from gaussx._linalg._selected_inverse import selected_inverse
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._linalg._tridiagonal import (
-    solve_tridiagonal,
-    solve_tridiagonal_batched,
+    tridiagonal_solve,
+    tridiagonal_solve_batched,
 )
 from gaussx._linalg._woodbury import woodbury_solve
 
 
 __all__ = [
-    "EigenFactorization",
+    "EigenDecomposition",
     "conditional_variance",
     "cov_transform",
     "diag_conditional_variance",
@@ -42,10 +42,10 @@ __all__ = [
     "solve_columns",
     "solve_matrix",
     "solve_rows",
-    "solve_tridiagonal",
-    "solve_tridiagonal_batched",
     "stable_squared_distances",
     "symmetrize",
     "trace_product",
+    "tridiagonal_solve",
+    "tridiagonal_solve_batched",
     "woodbury_solve",
 ]

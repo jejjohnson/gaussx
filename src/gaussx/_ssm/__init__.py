@@ -10,8 +10,8 @@ from gaussx._ssm._cvi import (
 )
 from gaussx._ssm._dare import DAREResult, dare
 from gaussx._ssm._discretise import (
-    discretise_mfd,
-    discretise_mfd_sequence,
+    discretize_mfd,
+    discretize_mfd_sequence,
     process_noise_covariance,
 )
 from gaussx._ssm._emission import EmissionModel
@@ -85,8 +85,8 @@ __all__ = [
     "cavity_from_marginal",
     "cvi_update_sites",
     "dare",
-    "discretise_mfd",
-    "discretise_mfd_sequence",
+    "discretize_mfd",
+    "discretize_mfd_sequence",
     "expectations_to_ssm",
     "infinite_horizon_filter",
     "infinite_horizon_smoother",

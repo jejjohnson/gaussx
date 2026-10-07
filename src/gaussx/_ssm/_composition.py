@@ -49,7 +49,7 @@ class SumSDE(SDEKernel):
         F = jsl.block_diag(*[p.F for p in params_list])
         # A component with no closed-form stationary covariance leaves the
         # sum without one either; propagating ``None`` routes the composite
-        # through ``discretise_mfd`` rather than fabricating a ``P_inf``.
+        # through ``discretize_mfd`` rather than fabricating a ``P_inf``.
         component_p_inf = [p.P_inf for p in params_list]
         P_inf = (
             None
@@ -76,7 +76,7 @@ class SumSDE(SDEKernel):
         block-diagonal. Each block keeps its component's exact route
         (closed form, stationary ``P∞ − A P∞ Aᵀ``, or MFD only where needed)
         instead of exponentiating the whole sum -- which, with one
-        non-stationary component, sent everything through ``discretise_mfd``
+        non-stationary component, sent everything through ``discretize_mfd``
         at ~27× the cost (gh-318).
         """
         parts = [k.discretise(dt) for k in self.kernels]

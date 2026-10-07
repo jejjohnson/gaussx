@@ -9,10 +9,10 @@ import pytest
 
 from gaussx._operators import (
     BlockDiag,
-    Circulant,
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     Kronecker,
     Toeplitz,
+    circulant,
     circulant_from_symbol,
 )
 from gaussx._primitives import diag
@@ -66,11 +66,11 @@ def test_diag_toeplitz_is_constant(monkeypatch):
     "build",
     [
         pytest.param(
-            lambda: Circulant(jnp.array([3.0, 1.0, 0.5, 1.0]), symmetric=True),
+            lambda: circulant(jnp.array([3.0, 1.0, 0.5, 1.0]), symmetric=True),
             id="circulant_even",
         ),
         pytest.param(
-            lambda: Circulant(jnp.array([3.0, 1.0, 0.5, 0.2, -0.4])), id="circulant"
+            lambda: circulant(jnp.array([3.0, 1.0, 0.5, 0.2, -0.4])), id="circulant"
         ),
         pytest.param(
             lambda: circulant_from_symbol(jnp.fft.fftn(jr.normal(jr.key(0), (3, 4)))),
@@ -82,7 +82,7 @@ def test_diag_fft_diagonalised_is_constant(monkeypatch, build):
     """``F⁻¹ diag(λ) F`` has the constant diagonal ``mean(λ)`` (gh-373)."""
     op = build()
     expected = jnp.diag(op.as_matrix())
-    _forbid_as_matrix(monkeypatch, DiagonalisedOperator)
+    _forbid_as_matrix(monkeypatch, DiagonalizedOperator)
     result = diag(op)
     monkeypatch.undo()
     assert tree_allclose(result, expected)

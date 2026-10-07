@@ -1,6 +1,6 @@
-"""Tests for `DiagonalisedOperator`, `Circulant` and diagonalised Kronecker sums.
+"""Tests for `DiagonalizedOperator`, `circulant` and diagonalised Kronecker sums.
 
-Covers gh-261 (DiagonalisedOperator), gh-262 (Circulant) and the operator-level
+Covers gh-261 (DiagonalizedOperator), gh-262 (Circulant) and the operator-level
 part of gh-263 (Kronecker sums of non-symmetric diagonalisable factors).
 
 Every reference is a dense materialisation of the same operator; inputs come
@@ -20,7 +20,7 @@ import pytest
 import scipy.linalg
 
 import gaussx
-from gaussx import DiagonalisedOperator
+from gaussx import DiagonalizedOperator
 
 
 # ---------------------------------------------------------------------------
@@ -43,13 +43,13 @@ class _Apply:
         return self.m @ x
 
 
-def _dst1_laplacian(n: int) -> DiagonalisedOperator:
+def _dst1_laplacian(n: int) -> DiagonalizedOperator:
     """Dirichlet second difference via the orthonormal (symmetric) DST-I."""
     j = np.arange(1, n + 1)
     S = np.sqrt(2.0 / (n + 1)) * np.sin(np.pi * np.outer(j, j) / (n + 1))
     lam = 2.0 * np.cos(np.pi * j / (n + 1)) - 2.0
     dst = _Apply(jnp.asarray(S))
-    return DiagonalisedOperator(lam, dst, dst, (n,), normal=True)
+    return DiagonalizedOperator(lam, dst, dst, (n,), normal=True)
 
 
 def _dense_second_difference(n: int, periodic: bool) -> np.ndarray:
@@ -73,7 +73,7 @@ def periodic_2d_dense():
 
 
 # ---------------------------------------------------------------------------
-# DiagonalisedOperator basics
+# DiagonalizedOperator basics
 # ---------------------------------------------------------------------------
 
 
@@ -92,7 +92,7 @@ def test_dst_operator_matches_dense_laplacian():
 
 def test_eigenvalue_size_mismatch_raises():
     with pytest.raises(ValueError, match="eigenvalues"):
-        DiagonalisedOperator(jnp.ones(5), lambda x: x, lambda x: x, (4,))
+        DiagonalizedOperator(jnp.ones(5), lambda x: x, lambda x: x, (4,))
 
 
 @pytest.mark.parametrize("lam", [0.5, 2.0])
@@ -100,7 +100,7 @@ def test_eigenvalue_size_mismatch_raises():
 def test_shift_stays_diagonalised_and_solves(periodic_2d, periodic_2d_dense, lam):
     """gh-261: ``A − λI`` never materialises; solve matches dense."""
     shifted = periodic_2d - lam * lx.IdentityLinearOperator(periodic_2d.in_structure())
-    assert isinstance(shifted, DiagonalisedOperator)
+    assert isinstance(shifted, DiagonalizedOperator)
     b = jr.normal(jr.key(0), (256,))
     x = gaussx.solve(shifted, b)
     expected = jnp.linalg.solve(periodic_2d_dense - lam * jnp.eye(256), b)
@@ -120,7 +120,7 @@ def test_scalar_algebra_stays_closed(periodic_2d):
         periodic_2d + periodic_2d,
         periodic_2d - 3.0 * periodic_2d,
     ):
-        assert isinstance(op, DiagonalisedOperator)
+        assert isinstance(op, DiagonalizedOperator)
     assert jnp.allclose(
         (periodic_2d - 3.0 * periodic_2d).as_matrix(),
         -2.0 * periodic_2d.as_matrix(),
@@ -130,7 +130,7 @@ def test_scalar_algebra_stays_closed(periodic_2d):
 
 def test_shift_drops_definiteness_tags():
     """A PSD tag must not survive ``A − λI`` or ``−A``."""
-    op = gaussx.Circulant(
+    op = gaussx.circulant(
         jnp.array([2.0, -1.0, 0.0, -1.0]),
         symmetric=True,
         tags=lx.positive_semidefinite_tag,
@@ -158,7 +158,7 @@ def test_logdet_inv_trace_match_dense(periodic_2d, periodic_2d_dense, lam):
     dense = periodic_2d_dense - lam * jnp.eye(256)
     assert jnp.allclose(gaussx.logdet(op), jnp.linalg.slogdet(dense)[1], atol=1e-10)
     inv = gaussx.inv(op)
-    assert isinstance(inv, DiagonalisedOperator)
+    assert isinstance(inv, DiagonalizedOperator)
     assert jnp.allclose(inv.as_matrix(), jnp.linalg.inv(dense), atol=1e-12)
     assert jnp.allclose(gaussx.trace(op), jnp.trace(dense), atol=1e-10)
 
@@ -170,7 +170,7 @@ def test_sqrt_squares_to_operator():
         jax.ShapeDtypeStruct((16,), jnp.float64)
     )
     S = gaussx.sqrt(op)
-    assert isinstance(S, DiagonalisedOperator)
+    assert isinstance(S, DiagonalizedOperator)
     assert jnp.allclose(S.as_matrix() @ S.as_matrix(), op.as_matrix(), atol=1e-12)
 
 
@@ -190,18 +190,18 @@ def test_inv_quad_logdet_is_exact(periodic_2d, periodic_2d_dense):
 
 @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
 def test_transpose_normal_and_via_pair():
-    op = gaussx.Circulant(jnp.array([1.0, 2.0, 0.0, 0.0, -1.0]))  # non-symmetric
+    op = gaussx.circulant(jnp.array([1.0, 2.0, 0.0, 0.0, -1.0]))  # non-symmetric
     assert jnp.allclose(op.T.as_matrix(), op.as_matrix().T, atol=1e-12)
     M = _nonsymmetric(jr.key(3), 6)
-    mat_op = DiagonalisedOperator.from_eigen_factorization(
-        gaussx.EigenFactorization.from_matrix(M)
+    mat_op = DiagonalizedOperator.from_eigen_factorization(
+        gaussx.EigenDecomposition.from_matrix(M)
     )
     assert jnp.allclose(mat_op.as_matrix(), M, atol=1e-12)
     assert jnp.allclose(mat_op.T.as_matrix(), M.T, atol=1e-12)
 
 
 def test_transpose_without_pair_raises():
-    op = DiagonalisedOperator(jnp.ones(3), lambda x: x, lambda x: x, (3,))
+    op = DiagonalizedOperator(jnp.ones(3), lambda x: x, lambda x: x, (3,))
     with pytest.raises(NotImplementedError):
         op.transpose()
 
@@ -242,7 +242,7 @@ def test_jit_vmap_grad(periodic_2d):
 @pytest.mark.slow
 def test_circulant_1d_matches_scipy():
     c = jr.normal(jr.key(5), (32,))
-    op = gaussx.Circulant(c)
+    op = gaussx.circulant(c)
     dense = jnp.asarray(scipy.linalg.circulant(np.asarray(c)))
     assert jnp.allclose(op.as_matrix(), dense, atol=1e-12)
     b = jr.normal(jr.key(6), (32,))
@@ -256,7 +256,7 @@ def test_circulant_1d_matches_scipy():
 def test_circulant_2d_block_circulant():
     c = jnp.zeros((8, 8)).at[0, 0].set(4.0).at[0, 1].set(-1.0).at[1, 0].set(-1.0)
     c = c.at[0, -1].set(-1.0).at[-1, 0].set(-1.0)  # symmetric 5-point kernel
-    op = gaussx.Circulant(c, symmetric=True, tags=lx.positive_semidefinite_tag)
+    op = gaussx.circulant(c, symmetric=True, tags=lx.positive_semidefinite_tag)
     dense = op.as_matrix()
     assert jnp.allclose(dense, dense.T, atol=1e-12)
     assert jnp.allclose(dense[0].reshape(8, 8), c, atol=1e-12)  # first row = kernel
@@ -310,7 +310,7 @@ def test_kronecker_sum_three_factors(no_eigh):
     dense = _dense_kron_sum(*(o.as_matrix() for o in ops))
     rhs = jr.normal(jr.key(8), (120,))
     assert jnp.allclose(gaussx.solve(ks, rhs), jnp.linalg.solve(dense, rhs), atol=1e-12)
-    assert isinstance(gaussx.as_diagonalised(ks), DiagonalisedOperator)
+    assert isinstance(gaussx.as_diagonalized(ks), DiagonalizedOperator)
 
 
 def _nonsymmetric(key, n: int):
@@ -326,11 +326,11 @@ def test_kronecker_sum_nonsymmetric_factors_with_shift():
     """gh-263: ``solve(KroneckerSum(A − σI, B))`` with non-symmetric factors."""
     A = _nonsymmetric(jr.key(9), 7)
     B = _nonsymmetric(jr.key(10), 6)
-    fa = DiagonalisedOperator.from_eigen_factorization(
-        gaussx.EigenFactorization.from_matrix(A)
+    fa = DiagonalizedOperator.from_eigen_factorization(
+        gaussx.EigenDecomposition.from_matrix(A)
     )
-    fb = DiagonalisedOperator.from_eigen_factorization(
-        gaussx.EigenFactorization.from_matrix(B)
+    fb = DiagonalizedOperator.from_eigen_factorization(
+        gaussx.EigenDecomposition.from_matrix(B)
     )
     sigma = 1.3
     ks = gaussx.KroneckerSum(
@@ -398,14 +398,14 @@ def test_every_accepted_symbol_matches_its_matrix(name):
 
 def test_complex_circulant_transpose_is_not_the_adjoint():
     re, im = jr.normal(jr.key(0), (2, 4))
-    op = gaussx.Circulant(re + 1j * im)
+    op = gaussx.circulant(re + 1j * im)
     M = op.as_matrix()
     assert not jnp.allclose(M.T, M.conj().T)
     assert jnp.allclose(op.T.as_matrix(), M.T, atol=1e-12)
     assert jnp.allclose(op.T.T.as_matrix(), M, atol=1e-12)
     # Transposing twice restores the original transforms (no jit recompile).
     assert op.T.T.forward is op.forward
-    assert op.T.forward == gaussx.Circulant(re + 1j * im).T.forward
+    assert op.T.forward == gaussx.circulant(re + 1j * im).T.forward
     b = jnp.arange(1.0, 5.0).astype(M.dtype)
     assert jnp.allclose(gaussx.solve(op.T, b), jnp.linalg.solve(M.T, b), atol=1e-12)
 
@@ -431,8 +431,8 @@ def test_complex_output_is_not_tagged_symmetric():
 @pytest.mark.parametrize("symmetric", [True, False])
 def test_circulant_eager_and_traced_agree(symmetric):
     c = jnp.array([2.0, 0.5, 0.1, 0.5])  # even, real
-    eager = gaussx.Circulant(c, symmetric=symmetric)
-    traced = jax.jit(lambda c: gaussx.Circulant(c, symmetric=symmetric))(c)
+    eager = gaussx.circulant(c, symmetric=symmetric)
+    traced = jax.jit(lambda c: gaussx.circulant(c, symmetric=symmetric))(c)
     assert jax.tree_util.tree_structure(eager) == jax.tree_util.tree_structure(traced)
     assert [x.dtype for x in jax.tree.leaves(eager)] == [
         x.dtype for x in jax.tree.leaves(traced)
@@ -444,10 +444,10 @@ def test_circulant_eager_and_traced_agree(symmetric):
 def test_circulant_value_inference_is_deprecated():
     c = jnp.array([2.0, 0.5, 0.1, 0.5])
     with pytest.warns(DeprecationWarning, match="symmetric=True"):
-        op = gaussx.Circulant(c)
+        op = gaussx.circulant(c)
     assert lx.is_symmetric(op)
     # A non-even column infers nothing, so it does not warn.
-    assert not lx.is_symmetric(gaussx.Circulant(jnp.array([2.0, 0.5, 0.1, 0.3])))
+    assert not lx.is_symmetric(gaussx.circulant(jnp.array([2.0, 0.5, 0.1, 0.3])))
 
 
 @pytest.mark.parametrize(
@@ -459,10 +459,10 @@ def test_circulant_value_inference_is_deprecated():
 )
 def test_circulant_symmetric_flag_validates(column):
     with pytest.raises(ValueError, match="symmetric=True"):
-        gaussx.Circulant(column, symmetric=True)
+        gaussx.circulant(column, symmetric=True)
 
 
 def test_circulant_symmetric_flag_accepts_integer_column():
-    op = gaussx.Circulant(jnp.array([2, -1, 0, -1]), symmetric=True)
+    op = gaussx.circulant(jnp.array([2, -1, 0, -1]), symmetric=True)
     assert lx.is_symmetric(op)
     assert not jnp.iscomplexobj(op.eigenvalues)

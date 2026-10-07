@@ -80,8 +80,8 @@ class TestSpectralFunction:
     @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_from_eigen_factorizations_matches_init(self, operator):
         factors = [
-            gaussx.EigenFactorization.from_matrix(path_laplacian(3), symmetric=True),
-            gaussx.EigenFactorization.from_matrix(operator.base.B, symmetric=True),
+            gaussx.EigenDecomposition.from_matrix(path_laplacian(3), symmetric=True),
+            gaussx.EigenDecomposition.from_matrix(operator.base.B, symmetric=True),
         ]
         built = gaussx.SpectralFunction.from_eigen_factorizations(factors, operator.fn)
         assert jnp.allclose(built.as_matrix(), operator.as_matrix())

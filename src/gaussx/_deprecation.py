@@ -34,6 +34,41 @@ _SKIP = (
 )
 
 
+# Public names renamed under the naming conventions in docs/api/index.md
+# (gh-315), mapped to their replacements. ``gaussx.<old>`` still resolves,
+# through the package ``__getattr__``, to the *same* object as the new name
+# (so ``isinstance`` and ``is`` checks keep working) and warns on access.
+RENAMED: dict[str, str] = {
+    "DiagonalisedOperator": "DiagonalizedOperator",
+    "as_diagonalised": "as_diagonalized",
+    "discretise_mfd": "discretize_mfd",
+    "discretise_mfd_sequence": "discretize_mfd_sequence",
+    "EigenFactorization": "EigenDecomposition",
+    "Circulant": "circulant",
+    "SumOperator": "sum_operator",
+    "ScaledOperator": "scaled_operator",
+    "ProductOperator": "product_operator",
+    "solve_tridiagonal": "tridiagonal_solve",
+    "solve_tridiagonal_batched": "tridiagonal_solve_batched",
+    "dist_kl_divergence": "gaussian_kl",
+    "meanvar_to_natural": "mean_chol_to_natural",
+    "natural_to_meanvar": "natural_to_mean_chol",
+    "meanvar_to_expectation": "mean_chol_to_expectation",
+    "expectation_to_meanvar": "expectation_to_mean_chol",
+}
+RENAMED_REMOVAL = "0.7.0"
+
+
+def renamed_attribute(old: str, namespace: dict[str, Any]) -> Any:
+    """Resolve the renamed public name ``old`` in ``namespace``, with a warning."""
+    new = RENAMED[old]
+    warn_deprecated(
+        f"gaussx.{old} is deprecated and will be removed in gaussx "
+        f"{RENAMED_REMOVAL}; use gaussx.{new} (gh-315)."
+    )
+    return namespace[new]
+
+
 def warn_deprecated(message: str) -> None:
     """Emit a `GaussxDeprecationWarning` attributed to the caller's code."""
     warnings.warn(

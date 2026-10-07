@@ -114,8 +114,8 @@ def _kronecker_sum(*tags) -> gaussx.KroneckerSum:
     )
 
 
-def _circulant_pd() -> gaussx.DiagonalisedOperator:
-    return gaussx.Circulant(
+def _circulant_pd() -> gaussx.DiagonalizedOperator:
+    return gaussx.circulant(
         jnp.array([3.0, 1.0, 0.5, 0.5, 1.0]),
         symmetric=True,
         tags=lx.positive_semidefinite_tag,
@@ -251,21 +251,21 @@ ZOO: list[Case] = [
         "circulant_pd",
         _circulant_pd,
         structured=frozenset({"solve", "logdet", "diag", "trace", "sqrt", "inv"}),
-        spy=gaussx.DiagonalisedOperator,
+        spy=gaussx.DiagonalizedOperator,
     ),
     Case(
         "circulant",
         _base("circulant"),
         prims=_SQUARE,
         structured=frozenset({"solve", "logdet", "diag", "trace", "inv"}),
-        spy=gaussx.DiagonalisedOperator,
+        spy=gaussx.DiagonalizedOperator,
     ),
     Case(
         "circulant_complex",
         _base("circulant_complex"),
         prims=_SQUARE,
         structured=frozenset({"solve", "logdet", "diag", "trace", "inv"}),
-        spy=gaussx.DiagonalisedOperator,
+        spy=gaussx.DiagonalizedOperator,
     ),
     Case("interpolated", _base("interpolated")),
     Case("masked", _base("masked"), prims=_SQUARE),

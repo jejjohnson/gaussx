@@ -3,7 +3,7 @@
 Registering them lets ``numpyro.distributions.kl_divergence`` (and so
 ``numpyro.infer.TraceMeanField_ELBO``, which falls back to a Monte-Carlo KL
 on ``NotImplementedError``) use the closed form, via
-`gaussx.dist_kl_divergence` and its structural dispatch.
+`gaussx.gaussian_kl` and its structural dispatch.
 
 Importing this module performs the registrations; ``gaussx._distributions``
 imports it alongside the classes.
@@ -18,7 +18,7 @@ import numpyro.distributions as nd
 from jaxtyping import Array, Float
 from numpyro.distributions.kl import kl_divergence
 
-from gaussx._distributions._kl import dist_kl_divergence
+from gaussx._distributions._kl import gaussian_kl
 from gaussx._distributions._mvn import MultivariateNormal
 from gaussx._distributions._mvn_base import AbstractMultivariateNormal
 from gaussx._distributions._utils import _reshape_batch
@@ -44,7 +44,7 @@ def _shared_covariance(d: _Gaussian) -> lx.AbstractLinearOperator | None:
 def _has_exact_kl(d: _Gaussian) -> bool:
     """Whether ``d``'s solver strategy solves exactly (gh-313 review).
 
-    `dist_kl_divergence` uses exact structural dispatch, densifying where
+    `gaussian_kl` uses exact structural dispatch, densifying where
     there is no structural rule. That matches a distribution whose strategy
     is `DenseSolver` (or an `AutoSolver` choosing it), but not one that asked
     for a matrix-free iterative or stochastic strategy.
@@ -129,7 +129,7 @@ def closed_form_kl(p: _Gaussian, q: _Gaussian) -> Float[Array, "*batch"]:
     def one(p_loc, q_loc, p_mat, q_mat):
         p_cov = covariance(p_shared, p_mat)
         q_cov = covariance(q_shared, q_mat)
-        return dist_kl_divergence(p_loc, p_cov, q_loc, q_cov)
+        return gaussian_kl(p_loc, p_cov, q_loc, q_cov)
 
     in_axes = (0, 0, None if p_dense is None else 0, None if q_dense is None else 0)
     flat = jax.vmap(one, in_axes=in_axes)(flat_loc(p), flat_loc(q), p_dense, q_dense)

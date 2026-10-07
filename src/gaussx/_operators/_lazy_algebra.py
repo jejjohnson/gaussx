@@ -31,7 +31,7 @@ def _maybe_tag(
     return operator
 
 
-def SumOperator(
+def sum_operator(
     *operators: lx.AbstractLinearOperator,
     tags: object | frozenset[object] = frozenset(),
 ) -> lx.AbstractLinearOperator:
@@ -51,7 +51,7 @@ def SumOperator(
         The lazy sum as a lineax operator.
     """
     if len(operators) < 2:
-        raise ValueError("SumOperator requires at least two operators.")
+        raise ValueError("sum_operator requires at least two operators.")
     in0 = operators[0].in_size()
     out0 = operators[0].out_size()
     for i, op in enumerate(operators[1:], 1):
@@ -63,7 +63,7 @@ def SumOperator(
     return _maybe_tag(ft.reduce(_op.add, operators), tags)
 
 
-def ScaledOperator(
+def scaled_operator(
     operator: lx.AbstractLinearOperator,
     scalar: float | Float[Array, ""],
     *,
@@ -84,14 +84,14 @@ def ScaledOperator(
     scalar_array = jnp.asarray(scalar)
     if scalar_array.ndim != 0:
         msg = (
-            "ScaledOperator scalar must be a rank-0 scalar, got "
+            "scaled_operator scalar must be a rank-0 scalar, got "
             f"shape {scalar_array.shape}."
         )
         raise ValueError(msg)
     return _maybe_tag(scalar_array * operator, tags)
 
 
-def ProductOperator(
+def product_operator(
     left: lx.AbstractLinearOperator,
     right: lx.AbstractLinearOperator,
     *,
@@ -116,3 +116,10 @@ def ProductOperator(
             f"!= right.out_size()={right.out_size()}."
         )
     return _maybe_tag(left @ right, tags)
+
+
+# Pre-gh-315 names. Plain private aliases (``gaussx.SumOperator`` & co. warn
+# through the package ``__getattr__``); removed with the public aliases.
+SumOperator = sum_operator
+ScaledOperator = scaled_operator
+ProductOperator = product_operator

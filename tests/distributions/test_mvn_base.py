@@ -89,7 +89,7 @@ def test_kl_all_four_combinations():
     Sigma_q = random_pd_matrix(key_cov, mu_p.shape[0])
     cov_q = MultivariateNormal(mu_q, psd_operator(Sigma_q))
     prec_q = MultivariateNormalPrecision(mu_q, psd_operator(jnp.linalg.inv(Sigma_q)))
-    expected = gaussx.dist_kl_divergence(
+    expected = gaussx.gaussian_kl(
         mu_p, psd_operator(Sigma_p), mu_q, psd_operator(Sigma_q)
     )
     for p in (cov_p, prec_p):

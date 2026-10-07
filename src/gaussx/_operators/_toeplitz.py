@@ -219,7 +219,7 @@ def _as_floating_column(column: Float[Array, " n"]) -> Float[Array, " n"]:
         # (gh-368).
         raise TypeError(
             f"Toeplitz column must be real, got {column.dtype}; complex Toeplitz "
-            "operators are not supported (use gaussx.Circulant for complex "
+            "operators are not supported (use gaussx.circulant for complex "
             "circulant operators, or a dense operator)."
         )
     dtype = jnp.result_type(column.dtype, jnp.float32)

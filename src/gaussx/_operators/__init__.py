@@ -12,9 +12,9 @@ from gaussx._operators._block_tridiag import (
 )
 from gaussx._operators._capacitance import CapacitanceSolver
 from gaussx._operators._diagonalised import (
-    Circulant,
-    DiagonalisedOperator,
-    as_diagonalised,
+    DiagonalizedOperator,
+    as_diagonalized,
+    circulant,
     circulant_from_symbol,
 )
 from gaussx._operators._grid import create_grid, cubic_interpolation_weights, grid_data
@@ -26,9 +26,9 @@ from gaussx._operators._kronecker_sum import (
     kronecker_sum_sample,
 )
 from gaussx._operators._lazy_algebra import (
-    ProductOperator,
-    ScaledOperator,
-    SumOperator,
+    product_operator,
+    scaled_operator,
+    sum_operator,
 )
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
@@ -256,23 +256,23 @@ def _(operator: MaskedOperator) -> bool:
 # Toeplitz tag registrations
 
 
-@lx.is_symmetric.register(DiagonalisedOperator)
-def _(operator: DiagonalisedOperator) -> bool:
+@lx.is_symmetric.register(DiagonalizedOperator)
+def _(operator: DiagonalizedOperator) -> bool:
     return lx.symmetric_tag in operator.tags
 
 
-@lx.is_diagonal.register(DiagonalisedOperator)
-def _(operator: DiagonalisedOperator) -> bool:
+@lx.is_diagonal.register(DiagonalizedOperator)
+def _(operator: DiagonalizedOperator) -> bool:
     return False
 
 
-@lx.is_positive_semidefinite.register(DiagonalisedOperator)
-def _(operator: DiagonalisedOperator) -> bool:
+@lx.is_positive_semidefinite.register(DiagonalizedOperator)
+def _(operator: DiagonalizedOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-@lx.is_negative_semidefinite.register(DiagonalisedOperator)
-def _(operator: DiagonalisedOperator) -> bool:
+@lx.is_negative_semidefinite.register(DiagonalizedOperator)
+def _(operator: DiagonalizedOperator) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
@@ -291,7 +291,7 @@ def _(operator: Toeplitz) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# SumOperator / ScaledOperator / ProductOperator need no registrations:
+# sum_operator / scaled_operator / product_operator need no registrations:
 # they are factories returning lineax-native Add/Mul/Composed operators,
 # whose tag propagation lineax provides out of the box.
 
@@ -406,7 +406,7 @@ def _(operator: InterpolatedOperator) -> bool:
 
 _ALL_TRIDIAG_DEFAULTS = (
     BlockDiag,
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     Kronecker,
     LowRankUpdate,
     KroneckerSumSqrt,
@@ -422,7 +422,7 @@ _ALL_TRIDIAG_DEFAULTS = (
 
 _TRI_DEFAULTS = (
     BlockDiag,
-    DiagonalisedOperator,
+    DiagonalizedOperator,
     Kronecker,
     LowRankUpdate,
     KroneckerSum,
@@ -483,8 +483,7 @@ __all__ = [
     "BlockDiag",
     "BlockTriDiag",
     "CapacitanceSolver",
-    "Circulant",
-    "DiagonalisedOperator",
+    "DiagonalizedOperator",
     "InterpolatedOperator",
     "Kronecker",
     "KroneckerSum",
@@ -492,19 +491,17 @@ __all__ = [
     "LowRankUpdate",
     "LowerBlockTriDiag",
     "MaskedOperator",
-    "ProductOperator",
     "SVDLowRankUpdate",
-    "ScaledOperator",
     "SparseOperator",
     "SparsityPattern",
     "SpectralFunction",
     "SumKronecker",
     "SumOfKroneckers",
-    "SumOperator",
     "Toeplitz",
     "ToeplitzCholesky",
     "UpperBlockTriDiag",
-    "as_diagonalised",
+    "as_diagonalized",
+    "circulant",
     "circulant_from_symbol",
     "create_grid",
     "cubic_interpolation_weights",
@@ -514,7 +511,10 @@ __all__ = [
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
+    "product_operator",
+    "scaled_operator",
     "sum_of_kroneckers_sample",
+    "sum_operator",
     "sumkronecker_sample",
     "svd_low_rank_plus_diag",
     "toeplitz_sample",

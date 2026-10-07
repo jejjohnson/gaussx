@@ -5,7 +5,7 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 
-from gaussx import solve_tridiagonal, solve_tridiagonal_batched
+from gaussx import tridiagonal_solve, tridiagonal_solve_batched
 from gaussx._testing import tree_allclose
 
 
@@ -20,7 +20,7 @@ def test_solve_tridiagonal_matches_dense(getkey):
     upper = jr.normal(getkey(), (n - 1,))
     rhs = jr.normal(getkey(), (n,))
 
-    x = solve_tridiagonal(lower, diag, upper, rhs)
+    x = tridiagonal_solve(lower, diag, upper, rhs)
     mat = _dense_tridiagonal(lower, diag, upper)
     assert tree_allclose(x, jnp.linalg.solve(mat, rhs), rtol=1e-5)
 
@@ -32,7 +32,7 @@ def test_solve_tridiagonal_batched(getkey):
     upper = jr.normal(getkey(), (batch, n - 1))
     rhs = jr.normal(getkey(), (batch, n))
 
-    x = solve_tridiagonal_batched(lower, diag, upper, rhs)
+    x = tridiagonal_solve_batched(lower, diag, upper, rhs)
     assert x.shape == (batch, n)
     for k in range(batch):
         mat = _dense_tridiagonal(lower[k], diag[k], upper[k])

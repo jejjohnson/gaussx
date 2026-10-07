@@ -53,7 +53,7 @@ def lineax_conj(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperato
     """``lineax.conj`` for a gaussx operator.
 
     The identity for a real operator; for a complex one (e.g. a complex
-    ``Circulant``) the matrix-free ``v ↦ conj(A conj(v))``, carrying the
+    ``circulant``) the matrix-free ``v ↦ conj(A conj(v))``, carrying the
     structural tags of ``A``: conjugation preserves all of them.
     """
     structures = (operator.in_structure(), operator.out_structure())

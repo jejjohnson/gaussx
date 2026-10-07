@@ -38,7 +38,7 @@ from jax.scipy.special import gammaln
 from jaxtyping import Array, ArrayLike, Float
 
 from gaussx._gmrf._temporal import _as_float
-from gaussx._linalg._eigen_factorization import EigenFactorization
+from gaussx._linalg._eigen_factorization import EigenDecomposition
 from gaussx._operators._sparse import (
     _PLAN_CACHE_SIZE,
     SparseOperator,
@@ -190,7 +190,7 @@ def spde_precision_grid(
     h = jnp.asarray(spacing, dtype=jnp.result_type(kappa, tau))
     factors = [
         _cast(
-            EigenFactorization.from_matrix(_laplacian_1d(n, wrap), symmetric=True),
+            EigenDecomposition.from_matrix(_laplacian_1d(n, wrap), symmetric=True),
             h.dtype,
         )
         for n, wrap in zip(shape, periodic, strict=True)
@@ -284,7 +284,7 @@ def _laplacian_1d(n: int, periodic: bool) -> np.ndarray:
     return L
 
 
-def _cast(factor: EigenFactorization, dtype: jnp.dtype) -> EigenFactorization:
+def _cast(factor: EigenDecomposition, dtype: jnp.dtype) -> EigenDecomposition:
     return jax.tree.map(lambda leaf: leaf.astype(dtype), factor)
 
 
