@@ -105,42 +105,62 @@ No registry, no metaclass, no plugin system. Each primitive is a chain of
 flowchart TD
     A["gaussx.solve(A, b)"] --> ID{"Identity?"}
     ID -- yes --> RID["return b"]
-    ID -- no --> DG{"Diagonal?"}
-    DG -- yes --> RDG["b / diag &nbsp;— O(n)"]
-    DG -- no --> BD{"BlockDiag?"}
-    BD -- yes --> RBD["solve each block, concatenate"]
-    BD -- no --> KR{"Kronecker?"}
-    KR -- yes --> RKR["Roth's column lemma<br/>per-factor solve"]
-    KR -- no --> LR{"LowRankUpdate?"}
+    ID -- no --> IV{"InverseOperator?"}
+    IV -- yes --> RIV["one matvec with the original"]
+    IV -- no --> DG{"Diagonal / Diagonalized?"}
+    DG -- yes --> RDG["divide by the eigenvalues &nbsp;— O(n) / transform pair"]
+    DG -- no --> MK{"Masked with a capacitance?"}
+    MK -- yes --> RMK["capacitance solve"]
+    MK -- no --> BD{"BlockDiag / Kronecker?"}
+    BD -- yes --> RBD["per block / Roth's column lemma"]
+    BD -- no --> LR{"LowRankUpdate?"}
     LR -- yes --> RLR["Woodbury identity"]
-    LR -- no --> KS{"KroneckerSum?"}
-    KS -- yes --> RKS["joint eigenbasis<br/>λᵢ + μⱼ"]
-    KS -- no --> BT{"Block-tridiagonal?"}
-    BT -- yes --> RBT["block-banded forward/back substitution"]
+    LR -- no --> KS{"SumOfKroneckers / KroneckerSum(Sqrt) /<br/>SpectralFunction?"}
+    KS -- yes --> RKS["joint eigenbasis"]
+    KS -- no --> BT{"Block-tridiagonal / bidiagonal /<br/>SparseOperator?"}
+    BT -- yes --> RBT["block-banded substitution / CG"]
     BT -- no --> WR{"Wrapper?<br/><small>Tagged · Mul · Div · Neg · Composed</small>"}
     WR -- yes --> RWR["unwrap, recurse,<br/>fix up the scalar"]
-    WR -- no --> FB["dense / iterative fallback<br/><small>lineax solver chosen from tags</small>"]
+    WR -- no --> AD{"Add of two Kroneckers?"}
+    AD -- yes --> RAD["sum-of-Kroneckers eigen reduction"]
+    AD -- no --> FB["dense / iterative fallback<br/><small>lineax solver chosen from tags</small>"]
 
     style FB stroke-dasharray: 5 5
 ```
 
 `logdet`, `cholesky`, `diag`, `trace`, `sqrt`, and `inv` follow the same shape
 with their own fast paths. Coverage differs per primitive --- `sqrt`, for
-instance, has no block-tridiagonal path and falls back there.
+instance, has no block-tridiagonal path and falls back there. In the table
+below, **dense** means the operator has no branch in that primitive and takes
+the fallback in the last row, and **lazy** means `inv` wraps it in an
+`InverseOperator` whose matvec is a solve. `tests/test_docs_dispatch_table.py`
+checks every row against the `isinstance` chains in `src/gaussx/_primitives/`,
+so a new branch without a row, or a **dense** / **lazy** cell that gains a
+branch, fails the test suite.
 
 | Operator | `solve` | `logdet` | `cholesky` | `diag` / `trace` | `sqrt` | `inv` |
 |----------|---------|----------|------------|------------------|--------|-------|
 | `Identity` / `Diagonal` | O(n) | O(n) | O(n) | O(n) | O(n) | O(n) |
 | `BlockDiag` | per block | sum of logdets | per block | per block | per block | per block |
 | `Kronecker` | Roth's lemma | scaled sum | per factor | per factor | per factor | per factor |
-| `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | eigen-based | `KroneckerSumSqrt` | lazy |
+| `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | from the factors' diagonals / traces | `KroneckerSumSqrt` | lazy |
+| `KroneckerSumSqrt` | joint eigenbasis | dense | dense | dense | dense | lazy |
 | `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumOfKroneckersSqrt` | lazy |
-| `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
-| `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
+| `SpectralFunction` | per-axis eigenbasis | $\sum \log\lvert f(\lambda)\rvert$ | dense | diag: per-axis eigenbasis; trace: dense | dense | lazy |
+| `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | orthonormal $U$ with scaled-identity base: closed form; else dense | square base: Woodbury |
+| `BlockTriDiag` | symmetric: block-banded; else dense | symmetric: block Cholesky; else dense | block Cholesky | per block | dense | lazy |
+| `LowerBlockTriDiag` / `UpperBlockTriDiag` | block forward / back substitution | sum over the diagonal blocks | dense | per block | dense | lazy |
 | `DiagonalizedOperator` / `circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
-| `Toeplitz` | lineax solver | `slogdet` | dense | $c_0$ (constant diagonal) | dense eigh | lazy |
-| Wrappers (`Tagged`, `Mul`, `Div`, `Neg`, `Composed`) | unwrap + recurse | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse | `Tagged`, `Mul`, `Div`: unwrap, $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse |
-| Everything else | lineax solver | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
+| `SparseOperator` | large and PSD: CG; else dense | large and PSD: SLQ estimate; else dense | sparse Cholesky | diag: stored diagonal; trace: dense | dense | lazy |
+| `MaskedOperator` | with a capacitance: capacitance solve; else dense | dense | dense | dense | dense | lazy |
+| `Toeplitz` | dense | dense | dense | $c_0$ (constant diagonal) | dense | lazy |
+| `InterpolatedOperator` | dense | dense | dense | dense | dense | lazy |
+| `InverseOperator` (from `inv`) | one matvec with $A$ | dense | dense | dense | dense | returns $A$ |
+| `Tagged` | unwrap + recurse | unwrap + recurse | unwrap + recurse | unwrap + recurse | unwrap + recurse | lazy |
+| `Mul` / `Div` / `Neg` | unwrap + recurse, fix up the scalar | unwrap + recurse, add $\pm n \log\lvert c\rvert$ | $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse, scale | $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse, scale by $1/c$ |
+| `Composed` | $B^{-1}(A^{-1} b)$ | square factors: sum of logdets; else dense | dense | dense | dense | square factors: $B^{-1} A^{-1}$; else lazy |
+| `Add` | two Kronecker terms: eigen reduction; else dense | two Kronecker terms: eigenvalue sum; else dense | dense | sum of the two parts | dense | lazy |
+| Everything else | lineax solver chosen from the tags | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
 
 Several of the dense cells have an opt-in matrix-free escape hatch backed by
 [matfree](https://github.com/pnkraemer/matfree):
@@ -441,7 +461,7 @@ what is supported.
 
 ```
 src/gaussx/
-├── __init__.py             # Public API — 269 names
+├── __init__.py             # Public API (`gaussx.__all__`)
 ├── _tags.py                # Structural tags + is_* predicates
 ├── _einx.py                # einx wrappers (all reshape / einsum goes here)
 ├── _solve_frontend.py      # linear_solve + as_linear_operator
