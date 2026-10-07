@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
 from gaussx import BlockDiag, Kronecker, eig, eigvals
 from gaussx._einx import einsum
@@ -233,3 +234,50 @@ def test_eig_psd_tagged_pytree_operator():
     op = lx.TaggedLinearOperator(inner, lx.positive_semidefinite_tag)
     vals, vecs = eig(op)
     _assert_real_orthonormal(vals, vecs, S)
+
+
+# ---------------------------------------------------------------------------
+# rank: exact structured decomposition first, then the top-k (gh-383)
+# ---------------------------------------------------------------------------
+
+
+def _psd(key, n):
+    return lx.MatrixLinearOperator(
+        random_pd_matrix(key, n), lx.positive_semidefinite_tag
+    )
+
+
+_RANK_OPERATORS = [
+    pytest.param(
+        lambda: Kronecker(_psd(jr.key(0), 3), _psd(jr.key(1), 4)), id="kronecker"
+    ),
+    pytest.param(
+        lambda: BlockDiag(
+            lx.DiagonalLinearOperator(jnp.arange(1.0, 7.0)),
+            lx.DiagonalLinearOperator(jnp.arange(1.0, 7.0)),
+        ),
+        id="block_diag",
+    ),
+    pytest.param(
+        lambda: lx.DiagonalLinearOperator(jnp.array([3.0, 1.0, 6.0, 2.0, 5.0, 4.0])),
+        id="diagonal",
+    ),
+    pytest.param(lambda: _psd(jr.key(2), 12), id="dense"),
+]
+
+
+@pytest.mark.parametrize("build", _RANK_OPERATORS)
+def test_eig_rank_shape_and_top_values(build):
+    op = build()
+    k = 2
+    vals, vecs = eig(op, rank=k)
+    ev = eigvals(op, rank=k)
+    assert vals.shape == (k,)
+    assert vecs.shape == (op.in_size(), k)
+    assert ev.shape == (k,)
+    if isinstance(op, lx.MatrixLinearOperator):
+        return  # k-step Lanczos: an approximation, so only the shape is fixed
+    # Structured operators: the exact top-k, descending.
+    top = jnp.sort(jnp.linalg.eigvalsh(op.as_matrix()))[::-1][:k]
+    assert tree_allclose(vals, top)
+    assert tree_allclose(ev, top)

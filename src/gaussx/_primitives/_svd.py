@@ -28,8 +28,11 @@ def svd(
 ) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
     """Compute the singular value decomposition ``A = U diag(s) V^T``.
 
-    When ``rank`` is given, computes a partial (truncated) SVD without
-    materializing the operator, by ``method``:
+    ``rank`` follows one rule shared with `gaussx.eig` and `gaussx.eigvals`:
+    an operator with a structured SVD (diagonal, `gaussx.Kronecker`,
+    `gaussx.BlockDiag`) is decomposed exactly and truncated to its ``rank``
+    largest singular values. Any other operator gets a partial (truncated)
+    SVD without materializing the operator, by ``method``:
 
     - ``"lanczos"`` (default): matfree's Golub-Kahan bidiagonalization.
     - ``"randomized"``: `randomized_svd` with its defaults
@@ -60,19 +63,32 @@ def svd(
         raise ValueError(f"method must be 'lanczos' or 'randomized', got {method!r}.")
     if method == "randomized" and rank is None:
         raise ValueError("method='randomized' needs a rank.")
-    if isinstance(operator, lx.DiagonalLinearOperator):
-        return _svd_diagonal(operator)
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return svd(operator.operator, rank=rank, method=method, key=key)
+    structured = _svd_structured(operator)
+    if structured is not None:
+        # Exact structured SVD first, then the top ``rank`` (gh-383).
+        if rank is None:
+            return structured
+        U, s, Vt = _sort_svd_descending(*structured)
+        return U[:, :rank], s[:rank], Vt[:rank, :]
     if rank is not None:
         if method == "randomized":
             return randomized_svd(operator, rank, key=key)
         return _svd_partial(operator, rank, key)
+    return _svd_dense(operator)
+
+
+def _svd_structured(
+    operator: lx.AbstractLinearOperator,
+) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]] | None:
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return _svd_diagonal(operator)
     if isinstance(operator, Kronecker):
         return _svd_kronecker(operator)
     if isinstance(operator, BlockDiag):
         return _svd_block_diag(operator)
-    if isinstance(operator, lx.TaggedLinearOperator):
-        return svd(operator.operator)
-    return _svd_dense(operator)
+    return None
 
 
 def _svd_diagonal(
