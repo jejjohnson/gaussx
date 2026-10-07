@@ -8,6 +8,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
+from gaussx._linalg._linalg import solve_rows, trace_product
 from gaussx._primitives._inv import inv
 from gaussx._primitives._trace import trace
 from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
@@ -77,8 +78,6 @@ def gaussian_expected_log_lik(
 
     # Trace correction: tr(R^{-1} q_cov)
     R_inv = inv(noise)
-    from gaussx._linalg._linalg import trace_product
-
     tr_term = trace_product(R_inv, q_cov)
 
     return -0.5 * (N * _LOG_2PI + ld + quad + tr_term)
@@ -115,8 +114,6 @@ def trace_correction(
     # tr(K_xz^T K_zz^{-1} K_xz) = sum_ij W_ij * K_xz_ij
     # where W = K_zz^{-1} K_xz^T reshaped, but easier:
     # tr(A^T B) = sum(A * B), so tr(K_xz^T W) where W_col = K_zz^{-1} K_xz_col
-    from gaussx._linalg._linalg import solve_rows
-
     W = solve_rows(K_zz, K_xz, solver=solver)  # (N, M)
     tr_approx = jnp.sum(K_xz * W)
 
@@ -254,7 +251,9 @@ def newton_update(
 
     Args:
         mean: Current mean, shape ``(N,)`` or ``(D,)``.
-        jacobian: First derivative of log-likelihood, shape ``(N,)``.
+        jacobian: Gradient (first derivative) of the log-likelihood with
+            respect to the latent, shape ``(N,)``. The name is historical; it
+            is a gradient, not a Jacobian matrix.
         hessian: Second derivative (negative definite), either the full
             ``(N, N)`` matrix or an ``(N,)`` diagonal.
         precision_floor: Lower bound on the returned precision, applied

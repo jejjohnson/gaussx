@@ -3,6 +3,7 @@
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 import pytest
 
 import gaussx
@@ -84,6 +85,41 @@ class TestDampedNaturalUpdate:
         _, nat2_new = damped_natural_update(nat1, nat2_old, nat1, nat2_target, lr=0.5)
         assert isinstance(nat2_new, lx.MatrixLinearOperator)
         assert jnp.allclose(nat2_new.as_matrix(), 1.5 * jnp.eye(3))
+
+    def test_numpy_arrays_are_accepted(self):
+        """gh-394: NumPy arrays dispatch as arrays, not as a type mismatch."""
+        nat1, nat2 = damped_natural_update(
+            np.zeros(3), np.eye(3), np.ones(3), 2.0 * np.eye(3), 0.5
+        )
+        assert isinstance(nat2, jax.Array)
+        assert jnp.allclose(nat2, 1.5 * jnp.eye(3))
+        assert jnp.allclose(nat1, 0.5 * jnp.ones(3))
+
+    def test_mixed_types_error_names_both(self):
+        """gh-394: an array mixed with an operator names both types."""
+        with pytest.raises(
+            TypeError,
+            match=r"both be arrays or both be linear operators.*"
+            r"ArrayImpl and MatrixLinearOperator",
+        ):
+            damped_natural_update(
+                jnp.zeros(3),
+                jnp.eye(3),
+                jnp.zeros(3),
+                lx.MatrixLinearOperator(jnp.eye(3)),
+                0.5,
+            )
+
+    def test_traced_learning_rate(self):
+        """gh-394: ``lr`` may be a traced scalar (``jax.grad`` through it)."""
+
+        def loss(lr):
+            _, nat2 = damped_natural_update(
+                jnp.zeros(2), jnp.eye(2), jnp.zeros(2), 3.0 * jnp.eye(2), lr
+            )
+            return jnp.trace(nat2)
+
+        assert jnp.allclose(jax.grad(loss)(jnp.asarray(0.5)), 4.0)
 
 
 class TestRiemannianPSDCorrection:
