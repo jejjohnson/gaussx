@@ -8,7 +8,7 @@ import jax.random as jr
 import pytest
 
 from gaussx._gp._gauss_kl import gauss_kl
-from gaussx._testing import tree_allclose
+from gaussx._testing import key_sequence, tree_allclose
 
 
 def _naive_kl(q_mu, q_cov, p_cov):
@@ -29,10 +29,11 @@ def _naive_kl(q_mu, q_cov, p_cov):
 
 class TestWhitePrior:
     @pytest.mark.slow
-    def test_full_q_sqrt_single_output(self, getkey):
+    def test_full_q_sqrt_single_output(self):
+        nextkey = key_sequence(0)
         M, R = 5, 1
-        q_mu = jr.normal(getkey(), (M, R))
-        L = jr.normal(getkey(), (M, M))
+        q_mu = jr.normal(nextkey(), (M, R))
+        L = jr.normal(nextkey(), (M, M))
         L = jnp.tril(L)
         L = L.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L)) + 0.1)
         q_sqrt = L[None, :, :]  # (1, M, M)
@@ -42,10 +43,11 @@ class TestWhitePrior:
         expected = _naive_kl(q_mu[:, 0], q_cov, jnp.eye(M))
         assert tree_allclose(result, expected, rtol=1e-4)
 
-    def test_diagonal_q_sqrt(self, getkey):
+    def test_diagonal_q_sqrt(self):
+        nextkey = key_sequence(0)
         M, R = 6, 1
-        q_mu = jr.normal(getkey(), (M, R))
-        q_diag = jnp.abs(jr.normal(getkey(), (M, R))) + 0.1
+        q_mu = jr.normal(nextkey(), (M, R))
+        q_diag = jnp.abs(jr.normal(nextkey(), (M, R))) + 0.1
         result = gauss_kl(q_mu, q_diag, K=None)
 
         q_cov = jnp.diag(q_diag[:, 0] ** 2)
@@ -76,15 +78,16 @@ class TestWhitePrior:
 
 
 class TestNonWhitePrior:
-    def test_full_q_sqrt_with_prior(self, getkey):
+    def test_full_q_sqrt_with_prior(self):
+        nextkey = key_sequence(0)
         M, R = 5, 1
-        q_mu = jr.normal(getkey(), (M, R))
-        L_q = jnp.tril(jr.normal(getkey(), (M, M)))
+        q_mu = jr.normal(nextkey(), (M, R))
+        L_q = jnp.tril(jr.normal(nextkey(), (M, M)))
         L_q = L_q.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L_q)) + 0.1)
         q_sqrt = L_q[None, :, :]
 
         # Random PD prior
-        A = jr.normal(getkey(), (M, M))
+        A = jr.normal(nextkey(), (M, M))
         K = A @ A.T + 0.1 * jnp.eye(M)
 
         result = gauss_kl(q_mu, q_sqrt, K=K)
@@ -92,12 +95,13 @@ class TestNonWhitePrior:
         expected = _naive_kl(q_mu[:, 0], q_cov, K)
         assert tree_allclose(result, expected, rtol=1e-4)
 
-    def test_diagonal_q_sqrt_with_prior(self, getkey):
+    def test_diagonal_q_sqrt_with_prior(self):
+        nextkey = key_sequence(0)
         M, R = 6, 1
-        q_mu = jr.normal(getkey(), (M, R))
-        q_diag = jnp.abs(jr.normal(getkey(), (M, R))) + 0.1
+        q_mu = jr.normal(nextkey(), (M, R))
+        q_diag = jnp.abs(jr.normal(nextkey(), (M, R))) + 0.1
 
-        A = jr.normal(getkey(), (M, M))
+        A = jr.normal(nextkey(), (M, M))
         K = A @ A.T + 0.1 * jnp.eye(M)
 
         result = gauss_kl(q_mu, q_diag, K=K)
@@ -105,14 +109,15 @@ class TestNonWhitePrior:
         expected = _naive_kl(q_mu[:, 0], q_cov, K)
         assert tree_allclose(result, expected, rtol=1e-4)
 
-    def test_non_negative(self, getkey):
+    def test_non_negative(self):
         """KL divergence should always be >= 0."""
+        nextkey = key_sequence(0)
         M = 5
-        q_mu = jr.normal(getkey(), (M, 1))
-        L_q = jnp.tril(jr.normal(getkey(), (M, M)))
+        q_mu = jr.normal(nextkey(), (M, 1))
+        L_q = jnp.tril(jr.normal(nextkey(), (M, M)))
         L_q = L_q.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L_q)) + 0.1)
         q_sqrt = L_q[None, :, :]
-        A = jr.normal(getkey(), (M, M))
+        A = jr.normal(nextkey(), (M, M))
         K = A @ A.T + 0.1 * jnp.eye(M)
         result = gauss_kl(q_mu, q_sqrt, K=K)
         assert result >= -1e-5
@@ -125,16 +130,17 @@ class TestNonWhitePrior:
 
 class TestMultipleOutputs:
     @pytest.mark.slow
-    def test_multi_output_full(self, getkey):
+    def test_multi_output_full(self):
         """KL summed over R outputs should match sum of per-output KLs."""
+        nextkey = key_sequence(0)
         M, R = 4, 3
-        q_mu = jr.normal(getkey(), (M, R))
+        q_mu = jr.normal(nextkey(), (M, R))
 
         # Build R different Cholesky factors
         q_sqrt_list = []
         total_expected = 0.0
         for r in range(R):
-            L = jnp.tril(jr.normal(getkey(), (M, M)))
+            L = jnp.tril(jr.normal(nextkey(), (M, M)))
             L = L.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L)) + 0.1)
             q_sqrt_list.append(L)
             q_cov_r = L @ L.T
@@ -151,9 +157,10 @@ class TestMultipleOutputs:
 
 
 class TestGradient:
-    def test_grad_flows(self, getkey):
+    def test_grad_flows(self):
+        nextkey = key_sequence(0)
         M = 4
-        q_mu = jr.normal(getkey(), (M, 1))
+        q_mu = jr.normal(nextkey(), (M, 1))
 
         def loss(q_mu):
             q_sqrt = jnp.eye(M)[None, :, :]

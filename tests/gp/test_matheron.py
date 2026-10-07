@@ -11,16 +11,16 @@ import pytest
 import gaussx
 from gaussx._gp._matheron import matheron_update
 from gaussx._operators import low_rank_plus_diag
-from gaussx._testing import random_pd_matrix
+from gaussx._testing import key_sequence, random_pd_matrix
 
 
-def _joint_problem(getkey, num_target: int = 4, num_conditioning: int = 3):
-    K_mm = random_pd_matrix(getkey(), num_conditioning)
-    K_sm = 0.2 * jr.normal(getkey(), (num_target, num_conditioning))
-    posterior_cov = random_pd_matrix(getkey(), num_target) + jnp.eye(num_target)
+def _joint_problem(nextkey, num_target: int = 4, num_conditioning: int = 3):
+    K_mm = random_pd_matrix(nextkey(), num_conditioning)
+    K_sm = 0.2 * jr.normal(nextkey(), (num_target, num_conditioning))
+    posterior_cov = random_pd_matrix(nextkey(), num_target) + jnp.eye(num_target)
     K_ss = posterior_cov + K_sm @ jnp.linalg.solve(K_mm, K_sm.T)
     joint_cov = jnp.block([[K_ss, K_sm], [K_sm.T, K_mm]])
-    observed_value = jr.normal(getkey(), (num_conditioning,))
+    observed_value = jr.normal(nextkey(), (num_conditioning,))
     posterior_mean = K_sm @ jnp.linalg.solve(K_mm, observed_value)
     return K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov
 
@@ -54,10 +54,11 @@ def _ks_statistic(x, y):
 
 
 @pytest.mark.slow
-def test_matheron_update_matches_dense_formula(getkey):
-    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(getkey)
-    prior_target = jr.normal(getkey(), (5, K_sm.shape[0]))
-    prior_conditioning = jr.normal(getkey(), (5, K_mm.shape[0]))
+def test_matheron_update_matches_dense_formula():
+    nextkey = key_sequence(0)
+    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(nextkey)
+    prior_target = jr.normal(nextkey(), (5, K_sm.shape[0]))
+    prior_conditioning = jr.normal(nextkey(), (5, K_mm.shape[0]))
 
     actual = matheron_update(
         prior_target,
@@ -73,17 +74,18 @@ def test_matheron_update_matches_dense_formula(getkey):
 
 
 @pytest.mark.slow
-def test_matheron_update_accepts_structured_conditioning_covariance(getkey):
+def test_matheron_update_accepts_structured_conditioning_covariance():
+    nextkey = key_sequence(0)
     num_target, num_conditioning, num_rank = 3, 5, 2
     diag = jnp.linspace(1.0, 2.0, num_conditioning)
-    U = 0.1 * jr.normal(getkey(), (num_conditioning, num_rank))
+    U = 0.1 * jr.normal(nextkey(), (num_conditioning, num_rank))
     d = jnp.array([0.5, 1.5])
     conditioning_covariance = low_rank_plus_diag(diag, U, d)
     K_mm = conditioning_covariance.as_matrix()
-    K_sm = jr.normal(getkey(), (num_target, num_conditioning))
-    observed_value = jr.normal(getkey(), (num_conditioning,))
-    prior_target = jr.normal(getkey(), (4, num_target))
-    prior_conditioning = jr.normal(getkey(), (4, num_conditioning))
+    K_sm = jr.normal(nextkey(), (num_target, num_conditioning))
+    observed_value = jr.normal(nextkey(), (num_conditioning,))
+    prior_target = jr.normal(nextkey(), (4, num_target))
+    prior_conditioning = jr.normal(nextkey(), (4, num_conditioning))
 
     actual = matheron_update(
         prior_target,
@@ -99,13 +101,14 @@ def test_matheron_update_accepts_structured_conditioning_covariance(getkey):
 
 
 @pytest.mark.slow
-def test_matheron_samples_match_schur_posterior_moments(getkey):
+def test_matheron_samples_match_schur_posterior_moments():
+    nextkey = key_sequence(0)
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
-        _joint_problem(getkey)
+        _joint_problem(nextkey)
     )
     num_samples = 64  # Whitened samples have exact empirical prior moments.
     prior_target, prior_conditioning = _joint_samples(
-        getkey(), joint_cov, num_samples, K_sm.shape[0]
+        nextkey(), joint_cov, num_samples, K_sm.shape[0]
     )
 
     samples = matheron_update(
@@ -126,13 +129,14 @@ def test_matheron_samples_match_schur_posterior_moments(getkey):
 
 
 @pytest.mark.slow
-def test_matheron_marginals_match_dense_posterior_samples(getkey):
+def test_matheron_marginals_match_dense_posterior_samples():
+    nextkey = key_sequence(0)
     K_mm, K_sm, posterior_mean, posterior_cov, observed_value, joint_cov = (
-        _joint_problem(getkey)
+        _joint_problem(nextkey)
     )
     num_samples = 2048  # KS comparison still uses empirical marginal CDFs.
     prior_target, prior_conditioning = _joint_samples(
-        getkey(), joint_cov, num_samples, K_sm.shape[0]
+        nextkey(), joint_cov, num_samples, K_sm.shape[0]
     )
 
     matheron_samples = matheron_update(
@@ -143,7 +147,7 @@ def test_matheron_marginals_match_dense_posterior_samples(getkey):
         lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag),
     )
     L = jnp.linalg.cholesky(posterior_cov)
-    dense_samples = posterior_mean + jr.normal(getkey(), matheron_samples.shape) @ L.T
+    dense_samples = posterior_mean + jr.normal(nextkey(), matheron_samples.shape) @ L.T
 
     marginal_ks = jnp.array(
         [
@@ -156,11 +160,12 @@ def test_matheron_marginals_match_dense_posterior_samples(getkey):
     assert jnp.all(marginal_ks < 0.08)
 
 
-def test_matheron_noiseless_conditioning_recovers_observed_values(getkey):
+def test_matheron_noiseless_conditioning_recovers_observed_values():
+    nextkey = key_sequence(0)
     num_conditioning = 4
-    K_mm = random_pd_matrix(getkey(), num_conditioning)
-    prior_conditioning = jr.normal(getkey(), (6, num_conditioning))
-    observed_value = jr.normal(getkey(), (num_conditioning,))
+    K_mm = random_pd_matrix(nextkey(), num_conditioning)
+    prior_conditioning = jr.normal(nextkey(), (6, num_conditioning))
+    observed_value = jr.normal(nextkey(), (num_conditioning,))
 
     samples = matheron_update(
         prior_conditioning,
@@ -174,8 +179,9 @@ def test_matheron_noiseless_conditioning_recovers_observed_values(getkey):
     assert jnp.allclose(samples, expected, atol=1e-10)
 
 
-def test_matheron_update_is_public_api(getkey):
-    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(getkey)
+def test_matheron_update_is_public_api():
+    nextkey = key_sequence(0)
+    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(nextkey)
     prior_target = jnp.zeros((2, K_sm.shape[0]))
     prior_conditioning = jnp.zeros((2, K_mm.shape[0]))
 
@@ -190,13 +196,14 @@ def test_matheron_update_is_public_api(getkey):
     assert samples.shape == prior_target.shape
 
 
-def test_matheron_update_accepts_explicit_solver(getkey):
+def test_matheron_update_accepts_explicit_solver():
     """Passing ``solver=DenseSolver()`` routes through dispatch_solve."""
+    nextkey = key_sequence(0)
     from gaussx import DenseSolver
 
-    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(getkey)
-    prior_target = jr.normal(getkey(), (3, K_sm.shape[0]))
-    prior_conditioning = jr.normal(getkey(), (3, K_mm.shape[0]))
+    K_mm, K_sm, _mean, _cov, observed_value, _joint_cov = _joint_problem(nextkey)
+    prior_target = jr.normal(nextkey(), (3, K_sm.shape[0]))
+    prior_conditioning = jr.normal(nextkey(), (3, K_mm.shape[0]))
 
     default = matheron_update(
         prior_target,

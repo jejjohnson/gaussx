@@ -9,13 +9,15 @@ import pytest
 
 from gaussx import oilmm_back_project, oilmm_project
 from gaussx._einx import einsum
+from gaussx._testing import key_sequence
 
 
 class TestOILMM:
-    def test_identity_roundtrip(self, getkey):
+    def test_identity_roundtrip(self):
         """W=I gives identity projection."""
+        nextkey = key_sequence(0)
         N, P = 10, 3
-        Y = jax.random.normal(getkey(), (N, P))
+        Y = jax.random.normal(nextkey(), (N, P))
         W = jnp.eye(P)
         noise_var = 0.1
 
@@ -26,12 +28,13 @@ class TestOILMM:
         y_means, _y_vars = oilmm_back_project(Y_lat, jnp.ones((N, P)), W)
         assert jnp.allclose(y_means, Y_lat, atol=1e-6)
 
-    def test_output_shapes(self, getkey):
+    def test_output_shapes(self):
         """Shapes are correct for non-square W."""
+        nextkey = key_sequence(0)
         N, P, L = 20, 5, 3
-        Y = jax.random.normal(getkey(), (N, P))
+        Y = jax.random.normal(nextkey(), (N, P))
         # Orthogonal W via QR
-        W, _ = jnp.linalg.qr(jax.random.normal(getkey(), (P, L)))
+        W, _ = jnp.linalg.qr(jax.random.normal(nextkey(), (P, L)))
         noise_var = 0.1
 
         Y_lat, noise_lat = oilmm_project(Y, W, noise_var)
@@ -75,11 +78,12 @@ class TestOILMM:
         ):
             jax.jit(lambda w: oilmm_project(Y, w, 0.1, check_orthonormal=True))(2.0 * W)
 
-    def test_jit_compatible(self, getkey):
+    def test_jit_compatible(self):
         """Both functions work under jax.jit."""
+        nextkey = key_sequence(0)
         N, P, L = 10, 3, 2
-        Y = jax.random.normal(getkey(), (N, P))
-        W, _ = jnp.linalg.qr(jax.random.normal(getkey(), (P, L)))
+        Y = jax.random.normal(nextkey(), (N, P))
+        W, _ = jnp.linalg.qr(jax.random.normal(nextkey(), (P, L)))
 
         Y_lat, _noise_lat = jax.jit(oilmm_project)(Y, W, 0.1)
         assert jnp.all(jnp.isfinite(Y_lat))

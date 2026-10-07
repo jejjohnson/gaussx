@@ -9,10 +9,10 @@ import jax.scipy.linalg as jsla
 import lineax as lx
 import pytest
 
-from gaussx._einx import rearrange
+from gaussx._einx import einsum, rearrange
 from gaussx._gp._base_conditional import sparse_conditional
 from gaussx._gp._svgp import whitened_svgp_predict
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._testing import key_sequence, random_pd_matrix, tree_allclose
 
 
 def _bc(K_mm, K_mn, K_nn, f, **kwargs):
@@ -39,23 +39,25 @@ def _valid_diag_model(M, N, seed):
 
 class TestPriorConditional:
     @pytest.mark.slow
-    def test_mean_shape(self, getkey):
+    def test_mean_shape(self):
+        nextkey = key_sequence(0)
         M, N, R = 5, 8, 2
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
-        f = jr.normal(getkey(), (M, R))
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn_diag = jnp.abs(jr.normal(nextkey(), (N,))) + 0.1
+        f = jr.normal(nextkey(), (M, R))
         mean, var = _bc(K_mm, K_mn, K_nn_diag, f)
         assert mean.shape == (N, R)
         assert var.shape == (N, R)
 
-    def test_mean_matches_dense(self, getkey):
+    def test_mean_matches_dense(self):
         """Mean should be K_nm K_mm^{-1} f."""
+        nextkey = key_sequence(0)
         M, N, R = 5, 8, 1
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        f = jr.normal(getkey(), (M, R))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        f = jr.normal(nextkey(), (M, R))
+        K_nn_diag = jnp.abs(jr.normal(nextkey(), (N,))) + 0.1
 
         mean, _ = _bc(K_mm, K_mn, K_nn_diag, f)
         expected = K_mn.T @ jnp.linalg.solve(K_mm, f)
@@ -81,13 +83,14 @@ class TestPriorConditional:
         assert tree_allclose(var[:, 0], expected, rtol=1e-4)
 
     @pytest.mark.slow
-    def test_var_full_knn(self, getkey):
+    def test_var_full_knn(self):
         """Variance with full K_nn."""
+        nextkey = key_sequence(0)
         M, N = 4, 6
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn = random_pd_matrix(getkey(), N)
-        f = jr.normal(getkey(), (M, 1))
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn = random_pd_matrix(nextkey(), N)
+        f = jr.normal(nextkey(), (M, 1))
 
         _, var = _bc(K_mm, K_mn, K_nn, f)
         assert var.shape == (N, N, 1)
@@ -103,13 +106,14 @@ class TestPriorConditional:
 
 
 class TestWhitened:
-    def test_mean_whitened(self, getkey):
+    def test_mean_whitened(self):
         """Whitened: mean = A^T f where A = L^{-1} K_mn."""
+        nextkey = key_sequence(0)
         M, N, R = 5, 8, 1
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
-        f = jr.normal(getkey(), (M, R))
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn_diag = jnp.abs(jr.normal(nextkey(), (N,))) + 0.1
+        f = jr.normal(nextkey(), (M, R))
 
         mean, _ = _bc(K_mm, K_mn, K_nn_diag, f, white=True)
         L = jnp.linalg.cholesky(K_mm)
@@ -139,16 +143,17 @@ class TestVariational:
         # Variational variance should differ from prior (unless q_sqrt=0)
         assert not jnp.allclose(var, var_prior)
 
-    def test_full_q_sqrt(self, getkey):
+    def test_full_q_sqrt(self):
+        nextkey = key_sequence(0)
         M, N, R = 4, 6, 2
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-        f = jr.normal(getkey(), (M, R))
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn_diag = jnp.abs(jr.normal(nextkey(), (N,))) + 1.0
+        f = jr.normal(nextkey(), (M, R))
 
         q_sqrt_list = []
         for _ in range(R):
-            L = jnp.tril(jr.normal(getkey(), (M, M)))
+            L = jnp.tril(jr.normal(nextkey(), (M, M)))
             L = L.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L)) + 0.1)
             q_sqrt_list.append(L)
         q_sqrt = jnp.stack(q_sqrt_list, axis=0)  # (R, M, M)
@@ -157,17 +162,18 @@ class TestVariational:
         assert mean.shape == (N, R)
         assert var.shape == (N, R)
 
-    def test_full_q_sqrt_full_knn(self, getkey):
+    def test_full_q_sqrt_full_knn(self):
         """Full q_sqrt with full K_nn should give (N, N, R) variance."""
+        nextkey = key_sequence(0)
         M, N, R = 4, 6, 2
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn = random_pd_matrix(getkey(), N)
-        f = jr.normal(getkey(), (M, R))
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn = random_pd_matrix(nextkey(), N)
+        f = jr.normal(nextkey(), (M, R))
 
         q_sqrt_list = []
         for _ in range(R):
-            L = jnp.tril(jr.normal(getkey(), (M, M)))
+            L = jnp.tril(jr.normal(nextkey(), (M, M)))
             L = L.at[jnp.diag_indices(M)].set(jnp.abs(jnp.diag(L)) + 0.1)
             q_sqrt_list.append(L)
         q_sqrt = jnp.stack(q_sqrt_list, axis=0)
@@ -192,40 +198,20 @@ class TestVariational:
         expected = K_nn_diag - jnp.diag(schur) + var_adj
         assert tree_allclose(var[:, 0], expected, rtol=1e-4)
 
-    def test_variance_formula_diagonal_nonwhite(self):
-        """Non-whitened q_sqrt should include the prior solve."""
-        M, N, R = 4, 6, 1
-        K_mm, K_mn, K_nn_diag = _valid_diag_model(M, N, seed=4)
-        f = jr.normal(jr.key(40), (M, R))
-        q_diag = jnp.abs(jr.normal(jr.key(41), (M, R))) + 0.1
-
-        _, var = _bc(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
-
-        Kmm_inv = jnp.linalg.inv(K_mm)
-        q_cov = jnp.diag(q_diag[:, 0] ** 2)
-        schur = K_mn.T @ Kmm_inv @ K_mn
-        var_adj = jnp.diag(K_mn.T @ Kmm_inv @ q_cov @ Kmm_inv @ K_mn)
-        expected = K_nn_diag - jnp.diag(schur) + var_adj
-        assert tree_allclose(var[:, 0], expected, rtol=1e-4)
-
-
-# ---------------------------------------------------------------------------
-# Gradient
-# ---------------------------------------------------------------------------
-
 
 class TestGradient:
-    def test_grad_through_f(self, getkey):
+    def test_grad_through_f(self):
+        nextkey = key_sequence(0)
         M, N = 5, 8
-        K_mm = random_pd_matrix(getkey(), M)
-        K_mn = jr.normal(getkey(), (M, N))
-        K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
+        K_mm = random_pd_matrix(nextkey(), M)
+        K_mn = jr.normal(nextkey(), (M, N))
+        K_nn_diag = jnp.abs(jr.normal(nextkey(), (N,))) + 0.1
 
         def loss(f):
             mean, var = _bc(K_mm, K_mn, K_nn_diag, f)
             return jnp.sum(mean**2) + jnp.sum(var)
 
-        f = jr.normal(getkey(), (M, 1))
+        f = jr.normal(nextkey(), (M, 1))
         g = jax.grad(loss)(f)
         assert jnp.all(jnp.isfinite(g))
         assert g.shape == (M, 1)
@@ -386,3 +372,61 @@ class TestStructuredInducingCovariance:
             )
             == 0
         )
+
+
+# ---------------------------------------------------------------------------
+# gh-392: dense reference over white x K_xx layout x q_sqrt layout
+# ---------------------------------------------------------------------------
+
+
+def _dense_reference(K_mm, K_mn, K_nn, f, q_sqrt, white):
+    """mean = Aᵀ f, cov_r = K_nn − K_nm K_mm⁻¹ K_mn + Aᵀ S_r A (dense)."""
+    L = jnp.linalg.cholesky(K_mm)
+    A = (
+        jsla.solve_triangular(L, K_mn, lower=True)
+        if white
+        else jnp.linalg.solve(K_mm, K_mn)
+    )
+    K_post = K_nn - einsum(K_mn, jnp.linalg.solve(K_mm, K_mn), "m i, m j -> i j")
+    R = f.shape[1]
+    if q_sqrt is None:
+        S = jnp.zeros((R, K_mm.shape[0], K_mm.shape[0]))
+    elif q_sqrt.ndim == 2:
+        S = jnp.stack([jnp.diag(q_sqrt[:, r] ** 2) for r in range(R)])
+    else:
+        S = jnp.stack([q_sqrt[r] @ q_sqrt[r].T for r in range(R)])
+    cov = rearrange(
+        K_post + einsum(A, einsum(S, A, "r m k, k j -> r m j"), "m i, r m j -> r i j"),
+        "r i j -> i j r",
+    )
+    return einsum(A, f, "m n, m r -> n r"), cov
+
+
+@pytest.mark.x64_only(reason="1e-10 against a float64 dense reference")
+@pytest.mark.parametrize("q", ["none", "diag", "full"])
+@pytest.mark.parametrize("white", [False, True])
+@pytest.mark.parametrize("full_cov", [False, True])
+def test_matches_dense_reference(q, white, full_cov):
+    """The issue's reference model (M=4, N=6, R=2; jr.key(0) splits)."""
+    M, N, R = 4, 6, 2
+    k = jr.split(jr.key(0), 6)
+    K_mm = random_pd_matrix(k[0], M)
+    K_mn = jr.normal(k[1], (M, N))
+    K_nn = random_pd_matrix(k[2], N) + einsum(
+        K_mn, jnp.linalg.solve(K_mm, K_mn), "m i, m j -> i j"
+    )
+    f = jr.normal(k[3], (M, R))
+    q_sqrt = {
+        "none": None,
+        "diag": jnp.abs(jr.normal(k[5], (M, R))) + 0.1,
+        "full": jnp.tril(jr.normal(k[4], (R, M, M))) + 0.5 * jnp.eye(M),
+    }[q]
+    ref_mean, ref_cov = _dense_reference(K_mm, K_mn, K_nn, f, q_sqrt, white)
+    mean, var = _bc(
+        K_mm, K_mn, K_nn if full_cov else jnp.diag(K_nn), f, q_sqrt=q_sqrt, white=white
+    )
+    ref_diag = rearrange(jnp.diagonal(ref_cov), "r n -> n r")
+    ref_var = ref_cov if full_cov else ref_diag
+    # cond(K_mm) ~ 1e2 here; observed errors <= 3.4e-12 (gh-392).
+    assert jnp.allclose(mean, ref_mean, rtol=0, atol=1e-10)
+    assert jnp.allclose(var, ref_var, rtol=0, atol=1e-10)

@@ -5,19 +5,21 @@ import jax.numpy as jnp
 import pytest
 
 from gaussx._gp._interpolation import conditional_interpolate, rts_interpolate
+from gaussx._testing import key_sequence
 
 
 class TestConditionalInterpolate:
-    def test_shapes(self, getkey):
+    def test_shapes(self):
         """Output should be (d,) mean and (d, d) covariance."""
+        nextkey = key_sequence(0)
         d = 3
         A_fwd = 0.9 * jnp.eye(d)
         Q_fwd = 0.1 * jnp.eye(d)
         A_bwd = 0.9 * jnp.eye(d)
         Q_bwd = 0.1 * jnp.eye(d)
-        mu_prev = jax.random.normal(getkey(), (d,))
+        mu_prev = jax.random.normal(nextkey(), (d,))
         P_prev = 0.5 * jnp.eye(d)
-        mu_next = jax.random.normal(getkey(), (d,))
+        mu_next = jax.random.normal(nextkey(), (d,))
         P_next = 0.5 * jnp.eye(d)
 
         m, P = conditional_interpolate(
@@ -62,20 +64,21 @@ class TestConditionalInterpolate:
         # With identical dynamics and noise, mean should be near midpoint
         assert jnp.allclose(m, jnp.array([1.0, 1.0]), atol=0.3)
 
-    def test_psd_covariance(self, getkey):
+    def test_psd_covariance(self):
         """Output covariance should be positive definite."""
+        nextkey = key_sequence(0)
         d = 3
-        A_fwd = 0.8 * jnp.eye(d) + 0.1 * jax.random.normal(getkey(), (d, d))
-        Q_fwd = jax.random.normal(getkey(), (d, d))
+        A_fwd = 0.8 * jnp.eye(d) + 0.1 * jax.random.normal(nextkey(), (d, d))
+        Q_fwd = jax.random.normal(nextkey(), (d, d))
         Q_fwd = Q_fwd @ Q_fwd.T + 0.1 * jnp.eye(d)
-        A_bwd = 0.8 * jnp.eye(d) + 0.1 * jax.random.normal(getkey(), (d, d))
-        Q_bwd = jax.random.normal(getkey(), (d, d))
+        A_bwd = 0.8 * jnp.eye(d) + 0.1 * jax.random.normal(nextkey(), (d, d))
+        Q_bwd = jax.random.normal(nextkey(), (d, d))
         Q_bwd = Q_bwd @ Q_bwd.T + 0.1 * jnp.eye(d)
-        mu_prev = jax.random.normal(getkey(), (d,))
-        P_prev = jax.random.normal(getkey(), (d, d))
+        mu_prev = jax.random.normal(nextkey(), (d,))
+        P_prev = jax.random.normal(nextkey(), (d, d))
         P_prev = P_prev @ P_prev.T + 0.1 * jnp.eye(d)
-        mu_next = jax.random.normal(getkey(), (d,))
-        P_next = jax.random.normal(getkey(), (d, d))
+        mu_next = jax.random.normal(nextkey(), (d,))
+        P_next = jax.random.normal(nextkey(), (d, d))
         P_next = P_next @ P_next.T + 0.1 * jnp.eye(d)
 
         _, P_out = conditional_interpolate(
@@ -84,12 +87,13 @@ class TestConditionalInterpolate:
         eigvals = jnp.linalg.eigvalsh(P_out)
         assert jnp.all(eigvals > -1e-6)
 
-    def test_finite(self, getkey):
+    def test_finite(self):
         """All outputs should be finite."""
+        nextkey = key_sequence(0)
         d = 2
         A = 0.9 * jnp.eye(d)
         Q = 0.2 * jnp.eye(d)
-        mu = jax.random.normal(getkey(), (d,))
+        mu = jax.random.normal(nextkey(), (d,))
         P = 0.5 * jnp.eye(d)
 
         m, P_out = conditional_interpolate(A, Q, A, Q, mu, P, mu, P)

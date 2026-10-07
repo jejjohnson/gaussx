@@ -7,7 +7,7 @@ import jax.random as jr
 import pytest
 
 from gaussx import collapsed_elbo
-from gaussx._testing import psd_operator, random_kronecker_pd
+from gaussx._testing import key_sequence, psd_operator, random_kronecker_pd
 
 
 def _exact_mll(K, y, noise_var):
@@ -22,15 +22,16 @@ def _exact_mll(K, y, noise_var):
 
 class TestCollapsedELBO:
     @pytest.mark.slow
-    def test_m_equals_n_recovers_mll(self, getkey):
+    def test_m_equals_n_recovers_mll(self):
         """When M=N (all points are inducing), ELBO equals exact MLL."""
+        nextkey = key_sequence(0)
         N = 10
-        X = jax.random.normal(getkey(), (N, 2))
+        X = jax.random.normal(nextkey(), (N, 2))
         # RBF kernel
         dists = jnp.sum((X[:, None] - X[None, :]) ** 2, axis=-1)
         K = jnp.exp(-0.5 * dists)
         noise_var = 0.1
-        y = jax.random.normal(getkey(), (N,))
+        y = jax.random.normal(nextkey(), (N,))
 
         K_diag = jnp.diag(K)
         K_xz = K  # M=N, all points are inducing
@@ -42,10 +43,11 @@ class TestCollapsedELBO:
         assert jnp.allclose(elbo_val, mll_val, atol=1e-4)
 
     @pytest.mark.slow
-    def test_elbo_leq_mll(self, getkey):
+    def test_elbo_leq_mll(self):
         """ELBO is a lower bound on the MLL."""
+        nextkey = key_sequence(0)
         N, M = 30, 10
-        X = jax.random.normal(getkey(), (N, 2))
+        X = jax.random.normal(nextkey(), (N, 2))
         Z = X[:M]  # subset of data as inducing points
         noise_var = 0.1
 
@@ -56,7 +58,7 @@ class TestCollapsedELBO:
         dists_zz = jnp.sum((Z[:, None] - Z[None, :]) ** 2, axis=-1)
         K_zz = jnp.exp(-0.5 * dists_zz)
 
-        y = jax.random.normal(getkey(), (N,))
+        y = jax.random.normal(nextkey(), (N,))
         K_diag = jnp.diag(K_ff)
 
         elbo_val = collapsed_elbo(y, K_diag, K_xz, K_zz, noise_var)
@@ -64,10 +66,11 @@ class TestCollapsedELBO:
 
         assert elbo_val <= mll_val + 1e-5
 
-    def test_trace_penalty_nonnegative(self, getkey):
+    def test_trace_penalty_nonnegative(self):
         """The trace penalty is nonnegative (it only reduces the ELBO)."""
+        nextkey = key_sequence(0)
         N, M = 20, 5
-        X = jax.random.normal(getkey(), (N, 2))
+        X = jax.random.normal(nextkey(), (N, 2))
         Z = X[:M]
         dists_xz = jnp.sum((X[:, None] - Z[None, :]) ** 2, axis=-1)
         K_xz = jnp.exp(-0.5 * dists_xz)
@@ -83,25 +86,27 @@ class TestCollapsedELBO:
         trace_diff = jnp.sum(K_diag) - jnp.sum(V**2)
         assert trace_diff >= -1e-6
 
-    def test_jit_compatible(self, getkey):
+    def test_jit_compatible(self):
         """Works under jax.jit."""
+        nextkey = key_sequence(0)
         N, M = 15, 5
         noise_var = 0.1
-        y = jax.random.normal(getkey(), (N,))
+        y = jax.random.normal(nextkey(), (N,))
         K_diag = jnp.ones(N)
-        K_xz = jax.random.normal(getkey(), (N, M)) * 0.3
+        K_xz = jax.random.normal(nextkey(), (N, M)) * 0.3
         K_zz = jnp.eye(M)
 
         val = jax.jit(collapsed_elbo)(y, K_diag, K_xz, K_zz, noise_var)
         assert jnp.isfinite(val)
 
     @pytest.mark.slow
-    def test_increasing_m_tightens_bound(self, getkey):
+    def test_increasing_m_tightens_bound(self):
         """More inducing points yields a tighter (higher) ELBO."""
+        nextkey = key_sequence(0)
         N = 30
-        X = jax.random.normal(getkey(), (N, 2))
+        X = jax.random.normal(nextkey(), (N, 2))
         noise_var = 0.1
-        y = jax.random.normal(getkey(), (N,))
+        y = jax.random.normal(nextkey(), (N,))
 
         dists_ff = jnp.sum((X[:, None] - X[None, :]) ** 2, axis=-1)
         K_ff = jnp.exp(-0.5 * dists_ff)
@@ -181,3 +186,25 @@ def test_kronecker_k_zz_is_factorised_per_factor():
     )
     chol = [ln for ln in jaxpr.splitlines() if "= cholesky" in ln]
     assert sum("[16,16]" in ln for ln in chol) == 1
+
+
+@pytest.mark.x64_only(reason="1e-10 against a float64 dense reference")
+def test_matches_titsias_reference_m_less_than_n():
+    """gh-392: log N(y | 0, Q + s2 I) - tr(K - Q) / (2 s2) at M=4 < N=12."""
+    x = jnp.linspace(0.0, 5.0, 12)
+    z = jnp.linspace(0.5, 4.5, 4)
+
+    def k(a, b):
+        return jnp.exp(-0.5 * einx.subtract("i, j -> i j", a, b) ** 2)
+
+    s2, jitter = 0.3, 1e-6
+    K_xx, K_xz = k(x, x), k(x, z)
+    K_zz = k(z, z)
+    y = jnp.sin(x)
+    Q = K_xz @ jnp.linalg.solve(K_zz + jitter * jnp.eye(4), K_xz.T)
+    direct = jax.scipy.stats.multivariate_normal.logpdf(
+        y, jnp.zeros(12), Q + s2 * jnp.eye(12)
+    ) - 0.5 / s2 * jnp.trace(K_xx - Q)
+    got = collapsed_elbo(y, jnp.diag(K_xx), K_xz, K_zz, s2, jitter=jitter)
+    # Observed 3.6e-15 (gh-392).
+    assert jnp.allclose(got, direct, rtol=0, atol=1e-10)

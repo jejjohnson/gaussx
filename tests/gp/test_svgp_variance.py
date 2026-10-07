@@ -6,14 +6,16 @@ import lineax as lx
 import pytest
 
 from gaussx._gp._svgp_variance import svgp_variance_adjustment
+from gaussx._testing import key_sequence
 
 
 class TestSVGPVarianceAdjustment:
     @pytest.mark.slow
-    def test_basic_shape(self, getkey):
+    def test_basic_shape(self):
         """Output operator should have correct shape."""
+        nextkey = key_sequence(0)
         M = 5
-        K_zz = jax.random.normal(getkey(), (M, M))
+        K_zz = jax.random.normal(nextkey(), (M, M))
         K_zz = K_zz @ K_zz.T + 0.1 * jnp.eye(M)
         K_zz_op = lx.MatrixLinearOperator(K_zz, lx.positive_semidefinite_tag)
         S_u = lx.MatrixLinearOperator(jnp.eye(M), lx.positive_semidefinite_tag)
@@ -22,10 +24,11 @@ class TestSVGPVarianceAdjustment:
         Q_mat = Q.as_matrix()
         assert Q_mat.shape == (M, M)
 
-    def test_identity_covariance(self, getkey):
+    def test_identity_covariance(self):
         """With S_u = K_zz, Q should be zero (posterior = prior)."""
+        nextkey = key_sequence(0)
         M = 4
-        K_zz = jax.random.normal(getkey(), (M, M))
+        K_zz = jax.random.normal(nextkey(), (M, M))
         K_zz = K_zz @ K_zz.T + 0.1 * jnp.eye(M)
         K_zz_op = lx.MatrixLinearOperator(K_zz, lx.positive_semidefinite_tag)
         # S_u = K_zz means q(u) = p(u), so Q = K^{-1} K K^{-1} - K^{-1} = 0
@@ -35,12 +38,13 @@ class TestSVGPVarianceAdjustment:
         Q_mat = Q.as_matrix()
         assert jnp.allclose(Q_mat, 0.0, atol=1e-5)
 
-    def test_reference_dense(self, getkey):
+    def test_reference_dense(self):
         """Should match dense numpy computation."""
+        nextkey = key_sequence(0)
         M = 4
-        K_zz = jax.random.normal(getkey(), (M, M))
+        K_zz = jax.random.normal(nextkey(), (M, M))
         K_zz = K_zz @ K_zz.T + 0.1 * jnp.eye(M)
-        S_u = jax.random.normal(getkey(), (M, M))
+        S_u = jax.random.normal(nextkey(), (M, M))
         S_u = S_u @ S_u.T + 0.01 * jnp.eye(M)
 
         K_zz_op = lx.MatrixLinearOperator(K_zz, lx.positive_semidefinite_tag)
@@ -54,19 +58,20 @@ class TestSVGPVarianceAdjustment:
         Q_ref = K_inv @ S_u @ K_inv - K_inv
         assert jnp.allclose(Q_mat, Q_ref, atol=1e-4)
 
-    def test_matvec(self, getkey):
+    def test_matvec(self):
         """Operator matvec should match dense result."""
+        nextkey = key_sequence(0)
         M = 5
-        K_zz = jax.random.normal(getkey(), (M, M))
+        K_zz = jax.random.normal(nextkey(), (M, M))
         K_zz = K_zz @ K_zz.T + 0.1 * jnp.eye(M)
-        S_u = jax.random.normal(getkey(), (M, M))
+        S_u = jax.random.normal(nextkey(), (M, M))
         S_u = S_u @ S_u.T + 0.01 * jnp.eye(M)
 
         K_zz_op = lx.MatrixLinearOperator(K_zz, lx.positive_semidefinite_tag)
         S_u_op = lx.MatrixLinearOperator(S_u, lx.positive_semidefinite_tag)
 
         Q = svgp_variance_adjustment(K_zz_op, S_u_op)
-        v = jax.random.normal(getkey(), (M,))
+        v = jax.random.normal(nextkey(), (M,))
 
         result = Q.mv(v)
         K_inv = jnp.linalg.inv(K_zz)
