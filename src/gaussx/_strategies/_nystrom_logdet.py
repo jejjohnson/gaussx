@@ -45,7 +45,8 @@ class NystromLogdet(AbstractLogdetStrategy):
 
     ```text
     key₁, key₂ = split(key)
-    U, Λ̂ = randomized_nystrom(A + μI − μI, rank; key₁)     # rank matvecs
+    c = 10 n eps μ                               # above the rounding of A + μI − μI
+    U, Λ̂ = randomized_nystrom(A + μI − (μ − c)I, rank; key₁);  Λ̂ ← max(Λ̂ − c, 0)
     log|P| = Σ log(λ̂ᵢ + μ) + (n − k) log μ
     M = P^{-1/2} (A + μI) P^{-1/2}
     return log|P| + SLQ(M; num_probes, lanczos_order; key₂)
@@ -58,8 +59,10 @@ class NystromLogdet(AbstractLogdetStrategy):
 
     ``operator`` is the full system $A + \mu I$, as for every other logdet
     strategy; the strategy sketches its PSD part as the matrix-free
-    ``operator − shift·I``, so ``shift`` must be the $\mu$ that
-    ``operator`` contains (#345). ``shift`` is a PyTree leaf, so it can be
+    ``operator − shift·I`` (plus $c = 10\,n\,\epsilon\,\mu$, removed again
+    from $\hat\Lambda$, so that the rounding of the subtraction cannot make
+    it indefinite), so ``shift`` must be the $\mu$ that ``operator``
+    contains (#345). ``shift`` is a PyTree leaf, so it can be
     a traced, learned noise variance.
 
     Attributes:
@@ -136,15 +139,20 @@ class NystromLogdet(AbstractLogdetStrategy):
         structure = operator.in_structure()
         mu = jnp.asarray(self.shift, dtype=structure.dtype)
 
+        # `operator - mu I` carries rounding noise of ~eps * mu, indefinite
+        # once A is small next to mu (e.g. a zero kernel amplitude), which
+        # breaks the Nystrom Cholesky (gh-486 review). Sketch A + c I with c
+        # well above that noise, then shift the eigenvalues back.
+        guard = 10 * n * jnp.finfo(structure.dtype).eps * mu
         psd_part = lx.FunctionLinearOperator(
-            lambda v: operator.mv(v) - mu * v,
+            lambda v: operator.mv(v) - (mu - guard) * v,
             structure,
             lx.positive_semidefinite_tag,
         )
         approx = randomized_nystrom(
             psd_part, min(self.rank, n), oversample=self.oversample, key=sketch_key
         )
-        U, eigenvalues = approx.U, approx.d
+        U, eigenvalues = approx.U, jnp.maximum(approx.d - guard, 0.0)
         k = eigenvalues.shape[0]
         logdet_preconditioner = jnp.sum(jnp.log(eigenvalues + mu)) + (n - k) * jnp.log(
             mu

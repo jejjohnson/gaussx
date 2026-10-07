@@ -83,6 +83,15 @@ def test_gradient_in_the_shift():
     assert jnp.allclose(grad, expected, rtol=1e-6)
 
 
+def test_zero_covariance_part_is_exact():
+    """operator = mu I (a zero kernel amplitude): exactly n log(mu), no NaN."""
+    n, shift = 25, 0.3
+    op = lx.MatrixLinearOperator(shift * jnp.eye(n), lx.positive_semidefinite_tag)
+    est = jax.jit(lambda op: gx.NystromLogdet(shift=shift, rank=5).logdet(op))(op)
+    rtol, atol = default_tolerances(op.as_matrix())
+    assert jnp.allclose(est, n * jnp.log(shift), rtol=10 * rtol, atol=10 * atol)
+
+
 def test_key_none_means_prngkey_seed():
     op = _kernel_system(20, 0.1)
     strategy = gx.NystromLogdet(shift=0.1, rank=5, num_probes=3, seed=7)
