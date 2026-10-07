@@ -41,24 +41,29 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
         shift: The noise variance ``σ²`` in the system ``A = K + σ² I``,
             for the preconditioner built per solve. Must not exceed the
             noise actually in ``A``. Ignored when ``preconditioner`` is given.
-        rtol: Relative tolerance for CG.
-        atol: Absolute tolerance for CG.
+        rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
+            ``1e-3`` in float32 (see `gaussx.CGSolver`).
+        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in every dtype.
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Lanczos iterations for SLQ logdet.
         seed: Seed for probe vector generation.
         preconditioner: A prebuilt preconditioner, used for every solve.
+        throw: Raise when CG does not converge within ``max_steps``. With
+            ``False`` the last iterate is returned unchecked (see
+            `gaussx.CGSolver`).
     """
 
     preconditioner_rank: int = eqx.field(static=True, default=50)
     shift: float = eqx.field(static=True, default=1.0)
-    rtol: float = eqx.field(static=True, default=1e-5)
-    atol: float = eqx.field(static=True, default=1e-5)
+    rtol: float | None = eqx.field(static=True, default=None)
+    atol: float | None = eqx.field(static=True, default=None)
     max_steps: int = eqx.field(static=True, default=1000)
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
     preconditioner: AbstractPreconditioner | None = None
+    throw: bool = eqx.field(static=True, default=True)
 
     def solve(
         self,
@@ -84,6 +89,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             atol=self.atol,
             max_steps=self.max_steps,
             preconditioner=preconditioner,
+            throw=self.throw,
         ).solve(operator, vector)
 
     def logdet(

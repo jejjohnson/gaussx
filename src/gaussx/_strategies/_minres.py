@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet
+from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 
 def _minres_solve(
@@ -164,16 +165,18 @@ class MINRESSolver(AbstractSolverStrategy):
     Laplace approximation Hessians.
 
     Attributes:
-        rtol: Relative tolerance for MINRES.
-        atol: Absolute tolerance for MINRES.
+        rtol: Relative tolerance for MINRES. ``None``: ``1e-5`` in float64,
+            ``1e-3`` in float32 (gh-327).
+        atol: Absolute tolerance for MINRES. ``None``: ``1e-5`` in every
+            dtype.
         max_steps: Maximum MINRES iterations.
         shift: Diagonal shift — solves ``(A + shift * I) x = b``.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
     """
 
-    rtol: float = eqx.field(static=True, default=1e-5)
-    atol: float = eqx.field(static=True, default=1e-5)
+    rtol: float | None = eqx.field(static=True, default=None)
+    atol: float | None = eqx.field(static=True, default=None)
     max_steps: int = eqx.field(static=True, default=1000)
     shift: float = eqx.field(static=True, default=0.0)
     num_probes: int = eqx.field(static=True, default=20)
@@ -193,11 +196,12 @@ class MINRESSolver(AbstractSolverStrategy):
         Returns:
             Solution ``x``, shape ``(n,)``.
         """
+        dtype = operator_dtype(operator, vector)
         return _minres_solve(
             operator.mv,
             vector,
-            rtol=self.rtol,
-            atol=self.atol,
+            rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
+            atol=1e-5 if self.atol is None else self.atol,
             max_steps=self.max_steps,
             shift=self.shift,
         )

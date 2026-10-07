@@ -229,24 +229,13 @@ def test_vmap_over_rhs_matches_loop(name):
 
 # The gh-327 system: n = 300, eigenvalues logspace(0, 3) (κ = 1e3), float32.
 _F32_N = 300
-# Default tolerances of 1e-5 (CG family) and 1e-6 (LSMR) are below what float32
-# CG can reach at κ = 1e3, so these raise "max steps reached" (gh-327).
+# Under x64, lineax's LSMR builds float64 constants into a float32 iteration
+# (a lax.select dtype error), and matfree's damped LSMR does the same in its
+# Givens rotations. Both are upstream; float32 with x64 off is unaffected.
 _F32_XFAIL = {
-    name: "gh-327: default CG tolerances unreachable in float32"
-    for name in (
-        "cg",
-        "cg_jacobi",
-        "cg_partial_cholesky",
-        "cg_nystrom",
-        "preconditioned_cg",
-        "auto",
-    )
-} | {
-    # Under x64, lineax's LSMR builds float64 constants into its float32
-    # iteration (a lax.select dtype error), and matfree's damped LSMR does
-    # the same with the Python-float `damp`.
-    "lsmr": "gh-327: LSMRSolver is dtype-blind (float32 operator under x64)",
-    "lsmr_damped": "gh-327: LSMRSolver is dtype-blind (float32 operator under x64)",
+    "lsmr": "lineax LSMR mixes float64 into a float32 solve under x64 (upstream)",
+    "lsmr_damped": "matfree LSMR mixes float64 into a float32 solve under x64 "
+    "(upstream)",
 }
 
 

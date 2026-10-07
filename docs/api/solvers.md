@@ -40,6 +40,22 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
       show_root_toc_entry: false
       members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, SparseCholeskySolver]
 
+### Tolerances and float32
+
+The iterative strategies (`CGSolver`, `PreconditionedCGSolver`, `BBMMSolver`,
+`MINRESSolver`, `LSMRSolver`) leave their tolerances unset by default and
+resolve them from the operator's dtype at solve time: the historical
+constants in float64 (`1e-5`; `1e-4` for BBMM; `1e-6` for LSMR) and `1e-3`
+in float32. A float32 CG solve cannot reach a relative residual of `1e-5` once
+the condition number passes about $10^3$. It runs out of steps, or breaks
+down, and returns an iterate worse than zero. Set `rtol`/`atol` explicitly to
+override.
+
+`CGSolver`, `PreconditionedCGSolver`, `BBMMSolver` and `AutoSolver` raise when
+CG exhausts its step budget. With `throw=False` they return the last iterate
+unchecked instead. Use that only where the caller checks the result, because
+an unconverged CG iterate can be far from the solution.
+
 ## Logdet strategies
 
 Dense eigendecomposition for exactness; stochastic Lanczos quadrature (SLQ) for

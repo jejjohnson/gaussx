@@ -269,10 +269,13 @@ def _shared_work_core(
     # The right-hand sides only need CG's own tolerance; the probes carry the
     # log-determinant, so they run until numerical breakdown to keep as much
     # of the Lanczos tridiagonal as the arithmetic supports.
+    # The mBCG floors are relative, so they take BBMM's dtype-aware relative
+    # tolerance (gh-327): 1e-4 in float64, as before, and 1e-3 in float32.
     eps = jnp.finfo(dtype).eps
+    rhs_tol = strategy._cg_tolerance(dtype)
     floors = jnp.concatenate(
         [
-            jnp.full((num_rhs,), strategy.cg_tolerance**2, dtype=dtype),
+            jnp.full((num_rhs,), rhs_tol**2, dtype=dtype),
             jnp.full((strategy.num_probes,), eps**2, dtype=dtype),
         ]
     )
@@ -284,6 +287,15 @@ def _shared_work_core(
     )
 
     columns = jnp.sum(rhs * solutions[:, :num_rhs], axis=0)
+    if strategy.throw:
+        # A right-hand side still active at the last step used the whole
+        # budget (lineax's max_steps_reached), like BBMMSolver.solve.
+        columns = eqx.error_if(
+            columns,
+            jnp.any(active[-1, :num_rhs]),
+            "BBMM's mBCG did not converge within `cg_max_iter` steps. Increase "
+            "`cg_max_iter`, loosen `cg_tolerance`, or pass `throw=False`.",
+        )
     # Deliberately *not* clamped to ``n``. mBCG does not reorthogonalise, so
     # steps past ``n`` add ghost copies of converged Ritz values -- but the
     # Gauss rule splits their weight between the copies, and those extra
