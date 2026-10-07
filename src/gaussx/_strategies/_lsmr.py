@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
+from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 
 class LSMRSolver(AbstractSolverStrategy):
@@ -27,8 +28,9 @@ class LSMRSolver(AbstractSolverStrategy):
     a custom VJP for memory-efficient backpropagation.
 
     Attributes:
-        atol: Absolute tolerance.
-        btol: Relative tolerance on the residual.
+        atol: Absolute tolerance. ``None``: ``1e-6`` in float64, ``1e-3``
+            in float32 (gh-327).
+        btol: Relative tolerance on the residual. ``None``: as ``atol``.
         ctol: Condition number tolerance (the lineax path uses
             ``conlim = 1 / ctol``).
         maxiter: Maximum iterations.
@@ -38,8 +40,8 @@ class LSMRSolver(AbstractSolverStrategy):
         seed: Seed for probe vector generation.
     """
 
-    atol: float = eqx.field(static=True, default=1e-6)
-    btol: float = eqx.field(static=True, default=1e-6)
+    atol: float | None = eqx.field(static=True, default=None)
+    btol: float | None = eqx.field(static=True, default=None)
     ctol: float = eqx.field(static=True, default=1e-6)
     maxiter: int = eqx.field(static=True, default=1000)
     damp: float = eqx.field(static=True, default=0.0)
@@ -61,10 +63,13 @@ class LSMRSolver(AbstractSolverStrategy):
         Returns:
             The (least-squares) solution x.
         """
+        dtype = operator_dtype(operator)
+        atol = resolve_tolerance(self.atol, dtype, 1e-6)
+        btol = resolve_tolerance(self.btol, dtype, 1e-6)
         if self.damp == 0.0:
             solver = lx.LSMR(
-                rtol=self.btol,
-                atol=self.atol,
+                rtol=btol,
+                atol=atol,
                 max_steps=self.maxiter,
                 conlim=1.0 / self.ctol if self.ctol > 0 else 1e8,
             )
@@ -73,8 +78,8 @@ class LSMRSolver(AbstractSolverStrategy):
         # Tikhonov damping: not supported by lineax's LSMR, so the
         # damped path stays on matfree.
         lsmr_fn = matfree.lstsq.lsmr(
-            atol=self.atol,
-            btol=self.btol,
+            atol=atol,
+            btol=btol,
             ctol=self.ctol,
             maxiter=self.maxiter,
         )

@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
 
+from gaussx._einx import einsum
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators import Kronecker
-from gaussx._strategies import CGSolver, SLQLogdet
+from gaussx._strategies import (
+    AutoSolver,
+    BBMMSolver,
+    CGSolver,
+    PreconditionedCGSolver,
+    SLQLogdet,
+)
+from gaussx._strategies._tolerances import resolve_tolerance
 from gaussx._testing import (
     dense_logdet,
     random_pd_matrix,
@@ -107,3 +117,52 @@ def test_solve_structured_operator():
     assert tree_allclose(
         CGSolver(rtol=1e-10, atol=1e-10).solve(op, v), expected, rtol=1e-5
     )
+
+
+def _float32_system(log_kappa, n=300):
+    """The gh-327 system: eigenvalues logspace(0, log_kappa), explicitly float32."""
+    q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n), dtype=jnp.float32))
+    ev = jnp.logspace(0, log_kappa, n, dtype=jnp.float32)
+    A = symmetrize(einsum(q * ev, q, "i k, j k -> i j"))
+    return A, jr.normal(jr.key(1), (n,), dtype=jnp.float32)
+
+
+@pytest.mark.parametrize(
+    "strategy",
+    [
+        CGSolver(),
+        pytest.param(BBMMSolver(), marks=pytest.mark.slow),
+        pytest.param(PreconditionedCGSolver(), marks=pytest.mark.slow),
+        pytest.param(AutoSolver(size_threshold=100), marks=pytest.mark.slow),
+    ],
+    ids=["cg", "bbmm", "preconditioned_cg", "auto"],
+)
+def test_float32_default_tolerances_converge(strategy):
+    # gh-327: at κ = 1e3 the old 1e-5 default ran out of CG steps in float32.
+    # The resolved float32 default is 1e-3, so the relative residual is too.
+    A, b = _float32_system(3)
+    x = strategy.solve(lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag), b)
+    assert x.dtype == jnp.float32
+    assert jnp.linalg.norm(A @ x - b) / jnp.linalg.norm(b) <= 1e-3
+
+
+def test_throw_false_returns_unconverged_under_jit():
+    # gh-327: κ = 1e4 at 1e-5 cannot converge in float32; throw=False returns
+    # the last iterate instead of raising, eagerly and under jit.
+    A, b = _float32_system(4)
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+    strategy = CGSolver(rtol=1e-5, atol=1e-5, max_steps=50, throw=False)
+    x = jax.jit(strategy.solve)(op, b)
+    assert x.shape == b.shape and x.dtype == jnp.float32
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        CGSolver(rtol=1e-5, atol=1e-5, max_steps=50).solve(op, b)
+
+
+@pytest.mark.parametrize(
+    ("dtype", "expected"),
+    [(jnp.float64, 1e-5), (jnp.float32, 1e-3), (jnp.float16, 1e-2)],
+)
+def test_default_tolerance_follows_the_dtype(dtype, expected):
+    # float64 keeps the historical default, so its results are unchanged.
+    assert resolve_tolerance(None, dtype, 1e-5) == expected
+    assert resolve_tolerance(1e-7, dtype, 1e-5) == 1e-7

@@ -9,6 +9,7 @@ from jaxtyping import Array, Float
 
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
+from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 
 class BBMMSolver(AbstractSolverStrategy):
@@ -28,17 +29,26 @@ class BBMMSolver(AbstractSolverStrategy):
 
     Attributes:
         cg_max_iter: Maximum CG iterations.
-        cg_tolerance: Relative tolerance for CG.
+        cg_tolerance: Relative and absolute tolerance for CG. ``None``:
+            ``1e-4`` in float64, ``1e-3`` in float32 (gh-327).
         lanczos_iter: Lanczos iterations for SLQ.
         num_probes: Number of probe vectors for Hutchinson.
         seed: Seed for probe vector generation.
+        throw: Raise when CG does not converge within ``cg_max_iter``. With
+            ``False`` the last iterate is returned unchecked (see
+            `gaussx.CGSolver`).
     """
 
     cg_max_iter: int = eqx.field(static=True, default=1000)
-    cg_tolerance: float = eqx.field(static=True, default=1e-4)
+    cg_tolerance: float | None = eqx.field(static=True, default=None)
     lanczos_iter: int = eqx.field(static=True, default=100)
     num_probes: int = eqx.field(static=True, default=10)
     seed: int = eqx.field(static=True, default=0)
+    throw: bool = eqx.field(static=True, default=True)
+
+    def _cg_tolerance(self, dtype) -> float:
+        """``cg_tolerance``, or its default for *dtype*."""
+        return resolve_tolerance(self.cg_tolerance, dtype, 1e-4)
 
     def solve(
         self,
@@ -54,12 +64,9 @@ class BBMMSolver(AbstractSolverStrategy):
         Returns:
             The solution x.
         """
-        solver = lx.CG(
-            rtol=self.cg_tolerance,
-            atol=self.cg_tolerance,
-            max_steps=self.cg_max_iter,
-        )
-        return lx.linear_solve(operator, vector, solver).value
+        tol = self._cg_tolerance(operator_dtype(operator))
+        solver = lx.CG(rtol=tol, atol=tol, max_steps=self.cg_max_iter)
+        return lx.linear_solve(operator, vector, solver, throw=self.throw).value
 
     def logdet(
         self,

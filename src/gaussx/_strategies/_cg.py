@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
+from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 
 class CGSolver(AbstractSolverStrategy):
@@ -20,22 +21,33 @@ class CGSolver(AbstractSolverStrategy):
     for large PSD operators where dense factorization is too
     expensive.
 
+    The tolerances default to ``None``, which resolves from the operator's
+    dtype at solve time: ``1e-5`` in float64 and ``1e-3`` in float32, where
+    a relative residual of ``1e-5`` is out of reach once the condition number
+    passes about ``1e3`` (gh-327). Set them explicitly to override.
+
     Attributes:
-        rtol: Relative tolerance for CG.
-        atol: Absolute tolerance for CG.
+        rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
+            ``1e-3`` in float32.
+        atol: Absolute tolerance for CG. ``None``: as ``rtol``.
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
         preconditioner: Optional preconditioner. When set, its approximate
             inverse is passed to lineax CG to accelerate convergence.
+        throw: Raise when CG does not converge within ``max_steps`` (the
+            default). With ``False`` the last iterate is returned unchecked;
+            an unconverged CG iterate can be far worse than zero, so only
+            use it where the caller checks the result.
     """
 
-    rtol: float = eqx.field(static=True, default=1e-5)
-    atol: float = eqx.field(static=True, default=1e-5)
+    rtol: float | None = eqx.field(static=True, default=None)
+    atol: float | None = eqx.field(static=True, default=None)
     max_steps: int = eqx.field(static=True, default=1000)
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     preconditioner: AbstractPreconditioner | None = None
+    throw: bool = eqx.field(static=True, default=True)
 
     def solve(
         self,
@@ -51,7 +63,12 @@ class CGSolver(AbstractSolverStrategy):
         Returns:
             Solution ``x``, shape ``(n,)``.
         """
-        solver = lx.CG(rtol=self.rtol, atol=self.atol, max_steps=self.max_steps)
+        dtype = operator_dtype(operator)
+        solver = lx.CG(
+            rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
+            atol=resolve_tolerance(self.atol, dtype, 1e-5),
+            max_steps=self.max_steps,
+        )
         options: dict[str, lx.AbstractLinearOperator] = {}
         if self.preconditioner is not None:
             precond_op = self.preconditioner.as_operator(operator)
@@ -65,7 +82,9 @@ class CGSolver(AbstractSolverStrategy):
                 options["preconditioner"] = eqx.combine(
                     jax.lax.stop_gradient(dynamic), static
                 )
-        return lx.linear_solve(operator, vector, solver, options=options).value
+        return lx.linear_solve(
+            operator, vector, solver, options=options, throw=self.throw
+        ).value
 
     def logdet(
         self,

@@ -31,9 +31,13 @@ class AutoSolver(AbstractSolverStrategy):
     Attributes:
         size_threshold: Matrix dimension above which iterative
             solvers are preferred. Default: 1000.
+        throw: Forwarded to the `CGSolver` built for large PSD operators:
+            raise when CG does not converge (the default), or return the
+            last iterate unchecked.
     """
 
     size_threshold: int = eqx.field(static=True, default=1000)
+    throw: bool = eqx.field(static=True, default=True)
 
     def solve(
         self,
@@ -89,6 +93,6 @@ class AutoSolver(AbstractSolverStrategy):
 
         # Large operators: use CG for PSD, DenseSolver otherwise
         if lx.is_positive_semidefinite(operator):
-            return CGSolver()
+            return CGSolver(throw=self.throw)
 
         return DenseSolver()

@@ -269,10 +269,14 @@ def _shared_work_core(
     # The right-hand sides only need CG's own tolerance; the probes carry the
     # log-determinant, so they run until numerical breakdown to keep as much
     # of the Lanczos tridiagonal as the arithmetic supports.
+    # mBCG never raises at ``cg_max_iter``, so the dtype-aware default that
+    # keeps BBMMSolver.solve from raising in float32 (gh-327) is not needed
+    # here: an unset tolerance keeps BBMM's historical 1e-4 in every dtype.
     eps = jnp.finfo(dtype).eps
+    rhs_tol = 1e-4 if strategy.cg_tolerance is None else strategy.cg_tolerance
     floors = jnp.concatenate(
         [
-            jnp.full((num_rhs,), strategy.cg_tolerance**2, dtype=dtype),
+            jnp.full((num_rhs,), rhs_tol**2, dtype=dtype),
             jnp.full((strategy.num_probes,), eps**2, dtype=dtype),
         ]
     )
