@@ -218,7 +218,7 @@ def _normalise_tv_inputs(
     -----
     ``M`` is only needed to validate a per-channel ``(T, M)`` mask.
     Leaving it ``None`` rejects 2D masks outright, which is how callers
-    that have no per-channel path (e.g. the square-root parallel filter)
+    that have no per-channel path (e.g. the PSD-projected parallel filter)
     opt out.
 
     Raises

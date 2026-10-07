@@ -9,7 +9,7 @@ $$
 
 turning $O(N^3)$ GP inference into $O(N d^3)$ Kalman filtering. This page
 covers the SDE kernel zoo, the filters and smoothers (sequential, parallel
-associative-scan with optional PSD projection, and steady-state), and the
+associative-scan, in covariance or square-root form, and steady-state), and the
 natural-parameter /
 site machinery for non-conjugate likelihoods.
 
@@ -163,6 +163,15 @@ rather than accumulating, leaving the accumulation to the caller.
 The forward filter and RTS smoother, their $O(\log N)$ parallel
 (associative-scan) counterparts, and the steady-state (infinite-horizon)
 variants built on the discrete algebraic Riccati equation.
+
+`parallel_kalman_filter(square_root=True)` runs the square-root
+associative scan of Yaghoobi, Corenflos, Hassan & Särkkä (2022): elements
+carry factors $U$, $Z$ of $C = UU^\top$ and $J = ZZ^\top$, every element
+and combination is a QR (`tria`) of stacked factors, and the returned
+covariances are Gram matrices, PSD by construction. It is the robust choice
+for float32 chains with tiny observation noise or steps, where the
+covariance form can go indefinite (gh-454); `psd_project=True` is the
+cheaper eigenvalue-clipping safety net.
 
 ### Observation masks
 
