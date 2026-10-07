@@ -91,6 +91,23 @@ def test_exact_on_a_low_rank_operator(sampler):
     assert jnp.allclose(est, jnp.sum(eigenvalues), rtol=10 * rtol, atol=10 * atol)
 
 
+def test_complex_hermitian_low_rank_is_exact():
+    """Hermitian products: QQᴴ projects, so a rank-k Hermitian A is exact."""
+    n, rank = 30, 3
+    Z = jr.normal(jr.key(3), (n, n)) + 1j * jr.normal(jr.key(4), (n, n))
+    U, _ = jnp.linalg.qr(Z)
+    eigenvalues = jnp.zeros(n).at[:rank].set(jnp.array([3.0, 2.0, 1.0]))
+    U_lam = einx.multiply("i k, k -> i k", U, eigenvalues.astype(U.dtype))
+    op = lx.MatrixLinearOperator(einx.dot("i k, j k -> i j", U_lam, jnp.conj(U)))
+    est = jax.jit(
+        lambda op: trace(
+            op, stochastic=True, num_probes=12, algorithm="hutchpp", sampler="normal"
+        )
+    )(op)
+    rtol, atol = default_tolerances(U)
+    assert jnp.allclose(est, 6.0, rtol=10 * rtol, atol=10 * atol)
+
+
 def test_key_none_means_prngkey_zero():
     op = _spectral_operator(10, jnp.arange(1.0, 11.0))
     a = trace(op, stochastic=True, num_probes=6, algorithm="hutchpp")

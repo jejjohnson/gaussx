@@ -33,6 +33,8 @@ def hutchpp_trace(
     + \frac1s \sum_{i=1}^{s} g_i^\top (I - QQ^\top) A (I - QQ^\top) g_i .
     $$
 
+    For a complex operator every transpose is a conjugate transpose.
+
     Unbiased for any $A$; for PSD $A$ it reaches relative error
     $\varepsilon$ with $O(1/\varepsilon)$ matvecs, against Hutchinson's
     $O(1/\varepsilon^2)$.
@@ -70,9 +72,12 @@ def hutchpp_trace(
     G = resolve_sampler(sampler, n, s, dtype=dtype)(key_rest)
     matmat = jax.vmap(operator.mv)  # rows in, rows out
 
+    # Hermitian products throughout (QᴴQ = I for complex QR), so QQᴴ is an
+    # orthogonal projector; conj is a no-op for real operators.
     Q, _ = jnp.linalg.qr(rearrange(matmat(S), "k n -> n k"))
     Qt = rearrange(Q, "n k -> k n")
-    low_rank = einsum(Qt, matmat(Qt), "k n, k n ->")
-    G_perp = G - einsum(einsum(G, Q, "s n, n k -> s k"), Qt, "s k, k n -> s n")
-    remainder = einsum(G_perp, matmat(G_perp), "s n, s n ->") / s
+    low_rank = einsum(jnp.conj(Qt), matmat(Qt), "k n, k n ->")
+    coefficients = einsum(G, jnp.conj(Q), "s n, n k -> s k")  # rows of G Q̄
+    G_perp = G - einsum(coefficients, Qt, "s k, k n -> s n")
+    remainder = einsum(jnp.conj(G_perp), matmat(G_perp), "s n, s n ->") / s
     return low_rank + remainder
