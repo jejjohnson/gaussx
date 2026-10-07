@@ -368,7 +368,7 @@ def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
 class SVDLowRankUpdate(LowRankUpdate):
     """Deprecated subclass of `LowRankUpdate` with ``orthonormal=True``.
 
-    Preserves the pre-consolidation public API for one release:
+    Preserves the pre-consolidation public API until gaussx 0.7.0:
 
     - Same constructor signature as the old class — ``S`` defaults to
       ones (via the parent ``LowRankUpdate``) if omitted, and ``V``
@@ -382,7 +382,7 @@ class SVDLowRankUpdate(LowRankUpdate):
 
     New code should construct ``LowRankUpdate(base, U, S, V,
     orthonormal=True)`` (or use `svd_low_rank_plus_diag`)
-    directly. Will be removed in a future release.
+    directly. Will be removed in gaussx 0.7.0.
     """
 
     def __init__(
@@ -396,7 +396,7 @@ class SVDLowRankUpdate(LowRankUpdate):
     ) -> None:
 
         warn_deprecated(
-            "SVDLowRankUpdate is deprecated; use "
-            "LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag()."
+            "SVDLowRankUpdate is deprecated and will be removed in gaussx 0.7.0; "
+            "use LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag()."
         )
         super().__init__(base, U, S, V, tags=tags, orthonormal=True)

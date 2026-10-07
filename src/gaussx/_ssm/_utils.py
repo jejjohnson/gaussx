@@ -348,5 +348,5 @@ def _warn_unused_process_noise(function: str, process_noise: object) -> None:
         warn_deprecated(
             f"{function}(..., process_noise) is deprecated and ignored: the RTS "
             "recurrence never reads it (the filter's predicted covariances "
-            "already include Q). Omit it; the argument will be removed in 0.5.0."
+            "already include Q). Omit it; the argument will be removed in gaussx 0.7.0."
         )

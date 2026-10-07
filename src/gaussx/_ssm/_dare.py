@@ -98,7 +98,7 @@ def dare(
     if P_init is not None:
         warn_deprecated(
             "dare(P_init=...) is deprecated and ignored: the doubling "
-            "algorithm needs no initial guess. It will be removed in 0.5.0."
+            "algorithm needs no initial guess. It will be removed in gaussx 0.7.0."
         )
     A_op = _as_operator(A)
     H_op = _as_operator(H)

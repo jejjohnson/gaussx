@@ -99,14 +99,18 @@ class BBMMSolver(AbstractSolverStrategy):
     @property
     def cg_tolerance(self) -> float | None:
         """Deprecated: `rtol` (gh-405)."""
-        warn_deprecated("BBMMSolver.cg_tolerance is deprecated; use .rtol (gh-405).")
+        warn_deprecated(
+            "BBMMSolver.cg_tolerance is deprecated and will be removed in gaussx "
+            "0.7.0; use .rtol (gh-405)."
+        )
         return self.rtol
 
     @property
     def cg_max_iter(self) -> int:
         """Deprecated: `max_steps` (gh-405)."""
         warn_deprecated(
-            "BBMMSolver.cg_max_iter is deprecated; use .max_steps (gh-405)."
+            "BBMMSolver.cg_max_iter is deprecated and will be removed in gaussx "
+            "0.7.0; use .max_steps (gh-405)."
         )
         return self.max_steps
 
@@ -114,7 +118,8 @@ class BBMMSolver(AbstractSolverStrategy):
     def lanczos_iter(self) -> int:
         """Deprecated: `lanczos_order` (gh-405)."""
         warn_deprecated(
-            "BBMMSolver.lanczos_iter is deprecated; use .lanczos_order (gh-405)."
+            "BBMMSolver.lanczos_iter is deprecated and will be removed in gaussx "
+            "0.7.0; use .lanczos_order (gh-405)."
         )
         return self.lanczos_order
 

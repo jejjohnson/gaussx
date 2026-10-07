@@ -228,7 +228,7 @@ def meanfield_rts_smoother(
             off-block entries are discarded).
         transition: State transition matrix or operator.
         process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
-            it will be removed in 0.5.0.
+            it will be removed in gaussx 0.7.0.
         block_size: State block size ``d``; ``D`` must be divisible by
             it.
         solver: Optional solver strategy for the per-block smoother

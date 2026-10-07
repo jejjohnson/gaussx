@@ -38,7 +38,7 @@ def renamed(owner: str, old: str, old_value: Any, new: str, new_value: Any) -> A
         raise TypeError(f"{owner}: pass {new}= only; {old}= is its deprecated alias.")
     warn_deprecated(
         f"{owner}({old}=...) is deprecated; use {new}= instead (gh-405). The "
-        "alias will be removed in a future release."
+        "alias will be removed in gaussx 0.7.0."
     )
     return old_value
 

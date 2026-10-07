@@ -37,7 +37,7 @@ _DEPRECATED_ALIASES = {"InfiniteHorizonState": FilterState}
 def _deprecated_alias(name: str) -> type[FilterState]:
     warn_deprecated(
         f"gaussx.{name} is deprecated: infinite_horizon_filter returns a "
-        "gaussx.FilterState. The alias will be removed in 0.5.0."
+        "gaussx.FilterState. The alias will be removed in gaussx 0.7.0."
     )
     return _DEPRECATED_ALIASES[name]
 
@@ -228,7 +228,7 @@ def infinite_horizon_smoother(
             result with ``converged=False`` raises an
             ``EquinoxRuntimeError``. The old positional order
             ``(filter_state, transition, dare_result, process_noise)`` still
-            works with a ``DeprecationWarning`` until 0.5.0.
+            works with a ``DeprecationWarning`` until gaussx 0.7.0.
         solver: Optional solver strategy for structured linear algebra.
             When ``None``, falls back to structural dispatch.
 
@@ -243,7 +243,7 @@ def infinite_horizon_smoother(
             "infinite_horizon_smoother(filter_state, transition, dare_result, "
             "process_noise) is deprecated; pass process_noise third and "
             "dare_result as a keyword, as in rts_smoother. The old order will "
-            "stop working in 0.5.0."
+            "stop working in gaussx 0.7.0."
         )
         dare_result, noise = process_noise, _legacy_process_noise
     elif _legacy_process_noise is not None:

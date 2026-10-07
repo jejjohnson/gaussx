@@ -155,8 +155,8 @@ def base_conditional(
     It takes the cross-covariance as ``(M, N)`` (inducing × data), the
     transpose of every other sparse-GP helper; for ``M == N`` a transposed
     argument is not detectable, so the convention is changed under a new
-    name rather than in place. ``solver`` was never used. Removed in the
-    next minor release.
+    name rather than in place. ``solver`` was never used. Removed in
+    gaussx 0.7.0.
 
     Args:
         K_mm: Prior covariance at inducing points, shape ``(M, M)``.
@@ -173,7 +173,7 @@ def base_conditional(
     del solver
     warn_deprecated(
         "base_conditional(K_mm, K_mn, ...) is deprecated and will be removed in "
-        "the next minor release; use sparse_conditional(K_zz, K_xz, K_xx, q_mu, "
+        "gaussx 0.7.0; use sparse_conditional(K_zz, K_xz, K_xx, q_mu, "
         "...) with K_xz = K_mn.T (shape (N, M))."
     )
     return sparse_conditional(

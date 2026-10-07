@@ -53,7 +53,7 @@ def collapsed_elbo(
             structured operators (it would destroy their structure):
             include any jitter in the operator itself, e.g. per factor.
         solver: Deprecated and ignored (the Cholesky factorisations take no
-            solver); passing one warns. Removed in the next minor release.
+            solver); passing one warns. Removed in gaussx 0.7.0.
 
     Returns:
         Scalar ELBO value.
@@ -61,7 +61,7 @@ def collapsed_elbo(
     if solver is not None:
         warn_deprecated(
             "collapsed_elbo(solver=...) is ignored and deprecated; it will be "
-            "removed in the next minor release."
+            "removed in gaussx 0.7.0."
         )
     N = y.shape[0]
     K_zz_op = _jittered(K_zz, jitter)

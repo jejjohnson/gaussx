@@ -81,7 +81,7 @@ def conditional_variance(
         Predictive variances, shape ``(N,)``.
 
     Note:
-        For one release the legacy three-positional-argument form
+        Until gaussx 0.7.0 the legacy three-positional-argument form
         ``conditional_variance(base_diag, A_X, S_u)`` (where
         ``base_diag`` was the *Schur* diagonal already, ``A_X`` was the
         projection, and ``S_u`` was the variational covariance) is
@@ -106,7 +106,8 @@ def conditional_variance(
         and isinstance(K_XZ, jax.Array)
     ):
         warn_deprecated(
-            "conditional_variance(base_diag, A_X, S_u) is deprecated; "
+            "conditional_variance(base_diag, A_X, S_u) is deprecated and will be "
+            "removed in gaussx 0.7.0; "
             "use conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u). "
             "The legacy form treats the first argument as the "
             "precomputed Schur diagonal and skips the K_XZ-based "

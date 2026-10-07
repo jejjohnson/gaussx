@@ -26,7 +26,8 @@ recipes never re-derive them.
 
 !!! warning "Legacy `conditional_variance` signature"
     The pre-#152 three-positional form
-    `conditional_variance(base_diag, A_X, S_u)` is still accepted — it is
+    `conditional_variance(base_diag, A_X, S_u)` is still accepted until
+    gaussx 0.7.0 — it is
     detected when the second positional argument is a
     `lineax.AbstractLinearOperator` — but it emits a `DeprecationWarning` and
     skips the $K_{XZ}$-based Schur subtraction, treating its first argument as

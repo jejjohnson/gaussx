@@ -236,7 +236,7 @@ def udl_from_ssm_params(
             state $k+1$ -- the `gaussx.MarkovGaussian` layout. Without
             ``P0``, the older stacked layout of shape ``(T, d, d)`` with
             ``Q[0] = P_0`` is accepted with a ``DeprecationWarning`` until
-            0.5.0.
+            gaussx 0.7.0.
         P0: Initial covariance $P_0$, shape ``(d, d)``.
 
     Returns:
@@ -249,7 +249,7 @@ def udl_from_ssm_params(
             "udl_from_ssm_params(A, Q) with P_0 stacked as Q[0] is deprecated; "
             "pass the transition noise and P0 separately, "
             "udl_from_ssm_params(A, Q, P0). The stacked layout will be "
-            "removed in 0.5.0."
+            "removed in gaussx 0.7.0."
         )
     if Q.shape[0] != A.shape[0] + 1:
         msg = (

@@ -422,8 +422,8 @@ def circulant(
             even raises). ``False`` keeps the complex symbol. ``None`` (the
             deprecated default) infers it from the column's *values*, which
             only works eagerly — a traced column gives a complex symbol and
-            no tag — and warns when it infers ``True``. The default will
-            become ``False``.
+            no tag — and warns when it infers ``True``. The default
+            becomes ``False`` in gaussx 0.7.0.
         tags: Additional lineax tags.
 
     Returns:
@@ -439,9 +439,9 @@ def circulant(
         symmetric = _is_even_real_kernel(column)
         if symmetric:
             warn_deprecated(
-                "Circulant infers symmetry from the column's values, so a traced "
+                "circulant infers symmetry from the column's values, so a traced "
                 "column gives a different operator (gh-440). Pass symmetric=True "
-                "for a real even kernel; the default will become False."
+                "for a real even kernel; the default becomes False in gaussx 0.7.0."
             )
     elif symmetric:
         _check_even_real_kernel(column)

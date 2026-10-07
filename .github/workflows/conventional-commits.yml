@@ -28,6 +28,7 @@ jobs:
             ci
             chore
             revert
+            deprecate
           requireScope: false
           subjectPattern: ^[a-z].*$
           subjectPatternError: |

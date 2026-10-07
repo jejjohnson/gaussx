@@ -77,7 +77,7 @@ def warn_deprecated(message: str) -> None:
 
 
 def renamed_kwargs(**renames: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Accept deprecated keyword names for one release.
+    """Accept deprecated keyword names until their removal release.
 
     ``@renamed_kwargs(K_diag="K_xx_diag")`` maps a call with ``K_diag=...``
     onto ``K_xx_diag=...`` and emits a `GaussxDeprecationWarning`; passing
@@ -97,7 +97,7 @@ def renamed_kwargs(**renames: str) -> Callable[[Callable[P, R]], Callable[P, R]]
                         raise TypeError(msg)
                     warn_deprecated(
                         f"{name}({old}=...) is deprecated and will be removed "
-                        f"in the next minor release; use {new}=... instead."
+                        f"in gaussx 0.7.0; use {new}=... instead."
                     )
                     mapped[new] = mapped.pop(old)
             return fn(*args, **mapped)
