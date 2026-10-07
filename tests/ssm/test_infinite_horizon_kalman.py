@@ -267,3 +267,30 @@ def test_float32_log_likelihood_matches_float64():
     # The float32 data is the float64 data rounded, so the two agree to
     # float32 round-off over a 5-step scan.
     assert jnp.allclose(ll32, ll64, rtol=1e-5)
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="central finite differences need float64")
+def test_log_likelihood_gradient_through_dare():
+    """jax.grad of the LL flows through dare's implicit adjoint (gh-97)."""
+    A0 = jnp.array([[0.9, 0.2], [0.0, 0.7]])
+    H = jnp.array([[1.0, 0.5]])
+    obs = jax.random.normal(jax.random.key(0), (20, 1))
+
+    def loglik(theta):
+        Q = jnp.diag(jnp.exp(theta[:2]))
+        R = jnp.exp(theta[2]) * jnp.eye(1)
+        return infinite_horizon_filter(A0, H, Q, R, obs).log_likelihood
+
+    theta = jnp.array([-1.0, -2.0, -0.5])
+    g = jax.jit(jax.grad(loglik))(theta)
+    loglik = jax.jit(loglik)
+    # Central differences of the same float64 function; h = 1e-6.
+    h = 1e-6
+    fd = jnp.array(
+        [
+            (loglik(theta.at[i].add(h)) - loglik(theta.at[i].add(-h))) / (2 * h)
+            for i in range(3)
+        ]
+    )
+    assert jnp.allclose(g, fd, rtol=1e-6)

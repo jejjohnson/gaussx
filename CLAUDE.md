@@ -45,6 +45,7 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 | `equinox` | Module system, PyTrees |
 | `lineax` | Linear operators, solvers |
 | `matfree` | Krylov methods, stochastic trace |
+| `optimistix` | Fixed-point / root-find solves with implicit-differentiation adjoints (`dare`) |
 | `jaxtyping` | Array type annotations |
 | `einx` | Every axis-naming array op (contractions, reshapes, reductions, broadcasts); see the einx convention below |
 

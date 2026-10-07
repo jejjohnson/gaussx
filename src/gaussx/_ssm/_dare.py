@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Bool, Float
+import optimistix as optx
+from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
 from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
@@ -33,6 +36,83 @@ class DAREResult(eqx.Module):
     P_inf: Float[Array, "D D"]
     K_inf: Float[Array, "D M"]
     converged: Bool[Array, ""]
+
+
+class _DoublingState(eqx.Module):
+    P_pred: Float[Array, "D D"]
+    converged: Bool[Array, ""]
+
+
+class _DoublingSolver(optx.AbstractFixedPointSolver):
+    """The structure-preserving doubling algorithm as an optimistix solver.
+
+    The whole doubling iteration runs in ``init`` (it never evaluates the
+    Riccati map ``fn``), and ``terminate`` reports the solve finished
+    before the first step, so the iterate loop is empty and ``postprocess``
+    returns the doubling solution. Wrapping it this way lets
+    `optimistix.fixed_point` attach its implicit adjoint to a solve whose
+    forward pass is the doubling algorithm unchanged. ``args`` is
+    ``(A, H, Q, R, G)`` with ``G = Hᵀ R⁻¹ H``.
+
+    ``rtol`` is the doubling tolerance on the iterate's relative change;
+    ``atol`` and ``norm`` complete optimistix's solver interface and are
+    unused.
+    """
+
+    rtol: float
+    max_iter: int = 100
+    atol: float = 0.0
+    norm: Callable[[PyTree], Scalar] = optx.max_norm
+
+    def init(self, fn, y, args, options, f_struct, aux_struct, tags):
+        del fn, y, options, f_struct, aux_struct, tags
+        A, _, Q, _, G = args
+        eye = jnp.eye(A.shape[0], dtype=A.dtype)
+
+        def _cond(state):
+            *_, i, converged = state
+            return (i < self.max_iter) & (~converged)
+
+        def _body(state):
+            A_k, G_k, H_k, i, _ = state
+            W = eye + G_k @ H_k
+            Winv_A = jnp.linalg.solve(W, A_k)
+            Winv_G = jnp.linalg.solve(W, G_k)
+            A_next = A_k @ Winv_A
+            G_next = symmetrize(G_k + A_k @ Winv_G @ rearrange(A_k, "i j -> j i"))
+            H_next = symmetrize(H_k + rearrange(A_k, "i j -> j i") @ H_k @ Winv_A)
+            change = jnp.max(jnp.abs(H_next - H_k))
+            converged = change <= self.rtol * jnp.max(jnp.abs(H_next))
+            return A_next, G_next, H_next, i + 1, converged
+
+        # SDA on the control-form DARE with A_c = Aᵀ, B_c = Hᵀ: the iterate
+        # ``H_k`` converges to the predicted steady-state covariance P⁻.
+        init_state = (rearrange(A, "i j -> j i"), G, Q, 0, jnp.array(False))
+        *_, P_pred, _, converged = jax.lax.while_loop(_cond, _body, init_state)
+        return _DoublingState(P_pred=P_pred, converged=converged)
+
+    def step(self, fn, y, args, options, state, tags):
+        del options, tags
+        # Never reached (``terminate`` is immediately true); a Picard step
+        # keeps the solver well defined if called directly.
+        new_y, aux = fn(y, args)
+        return new_y, state, aux
+
+    def terminate(self, fn, y, args, options, state, tags):
+        del fn, y, args, options, state, tags
+        return jnp.array(True), optx.RESULTS.successful
+
+    def postprocess(self, fn, y, aux, args, options, state, tags, result):
+        del fn, y, args, options, tags, result
+        return state.P_pred, aux, {}
+
+
+def _filter_update(P_pred, H_o, R_i, woodbury, solver):
+    """The Kalman gain and filtered covariance from a predicted covariance."""
+    S_op = _innovation_covariance(H_o, P_pred, R_i, woodbury=woodbury)
+    HP_pred = _left_matmul(H_o, P_pred)
+    K = rearrange(solve_matrix(S_op, HP_pred, solver=solver), "m d -> d m")
+    return K, symmetrize(P_pred - K @ HP_pred)
 
 
 def dare(
@@ -75,6 +155,39 @@ def dare(
     Requires ``R`` invertible and the usual stabilisability /
     detectability conditions for a unique stabilising solution.
 
+    **Gradients** take the implicit path. The doubling algorithm is wrapped
+    as an `optimistix` fixed-point solver for the Riccati map
+
+    $$
+    \mathcal{R}(P^-) = A\big(P^- - P^- H^\top (H P^- H^\top + R)^{-1}
+        H P^-\big)A^\top + Q,
+    $$
+
+    and run through `optimistix.fixed_point` with
+    `optimistix.ImplicitAdjoint`. The forward value is exactly the doubling
+    solution; derivatives with respect to $\theta = (A, H, Q, R)$ follow from
+    the implicit function theorem on $g(P^-, \theta) =
+    \mathcal{R}(P^-; \theta) - P^-$,
+
+    $$
+    \frac{\partial P^-_\star}{\partial \theta}
+        = -\big(\partial_{P} g\big)^{-1}\, \partial_\theta g,
+    $$
+
+    one linear solve at the fixed point instead of differentiating the
+    iterations (Blondel et al., 2022). Without it ``jax.grad`` could not go
+    through `dare` at all: reverse mode does not support the doubling
+    ``while_loop``. The solve materialises the $D^2 \times D^2$ Jacobian of
+    $g$ and factors it densely (optimistix's default), so the backward pass
+    costs $O(D^6)$: cheap for the state dimensions of SDE kernels, heavy
+    beyond $D \approx 50$. The derivative is only meaningful when
+    ``converged`` is ``True``.
+
+    Pseudocode:
+
+        P⁻ = fixed_point(Riccati map, solver=SDA)        (implicit adjoint)
+        S = H P⁻ Hᵀ + R;  K = P⁻ Hᵀ S⁻¹;  P = P⁻ − K H P⁻
+
     Args:
         A: Transition matrix or operator, shape ``(D, D)``.
         H: Observation matrix or operator, shape ``(M, D)``.
@@ -94,6 +207,15 @@ def dare(
     Returns:
         A `DAREResult` containing the steady-state *filtered* covariance,
         Kalman gain, and convergence flag.
+
+    References:
+        Chu, E. K.-W., Fan, H.-Y. & Lin, W.-W. (2005). A structure-preserving
+        doubling algorithm for continuous-time algebraic Riccati equations.
+        *Linear Algebra and its Applications* 396, 55-80.
+
+        Blondel, M., Berthet, Q., Cuturi, M., Frostig, R., Hoyer, S.,
+        Llinares-López, F., Pedregosa, F. & Vert, J.-P. (2022). Efficient and
+        modular implicit differentiation. *NeurIPS 35*.
     """
     if P_init is not None:
         warn_deprecated(
@@ -114,39 +236,32 @@ def dare(
         else _materialise(R)
     )
 
-    # SDA on the control-form DARE with A_c = Aᵀ, B_c = Hᵀ: the iterate
-    # ``H_k`` converges to the predicted steady-state covariance P⁻.
+    def _riccati(P_pred, args):
+        A_d, H_o, Q_d, R_i, _ = args
+        _, P_filt = _filter_update(P_pred, H_o, R_i, woodbury_innovation, solver)
+        return symmetrize(A_d @ P_filt @ rearrange(A_d, "i j -> j i") + Q_d)
+
+    # G = Hᵀ R⁻¹ H seeds the doubling iteration. It rides along in ``args``
+    # for the solver; the Riccati map ignores it, so the implicit adjoint
+    # gives it a zero cotangent and H, R are differentiated through the map.
     dtype = jnp.result_type(A_dense, H_dense, Q_dense)
-    eye = jnp.eye(A_dense.shape[0], dtype=dtype)
     Rinv_H = solve_matrix(_as_operator(R), H_dense, solver=solver)
     G_0 = symmetrize(einsum(H_dense, Rinv_H, "m i, m j -> i j"))
-    A_0 = rearrange(A_dense, "i j -> j i")
-
-    def _cond(state):
-        *_, i, converged = state
-        return (i < max_iter) & (~converged)
-
-    def _body(state):
-        A_k, G_k, H_k, i, _ = state
-        W = eye + G_k @ H_k
-        Winv_A = jnp.linalg.solve(W, A_k)
-        Winv_G = jnp.linalg.solve(W, G_k)
-        A_next = A_k @ Winv_A
-        G_next = symmetrize(G_k + A_k @ Winv_G @ rearrange(A_k, "i j -> j i"))
-        H_next = symmetrize(H_k + rearrange(A_k, "i j -> j i") @ H_k @ Winv_A)
-        change = jnp.max(jnp.abs(H_next - H_k))
-        converged = change <= tol * jnp.max(jnp.abs(H_next))
-        return A_next, G_next, H_next, i + 1, converged
-
-    init_state = (A_0, G_0, Q_dense.astype(dtype), 0, jnp.array(False))
-    *_, P_pred, _, converged = jax.lax.while_loop(_cond, _body, init_state)
+    Q_dense = Q_dense.astype(dtype)
+    sol = optx.fixed_point(
+        _riccati,
+        _DoublingSolver(rtol=tol, max_iter=max_iter),
+        jnp.zeros_like(Q_dense),
+        args=(A_dense.astype(dtype), H_op, Q_dense, R_for_innovation, G_0),
+        max_steps=None,
+        adjoint=optx.ImplicitAdjoint(),
+        throw=False,
+    )
+    P_pred, converged = sol.value, sol.state.converged
 
     # Filtered covariance and gain from the steady-state prediction.
-    S_op = _innovation_covariance(
-        H_op, P_pred, R_for_innovation, woodbury=woodbury_innovation
+    K_inf, P_inf = _filter_update(
+        P_pred, H_op, R_for_innovation, woodbury_innovation, solver
     )
-    HP_pred = _left_matmul(H_op, P_pred)
-    K_inf = solve_matrix(S_op, HP_pred, solver=solver).T
-    P_inf = symmetrize(P_pred - K_inf @ HP_pred)
 
     return DAREResult(P_inf=P_inf, K_inf=K_inf, converged=converged)
