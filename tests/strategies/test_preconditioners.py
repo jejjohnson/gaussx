@@ -443,7 +443,7 @@ def test_preconditioner_non_cg_solver_raises(getkey):
     sym = 0.5 * (a + a.T)
     op = lx.MatrixLinearOperator(sym, lx.symmetric_tag)
     b = jr.normal(getkey(), (8,))
-    with pytest.raises(ValueError, match="only with CGSolver"):
+    with pytest.raises(ValueError, match="not implemented for MINRESSolver"):
         linear_solve(
             op,
             b,

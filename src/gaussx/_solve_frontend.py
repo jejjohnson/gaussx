@@ -29,10 +29,14 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._preconditioners import AbstractPreconditioner, OperatorPreconditioner
-from gaussx._strategies._base import AbstractSolveStrategy
+from gaussx._strategies._auto import AutoSolver
+from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolveStrategy
 from gaussx._strategies._cg import CGSolver
+from gaussx._strategies._composed import ComposedSolver
+from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._lineax import as_solve_strategy
 from gaussx._strategies._minres import MINRESSolver
+from gaussx._strategies._precond_cg import PreconditionedCGSolver
 from gaussx._tags import (
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -130,7 +134,9 @@ def linear_solve(
 
     Default solver selection (when ``solver is None``):
 
-    * positive semidefinite operator -> `CGSolver`
+    * positive semidefinite operator -> `AutoSolver`: an exact structural or
+      dense solve for structured or small operators, `CGSolver` for large
+      ones (gh-390)
     * symmetric (possibly indefinite) operator -> `MINRESSolver`
     * otherwise -> a `ValueError` asking for an explicit solver
 
@@ -142,8 +148,11 @@ def linear_solve(
             the operator's structural tags.
         preconditioner: Optional preconditioner. May be an
             `AbstractPreconditioner`, a lineax operator applying
-            ``M^{-1}``, or a callable ``v -> M^{-1} v``. Preconditioning is
-            currently applied through `CGSolver`.
+            ``M^{-1}``, or a callable ``v -> M^{-1} v``. It is attached to
+            the CG solve: a `CGSolver` directly, the solve half of a
+            `ComposedSolver` or a `KeyedSolver`, and the CG that an
+            `AutoSolver` builds for a large operator (a direct solve
+            ignores it). Other strategies raise ``ValueError``.
 
     Returns:
         The solution ``x``, shape ``(n,)``.
@@ -209,19 +218,19 @@ def _negate(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     """Return ``-A`` as a symmetric PSD operator.
 
     Negating a symmetric *negative*-semidefinite operator yields a symmetric
-    *positive*-semidefinite one, which CG can solve directly.
+    *positive*-semidefinite one, which CG can solve directly. It stays a
+    ``NegLinearOperator`` of the original, so structural dispatch still sees
+    (and solves exactly) a diagonal or Kronecker ``A`` (gh-390).
     """
-    return lx.FunctionLinearOperator(
-        lambda v: -operator.mv(v),
-        operator.in_structure(),
-        tags=(lx.symmetric_tag, lx.positive_semidefinite_tag),
+    return lx.TaggedLinearOperator(
+        -operator, (lx.symmetric_tag, lx.positive_semidefinite_tag)
     )
 
 
 def _default_solver(operator: lx.AbstractLinearOperator) -> AbstractSolveStrategy:
     """Pick a default solve strategy from the operator's structural tags."""
     if is_positive_semidefinite(operator):
-        return CGSolver()
+        return AutoSolver()
     if is_symmetric(operator):
         return MINRESSolver()
     raise ValueError(
@@ -256,14 +265,35 @@ def _attach_preconditioner(
     solver: AbstractSolveStrategy,
     preconditioner: AbstractPreconditioner,
 ) -> AbstractSolveStrategy:
-    """Attach *preconditioner* to a CG-style solver.
+    """Attach *preconditioner* to the CG solve inside *solver* (gh-390).
 
-    Preconditioning is currently supported through `CGSolver`. A bare
-    `CGSolver` gains the preconditioner; any other strategy raises.
+    `CGSolver` and `AutoSolver` take it as a field; `ComposedSolver` and
+    `KeyedSolver` pass it on to the strategy that solves. A
+    `PreconditionedCGSolver` already has its own; other strategies have no
+    preconditioned solve.
     """
-    if isinstance(solver, CGSolver):
+    if isinstance(solver, CGSolver | AutoSolver):
         return dataclasses.replace(solver, preconditioner=preconditioner)
+    if isinstance(solver, ComposedSolver):
+        return dataclasses.replace(
+            solver,
+            solve_strategy=_attach_preconditioner(
+                solver.solve_strategy, preconditioner
+            ),
+        )
+    if isinstance(solver, KeyedSolver) and isinstance(
+        solver.strategy, AbstractSolveStrategy
+    ):
+        attached = _attach_preconditioner(solver.strategy, preconditioner)
+        assert isinstance(attached, AbstractLogdetStrategy)
+        return dataclasses.replace(solver, strategy=attached)
+    if isinstance(solver, PreconditionedCGSolver):
+        raise ValueError(
+            "PreconditionedCGSolver has its own preconditioner; pass it as "
+            "PreconditionedCGSolver(preconditioner=...) instead of "
+            "linear_solve(..., preconditioner=...)."
+        )
     raise ValueError(
-        "Preconditioning is currently supported only with CGSolver; "
-        f"got {type(solver).__name__}. Pass `solver=CGSolver(...)`."
+        f"Preconditioning is not implemented for {type(solver).__name__}. "
+        "Use CGSolver, AutoSolver, or a ComposedSolver whose solve is one."
     )
