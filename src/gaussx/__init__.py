@@ -68,6 +68,7 @@ from gaussx._gp import (
     love_cache as love_cache,
     love_residual as love_residual,
     love_variance as love_variance,
+    love_variance_error_bound as love_variance_error_bound,
     matheron_update as matheron_update,
     oilmm_back_project as oilmm_back_project,
     oilmm_project as oilmm_project,

@@ -10,7 +10,13 @@ from gaussx._gp._kronecker_gp import (
     kronecker_posterior_predictive,
 )
 from gaussx._gp._loo import LOOResult, leave_one_out_cv
-from gaussx._gp._love import LOVECache, love_cache, love_residual, love_variance
+from gaussx._gp._love import (
+    LOVECache,
+    love_cache,
+    love_residual,
+    love_variance,
+    love_variance_error_bound,
+)
 from gaussx._gp._matheron import matheron_update
 from gaussx._gp._oilmm import oilmm_back_project, oilmm_project
 from gaussx._gp._prediction_cache import (
@@ -39,6 +45,7 @@ __all__ = [
     "love_cache",
     "love_residual",
     "love_variance",
+    "love_variance_error_bound",
     "matheron_update",
     "oilmm_back_project",
     "oilmm_project",

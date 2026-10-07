@@ -7,7 +7,12 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._gp._love import love_cache, love_residual, love_variance
+from gaussx._gp._love import (
+    love_cache,
+    love_residual,
+    love_variance,
+    love_variance_error_bound,
+)
 from gaussx._testing import psd_operator, random_pd_matrix
 
 
@@ -125,3 +130,50 @@ class TestLOVEConvergence:
         c2 = love_cache(K_op, lanczos_order=30, key=jr.key(5), initial_vector=v0)
         assert jnp.array_equal(c1.Q, c2.Q)
         assert love_residual(c1, K_op, k_star) < 1e-3
+
+
+class TestLOVEEdgeCases:
+    """Review follow-ups on gh-293."""
+
+    @pytest.mark.parametrize(
+        "K_op",
+        [
+            pytest.param(
+                lx.DiagonalLinearOperator(2.0 * jnp.ones(6)), id="diag-repeated"
+            ),
+            pytest.param(
+                lx.DiagonalLinearOperator(jnp.array([3.0, 1.0, 1.0, 2.0, 2.0, 0.5])),
+                id="diag",
+            ),
+        ],
+    )
+    def test_diagonal_is_exact_at_full_order(self, K_op):
+        """A single Krylov vector cannot span repeated eigenvalues; no Lanczos."""
+        k_star = jnp.arange(1.0, 7.0)
+        cache = love_cache(K_op, lanczos_order=6)
+        exact = jnp.sum(k_star**2 / lx.diagonal(K_op))
+        assert jnp.all(jnp.isfinite(cache.Q))
+        assert jnp.allclose(love_variance(cache, k_star), exact, rtol=1e-6)
+
+    def test_zero_initial_vector_is_replaced(self):
+        K_op, k_star, _ = _rbf_problem()
+        cache = love_cache(K_op, lanczos_order=30, initial_vector=jnp.zeros(80))
+        assert jnp.all(jnp.isfinite(cache.Q))
+        assert jnp.isfinite(love_variance(cache, k_star))
+
+    def test_zero_cross_covariance_residual_is_zero(self):
+        K_op, _, _ = _rbf_problem()
+        cache = love_cache(K_op, lanczos_order=10, key=jr.key(0))
+        assert love_residual(cache, K_op, jnp.zeros(80)) == 0.0
+
+    @pytest.mark.x64_only(reason="bound checked against a float64 dense solve")
+    @pytest.mark.parametrize("order", [5, 10, 20])
+    def test_error_bound_holds(self, order):
+        """0 <= true variance error <= ||r||² / λ_min, with λ_min >= σ² = 0.01."""
+        K_op, k_star, exact_var = _rbf_problem()
+        cache = love_cache(K_op, lanczos_order=order, key=jr.key(0))
+        err = (1.01 - love_variance(cache, k_star)) - exact_var
+        bound = love_variance_error_bound(cache, K_op, k_star, 0.01)
+        assert -1e-12 <= err <= bound * (1 + 1e-8) + 1e-14
+        if order == 20:
+            assert bound < 1e-6
