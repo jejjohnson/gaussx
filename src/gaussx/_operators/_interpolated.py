@@ -9,6 +9,7 @@ import lineax as lx
 from jaxtyping import Array, Float, Int
 
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
+from gaussx._operators._low_rank_update import _safe_query
 
 
 class InterpolatedOperator(lx.AbstractLinearOperator):
@@ -27,6 +28,10 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
         interp_indices: Integer indices into the inducing grid,
             shape ``(n, p)`` where ``p`` is the interpolation order.
         interp_values: Interpolation weights, shape ``(n, p)``.
+        tags: Extra lineax tags. Symmetry and positive/negative
+            semi-definiteness are inherited from ``base_operator``
+            structurally (``W A W^T`` preserves them for any real ``W``),
+            so they need not be passed; caller tags are added on top.
     """
 
     base_operator: lx.AbstractLinearOperator
@@ -68,7 +73,7 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
                 self.interp_values.dtype,
             )
         )
-        self.tags = _to_frozenset(tags)
+        self.tags = _to_frozenset(tags) | _inherited_tags(base_operator)
 
     def mv(self, vector: Float[Array, " n"]) -> Float[Array, " n"]:
         # W^T v: scatter into inducing space
@@ -107,3 +112,17 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
         rows = jnp.arange(n)[:, None]  # (n, 1) broadcast with (n, p)
         W = W.at[rows, self.interp_indices].add(self.interp_values)
         return W
+
+
+# ``W A W^T`` preserves symmetry and semi-definiteness of ``A`` for any real
+# ``W``; it does not preserve definiteness or diagonality (gh-352).
+_INHERITED_TAGS = (
+    (lx.is_symmetric, lx.symmetric_tag),
+    (lx.is_positive_semidefinite, lx.positive_semidefinite_tag),
+    (lx.is_negative_semidefinite, lx.negative_semidefinite_tag),
+)
+
+
+def _inherited_tags(base: lx.AbstractLinearOperator) -> frozenset[object]:
+    """Tags ``W base W^T`` inherits from ``base`` (structural queries only)."""
+    return frozenset(tag for query, tag in _INHERITED_TAGS if _safe_query(query, base))

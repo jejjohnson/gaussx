@@ -9,8 +9,9 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx._operators import InterpolatedOperator, Toeplitz
-from gaussx._testing import tree_allclose
+from gaussx._testing import default_tolerances, tree_allclose
 
 
 def _make_interp(n, m, p, key):
@@ -186,6 +187,69 @@ class TestTags:
         indices, values = _make_interp(8, 5, 2, getkey())
         op = InterpolatedOperator(K_uu, indices, values, tags=lx.symmetric_tag)
         assert lx.is_symmetric(op) is True
+
+    def test_inherits_symmetric_and_psd_from_base(self):
+        # gh-352: the KISS-GP default (PSD Toeplitz base, no explicit tags).
+        m = 8
+        grid = jnp.linspace(0.0, 1.0, m)
+        K_uu = Toeplitz(
+            jnp.exp(-0.5 * (grid - grid[0]) ** 2 / 0.3**2),
+            tags=lx.positive_semidefinite_tag,
+        )
+        x = jnp.array([[0.11], [0.37], [0.52], [0.80], [0.93]])
+        idx, w = gaussx.cubic_interpolation_weights(x, [grid])
+        op = InterpolatedOperator(K_uu, idx, w)
+        assert lx.is_symmetric(op) is True
+        assert lx.is_positive_semidefinite(op) is True
+        assert lx.is_negative_semidefinite(op) is False
+        assert lx.is_symmetric(op.T) is True
+
+        M = op.as_matrix()
+        rtol, atol = default_tolerances(M)
+        eigs = gaussx.eigvals(op)
+        assert not jnp.iscomplexobj(eigs)
+        assert jnp.allclose(
+            jnp.sort(eigs), jnp.linalg.eigvalsh(M), rtol=rtol, atol=100 * atol
+        )
+        # Smallest eigenvalue ~0.009, so allow the condition number in float32.
+        b = jnp.arange(1.0, 6.0, dtype=M.dtype)
+        assert jnp.allclose(
+            gaussx.solve(op, b), jnp.linalg.solve(M, b), rtol=1e3 * rtol, atol=atol
+        )
+        solver = lx.AutoLinearSolver(well_posed=True).select_solver(op)
+        assert isinstance(solver, lx.Cholesky)
+
+    def test_inherits_negative_semidefinite(self, getkey):
+        K_uu = lx.MatrixLinearOperator(
+            -jnp.eye(5), tags=(lx.symmetric_tag, lx.negative_semidefinite_tag)
+        )
+        indices, values = _make_interp(8, 5, 2, getkey())
+        op = InterpolatedOperator(K_uu, indices, values)
+        assert lx.is_symmetric(op) is True
+        assert lx.is_negative_semidefinite(op) is True
+        assert lx.is_positive_semidefinite(op) is False
+
+    def test_explicit_tags_are_unioned_with_inherited(self, getkey):
+        K_uu = lx.MatrixLinearOperator(
+            jnp.eye(5), tags=(lx.symmetric_tag, lx.positive_semidefinite_tag)
+        )
+        indices, values = _make_interp(8, 5, 2, getkey())
+        op = InterpolatedOperator(K_uu, indices, values, tags=lx.unit_diagonal_tag)
+        assert op.tags == frozenset(
+            {lx.symmetric_tag, lx.positive_semidefinite_tag, lx.unit_diagonal_tag}
+        )
+
+    def test_inherits_tags_under_jit(self, getkey):
+        K_uu = lx.MatrixLinearOperator(jnp.eye(5), tags=lx.positive_semidefinite_tag)
+        indices, values = _make_interp(8, 5, 2, getkey())
+
+        @jax.jit
+        def build(idx, vals):
+            op = InterpolatedOperator(K_uu, idx, vals)
+            assert lx.is_positive_semidefinite(op)
+            return op.mv(jnp.ones(8))
+
+        assert build(indices, values).shape == (8,)
 
     def test_not_diagonal(self, getkey):
         K_uu = lx.DiagonalLinearOperator(jr.normal(getkey(), (5,)))
