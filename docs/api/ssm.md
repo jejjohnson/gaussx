@@ -274,6 +274,25 @@ temporal inference.
       show_root_toc_entry: false
       members: [GaussianSites, cvi_update_sites, sites_to_precision, cavity_from_marginal, site_natural_from_tilted, site_mean_var_from_natural, expectations_to_ssm, naturals_to_ssm, ssm_to_expectations, ssm_to_naturals]
 
+## Variational SDE linearisation
+
+Variational treatments of a nonlinear SDE $dx = f(x)\,dt + \Sigma^{1/2}dW$
+(Archambeau, Cornford, Opper & Shawe-Taylor, 2007) fit a Gaussian path
+$q(x_t) = \mathcal{N}(m_t, S_t)$ with a linear drift $A_t x + b_t$.
+`linearize_sde` returns the drift that is optimal along the path,
+$A_t = \mathbb{E}_q[\partial f/\partial x] = \mathrm{Cov}_q(f, x)\,S_t^{-1}$
+(Stein's lemma, so $f$ is never differentiated) and
+$b_t = \mathbb{E}_q[f] - A_t m_t$; `sde_kl_divergence` returns the drift
+path-KL $\tfrac12 \sum_t \Delta t\, \mathbb{E}_q\lVert f(x_t) - A_t x_t -
+b_t\rVert^2_{\Sigma^{-1}}$ between the linear and the nonlinear SDE. Both
+take any gaussx integrator for the expectations.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [LinearizedSDE, linearize_sde, sde_kl_divergence]
+
 ## Process noise
 
 The exact discretisation $Q = P_\infty - A P_\infty A^\top$, which is the
