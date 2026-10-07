@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools as ft
+from typing import TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -34,11 +35,15 @@ from gaussx._operators._sum_kronecker import (
 )
 
 
+if TYPE_CHECKING:
+    from gaussx._strategies._base import AbstractSolveStrategy
+
+
 def solve(
     operator: lx.AbstractLinearOperator,
     vector: Float[Array, " n"],
     *,
-    solver: lx.AbstractLinearSolver | None = None,
+    solver: lx.AbstractLinearSolver | AbstractSolveStrategy | None = None,
 ) -> Float[Array, " n"]:
     """Solve ``A x = b`` with structural dispatch.
 
@@ -59,14 +64,31 @@ def solve(
     Args:
         operator: The linear operator A.
         vector: The right-hand side b.
-        solver: Optional lineax solver override for the fallback path.
-            ``None`` uses a dense direct solve chosen from the operator's
-            tags (Cholesky for positive semi-definite, triangular, else LU).
+        solver: A lineax solver, which overrides the dense fallback and is
+            threaded into the structural rules (e.g. used per Kronecker
+            factor); or a gaussx strategy such as `gaussx.CGSolver`, which
+            then owns the whole solve (gh-376). ``None`` uses a dense direct
+            solve chosen from the operator's tags (Cholesky for positive
+            semi-definite, triangular, else LU).
 
     Returns:
         The solution x. On the default dense fallback, non-finite when
         ``A`` is singular.
+
+    Raises:
+        TypeError: If *solver* is neither a lineax solver nor a gaussx
+            strategy.
     """
+    if solver is not None and not isinstance(solver, lx.AbstractLinearSolver):
+        from gaussx._strategies._base import AbstractSolveStrategy
+
+        if isinstance(solver, AbstractSolveStrategy):
+            return solver.solve(operator, vector)
+        raise TypeError(
+            "solver must be a lineax.AbstractLinearSolver (e.g. lineax.CG(...)) "
+            "or a gaussx.AbstractSolveStrategy (e.g. gaussx.CGSolver()); got "
+            f"{type(solver).__name__}."
+        )
     if isinstance(operator, lx.IdentityLinearOperator):
         return vector
     if isinstance(operator, lx.DiagonalLinearOperator):

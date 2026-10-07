@@ -5,6 +5,13 @@ computed, decoupled from *what* is being solved. Everything that accepts a
 `solver=` keyword anywhere in gaussx takes one of these; `None` falls back to
 structural dispatch on the operator.
 
+The one exception is the primitive `gaussx.solve(A, b, solver=...)`, whose
+`solver=` historically takes a *lineax* solver for its dense fallback (and per
+structured factor). Both kinds are accepted in both places: `gaussx.solve`
+hands the whole solve to a gaussx strategy, and `linear_solve` wraps a lineax
+solver in [`LineaxSolver`](#gaussx.LineaxSolver) (solve only: a distribution
+also needs a `logdet`). Anything else raises `TypeError`.
+
 A strategy bundles a `solve` and a `logdet` algorithm. Mix and match with
 [`ComposedSolver`](#gaussx.ComposedSolver) — e.g. CG for the solve, stochastic
 Lanczos quadrature for the logdet — which is the standard recipe for large
@@ -38,7 +45,7 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, KeyedSolver, SparseCholeskySolver]
+      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, KeyedSolver, LineaxSolver, SparseCholeskySolver]
 
 ### Tolerances and float32
 

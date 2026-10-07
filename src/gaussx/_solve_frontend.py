@@ -31,6 +31,7 @@ from jaxtyping import Array, Float
 from gaussx._preconditioners import AbstractPreconditioner, OperatorPreconditioner
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._cg import CGSolver
+from gaussx._strategies._lineax import as_solve_strategy
 from gaussx._strategies._minres import MINRESSolver
 from gaussx._tags import (
     is_negative_semidefinite,
@@ -112,7 +113,7 @@ def linear_solve(
     operator: OperatorLike,
     vector: Float[Array, " n"],
     *,
-    solver: AbstractSolveStrategy | None = None,
+    solver: AbstractSolveStrategy | lx.AbstractLinearSolver | None = None,
     preconditioner: PreconditionerLike | None = None,
 ) -> Float[Array, " n"]:
     """Solve ``A x = b`` through the unified front door.
@@ -136,7 +137,8 @@ def linear_solve(
     Args:
         operator: The linear operator ``A``, or a ``(matvec, shape)`` pair.
         vector: Right-hand side ``b``, shape ``(n,)``.
-        solver: Solve strategy to use. When ``None`` a default is selected from
+        solver: Solve strategy to use, or a lineax solver (wrapped in
+            `gaussx.LineaxSolver`). When ``None`` a default is selected from
             the operator's structural tags.
         preconditioner: Optional preconditioner. May be an
             `AbstractPreconditioner`, a lineax operator applying
@@ -153,6 +155,7 @@ def linear_solve(
         op = _negate(op)
         vector = -vector
 
+    solver = as_solve_strategy(solver)
     if solver is None:
         solver = _default_solver(op)
 

@@ -40,6 +40,8 @@ def _exported_strategy_classes() -> list[type]:
 def _default(cls: type):
     if cls is gaussx.ComposedSolver:
         return cls(gaussx.CGSolver(), gaussx.SLQLogdet())
+    if cls is gaussx.LineaxSolver:
+        return cls(lx.CG(rtol=1e-6, atol=1e-6))
     return cls()
 
 
