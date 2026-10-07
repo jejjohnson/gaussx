@@ -73,7 +73,7 @@ class TestDampedNaturalUpdate:
         expected = 0.7 * nat2_old.as_matrix() + 0.3 * nat2_target.as_matrix()
         assert jnp.allclose(nat2_new.as_matrix(), expected, atol=1e-10)
 
-    def test_generic_operator(self, getkey):
+    def test_generic_operator(self):
         """Generic operators should materialize to MatrixLinearOperator."""
         nat1 = jnp.zeros(3)
         nat2_old = lx.MatrixLinearOperator(jnp.eye(3))

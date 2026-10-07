@@ -296,7 +296,7 @@ class TestJAX:
 
 
 class TestLogdet:
-    def test_logdet_matches_dense(self, getkey):
+    def test_logdet_matches_dense(self):
         from gaussx._primitives import logdet
 
         # Use a PSD Toeplitz for a valid logdet

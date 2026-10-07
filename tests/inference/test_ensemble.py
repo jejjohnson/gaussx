@@ -193,6 +193,6 @@ def test_ensemble_kalman_gain_rejects_bessel_with_singleton(getkey):
         ensemble_kalman_gain(particles, obs_particles, obs_noise)
 
 
-def test_ensemble_covariance_rejects_empty_ensemble(getkey):
+def test_ensemble_covariance_rejects_empty_ensemble():
     with pytest.raises(ValueError, match="at least one particle"):
         ensemble_covariance(jnp.zeros((0, 4)))

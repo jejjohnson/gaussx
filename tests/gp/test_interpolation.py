@@ -25,7 +25,7 @@ class TestConditionalInterpolate:
         assert m.shape == (d,)
         assert P.shape == (d, d)
 
-    def test_uncertainty_reduction(self, getkey):
+    def test_uncertainty_reduction(self):
         """Fused estimate should have less uncertainty than forward-only."""
         d = 2
         A_fwd = jnp.eye(d)
@@ -47,7 +47,7 @@ class TestConditionalInterpolate:
         # Fused should be tighter
         assert jnp.trace(P_fused) < jnp.trace(P_fwd)
 
-    def test_symmetric_case(self, getkey):
+    def test_symmetric_case(self):
         """Symmetric inputs should give mean at midpoint."""
         d = 2
         A = jnp.eye(d)
