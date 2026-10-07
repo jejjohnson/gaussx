@@ -5,8 +5,15 @@ from __future__ import annotations
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+import pytest
 
-from gaussx._operators import BlockDiag, Kronecker, Toeplitz
+from gaussx._operators import (
+    BlockDiag,
+    Kronecker,
+    LowerBlockTriDiag,
+    Toeplitz,
+    UpperBlockTriDiag,
+)
 from gaussx._primitives import trace
 from gaussx._testing import dense_trace, tree_allclose
 
@@ -49,3 +56,19 @@ def test_trace_toeplitz_is_n_c0(monkeypatch):
     result = trace(op)
     monkeypatch.undo()
     assert jnp.array_equal(result, expected)
+
+
+@pytest.mark.parametrize("cls", [LowerBlockTriDiag, UpperBlockTriDiag])
+def test_trace_block_bidiagonal_is_structured(monkeypatch, cls):
+    """``trace`` covers the factors ``diag`` already handles (gh-391)."""
+    k1, k2 = jr.split(jr.key(0))
+    op = cls(jr.normal(k1, (3, 2, 2)), jr.normal(k2, (2, 2, 2)))
+    expected = jnp.trace(op.as_matrix())
+
+    def _forbidden(self):
+        raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+    monkeypatch.setattr(cls, "as_matrix", _forbidden)
+    result = trace(op)
+    monkeypatch.undo()
+    assert tree_allclose(result, expected)

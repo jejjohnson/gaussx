@@ -18,6 +18,7 @@ import pytest
 
 import gaussx
 from gaussx import MaskedOperator, grid_coupling_indices
+from gaussx._testing import default_tolerances
 
 
 N = 32
@@ -354,3 +355,22 @@ def test_traced_singular_base_needs_an_explicit_null_vector(disc_mask):
         jax.block_until_ready(solve_with(None))
     x = solve_with(jnp.ones(N * N))
     assert jnp.allclose(x, _dense_masked_solve(base, disc_mask, f), atol=1e-10)
+
+
+def test_tagged_masked_operator_keeps_capacitance_solve(monkeypatch):
+    """``Tagged(MaskedOperator)`` takes the capacitance path too (gh-391)."""
+    n = 10
+    base = lx.MatrixLinearOperator(jr.normal(jr.key(5), (n, n)) + n * jnp.eye(n))
+    mask = jnp.array([True, True, False, True, True, False, True, True, True, False])
+    M = MaskedOperator(base, mask, mask, coupling_indices=jnp.flatnonzero(~mask))
+    f = jnp.ones(int(mask.sum()))
+    expected = gaussx.solve(M, f)
+
+    def _forbidden(self):
+        raise AssertionError("MaskedOperator.as_matrix called")
+
+    monkeypatch.setattr(MaskedOperator, "as_matrix", _forbidden)
+    result = gaussx.solve(lx.TaggedLinearOperator(M, lx.symmetric_tag), f)
+    monkeypatch.undo()
+    rtol, atol = default_tolerances(result)
+    assert jnp.allclose(result, expected, rtol=rtol, atol=atol)

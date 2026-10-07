@@ -218,9 +218,12 @@ def _negate(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     """Return ``-A`` as a symmetric PSD operator.
 
     Negating a symmetric *negative*-semidefinite operator yields a symmetric
-    *positive*-semidefinite one, which CG can solve directly. It stays a
-    ``NegLinearOperator`` of the original, so structural dispatch still sees
-    (and solves exactly) a diagonal or Kronecker ``A`` (gh-390).
+    *positive*-semidefinite one, which CG can solve directly. Plain negation
+    keeps the structure (a lineax ``NegLinearOperator``, which every gaussx
+    primitive unwraps, or an operator that negates in place such as a
+    `gaussx.DiagonalisedOperator`), so structural dispatch still sees (and
+    solves exactly) a diagonal or Kronecker ``A`` (gh-390). The tags are set
+    explicitly because they do not always follow the negation (gh-391).
     """
     return lx.TaggedLinearOperator(
         -operator, (lx.symmetric_tag, lx.positive_semidefinite_tag)
