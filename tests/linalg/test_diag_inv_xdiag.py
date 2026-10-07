@@ -115,9 +115,10 @@ def test_nonsymmetric_estimate_uses_the_transpose():
     A = jr.normal(jr.key(3), (n, n)) + 2 * jnp.sqrt(n) * jnp.eye(n)
     op = lx.MatrixLinearOperator(A)
     key = jr.key(4)
+    # N = 40 is below the sign-independence threshold: Gaussian probes.
     mean, sem = matfree.stochtrace.estimator_leave_one_out_mean_and_sem(
         matfree.stochtrace.leave_one_out_xdiag(),
-        matfree.stochtrace.sampler_signs(jnp.zeros(n, A.dtype), num=k),
+        matfree.stochtrace.sampler_normal(jnp.zeros(n, A.dtype), num=k),
     )(lambda v: jnp.linalg.solve(A, v), key)
     rtol, atol = default_tolerances(A)
     got = diag_inv(op, method="xdiag", num_probes=k, key=key)
@@ -133,6 +134,31 @@ def test_key_none_means_prngkey_zero():
         diag_inv(op, method="xdiag", num_probes=4),
         diag_inv(op, method="xdiag", num_probes=4, key=jax.random.PRNGKey(0)),
     )
+
+
+@pytest.mark.parametrize(("n", "sampler"), [(8, "normal"), (80, "signs")])
+def test_probe_distribution_avoids_dependent_signs(n, sampler):
+    """Small N uses Gaussian probes: k signs in N dims can be dependent.
+
+    matfree's XDiag reads a rank-deficient probe image as a low-rank operator
+    and returns a biased "exact" diagonal; at N = 8 and k = 3 a dependent
+    sign pair has probability ~ 3 * 2^-7. Large N keeps the signs.
+    """
+    A = jr.normal(jr.key(5), (n, n))
+    A = einsum(A, A, "i k, j k -> i j") + n * jnp.eye(n)
+    k, key = 3, jr.key(6)
+    factory = {
+        "normal": matfree.stochtrace.sampler_normal,
+        "signs": matfree.stochtrace.sampler_signs,
+    }[sampler]
+    expected = matfree.stochtrace.estimator_leave_one_out(
+        matfree.stochtrace.leave_one_out_xdiag(),
+        factory(jnp.zeros(n, A.dtype), num=k),
+    )(lambda v: jnp.linalg.solve(A, v), key)
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+    got = diag_inv(op, method="xdiag", num_probes=k, key=key)
+    rtol, atol = default_tolerances(A)
+    assert jnp.allclose(got, expected, rtol=100 * rtol, atol=100 * atol)
 
 
 @pytest.mark.parametrize("k", [0, 26])

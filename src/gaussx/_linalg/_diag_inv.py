@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -75,7 +77,9 @@ def diag_inv(
     **XDiag** (``method="xdiag"``, Epperly, Tropp & Webber, 2024) is the
     variance-reduced estimator for operators too large to factor (e.g. the
     Laplace Hessian of a GMRF on a 10⁶-node mesh). For $B = A^{-1}$, probes
-    $\Omega = [\omega_1, \dots, \omega_k]$ (random signs) and
+    $\Omega = [\omega_1, \dots, \omega_k]$ (random signs; Gaussian when
+    $N$ is so small that $k$ sign vectors could be linearly dependent, see
+    below) and
     $Q = \operatorname{orth}(B\Omega)$,
 
     $$
@@ -102,7 +106,13 @@ def diag_inv(
     return mean(dᵢ)
     ```
 
-    It wraps matfree's ``stochtrace.leave_one_out_xdiag``. The solves go
+    It wraps matfree's ``stochtrace.leave_one_out_xdiag``, which reads a
+    rank-deficient $A^{-1}\Omega$ as a low-rank $A^{-1}$ and returns the
+    projected diagonal as exact. $k$ random-sign vectors in $N$ dimensions
+    are dependent with probability about $k^2 2^{-N}$ (two equal or opposite
+    columns), so signs, which estimate a diagonal with less variance, are
+    used only when that is below $2^{-60}$; smaller problems use Gaussian
+    probes, dependent with probability zero. The solves go
     through ``solver`` (any solve strategy; for a precision matrix,
     Jacobi-preconditioned CG, since the Nyström and RPCholesky
     preconditioners are for covariance form). Prefer an exact path (the
@@ -448,6 +458,24 @@ def _diag_inv_xdiag(
     template = jnp.zeros((n,), dtype=operator.out_structure().dtype)
     estimate = matfree.stochtrace.estimator_leave_one_out(
         matfree.stochtrace.leave_one_out_xdiag(),
-        matfree.stochtrace.sampler_signs(template, num=num_probes),
+        _xdiag_sampler(template, num_probes),
     )
     return estimate(apply_inverse, key)
+
+
+# k sign vectors in N dimensions are dependent with probability ~ k² 2^-N
+# (pairs that are equal or opposite dominate); signs are used below 2^-60.
+_SIGN_DEPENDENCE_LOG2 = -60
+
+
+def _xdiag_sampler(template: Float[Array, " N"], num_probes: int):
+    """Random signs when they are (almost surely) independent, else Gaussian.
+
+    matfree's XDiag treats a rank-deficient probe image as a low-rank
+    operator and returns the projected diagonal as exact, so dependent
+    probes would bias the estimate (gh-485 review).
+    """
+    n = template.shape[0]
+    if 2 * math.log2(max(num_probes, 1)) - n <= _SIGN_DEPENDENCE_LOG2:
+        return matfree.stochtrace.sampler_signs(template, num=num_probes)
+    return matfree.stochtrace.sampler_normal(template, num=num_probes)
