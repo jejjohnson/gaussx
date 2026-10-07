@@ -165,6 +165,8 @@ Tags mark structure and properties on operators; the `is_*` predicates are what
 the primitives consult when choosing an algorithm. The property tags
 (`positive_semidefinite_tag`, `symmetric_tag`, the triangular tags, …) are
 re-exported from lineax so user code only needs one import.
+`is_eigen_reducible` reports whether a [`SumOfKroneckers`](#gaussx.SumOfKroneckers)
+(or the equivalent `SumOperator` chain) takes the exact two-term reduction.
 
 ::: gaussx
     options:
@@ -176,6 +178,7 @@ re-exported from lineax so user code only needs one import.
         - is_block_diagonal
         - is_block_tridiagonal
         - is_low_rank
+        - is_eigen_reducible
         - is_diagonal
         - is_symmetric
         - is_positive_semidefinite

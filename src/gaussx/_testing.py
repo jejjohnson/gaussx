@@ -3,6 +3,12 @@
 Provides helper functions for generating random structured operators
 and comparing results. Intended for use in the gaussx test suite and
 other internal tests; not part of the public, stable gaussx API.
+
+Status (decided in gh-322): the module ships in the wheel, because the test
+suite imports it as ``gaussx._testing``, but it stays underscore-private. It
+is not listed in ``gaussx.__all__`` or the API reference, and its helpers
+may change or disappear in any release without a deprecation. Downstream
+test suites should copy what they need rather than import it.
 """
 
 from __future__ import annotations

@@ -46,8 +46,86 @@ def _documented_members() -> dict[str, set[str]]:
 
 
 def _public_api() -> set[str]:
-    """Every public name re-exported from ``gaussx/__init__.py``."""
-    return {name for name in dir(gaussx) if not name.startswith("_")}
+    """The declared public API, ``gaussx.__all__``."""
+    return set(gaussx.__all__)
+
+
+# The page each layer is documented on, keyed by the defining module's
+# package (``obj.__module__``, truncated to two components).
+_PAGE_OF_PACKAGE = {
+    "gaussx._distributions": "distributions.md",
+    "gaussx._expfam": "distributions.md",
+    "gaussx._gmrf": "gmrf.md",
+    "gaussx._gp": "gp.md",
+    "gaussx._inference": "inference.md",
+    "gaussx._linalg": "linalg.md",
+    "gaussx._operators": "operators.md",
+    "gaussx._preconditioners": "solvers.md",
+    "gaussx._primitives": "primitives.md",
+    "gaussx._quadrature": "quadrature.md",
+    "gaussx._randomized": "randomized.md",
+    "gaussx._sketching": "sketching.md",
+    "gaussx._solve_frontend": "solvers.md",
+    "gaussx._sparse": "sparse.md",
+    "gaussx._ssm": "ssm.md",
+    "gaussx._strategies": "solvers.md",
+    "gaussx._tags": "operators.md",
+    # The lineax tags and predicates gaussx re-exports.
+    "lineax._operator": "operators.md",
+    "lineax._tags": "operators.md",
+}
+
+# Intentional exceptions: documented with what they belong to rather than
+# where they are defined.
+_PAGE_EXCEPTIONS = {
+    # The sparse operator lives with the sparse Cholesky machinery.
+    "SparseOperator": "sparse.md",
+    "SparsityPattern": "sparse.md",
+    # Defined next to SqrtOperator in _primitives (which imports _operators),
+    # documented next to KroneckerSumSqrt and SumOfKroneckers (gh-297).
+    "SumOfKroneckersSqrt": "operators.md",
+    "SumKroneckerSqrt": "operators.md",
+}
+
+
+def _expected_page(name: str) -> str | None:
+    """The page ``name`` belongs on, from its defining package."""
+    if name in _PAGE_EXCEPTIONS:
+        return _PAGE_EXCEPTIONS[name]
+    module = getattr(getattr(gaussx, name), "__module__", None) or ""
+    return _PAGE_OF_PACKAGE.get(".".join(module.split(".")[:2]))
+
+
+def test_all_matches_the_module_namespace() -> None:
+    """``__all__`` and the non-underscore module attributes cannot drift."""
+    public = {name for name in dir(gaussx) if not name.startswith("_")}
+    assert len(gaussx.__all__) == len(set(gaussx.__all__)), "duplicates in __all__"
+    assert set(gaussx.__all__) == public, (
+        f"only in __all__: {sorted(set(gaussx.__all__) - public)}; "
+        f"public but missing from __all__: {sorted(public - set(gaussx.__all__))}"
+    )
+
+
+def test_every_symbol_is_on_its_layer_page() -> None:
+    """Each symbol sits on the page of the package that defines it (gh-322)."""
+    where = {
+        name: page
+        for page, members in _documented_members().items()
+        for name in members
+    }
+    unmapped = sorted(n for n in _public_api() if _expected_page(n) is None)
+    assert not unmapped, (
+        f"no page mapped for the defining package of {unmapped}; extend "
+        "_PAGE_OF_PACKAGE (or _PAGE_EXCEPTIONS) in this test."
+    )
+    misplaced = {
+        name: (where.get(name), _expected_page(name))
+        for name in _public_api()
+        if name in where and where[name] != _expected_page(name)
+    }
+    assert not misplaced, (
+        f"symbols documented on the wrong page (found, expected): {misplaced}"
+    )
 
 
 def test_docs_api_dir_is_discovered() -> None:

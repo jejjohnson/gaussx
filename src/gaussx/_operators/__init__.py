@@ -43,6 +43,7 @@ from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumKronecker,
     SumOfKroneckers,
+    is_eigen_reducible as is_eigen_reducible,
     sum_of_kroneckers_sample as sum_of_kroneckers_sample,
     sumkronecker_sample as sumkronecker_sample,
 )
@@ -509,6 +510,7 @@ __all__ = [
     "cubic_interpolation_weights",
     "grid_coupling_indices",
     "grid_data",
+    "is_eigen_reducible",
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",

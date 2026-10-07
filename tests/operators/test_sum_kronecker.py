@@ -9,6 +9,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx._operators import (
     Kronecker,
     SumKronecker,
@@ -543,3 +544,39 @@ def test_sum_kronecker_deprecation_points_at_the_caller():
     with pytest.warns(GaussxDeprecationWarning) as record:
         SumKronecker(k, k)
     assert record[0].filename == __file__
+
+
+class TestIsEigenReducible:
+    """`gaussx.is_eigen_reducible` is public and structural (gh-322)."""
+
+    @staticmethod
+    def _terms():
+        sym_psd = (lx.symmetric_tag, lx.positive_semidefinite_tag)
+        k = jr.split(jr.key(0), 4)
+        main = Kronecker(
+            lx.MatrixLinearOperator(random_pd_matrix(k[0], 2), lx.symmetric_tag),
+            lx.MatrixLinearOperator(random_pd_matrix(k[1], 3), lx.symmetric_tag),
+        )
+        anchor = Kronecker(
+            lx.MatrixLinearOperator(random_pd_matrix(k[2], 2), sym_psd),
+            lx.MatrixLinearOperator(random_pd_matrix(k[3], 3), sym_psd),
+        )
+        return main, anchor
+
+    def test_two_term_sum_of_kroneckers(self):
+        main, anchor = self._terms()
+        assert gaussx.is_eigen_reducible(SumOfKroneckers(main, anchor)) is True
+
+    def test_two_terms_through_sum_operator(self):
+        main, anchor = self._terms()
+        assert gaussx.is_eigen_reducible(gaussx.SumOperator(main, anchor)) is True
+
+    def test_three_terms_and_plain_kronecker_are_not(self):
+        main, anchor = self._terms()
+        assert gaussx.is_eigen_reducible(SumOfKroneckers(main, anchor, main)) is False
+        assert gaussx.is_eigen_reducible(main) is False
+
+    def test_private_name_is_the_same_function(self):
+        from gaussx._operators._sum_kronecker import _is_eigen_reducible
+
+        assert _is_eigen_reducible is gaussx.is_eigen_reducible
