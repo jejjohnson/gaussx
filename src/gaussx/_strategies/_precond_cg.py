@@ -43,7 +43,8 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             noise actually in ``A``. Ignored when ``preconditioner`` is given.
         rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
             ``1e-3`` in float32 (see `gaussx.CGSolver`).
-        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in every dtype.
+        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in float64; in
+            float32 ``max(1e-5, sqrt(eps) * max|b_i|)`` (gh-639).
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Lanczos iterations for SLQ logdet.

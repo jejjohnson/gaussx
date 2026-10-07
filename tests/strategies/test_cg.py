@@ -180,6 +180,59 @@ def test_float32_default_keeps_a_small_absolute_tolerance(cls):
     assert tree_allclose(cls().solve(op, b), b)
 
 
+@pytest.mark.parametrize(
+    ("dtype", "b_max", "expected"),
+    [
+        (jnp.float64, 3.0, 1e-5),  # float64 keeps the constant
+        (jnp.float32, 1e-4, 1e-5),  # small b: the float64 floor
+        (jnp.float32, 3.0, 3.0 * float(jnp.sqrt(jnp.finfo(jnp.float32).eps))),
+    ],
+)
+def test_default_atol_scales_with_the_right_hand_side(dtype, b_max, expected):
+    from gaussx._strategies._tolerances import resolve_atol
+
+    b = jnp.array([b_max, -0.5 * b_max, 0.0], dtype=dtype)
+    atol = resolve_atol(None, dtype, 1e-5, b)
+    assert jnp.allclose(atol, expected, rtol=1e-6)
+    assert resolve_atol(2e-7, dtype, 1e-5, b) == 2e-7
+    # The zero iterate (r = b) never passes lineax's entrywise check.
+    assert b_max > atol + 1e-3 * b_max
+
+
+@pytest.mark.slow
+def test_preconditioned_float32_default_converges_without_avx():
+    # gh-639: with atol fixed at 1e-5, float32 PCG on the gh-327 system ran out
+    # of steps when XLA was limited to SSE4.2 (as on some CI runners).
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    code = textwrap.dedent(
+        """
+        import jax, jax.numpy as jnp, jax.random as jr, lineax as lx
+        jax.config.update("jax_enable_x64", True)
+        from gaussx._strategies import PreconditionedCGSolver
+        from gaussx._einx import einsum
+        from gaussx._linalg._symmetrize import symmetrize
+        n = 300
+        q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n), dtype=jnp.float32))
+        ev = jnp.logspace(0, 3, n, dtype=jnp.float32)
+        A = symmetrize(einsum(q * ev, q, "i k, j k -> i j"))
+        b = jr.normal(jr.key(1), (n,), dtype=jnp.float32)
+        op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+        x = PreconditionedCGSolver().solve(op, b)
+        r = jnp.linalg.norm(A @ x - b) / jnp.linalg.norm(b)
+        assert r <= 1e-3, float(r)
+        """
+    )
+    env = {**os.environ, "XLA_FLAGS": "--xla_cpu_max_isa=SSE4_2"}
+    out = subprocess.run(
+        [sys.executable, "-c", code], env=env, capture_output=True, text=True
+    )
+    assert out.returncode == 0, out.stderr[-2000:]
+
+
 def test_default_tolerance_uses_the_narrowest_dtype():
     from gaussx._strategies._tolerances import operator_dtype
 

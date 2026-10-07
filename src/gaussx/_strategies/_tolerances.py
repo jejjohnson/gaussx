@@ -8,10 +8,16 @@ of steps, or breaks down, and returns an iterate worse than zero. On a
 κ = 1e4 system float32 CG converges at ``1e-3`` (432 steps) but not at
 ``sqrt(eps) ≈ 3.5e-4``, so ``1e-3`` is the float32 default.
 
-Only *relative* tolerances are relaxed this way. An absolute tolerance
-keeps its float64 value in every dtype: relaxing it would declare the zero
-iterate converged for any right-hand side smaller than it (e.g.
-``‖b‖ = 1e-4`` with ``atol = 1e-3``).
+Absolute tolerances are not relaxed to a constant: that would declare the
+zero iterate converged for any right-hand side smaller than it (e.g.
+``‖b‖ = 1e-4`` with ``atol = 1e-3``). But lineax's CG checks every entry,
+``|r_i| <= atol + rtol |b_i|``, so an entry with ``b_i ≈ 0`` must reach
+``atol`` itself, and a fixed ``1e-5`` sits at float32's rounding floor for a
+right-hand side of order one: whether CG converges then depends on the CPU's
+instruction set (gh-639). `resolve_atol` therefore scales a low-precision
+default with the right-hand side, ``max(atol₆₄, sqrt(eps) ‖b‖_∞)``. It stays
+``atol₆₄`` for a small ``b``, and it can never accept the zero iterate,
+because the largest entry of ``b`` exceeds ``sqrt(eps) ‖b‖_∞``.
 """
 
 from __future__ import annotations
@@ -73,3 +79,32 @@ def resolve_tolerance(
     if width >= 8:
         return float64_default
     return max(float64_default, _LOW_PRECISION_TOLERANCE.get(width, 1e-2))
+
+
+def resolve_atol(
+    value: float | None,
+    dtype: DTypeLike,
+    float64_default: float,
+    vector: jax.Array,
+) -> float | jax.Array:
+    """*value* if set, else the default absolute tolerance for *dtype*.
+
+    Args:
+        value: An absolute tolerance the user set, or ``None`` for the default.
+        dtype: The dtype the solve runs in.
+        float64_default: The strategy's float64 default, also the floor in
+            lower precisions.
+        vector: The right-hand side ``b``. Below float64 the default is
+            ``max(float64_default, sqrt(eps) * max|b_i|)`` (gh-639).
+
+    Returns:
+        The absolute tolerance to use: a float, or a scalar array when it
+        depends on *vector*.
+    """
+    if value is not None:
+        return value
+    if jnp.finfo(dtype).bits >= 64:
+        return float64_default
+    scale = max(jnp.max(jnp.abs(leaf)) for leaf in jax.tree.leaves(vector))
+    floor = jnp.sqrt(jnp.finfo(dtype).eps).astype(dtype)
+    return jnp.maximum(jnp.asarray(float64_default, dtype), floor * scale.astype(dtype))
