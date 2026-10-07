@@ -26,7 +26,13 @@ class GaussHermiteIntegrator(AbstractIntegrator):
     and ``L`` is the square root of the covariance.
 
     Exact for polynomials up to degree ``2 * order - 1``.
-    Complexity: ``O(order^dim)``, practical for ``dim <= ~5``.
+
+    Cost: a tensor-product rule with ``P = order^dim`` points, each one an
+    evaluation of the integrand. At the default ``order=20`` that is 20
+    points at ``dim=1``, 400 at ``dim=2``, 8 000 at ``dim=3`` and 160 000 at
+    ``dim=4``. Use it for ``dim <= 2`` (or lower ``order``); for larger
+    ``dim`` prefer `CubatureIntegrator` (``2 dim`` points) or
+    `FifthOrderCubatureIntegrator` (``2 dim^2 + 1`` points).
 
     Attributes:
         order: Number of quadrature points per dimension. Default ``20``.
@@ -50,7 +56,9 @@ class GaussHermiteIntegrator(AbstractIntegrator):
         # Propagate all quadrature points
         Y = jax.vmap(fn)(chi)  # (P, M)
 
-        return assemble_propagation_result(chi, Y, state.mean, w)
+        return assemble_propagation_result(
+            chi, Y, state.mean, w, psd=self.guarantees_psd(state.mean.shape[0])
+        )
 
     def points_and_weights(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools as ft
+import math
 
 import jax.numpy as jnp
 import lineax as lx
@@ -14,11 +15,38 @@ from gaussx._primitives._eig import eig
 
 
 def _normalize_axis(axis: int, ndim: int) -> int:
-    normalized = axis % ndim
-    if normalized < 0 or normalized >= ndim:
+    # Check before the modulo, which would wrap any out-of-range axis.
+    if not -ndim <= axis < ndim:
         msg = f"axis {axis} is out of bounds for array with ndim {ndim}"
         raise ValueError(msg)
-    return normalized
+    return axis % ndim
+
+
+def _validate_grid(
+    K_factors: list[lx.AbstractLinearOperator],
+    grid_shape: tuple[int, ...],
+    n_obs: int,
+) -> None:
+    """Check ``grid_shape`` against the factors and the number of observations."""
+    if len(grid_shape) != len(K_factors):
+        msg = (
+            f"grid_shape must have one entry per Kronecker factor: got "
+            f"{len(grid_shape)} entries for {len(K_factors)} factors."
+        )
+        raise ValueError(msg)
+    for i, (n_i, K_i) in enumerate(zip(grid_shape, K_factors, strict=True)):
+        if n_i != K_i.in_size():
+            msg = (
+                f"grid_shape[{i}] = {n_i} does not match Kronecker factor {i} "
+                f"of size {K_i.in_size()}."
+            )
+            raise ValueError(msg)
+    if math.prod(grid_shape) != n_obs:
+        msg = (
+            f"prod(grid_shape) = {math.prod(grid_shape)} does not match the "
+            f"{n_obs} observations in y."
+        )
+        raise ValueError(msg)
 
 
 def _reshape_flat_to_grid(
@@ -80,8 +108,13 @@ def kronecker_mll(
 
     Returns:
         Scalar log marginal likelihood.
+
+    Raises:
+        ValueError: If ``grid_shape`` does not have one entry per factor
+            matching that factor's size, or ``prod(grid_shape) != N``.
     """
     N = y.shape[0]
+    _validate_grid(K_factors, grid_shape, N)
 
     # Per-factor eigendecomposition
     factor_eigs = [eig(K_i) for K_i in K_factors]
@@ -136,10 +169,12 @@ def kronecker_posterior_predictive(
 
     Returns:
         Tuple ``(mean, variance)`` at test points.
+
+    Raises:
+        ValueError: If ``grid_shape`` does not match the factors or ``y``
+            (as in `kronecker_mll`), or a per-factor list has the wrong length.
     """
-    if len(K_factors) != len(grid_shape):
-        msg = "grid_shape must have one entry per Kronecker factor"
-        raise ValueError(msg)
+    _validate_grid(K_factors, grid_shape, y.shape[0])
     if len(K_cross_factors) != len(K_factors):
         msg = "K_cross_factors must have one matrix per Kronecker factor"
         raise ValueError(msg)
@@ -214,11 +249,9 @@ def _kron_matvec(
     """
     x = _reshape_flat_to_grid(v, grid_shape)
 
-    out_shape = []
     for i, A_i in enumerate(A_factors):
         x = _move_axis_to_last(x, i)
         x = x @ A_i.T  # (..., n_i) @ (n_i, m_i) -> (..., m_i)
-        out_shape.append(A_i.shape[0])
         x = _move_last_axis_to(x, i)
 
     return rearrange(x, "... -> (...)")

@@ -58,7 +58,9 @@ class UnscentedIntegrator(AbstractIntegrator):
         """Propagate Gaussian via unscented transform."""
         chi, w_m, w_c = self.points_and_weights(state)
         Y = jax.vmap(fn)(chi)
-        return assemble_propagation_result(chi, Y, state.mean, w_m, w_c)
+        return assemble_propagation_result(
+            chi, Y, state.mean, w_m, w_c, psd=self.guarantees_psd(state.mean.shape[0])
+        )
 
     def guarantees_psd(self, dim: int) -> bool:
         """Whether every scaled-unscented covariance weight is non-negative.

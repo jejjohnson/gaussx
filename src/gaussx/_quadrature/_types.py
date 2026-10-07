@@ -22,6 +22,15 @@ class GaussianState(eqx.Module):
 class PropagationResult(eqx.Module):
     """Output of uncertainty propagation through a nonlinear function.
 
+    Tag convention for ``state.cov``: `lineax.positive_semidefinite_tag`
+    when the rule guarantees a PSD covariance at the input dimension
+    (``integrator.guarantees_psd(N)``: Gauss-Hermite, spherical cubature,
+    unscented with non-negative weights, Monte Carlo, ADF, Taylor), else
+    `lineax.symmetric_tag` (negative-weight rules such as the default
+    scaled unscented transform or the fifth-order cubature rule).
+    Dispatch on `lineax.is_positive_semidefinite` therefore depends only
+    on whether PSD is guaranteed, not on which rule produced the state.
+
     Attributes:
         state: Output Gaussian distribution.
         cross_cov: Input-output cross-covariance, shape ``(N_in, N_out)``.
