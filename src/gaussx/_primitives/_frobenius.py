@@ -12,7 +12,7 @@ from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
-from gaussx._primitives._samplers import SamplerName, resolve_sampler
+from gaussx._primitives._samplers import SamplerName, resolve_sampler, split_keys
 
 
 def frobenius_norm(
@@ -46,32 +46,37 @@ def frobenius_norm(
     Returns:
         Scalar Frobenius norm (exact or estimated).
     """
+
+    # Every recursive call forwards the estimator options, so a wrapped or
+    # structured matrix-free operator is never materialised (gh-320).
+    def rec(op: lx.AbstractLinearOperator, k: jax.Array | None = key) -> Array:
+        return frobenius_norm(
+            op, stochastic=stochastic, num_probes=num_probes, key=k, sampler=sampler
+        )
+
+    def rec_all(ops) -> list[Array]:
+        ops = tuple(ops)
+        keys = split_keys(key, len(ops))
+        return [rec(op, k) for op, k in zip(ops, keys, strict=True)]
+
     if isinstance(operator, lx.IdentityLinearOperator):
         return jnp.sqrt(jnp.asarray(float(operator.in_size())))
     if isinstance(operator, lx.DiagonalLinearOperator):
         d = lx.diagonal(operator)
         return jnp.sqrt(jnp.sum(d * d))
     if isinstance(operator, BlockDiag):
-        norms = jnp.stack([frobenius_norm(op) for op in operator.operators])
+        norms = jnp.stack(rec_all(operator.operators))
         return jnp.sqrt(jnp.sum(norms * norms))
     if isinstance(operator, Kronecker):
-        return ft.reduce(
-            jnp.multiply, (frobenius_norm(op) for op in operator.operators)
-        )
+        return ft.reduce(jnp.multiply, rec_all(operator.operators))
     if isinstance(operator, lx.TaggedLinearOperator):
-        return frobenius_norm(
-            operator.operator,
-            stochastic=stochastic,
-            num_probes=num_probes,
-            key=key,
-            sampler=sampler,
-        )
+        return rec(operator.operator)
     if isinstance(operator, lx.MulLinearOperator):
-        return jnp.abs(operator.scalar) * frobenius_norm(operator.operator)
+        return jnp.abs(operator.scalar) * rec(operator.operator)
     if isinstance(operator, lx.DivLinearOperator):
-        return frobenius_norm(operator.operator) / jnp.abs(operator.scalar)
+        return rec(operator.operator) / jnp.abs(operator.scalar)
     if isinstance(operator, lx.NegLinearOperator):
-        return frobenius_norm(operator.operator)
+        return rec(operator.operator)
     if stochastic:
         return _frobenius_stochastic(operator, num_probes, key, sampler)
     mat = operator.as_matrix()

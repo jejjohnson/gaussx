@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools as ft
 
+import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -29,7 +30,7 @@ from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._operators._toeplitz import Toeplitz
 from gaussx._primitives._cholesky import warn_dense_fallback
-from gaussx._primitives._samplers import SamplerName, resolve_sampler
+from gaussx._primitives._samplers import SamplerName, resolve_sampler, split_keys
 
 
 def diag(
@@ -56,20 +57,35 @@ def diag(
     Returns:
         1D array of diagonal entries (exact or estimated).
     """
+
+    # Every recursive call forwards the estimator options, so a wrapped or
+    # structured matrix-free operator is never materialised (gh-320).
+    def rec(op: lx.AbstractLinearOperator, k: jax.Array | None = key) -> Array:
+        return diag(
+            op, stochastic=stochastic, num_probes=num_probes, key=k, sampler=sampler
+        )
+
+    def rec_all(ops) -> list[Array]:
+        ops = tuple(ops)
+        return [
+            rec(op, k) for op, k in zip(ops, split_keys(key, len(ops)), strict=True)
+        ]
+
     if isinstance(operator, lx.IdentityLinearOperator):
         return jnp.ones(operator.in_size(), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.diagonal(operator)
     if isinstance(operator, BlockDiag):
-        return _diag_block_diag(operator)
+        return jnp.concatenate(rec_all(operator.operators))
     if isinstance(operator, Kronecker):
-        return _diag_kronecker(operator)
+        # diag(A ⊗ B) = diag(A) ⊗ diag(B).
+        return ft.reduce(jnp.kron, rec_all(operator.operators))
     if isinstance(operator, BlockTriDiag | LowerBlockTriDiag | UpperBlockTriDiag):
         return _diag_block_tridiag(operator)
     if isinstance(operator, LowRankUpdate):
-        return _diag_low_rank(operator)
+        return _diag_low_rank(operator, rec(operator.base))
     if isinstance(operator, KroneckerSum):
-        return _diag_kronecker_sum(operator)
+        return _diag_kronecker_sum(*rec_all((operator.A, operator.B)))
     if isinstance(operator, SparseOperator | SpectralFunction):
         return operator.diagonal()
     if isinstance(operator, Toeplitz):
@@ -81,23 +97,18 @@ def diag(
         mean = jnp.real(mean) if operator.real_output else mean
         return jnp.full(operator.in_size(), mean)
     if isinstance(operator, SumOfKroneckers):
-        return ft.reduce(jnp.add, (diag(kron) for kron in operator.operators))
+        return ft.reduce(jnp.add, rec_all(operator.operators))
     if isinstance(operator, lx.TaggedLinearOperator):
-        return diag(
-            operator.operator,
-            stochastic=stochastic,
-            num_probes=num_probes,
-            key=key,
-            sampler=sampler,
-        )
+        return rec(operator.operator)
     if isinstance(operator, lx.AddLinearOperator):
-        return diag(operator.operator1) + diag(operator.operator2)
+        first, second = rec_all((operator.operator1, operator.operator2))
+        return first + second
     if isinstance(operator, lx.MulLinearOperator):
-        return operator.scalar * diag(operator.operator)
+        return operator.scalar * rec(operator.operator)
     if isinstance(operator, lx.DivLinearOperator):
-        return diag(operator.operator) / operator.scalar
+        return rec(operator.operator) / operator.scalar
     if isinstance(operator, lx.NegLinearOperator):
-        return -diag(operator.operator)
+        return -rec(operator.operator)
     if stochastic:
         return _diag_stochastic(operator, num_probes, key, sampler)
     if isinstance(operator, DiagonalisedOperator):
@@ -113,15 +124,6 @@ def _is_fft_pair(operator: DiagonalisedOperator) -> bool:
     return operator.forward is _fftn and operator.inverse is _ifftn
 
 
-def _diag_block_diag(operator: BlockDiag) -> Float[Array, " n"]:
-    return jnp.concatenate([diag(op) for op in operator.operators])
-
-
-def _diag_kronecker(operator: Kronecker) -> Float[Array, " n"]:
-    """diag(A kron B) = kron(diag(A), diag(B))."""
-    return ft.reduce(jnp.kron, (diag(op) for op in operator.operators))
-
-
 def _diag_block_tridiag(
     operator: BlockTriDiag | LowerBlockTriDiag | UpperBlockTriDiag,
 ) -> Float[Array, " n"]:
@@ -133,22 +135,21 @@ def _diag_block_tridiag(
     return rearrange(block_diags, "N d -> (N d)")
 
 
-def _diag_low_rank(operator: LowRankUpdate) -> Float[Array, " n"]:
+def _diag_low_rank(
+    operator: LowRankUpdate, base_diag: Float[Array, " n"]
+) -> Float[Array, " n"]:
     """diag(L + U diag(d) V^T) = diag(L) + sum_k U[:, k] d[k] V[:, k]."""
     from gaussx._einx import reduce
 
     update = reduce(operator.U * operator.d * operator.V, "n k -> n", "sum")
-    return diag(operator.base) + update
+    return base_diag + update
 
 
-def _diag_kronecker_sum(operator: KroneckerSum) -> Float[Array, " n"]:
+def _diag_kronecker_sum(
+    diag_a: Float[Array, " a"], diag_b: Float[Array, " b"]
+) -> Float[Array, " n"]:
     """diag(A (+) B) = kron(diag(A), 1_b) + kron(1_a, diag(B))."""
-    diag_a = diag(operator.A)
-    diag_b = diag(operator.B)
-    from gaussx._einx import rearrange
-
-    grid = diag_a[:, None] + diag_b[None, :]
-    return rearrange(grid, "a b -> (a b)")
+    return einx.add("a, b -> (a b)", diag_a, diag_b)
 
 
 def _diag_stochastic(

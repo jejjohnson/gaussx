@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal
 
+import jax
 import jax.numpy as jnp
 import matfree.stochtrace
 from jax.typing import DTypeLike
@@ -45,3 +46,15 @@ def resolve_sampler(
             f"Unknown sampler {name!r}; expected one of {sorted(_SAMPLER_FACTORIES)}."
         ) from None
     return factory(jnp.zeros(n, dtype=dtype), num=num_probes)
+
+
+def split_keys(key: jax.Array | None, num: int) -> list[jax.Array | None]:
+    """Independent probe keys for ``num`` sub-estimates (``None`` stays ``None``).
+
+    A stochastic primitive that recurses into several children (a sum, a
+    block diagonal, a Kronecker product) gives each child its own probes
+    (gh-320).
+    """
+    if key is None:
+        return [None] * num
+    return list(jax.random.split(key, num))
