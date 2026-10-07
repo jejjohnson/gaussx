@@ -237,3 +237,37 @@ def test_sufficient_stats_any_batch_rank(shape):
     assert jnp.array_equal(t1, x)
     assert t2.shape == (*shape, shape[-1])
     assert jnp.allclose(t2, x[..., :, None] * x[..., None, :])
+
+
+@pytest.mark.parametrize(
+    "Sigma",
+    [
+        pytest.param(
+            lx.MatrixLinearOperator(jnp.array([[2.0]]), lx.positive_semidefinite_tag),
+            id="1x1",
+        ),
+        pytest.param(
+            lx.MatrixLinearOperator(
+                jnp.diag(jnp.array([1.0, 2.0, 3.0])),
+                (lx.diagonal_tag, lx.positive_semidefinite_tag),
+            ),
+            id="diagonal_tagged",
+        ),
+    ],
+)
+def test_expfam_on_diagonal_like_covariance(Sigma):
+    """``solve(-0.5 inv(Σ), ·)`` used to reach lineax's Diagonal solver (gh-349)."""
+    N = Sigma.in_size()
+    mu = jnp.arange(1.0, N + 1.0)
+    S = Sigma.as_matrix()
+    ef = GaussianExpFam.from_mean_cov(mu, Sigma)
+    expected = (
+        0.5 * mu @ jnp.linalg.solve(S, mu)
+        + 0.5 * jnp.linalg.slogdet(S)[1]
+        + 0.5 * N * jnp.log(2.0 * jnp.pi)
+    )
+    assert tree_allclose(log_partition(ef), expected)
+    assert tree_allclose(kl_divergence(ef, ef), jnp.zeros(()), atol=1e-5)
+    mu_back, Sigma_back = to_mean_cov(ef)
+    assert tree_allclose(mu_back, mu)
+    assert tree_allclose(Sigma_back.as_matrix(), S)

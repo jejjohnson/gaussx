@@ -10,9 +10,14 @@ import lineax as lx
 import pytest
 
 from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
-from gaussx._primitives import diag as gaussx_diag, inv
+from gaussx._primitives import diag as gaussx_diag, inv, solve
 from gaussx._primitives._inv import InverseOperator
-from gaussx._testing import dense_inv, tree_allclose
+from gaussx._testing import (
+    dense_inv,
+    random_kronecker_pd,
+    random_pd_matrix,
+    tree_allclose,
+)
 
 
 def test_inv_diagonal(getkey):
@@ -163,3 +168,58 @@ def test_inv_low_rank_keeps_symmetry_and_definiteness_tags():
     assert lx.is_positive_semidefinite(shared)
     assert lx.is_positive_semidefinite(inv(shared))
     assert lx.is_symmetric(inv(shared))
+
+
+def _one_by_one():
+    return lx.MatrixLinearOperator(jnp.array([[2.0]]), lx.positive_semidefinite_tag)
+
+
+def _diagonal_tagged():
+    return lx.MatrixLinearOperator(
+        jnp.diag(jnp.array([1.0, 2.0, 3.0])),
+        (lx.diagonal_tag, lx.positive_semidefinite_tag),
+    )
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(_one_by_one, id="1x1"),
+        pytest.param(_diagonal_tagged, id="diagonal_tagged"),
+        pytest.param(
+            lambda: lx.MatrixLinearOperator(
+                random_pd_matrix(jr.key(0), 3), lx.positive_semidefinite_tag
+            ),
+            id="dense",
+        ),
+        pytest.param(lambda: random_kronecker_pd(jr.key(0), (2, 3)), id="kronecker"),
+    ],
+)
+def test_solve_inverse_operator_is_a_matvec(build):
+    """``solve(inv(A), v) = A v`` exactly, with no factorisation (gh-349)."""
+    A = build()
+    Ainv = InverseOperator(A)
+    v = jnp.arange(1.0, A.in_size() + 1.0)
+    assert jnp.array_equal(solve(Ainv, v), A.mv(v))
+    jaxpr = str(jax.make_jaxpr(lambda b: solve(Ainv, b))(v))
+    assert "cholesky" not in jaxpr
+    assert inv(Ainv) is A
+
+
+@pytest.mark.parametrize("build", [_one_by_one, _diagonal_tagged])
+def test_lineax_solve_on_inverse_of_diagonal_like(build):
+    """``is_diagonal`` is delegated, so lineax needs ``lx.diagonal`` (gh-349)."""
+    A = build()
+    Ainv = inv(A)
+    assert lx.is_diagonal(Ainv)
+    v = jnp.ones(A.in_size())
+    assert tree_allclose(lx.linear_solve(Ainv, v).value, A.mv(v))
+    assert tree_allclose(lx.diagonal(Ainv), 1.0 / jnp.diag(A.as_matrix()))
+
+
+def test_lineax_diagonal_of_inverse_operator_dense(getkey):
+    A = lx.MatrixLinearOperator(
+        random_pd_matrix(getkey(), 3), lx.positive_semidefinite_tag
+    )
+    Ainv = InverseOperator(A)
+    assert tree_allclose(lx.diagonal(Ainv), jnp.diag(jnp.linalg.inv(A.as_matrix())))

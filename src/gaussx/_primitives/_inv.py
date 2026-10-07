@@ -13,6 +13,7 @@ from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._utils import register_lineax_structure_functions
 
 
 def inv(
@@ -41,6 +42,9 @@ def inv(
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator
+    if isinstance(operator, InverseOperator):
+        # (A⁻¹)⁻¹ = A (gh-349).
+        return operator.original
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _inv_diagonal(operator)
     if isinstance(operator, DiagonalisedOperator):
@@ -263,3 +267,17 @@ def _(operator):
 @lx.has_unit_diagonal.register(InverseOperator)
 def _(operator):
     return False
+
+
+# lineax.linearise / materialise / conj (gh-410), and lineax.diagonal: the
+# predicates above delegate ``is_diagonal`` to the original, so lineax's
+# AutoLinearSolver picks its Diagonal solver for the inverse of any 1 x 1 or
+# diagonal-tagged operator and then needs ``lineax.diagonal`` (gh-349).
+register_lineax_structure_functions(InverseOperator)
+
+
+@lx.diagonal.register(InverseOperator)
+def _(operator):
+    if lx.is_diagonal(operator.original):
+        return 1.0 / lx.diagonal(operator.original)
+    return jnp.diag(operator.as_matrix())
