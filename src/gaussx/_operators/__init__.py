@@ -45,7 +45,16 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     sumkronecker_sample as sumkronecker_sample,
 )
-from gaussx._operators._toeplitz import Toeplitz, ToeplitzCholesky, toeplitz_sample
+from gaussx._operators._toeplitz import (
+    Toeplitz,
+    ToeplitzCholesky,
+    _ToeplitzCholeskyTranspose,
+    toeplitz_sample,
+)
+from gaussx._operators._utils import (
+    lineax_conj,
+    register_lineax_structure_functions,
+)
 from gaussx._tags import (
     is_block_diagonal,
     is_block_tridiagonal,
@@ -435,15 +444,23 @@ for _cls in _TRI_DEFAULTS:
     lx.is_upper_triangular.register(_cls)(lambda _operator: False)
 
 
-# ``lineax.linearise`` is the identity for an operator that is already
-# linear, but lineax registers it only for its own classes — so every
-# matrix-free solver (``lineax.CG``, and through it `CGSolver`) raised
-# ``NotImplementedError`` on gaussx operators. Registering it is what makes
-# the iterative route usable where no closed-form structural path exists,
-# such as a `SumOfKroneckers` with three or more terms.
+# ``lineax.linearise`` / ``materialise`` / ``diagonal`` / ``conj``: lineax
+# registers them only for its own classes, so every matrix-free solver
+# (``lineax.CG``, and through it `CGSolver`) and ``lineax.LSMR`` raised
+# ``NotImplementedError`` on gaussx operators — and ``AutoLinearSolver`` did
+# too whenever ``is_diagonal`` was ``True`` (a ``Kronecker``/``BlockDiag`` of
+# diagonal factors), since it then calls ``lineax.diagonal`` (gh-410).
+# Registering them is what makes the iterative route usable where no
+# closed-form structural path exists, such as a `SumOfKroneckers` with three
+# or more terms. ``ToeplitzCholesky`` registers its predicates in
+# ``_toeplitz.py`` but needs these too; ``SparseOperator`` and
+# ``SpectralFunction`` register their own, except ``conj``.
 
-for _cls in _ALL_TRIDIAG_DEFAULTS:
-    lx.linearise.register(_cls)(lambda operator: operator)
+register_lineax_structure_functions(
+    *_ALL_TRIDIAG_DEFAULTS, ToeplitzCholesky, _ToeplitzCholeskyTranspose
+)
+for _cls in (SparseOperator, SpectralFunction):
+    lx.conj.register(_cls)(lineax_conj)
 
 
 # LowerBlockTriDiag / UpperBlockTriDiag: PSD/NSD defaults (block triangular,
