@@ -30,13 +30,15 @@ from gaussx._ssm._meanfield_kalman import (
     meanfield_kalman_filter,
     meanfield_rts_smoother,
 )
-from gaussx._ssm._nonlinear_kalman import (
-    masked_moment_inputs,
+from gaussx._ssm._nonlinear_filter import (
     nonlinear_kalman_filter,
-    nonlinear_kalman_predict,
-    nonlinear_kalman_update,
     nonlinear_rts_smoother,
     nonlinear_rts_step,
+)
+from gaussx._ssm._nonlinear_update import (
+    masked_moment_inputs,
+    nonlinear_kalman_predict,
+    nonlinear_kalman_update,
 )
 from gaussx._ssm._pairwise_marginals import pairwise_marginals
 from gaussx._ssm._parallel_kalman import (
