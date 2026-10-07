@@ -9,9 +9,21 @@ repos:
         # --unsafe checks syntax without constructing Python objects.
         args: [--unsafe]
       - id: check-added-large-files
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.10
+  # ruff runs from the `lint` dependency group (uv.lock), the same version
+  # `make lint` and CI's lint job use, so the hook cannot drift from it
+  # (#274). Bump ruff with `uv lock --upgrade-package ruff`; local hooks are
+  # not touched by `pre-commit autoupdate`.
+  - repo: local
     hooks:
       - id: ruff
-        args: [--fix]
+        name: ruff check
+        entry: uv run --group lint ruff check --fix
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true
       - id: ruff-format
+        name: ruff format
+        entry: uv run --group lint ruff format
+        language: system
+        types_or: [python, pyi, jupyter]
+        require_serial: true

@@ -49,7 +49,7 @@ dev = [
     "jupytext>=1.19.1",
 ]
 lint = [
-    "ruff>=0.15.10",
+    "ruff>=0.16.10",
 ]
 typecheck = [
     "ty>=0.0.34",
