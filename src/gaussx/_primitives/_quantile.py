@@ -74,10 +74,15 @@ def mixture_quantile(
 
     Args:
         cdf_fn: Elementwise CDF, mapping an array to an array of the same
-            shape.
+            shape. It must be strictly increasing where it crosses ``q``: on
+            a flat segment at level ``q`` the solver returns some point of
+            the segment, not the generalized inverse
+            ``inf{x : F(x) >= q}``. Gaussian-mixture CDFs always qualify.
         q: Quantile levels in $[0, 1]$.
-        lower: Lower bracket, with ``cdf_fn(lower) <= q``.
-        upper: Upper bracket, with ``cdf_fn(upper) >= q``.
+        lower: Finite lower bracket, with ``cdf_fn(lower) <= q``.
+        upper: Finite upper bracket, with ``cdf_fn(upper) >= q``. Infinite
+            brackets are rejected; for a Gaussian mixture, means ± 40
+            standard deviations bracket every level.
         solver: An optimistix root finder that takes
             ``options=dict(lower=..., upper=...)``. Defaults to
             ``Chandrupatla(rtol=rtol, atol=atol)``. `optimistix.Bisection`
@@ -85,8 +90,11 @@ def mixture_quantile(
         rtol: Relative tolerance on the quantile (default solver only).
         atol: Absolute tolerance on the quantile (default solver only).
         max_steps: Maximum number of solver iterations.
-        throw: If ``True``, raise when a level is not bracketed or the
-            solver does not converge. If ``False``, an unbracketed level
+        throw: If ``True``, raise when a level is not bracketed
+            (``cdf_fn(lower) <= q <= cdf_fn(upper)`` fails, including a NaN
+            endpoint value, an infinite endpoint or a reversed bracket) or
+            the solver does not
+            converge. If ``False``, an unbracketed level
             returns the bracket endpoint whose CDF is closer to $q$ (its
             gradient is then meaningless), and a non-converged one the
             best estimate so far.
@@ -108,7 +116,7 @@ def mixture_quantile(
         >>> cdf = lambda x: 0.5 * (norm.cdf(x + 1.0) + norm.cdf(x - 1.0))
         >>> x = gaussx.mixture_quantile(cdf, jnp.array([0.5, 0.975]), -10.0, 10.0)
         >>> [round(float(v), 3) for v in x]
-        [0.0, 2.751]
+        [0.0, 2.646]
     """
     q = jnp.asarray(q)
     dtype = jnp.result_type(q, lower, upper, float)
@@ -123,17 +131,22 @@ def mixture_quantile(
         return cdf_fn(x) - level
 
     if throw:
+        # Directed checks: they also reject NaN endpoint values and a
+        # reversed bracket, which a sign-product test would let through.
         g_lo, g_hi = fn(lower, q), fn(upper, q)
         lower = eqx.error_if(
             lower,
-            jnp.any(jnp.sign(g_lo) * jnp.sign(g_hi) > 0),
-            "mixture_quantile: some levels q are not bracketed, i.e. "
-            "cdf_fn(lower) <= q <= cdf_fn(upper) fails.",
+            ~jnp.all(
+                (g_lo <= 0) & (g_hi >= 0) & jnp.isfinite(lower) & jnp.isfinite(upper)
+            ),
+            "mixture_quantile: some levels q are not bracketed by finite "
+            "endpoints, i.e. cdf_fn(lower) <= q <= cdf_fn(upper) fails or a "
+            "bracket is infinite.",
         )
     sol = optx.root_find(
         fn,
         solver,
-        0.5 * (lower + upper),
+        0.5 * lower + 0.5 * upper,  # no overflow for wide finite brackets
         args=jnp.broadcast_to(q, shape),
         options=dict(lower=lower, upper=upper),
         max_steps=max_steps,
@@ -191,12 +204,21 @@ def mixture_quantile_gaussian_approx(
         >>> [round(float(v), 4) for v in x[0]]
         [0.0, 2.0]
     """
-    means = jnp.asarray(means)
-    stds = jnp.asarray(stds)
-    q = jnp.atleast_1d(jnp.asarray(q, jnp.result_type(means, stds, float)))
+    dtype = jnp.result_type(means, stds, q, float)
+    means = jnp.asarray(means, dtype)
+    stds = jnp.asarray(stds, dtype)
+    q = jnp.atleast_1d(jnp.asarray(q, dtype))
     mu = reduce(means, "... e -> ...", "mean")
     dev = einx.subtract("... e, ... -> ... e", means, mu)
-    sigma = jnp.sqrt(reduce(stds**2 + dev**2, "... e -> ...", "mean"))
+    # Rescaled norm: stds**2 would overflow for stds near sqrt(max float).
+    big = jnp.maximum(
+        reduce(jnp.abs(stds), "... e -> ...", "max"),
+        reduce(jnp.abs(dev), "... e -> ...", "max"),
+    )
+    big = jnp.where(big > 0, big, jnp.ones_like(big))
+    s_r = einx.divide("... e, ... -> ... e", stds, big)
+    d_r = einx.divide("... e, ... -> ... e", dev, big)
+    sigma = big * jnp.sqrt(reduce(s_r**2 + d_r**2, "... e -> ...", "mean"))
     z = jax.scipy.special.ndtri(q)
     return einx.add(
         "..., ... q -> ... q", mu, einx.multiply("..., q -> ... q", sigma, z)

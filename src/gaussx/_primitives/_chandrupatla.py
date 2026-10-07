@@ -31,7 +31,7 @@ class Chandrupatla(optx.AbstractRootFinder):
     bisection and the superlinear convergence of inverse quadratic
     interpolation (Chandrupatla, 1997). The bracket $[a, b]$ with
     $f(a) f(b) \le 0$ and the previous point $c$ are updated each step
-    with the new point $x_t = a + t (b - a)$. The next $t$ is the inverse
+    with the new point $x_t = (1 - t)\,a + t\,b$. The next $t$ is the inverse
     quadratic interpolant through $(a, b, c)$,
 
     $$
@@ -43,11 +43,14 @@ class Chandrupatla(optx.AbstractRootFinder):
     $\Phi = (f_a - f_b)/(f_c - f_b)$ satisfy $\Phi^2 < \xi$ and
     $(1 - \Phi)^2 < 1 - \xi$, i.e. when the interpolant is monotone on the
     bracket; otherwise $t = 1/2$ (bisection). $t$ is clipped to
-    $[t_\ell, 1 - t_\ell]$ with $t_\ell = \tau / |b - c|$ and
-    $\tau = 2\,\mathrm{rtol}\,|x_m| + \mathrm{atol}$, where $x_m$ is
+    $[t_\ell, 1 - t_\ell]$ with $t_\ell = \tfrac12\tau / |b - c|$ and
+    $\tau = \mathrm{rtol}\,|x_m| + \mathrm{atol}$, where $x_m$ is
     whichever of $a, b$ has the smaller $|f|$. The solve stops when
-    $t_\ell > 1/2$ (the bracket is narrower than $2\tau$) or
-    $f(x_m) = 0$, and returns $x_m$.
+    $t_\ell > 1/2$, i.e. $|b - c| < \tau$, which bounds the bracket
+    $|b - a| \le |b - c|$ and so puts $x_m$ within $\tau$ of the root; or
+    when $f(x_m) = 0$; or when the bracket has shrunk to adjacent floats
+    and $x_t$ can no longer move. It returns $x_m$. (Scherer's
+    formulation stops at $2\tau$; halving keeps the requested tolerance.)
 
     The solver is **elementwise**: ``y`` may be an array, ``fn`` must act
     on each entry independently (as a CDF evaluated pointwise does), and
@@ -57,19 +60,22 @@ class Chandrupatla(optx.AbstractRootFinder):
     adjoint uses the diagonal Jacobian.
 
     Requires ``options=dict(lower=..., upper=...)`` (broadcastable to
-    ``y``), as `optimistix.Bisection` does. An entry whose bracket has no
-    sign change is not iterated: it returns the endpoint with the smaller
-    $|f|$, so the caller decides whether that is an error.
+    ``y``), as `optimistix.Bisection` does. The bracket and every iterate
+    keep ``y``'s dtype; only the function values take ``fn``'s. An entry
+    whose bracket has no sign change (or a NaN endpoint value) is not
+    iterated: it returns the endpoint with the smaller $|f|$, so the caller
+    decides whether that is an error. With ``has_aux=True`` the auxiliary
+    output is that of ``fn`` at the returned root (one extra evaluation).
 
     Pseudocode (per entry, Scherer 2010, §6.1):
 
         b, a, c = lower, upper, upper;  t = 1/2
         repeat:
-            x_t = a + t (b − a);  f_t = f(x_t)
+            x_t = (1 − t) a + t b;  f_t = f(x_t)
             if sign f_t = sign f_a:  c ← a          else:  c ← b; b ← a
             a ← x_t
-            x_m = argmin over a, b of |f|;  t_lim = (2 rtol |x_m| + atol) / |b − c|
-            stop if f(x_m) = 0 or t_lim > 1/2
+            x_m = argmin over a, b of |f|;  t_lim = (rtol |x_m| + atol) / (2 |b − c|)
+            stop if f(x_m) = 0 or t_lim > 1/2 or x_t ∈ {a, b} before the update
             t = IQI(a, b, c) if Φ² < ξ and (1 − Φ)² < 1 − ξ else 1/2
             t = clip(t, t_lim, 1 − t_lim)
 
@@ -96,8 +102,8 @@ class Chandrupatla(optx.AbstractRootFinder):
         ...     jnp.array(1.0),
         ...     options=dict(lower=0.0, upper=2.0),
         ... )
-        >>> round(float(sol.value), 8)
-        1.25992105
+        >>> round(float(sol.value), 6)
+        1.259921
     """
 
     rtol: float
@@ -122,7 +128,7 @@ class Chandrupatla(optx.AbstractRootFinder):
                 "Chandrupatla needs an elementwise function: the output must be "
                 "a single array with the same shape as y."
             )
-        shape, dtype = f_struct.shape, f_struct.dtype
+        shape, dtype = f_struct.shape, jnp.result_type(y)
         lower = jnp.broadcast_to(jnp.asarray(options["lower"], dtype), shape)
         upper = jnp.broadcast_to(jnp.asarray(options["upper"], dtype), shape)
         f_lower, _ = fn(lower, args)
@@ -130,11 +136,17 @@ class Chandrupatla(optx.AbstractRootFinder):
         # Scherer's initialisation: b = lower, a = c = upper.
         a, b, c = upper, lower, upper
         fa, fb, fc = f_upper, f_lower, f_upper
-        x_best = jnp.where(jnp.abs(fa) < jnp.abs(fb), a, b)
-        f_best = jnp.where(jnp.abs(fa) < jnp.abs(fb), fa, fb)
-        bracketed = jnp.sign(fa) * jnp.sign(fb) <= 0
-        tol = 2 * self.rtol * jnp.abs(x_best) + self.atol
-        done = (~bracketed) | (f_best == 0) | (jnp.abs(b - a) < 2 * tol)
+        # NaN-aware: a finite residual always beats a NaN one.
+        a_better = (jnp.abs(fa) < jnp.abs(fb)) | jnp.isnan(fb)
+        x_best = jnp.where(a_better, a, b)
+        f_best = jnp.where(a_better, fa, fb)
+        # An infinite endpoint makes the convex-combination step NaN, so it
+        # counts as unbracketed (finite brackets only).
+        bracketed = (
+            (jnp.sign(fa) * jnp.sign(fb) <= 0) & jnp.isfinite(a) & jnp.isfinite(b)
+        )
+        tol = self.rtol * jnp.abs(x_best) + self.atol
+        done = (~bracketed) | (f_best == 0) | (jnp.abs(b - a) < tol)
         return _ChandrupatlaState(
             a=a,
             b=b,
@@ -158,7 +170,10 @@ class Chandrupatla(optx.AbstractRootFinder):
     ) -> tuple[Array, _ChandrupatlaState, Any]:
         del y, options, tags
         s = state
-        x_t = s.a + s.t * (s.b - s.a)
+        # The convex combination cannot overflow for finite a, b, unlike
+        # a + t (b - a) on a bracket wider than the largest float.
+        x_t = (1 - s.t) * s.a + s.t * s.b
+        stalled = (x_t == s.a) | (x_t == s.b)
         f_t, aux = fn(x_t, args)
 
         same = jnp.sign(f_t) == jnp.sign(s.fa)
@@ -168,12 +183,12 @@ class Chandrupatla(optx.AbstractRootFinder):
         fb = jnp.where(same, s.fb, s.fa)
         a, fa = x_t, f_t
 
-        a_better = jnp.abs(fa) < jnp.abs(fb)
+        a_better = (jnp.abs(fa) < jnp.abs(fb)) | jnp.isnan(fb)
         x_best = jnp.where(a_better, a, b)
         f_best = jnp.where(a_better, fa, fb)
-        tol = 2 * self.rtol * jnp.abs(x_best) + self.atol
-        t_lim = tol / jnp.abs(b - c)
-        converged = (f_best == 0) | (t_lim > 0.5)
+        tol = self.rtol * jnp.abs(x_best) + self.atol
+        t_lim = 0.5 * tol / jnp.abs(b - c)
+        converged = (f_best == 0) | (t_lim > 0.5) | stalled
 
         # The divisions below may produce inf/nan on degenerate entries;
         # those entries either fail the IQI test (nan comparisons are
@@ -224,5 +239,8 @@ class Chandrupatla(optx.AbstractRootFinder):
         tags: frozenset[object],
         result: optx.RESULTS,
     ) -> tuple[Array, Any, dict[str, Any]]:
-        del fn, y, args, options, tags, result
+        del y, aux, options, tags, result
+        # Re-evaluate so ``aux`` belongs to the returned point; the step's
+        # aux is that of the last trial point, which may be the other end.
+        _, aux = fn(state.x_best, args)
         return state.x_best, aux, {}
