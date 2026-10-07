@@ -186,3 +186,44 @@ def test_misnamed_aliases_are_deprecated():
     new_eta = mean_cov_to_natural(mu, Sigma)
     assert jnp.allclose(old_eta[0], new_eta[0])
     assert jnp.allclose(old_eta[1].as_matrix(), new_eta[1].as_matrix())
+
+
+def test_documented_density_matches_scipy():
+    """gh-342: with h(x) = 1, eta^T T(x) - A(eta) is the log-density, so the
+    docstrings and log_partition cannot drift apart again."""
+    import numpy as np
+    import scipy.stats
+
+    k1, k2, k3 = jr.split(jr.key(0), 3)
+    mu = jr.normal(k1, (3,))
+    a = jr.normal(k2, (3, 3))
+    S = a @ a.T + jnp.eye(3)
+    x = jr.normal(k3, (3,))
+    q = GaussianExpFam.from_mean_cov(
+        mu, lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+    )
+    t1, t2 = sufficient_stats(x)
+    eta_T = q.eta1 @ t1 + jnp.sum(q.eta2.as_matrix() * t2)
+    log_h = 0.0
+    expected = scipy.stats.multivariate_normal(np.asarray(mu), np.asarray(S))
+    assert jnp.allclose(
+        log_h + eta_T - log_partition(q), expected.logpdf(np.asarray(x)), rtol=1e-10
+    )
+
+
+def test_fisher_info_is_the_precision_not_the_natural_hessian():
+    """gh-342: fisher_info returns Lambda; d^2 A / d eta1^2 is Sigma."""
+    import jax
+
+    a = jr.normal(jr.key(0), (3, 3))
+    S = a @ a.T + jnp.eye(3)
+    q = GaussianExpFam.from_mean_cov(
+        jnp.ones(3), lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+    )
+    eta2 = q.eta2
+
+    def A(eta1):
+        return log_partition(GaussianExpFam(eta1=eta1, eta2=eta2))
+
+    assert jnp.allclose(fisher_info(q).as_matrix(), jnp.linalg.inv(S), rtol=1e-10)
+    assert jnp.allclose(jax.hessian(A)(q.eta1), S, rtol=1e-10)

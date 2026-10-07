@@ -28,8 +28,11 @@ class GaussianExpFam(eqx.Module):
 
     - Natural parameters: ``eta1 = Lambda @ mu``, ``eta2 = -0.5 * Lambda``
     - Sufficient statistics: ``T(x) = [x, x x^T]``
-    - Log-partition: ``A(eta) = -0.25 * eta1^T eta2^{-1} eta1 - 0.5 * log|-2 eta2|``
-    - Base measure: ``h(x) = (2 pi)^{-N/2}``
+    - Log-partition (as `log_partition` returns it):
+      ``A(eta) = -0.25 * eta1^T eta2^{-1} eta1 - 0.5 * log|-2 eta2|
+      + 0.5 * N * log(2 pi)``
+    - Base measure: ``h(x) = 1``, so ``log q(x) = eta^T T(x) - A(eta)``.
+      The ``(2 pi)^{-N/2}`` normaliser lives in ``A``, not in ``h``.
 
     Attributes:
         eta1: Natural location parameter, shape ``(N,)``.
@@ -151,7 +154,11 @@ def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:
     $$
     A(\eta) = -\frac{1}{4} \eta_1^T \eta_2^{-1} \eta_1
               - \frac{1}{2} \log|-2\eta_2|
+              + \frac{N}{2} \log 2\pi
     $$
+
+    With the base measure $h(x) = 1$ (see `GaussianExpFam`), so that
+    $\log q(x) = \eta^T T(x) - A(\eta)$ is the normalised log-density.
 
     Args:
         expfam: Gaussian in natural form.
@@ -178,16 +185,21 @@ def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:
 def fisher_info(
     expfam: GaussianExpFam,
 ) -> lx.AbstractLinearOperator:
-    r"""Fisher information matrix ``F(eta) = nabla^2 A(eta)``.
+    r"""Fisher information with respect to the mean, $F_\mu = \Sigma^{-1}$.
 
-    For a Gaussian, the Fisher information in terms of the
-    covariance is ``Sigma^{-1}`` (the precision matrix).
+    Returns the precision $\Lambda = -2\eta_2$, which is the Fisher
+    information of the **mean parameter** $\mu$ (the $\mu$ block that
+    natural-gradient descent on a $(\mu, \Sigma)$-parameterised objective
+    uses). It is **not** the Fisher information in natural coordinates,
+    $\nabla^2 A(\eta)$: that is the $(N + N^2)$-dimensional covariance of
+    $T(x) = [x, x x^T]$, whose $\eta_1$-$\eta_1$ block is $\Sigma$, not
+    $\Lambda$.
 
     Args:
         expfam: Gaussian in natural form.
 
     Returns:
-        Precision operator (the Fisher information matrix).
+        Precision operator $\Lambda = -2\eta_2$.
     """
     # Lambda = -2 * eta2
     return -2.0 * expfam.eta2
