@@ -239,3 +239,33 @@ def test_logdet_grad_is_finite_through_lanczos_breakdown(strategy, fun, order):
         ) / (2 * h)
         assert tree_allclose(estimate(0.3), _dense_estimate(0.3, probes, fun))
         assert tree_allclose(grad, reference, rtol=1e-6)
+
+
+# ── Symmetry check (gh-402) ────────────────────────────────────────
+
+
+@pytest.mark.parametrize("name", ["slq", "indefinite_slq", "cg", "minres"])
+def test_untagged_operator_warns(name):
+    # Upper triangular, all eigenvalues 2: symmetric Lanczos gave 22.8 for a
+    # true log|det| of 34.7, silently. Untagged operators warn for now.
+    from gaussx import CGSolver, MINRESSolver
+
+    n = 10
+    M = 2.0 * jnp.eye(n) + jnp.triu(jr.uniform(jr.key(0), (n, n)), 1)
+    strategy = {
+        "slq": SLQLogdet(num_probes=2, lanczos_order=3),
+        "indefinite_slq": IndefiniteSLQLogdet(num_probes=2, lanczos_order=3),
+        "cg": CGSolver(num_probes=2, lanczos_order=3),
+        "minres": MINRESSolver(num_probes=2, lanczos_order=3),
+    }[name]
+    with pytest.warns(DeprecationWarning, match="not tagged symmetric"):
+        strategy.logdet(lx.MatrixLinearOperator(M))
+
+
+def test_symmetric_tagged_operator_does_not_warn():
+    import warnings
+
+    op = lx.MatrixLinearOperator(jnp.eye(4), lx.symmetric_tag)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        IndefiniteSLQLogdet(num_probes=2, lanczos_order=2).logdet(op)

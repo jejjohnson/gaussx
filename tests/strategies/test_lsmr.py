@@ -85,3 +85,10 @@ def test_logdet_respects_explicit_key(getkey):
     ld1 = solver.logdet(op, key=jr.PRNGKey(1))
     ld2 = solver.logdet(op, key=jr.PRNGKey(2))
     assert not tree_allclose(ld1, ld2)
+
+
+def test_logdet_rejects_a_rectangular_operator():
+    # gh-402: this failed deep in matfree with a dot_general shape error.
+    op = lx.MatrixLinearOperator(jr.normal(jr.key(1), (8, 5)))
+    with pytest.raises(ValueError, match=r"\(8, 5\)"):
+        LSMRSolver().logdet(op)

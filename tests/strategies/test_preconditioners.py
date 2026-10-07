@@ -590,3 +590,20 @@ def test_matrix_free_build_costs_rank_plus_probes_matvecs():
     )
     jax.effects_barrier()
     assert count[0] == rank + 20
+
+
+# -- Jacobi gradient and sign safety (gh-402) -------------------------------
+
+
+def test_jacobi_gradient_is_zero_at_a_zero_diagonal_entry():
+    def f(d):
+        return jnp.sum(JacobiPreconditioner(diagonal=d).as_operator().mv(jnp.ones(3)))
+
+    grad = jax.grad(f)(jnp.array([2.0, 0.0, 4.0]))
+    assert tree_allclose(grad, jnp.array([-0.25, 0.0, -0.0625]))
+
+
+def test_jacobi_on_a_negative_diagonal_is_psd():
+    pre = JacobiPreconditioner(diagonal=jnp.array([2.0, -1.0, 4.0])).as_operator()
+    assert lx.is_positive_semidefinite(pre)
+    assert tree_allclose(pre.as_matrix().diagonal(), jnp.array([0.5, 1.0, 0.25]))

@@ -14,6 +14,7 @@ import matfree.stochtrace
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 from gaussx._strategies._base import AbstractLogdetStrategy
@@ -182,6 +183,21 @@ def _slq_estimators(
     return point, with_sem
 
 
+def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
+    """Warn (for now) when SLQ gets an operator not tagged symmetric (gh-402).
+
+    Symmetric Lanczos on a non-symmetric operator returns a silently wrong
+    log-determinant. The check is on the tags, so it is free under ``jit``.
+    """
+    if not lx.is_symmetric(operator):
+        warn_deprecated(
+            f"{name} got an operator that is not tagged symmetric; symmetric "
+            "Lanczos then gives a wrong log-determinant. Tag it with "
+            "lineax.symmetric_tag or lineax.positive_semidefinite_tag. "
+            "This will raise a ValueError in a future release."
+        )
+
+
 class SLQLogdet(AbstractLogdetStrategy):
     """Stochastic log-determinant via Lanczos quadrature (SLQ).
 
@@ -229,6 +245,7 @@ class SLQLogdet(AbstractLogdetStrategy):
         Returns:
             Scalar estimate of ``log det(A)``.
         """
+        _check_symmetric(operator, "SLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
@@ -259,6 +276,7 @@ class SLQLogdet(AbstractLogdetStrategy):
             Tuple ``(estimate, standard_error)`` where the standard
             error is the standard error of the mean across probes.
         """
+        _check_symmetric(operator, "SLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
@@ -319,6 +337,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         Returns:
             Scalar estimate of ``log|det(A + shift I)|``.
         """
+        _check_symmetric(operator, "IndefiniteSLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
@@ -349,6 +368,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         Returns:
             Tuple ``(estimate, standard_error)``.
         """
+        _check_symmetric(operator, "IndefiniteSLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
