@@ -15,7 +15,7 @@ from gaussx import (
     process_noise_covariance,
     trace_correction,
 )
-from gaussx._einx import einsum
+from gaussx._einx import einsum, rearrange
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -77,7 +77,9 @@ def test_trace_correction_positive():
 
     tc = trace_correction(K_xx, K_xz, K_zz)
     projected = einsum(
-        K_xz, jnp.linalg.solve(K_zz_mat, einsum(K_xz, "n m -> m n")), "n m, m k -> n k"
+        K_xz,
+        jnp.linalg.solve(K_zz_mat, rearrange(K_xz, "n m -> m n")),
+        "n m, m k -> n k",
     )
     expected = jnp.trace(K_xx_mat - projected)
     assert tc >= 0
