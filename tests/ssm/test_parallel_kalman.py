@@ -689,3 +689,36 @@ def test_square_root_empty_window():
     )
     assert state.filtered_covs.shape == (0, 2, 2)
     assert state.log_likelihood == 0.0
+
+
+@pytest.mark.x64_only(reason="mask invariance checked at float64 round-off")
+def test_square_root_masked_channels_leave_no_dummy_variance_term():
+    """Masked channels' unit blocks are factored without the rounding shift.
+
+    Masking a channel equals deleting it: the log-likelihood of a
+    (T, M) mask with channel 1 off matches the M = 1 model exactly.
+    """
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    R = R.at[:, 0, 1].set(0.0).at[:, 1, 0].set(0.0)
+    mask = jnp.zeros(y.shape, dtype=bool).at[:, 0].set(True)
+    masked = parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask, square_root=True)
+    deleted = parallel_kalman_filter(
+        A, H[:, :1], Q, R[:, :1, :1], y[:, :1], m0, P0, square_root=True
+    )
+    assert jnp.allclose(masked.log_likelihood, deleted.log_likelihood, rtol=1e-13)
+    # The shift itself is below that tolerance in float64, so pin it: the
+    # dummy unit block factors to exactly 1.
+    from gaussx._ssm._parallel_kalman_factor import _input_factor
+
+    L = _input_factor(jnp.diag(jnp.array([0.3, 1.0])), jnp.array([True, False]))
+    assert L[1, 1] == 1.0
+    assert L[0, 0] > jnp.sqrt(0.3)
+
+
+def test_square_root_mixed_precision_prior():
+    """A float32 prior with float64 data is factored in float32 (and promoted)."""
+    (A, H, Q, R, y, m0, _P0), _ = _random_tv_model()
+    state = parallel_kalman_filter(
+        A, H, Q, R, y, m0, jnp.zeros((3, 3), jnp.float32), square_root=True
+    )
+    assert jnp.isfinite(state.log_likelihood)
