@@ -113,11 +113,18 @@ Dense eigendecomposition for exactness; stochastic Lanczos quadrature (SLQ) for
 $O(n^2 \cdot \text{rank})$ estimates on large PSD (or symmetric-indefinite)
 operators.
 
+`NystromLogdet` (Wenger et al., 2022) is the variance-reduced SLQ for a
+covariance-form $K + \sigma^2 I$. The log-determinant of the Nyström
+preconditioner $P = \hat K + \sigma^2 I$ is exact, and SLQ only estimates
+$\log|P^{-1/2}(K + \sigma^2 I)P^{-1/2}|$, whose operator is close to the
+identity, so the probe variance collapses. Use plain `SLQLogdet` for
+precision-form GMRF systems.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [DenseLogdet, SLQLogdet, IndefiniteSLQLogdet]
+      members: [DenseLogdet, SLQLogdet, IndefiniteSLQLogdet, NystromLogdet]
 
 ## Preconditioners
 

@@ -14,6 +14,7 @@ from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._lineax import LineaxSolver
 from gaussx._strategies._lsmr import LSMRSolver
 from gaussx._strategies._minres import MINRESSolver
+from gaussx._strategies._nystrom_logdet import NystromLogdet
 from gaussx._strategies._precond_cg import PreconditionedCGSolver
 from gaussx._strategies._sketch_precond import (
     SketchAndPrecondLSMR,
@@ -42,6 +43,7 @@ __all__ = [
     "LSMRSolver",
     "LineaxSolver",
     "MINRESSolver",
+    "NystromLogdet",
     "PreconditionedCGSolver",
     "SLQLogdet",
     "SketchAndPrecondLSMR",

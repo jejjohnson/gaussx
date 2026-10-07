@@ -46,11 +46,12 @@ def _default(cls: type):
 
 
 # KeyedSolver's key is deliberately a leaf, so that it can change under jit
-# (gh-384); see test_keyed_solver_key_is_its_only_leaf.
+# (gh-384); see test_keyed_solver_key_is_its_only_leaf. NystromLogdet's shift
+# is the model's noise variance, a learned parameter, so it is a leaf too
+# (gh-486); see test_nystrom_logdet_shift_is_its_only_leaf.
+_LEAF_CARRYING = (gaussx.KeyedSolver, gaussx.NystromLogdet)
 _STRATEGIES = [
-    _default(cls)
-    for cls in _exported_strategy_classes()
-    if cls is not gaussx.KeyedSolver
+    _default(cls) for cls in _exported_strategy_classes() if cls not in _LEAF_CARRYING
 ] + [
     gaussx.ComposedSolver(gaussx.DenseSolver(), gaussx.IndefiniteSLQLogdet()),
     gaussx.CGSolver(preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2)),
@@ -73,6 +74,12 @@ def test_keyed_solver_key_is_its_only_leaf():
     key = jr.key(0)
     keyed = gaussx.KeyedSolver(gaussx.CGSolver(), key)
     assert jax.tree_util.tree_leaves(keyed) == [key]
+
+
+def test_nystrom_logdet_shift_is_its_only_leaf():
+    shift = jnp.asarray(0.1)
+    strategy = gaussx.NystromLogdet(shift=shift, rank=3)
+    assert jax.tree_util.tree_leaves(strategy) == [shift]
 
 
 @pytest.mark.parametrize("strategy", _STRATEGIES, ids=_id)
