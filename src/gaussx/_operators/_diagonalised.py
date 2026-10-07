@@ -499,7 +499,11 @@ def _check_even_real_kernel(column: Array) -> None:
         return
     # Round-off tolerance (an explicit flag, unlike the exact inference).
     reflected = c[np.ix_(*(np.negative(np.arange(n)) % n for n in c.shape))]
-    tol = 1e3 * np.finfo(c.dtype).eps * np.max(np.abs(c), initial=0.0)
+    tol = (
+        1e3
+        * np.finfo(np.result_type(c.dtype, np.float32)).eps
+        * np.max(np.abs(c), initial=0.0)
+    )
     if not np.allclose(c, reflected, rtol=0.0, atol=tol):
         raise ValueError(
             "Circulant(symmetric=True) needs an even column, c[k] == c[-k mod n]."

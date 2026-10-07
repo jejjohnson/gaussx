@@ -460,3 +460,9 @@ def test_circulant_value_inference_is_deprecated():
 def test_circulant_symmetric_flag_validates(column):
     with pytest.raises(ValueError, match="symmetric=True"):
         gaussx.Circulant(column, symmetric=True)
+
+
+def test_circulant_symmetric_flag_accepts_integer_column():
+    op = gaussx.Circulant(jnp.array([2, -1, 0, -1]), symmetric=True)
+    assert lx.is_symmetric(op)
+    assert not jnp.iscomplexobj(op.eigenvalues)
