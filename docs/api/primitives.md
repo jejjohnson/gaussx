@@ -72,9 +72,18 @@ half_log_pdet_grid = 0.5 * gaussx.pseudo_logdet(gaussx.KroneckerSum(L_H, L_W))
 
 ## Trace & diagonal
 
-Exact where structure allows; stochastic (Hutchinson / XTrace probing) for
-matrix-free operators. `trace_and_diag` shares one probe pass between both
-estimates.
+Exact where structure allows; stochastic (Hutchinson / Hutch++ / XTrace
+probing) for matrix-free operators. `trace_and_diag` shares one probe pass
+between both estimates.
+
+Hutch++ (`algorithm="hutchpp"`, Meyer et al., 2021) and XTrace
+(`algorithm="xtrace"`, Epperly et al., 2024) deflate a randomized low-rank
+part, $\operatorname{tr}(A) = \operatorname{tr}(Q^\top AQ) +
+\operatorname{tr}\big((I-QQ^\top)A(I-QQ^\top)\big)$, and probe only the
+remainder. On a decaying spectrum they reach relative error $\varepsilon$ in
+$O(1/\varepsilon)$ matvecs, against Hutchinson's $O(1/\varepsilon^2)$.
+Examples are traces of kernel matrices, of $A^{-1}B$ in GP
+hyperparameter gradients, or of Hessians.
 
 ::: gaussx
     options:
