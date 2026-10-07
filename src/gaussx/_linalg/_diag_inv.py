@@ -5,19 +5,24 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange, reduce
 from gaussx._linalg._safe_cholesky import safe_cholesky
 from gaussx._linalg._selected_inverse import selected_inverse
+from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._factored_eigen import factored_eigen
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import SumOfKroneckers, _shifted_kronecker_eigen
+from gaussx._primitives._diag import diag
+from gaussx._primitives._inv import InverseOperator, inv
 from gaussx._sparse._factor import SparseCholeskyFactor
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -41,6 +46,10 @@ def diag_inv(
     With ``method="auto"`` the operator's structure picks an exact path
     first:
 
+    - ``DiagonalLinearOperator``: ``1 / d``; `BlockDiag`: per block, each
+      dispatched in turn; a symmetric `LowRankUpdate`: the diagonal of its
+      Woodbury inverse, ``O(N k²)``; ``c · A``, ``A / c`` and ``-A``: the
+      structured path of ``A``, rescaled (gh-365).
     - `BlockTriDiag` (symmetric): the diagonal blocks of
       `gaussx.selected_inverse`, ``O(N d³)``.
     - `Kronecker` ``A ⊗ B``: ``diag_inv(A) ⊗ diag_inv(B)``, each factor
@@ -165,6 +174,55 @@ def _diag_inv_structured(
             key=key,
             solver=solver,
         )
+    if isinstance(operator, lx.MulLinearOperator | lx.DivLinearOperator):
+        # diag((c A)⁻¹) = diag(A⁻¹) / c, also for the pseudo-inverse (gh-365).
+        inner = _diag_inv_structured(
+            operator.operator,
+            pinv=pinv,
+            num_probes=num_probes,
+            key=key,
+            solver=solver,
+        )
+        if inner is None:
+            return None
+        if isinstance(operator, lx.DivLinearOperator):
+            return inner * operator.scalar
+        if pinv:
+            # (0 · A)⁺ = 0, so a zero multiplier gives a zero diagonal.
+            scalar = operator.scalar
+            is_zero = scalar == 0
+            return jnp.where(is_zero, 0.0, inner / jnp.where(is_zero, 1.0, scalar))
+        return inner / operator.scalar
+    if isinstance(operator, lx.NegLinearOperator):
+        inner = _diag_inv_structured(
+            operator.operator,
+            pinv=pinv,
+            num_probes=num_probes,
+            key=key,
+            solver=solver,
+        )
+        return None if inner is None else -inner
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return None if pinv else 1.0 / lx.diagonal(operator)
+    if isinstance(operator, BlockDiag):
+        if pinv or any(op.in_size() != op.out_size() for op in operator.operators):
+            return None
+        return jnp.concatenate(
+            [
+                diag_inv(op, num_probes=num_probes, key=key, solver=solver)
+                for op in operator.operators
+            ]
+        )
+    if isinstance(operator, LowRankUpdate):
+        # Woodbury keeps inv(A) a LowRankUpdate, whose diagonal is O(N k). It
+        # solves against the base, so only a base known to be invertible and
+        # cheap qualifies: an identity, or a concrete nonzero diagonal. A
+        # singular base (e.g. the zero base of `ensemble_covariance`) or a
+        # dense one keeps the general path.
+        if pinv or not _invertible_diagonal_base(operator.base):
+            return None
+        inverse = inv(operator)
+        return None if isinstance(inverse, InverseOperator) else diag(inverse)
     if isinstance(operator, SparseOperator):
         if pinv or not isinstance(solver, SparseCholeskySolver):
             return None
@@ -195,6 +253,18 @@ def _diag_inv_structured(
         factorization = _shifted_kronecker_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     return None
+
+
+def _invertible_diagonal_base(base: lx.AbstractLinearOperator) -> bool:
+    if isinstance(base, lx.IdentityLinearOperator):
+        return base.in_size() == base.out_size()
+    if not isinstance(base, lx.DiagonalLinearOperator):
+        return False
+    try:
+        d = np.asarray(lx.diagonal(base))
+    except jax.errors.TracerArrayConversionError:
+        return False
+    return bool(np.all(d != 0))
 
 
 def _sparse_factor(
