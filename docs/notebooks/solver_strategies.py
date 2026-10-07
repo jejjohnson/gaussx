@@ -169,15 +169,21 @@ print(f"  (n={n} < 1000, so AutoSolver selects DenseSolver internally)")
 # %% [markdown]
 # ## BBMMSolver
 #
-# `BBMMSolver` implements the Black-Box Matrix-Matrix method (Gardner et al.
-# 2018). It solves via CG and estimates the log-determinant via stochastic
-# Lanczos quadrature, similar to `CGSolver`, but also provides
-# `solve_and_logdet` which amortizes shared matvec calls when you need both.
+# `BBMMSolver` carries the settings of the Black-Box Matrix-Matrix method
+# (Gardner et al. 2018). Its `solve` is a CG solve and its `logdet` a
+# stochastic Lanczos quadrature (SLQ) estimate, like `CGSolver`.
+# `solve_and_logdet` is a convenience that calls the two in turn; it shares no
+# matvecs.
 #
-# The BBMM method (Gardner et al., 2018) was introduced in GPyTorch and
-# unifies CG-based solve with SLQ-based logdet. The key insight is that the
-# Lanczos decomposition computed during CG can be reused for the logdet
-# estimate, amortizing the cost of matvecs.
+# The BBMM method (Gardner et al., 2018) was introduced in GPyTorch. It runs
+# the right-hand sides and the SLQ probe vectors through one modified batched
+# CG (mBCG) pass and reads the Lanczos tridiagonals for the logdet off the CG
+# coefficients. In gaussx that shared pass is
+# `gaussx.inv_quad_logdet(op, rhs, strategy=BBMMSolver(...))`. It is not
+# automatically cheaper: it runs the probe columns to CG convergence rather
+# than stopping after `lanczos_iter` Lanczos steps, so on a well-conditioned
+# kernel it can apply the operator to more columns than a separate solve and
+# SLQ.
 
 # %%
 bbmm = gaussx.BBMMSolver(
@@ -194,7 +200,7 @@ print(f"  logdet:         {ld_bbmm:.6f}")
 print(f"  logdet error:   {jnp.abs(ld_bbmm - ld_true):.2e}")
 
 # %%
-# solve_and_logdet computes both in one call, amortizing operator matvecs
+# solve_and_logdet computes both in one call (no shared matvecs)
 x_bbmm_joint, ld_bbmm_joint = bbmm.solve_and_logdet(op, b)
 
 print("\nBBMMSolver.solve_and_logdet:")
@@ -414,7 +420,7 @@ plt.show()
 # | `DenseSolver` | Small-medium, structured | Exact | Exact |
 # | `CGSolver` | Large PSD, matrix-free | CG | SLQ |
 # | `AutoSolver` | Don't want to choose | Auto | Auto |
-# | `BBMMSolver` | Large PSD, amortized | CG | SLQ |
+# | `BBMMSolver` | Large PSD; mBCG via `inv_quad_logdet` | CG | SLQ |
 # | `PrecondCGSolver` | Noisy GP kernels | Precond CG | SLQ |
 # | `LSMRSolver` | Rectangular, ill-cond. | LSMR | SLQ |
 # | `ComposedSolver` | Mix-and-match | Any | Any |
@@ -435,8 +441,8 @@ plt.show()
 #   Lanczos quadrature (SLQ) for logdet.
 # - **AutoSolver**: Inspects operator type and size, delegates
 #   to DenseSolver or CGSolver automatically.
-# - **BBMMSolver**: GPyTorch-style; `solve_and_logdet` shares
-#   matvec calls across solve and logdet.
+# - **BBMMSolver**: GPyTorch-style settings; `inv_quad_logdet` runs its
+#   shared mBCG pass, while `solve_and_logdet` is a separate solve and SLQ.
 # - **PreconditionedCGSolver**: Low-rank Cholesky
 #   preconditioner accelerates convergence on $K + \sigma^2 I$.
 # - **LSMRSolver**: Supports Tikhonov damping; only needs
@@ -461,7 +467,8 @@ plt.show()
 #   leverages gaussx structural dispatch for operators like `Kronecker`,
 #   `BlockDiag`, and `LowRankUpdate`.
 # - **`CGSolver`** and **`BBMMSolver`** are iterative solvers for large PSD
-#   systems. `BBMMSolver` adds `solve_and_logdet` for amortized computation.
+#   systems. `BBMMSolver` also drives the shared mBCG pass of
+#   `gaussx.inv_quad_logdet`.
 # - **`PreconditionedCGSolver`** dramatically improves CG convergence on
 #   noisy kernel matrices by using a low-rank Cholesky preconditioner.
 # - **`LSMRSolver`** handles rectangular and ill-conditioned systems that

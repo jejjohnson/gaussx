@@ -13,19 +13,24 @@ from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
 
 class BBMMSolver(AbstractSolverStrategy):
-    """Black-Box Matrix-Matrix solver (Gardner et al. 2018).
+    """CG solve and SLQ logdet with BBMM's defaults (Gardner et al. 2018).
 
-    Simultaneously solves multiple RHS and computes logdet via
-    modified batched CG (mBCG). Amortizes matvecs across solve
-    and logdet.
+    Solve: an ordinary lineax CG solve of each right-hand side.
+    Logdet: stochastic Lanczos quadrature (SLQ) via matfree, with
+    ``lanczos_iter`` Lanczos steps on each of ``num_probes`` probes.
 
-    Solve: CG via lineax on each RHS column.
-    Logdet: Stochastic Lanczos Quadrature via matfree.
+    The two are independent: `solve_and_logdet` is a convenience wrapper
+    that calls `solve` and then `logdet`, sharing no matvecs (gh-396). The
+    modified batched CG (mBCG) pass that *does* share them, running the
+    right-hand sides and the probes through one block CG, is
+    ``gaussx.inv_quad_logdet(operator, rhs, strategy=BBMMSolver(...))``. It
+    is not automatically cheaper: it runs the probe columns to convergence
+    rather than stopping at ``lanczos_iter`` Lanczos steps, so it can apply
+    the operator to more columns than a separate solve and SLQ do.
 
-    Probe vectors are generated at construction time from ``seed``
-    and stored as frozen state. This makes ``logdet`` and
-    ``solve_and_logdet`` deterministic functions of the operator —
-    no PRNG key is needed at call time.
+    Only the integer ``seed`` is stored. With no ``key``, `logdet` draws
+    its probes from ``PRNGKey(seed)`` at every call, so it is a
+    deterministic function of the operator.
 
     Attributes:
         cg_max_iter: Maximum CG iterations.
@@ -97,10 +102,11 @@ class BBMMSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> tuple[Float[Array, " n"], Float[Array, ""]]:
-        """Joint solve + logdet.
+        """``(solve(A, b), logdet(A))`` in one call.
 
-        Computes both solve(A, b) and logdet(A) sharing the
-        operator's matvec calls where possible.
+        A convenience wrapper: it costs exactly `solve` plus `logdet`, with
+        no shared matvecs. For the shared mBCG pass use
+        ``gaussx.inv_quad_logdet(operator, rhs, strategy=self)``.
 
         Args:
             operator: A PSD linear operator.
