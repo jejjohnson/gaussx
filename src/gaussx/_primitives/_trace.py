@@ -12,7 +12,11 @@ import matfree.stochtrace
 from jaxtyping import Array, Float
 
 from gaussx._operators._block_diag import BlockDiag
-from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._block_tridiag import (
+    BlockTriDiag,
+    LowerBlockTriDiag,
+    UpperBlockTriDiag,
+)
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
@@ -85,7 +89,7 @@ def trace(
     if isinstance(operator, Kronecker):
         # trace(A ⊗ B) = trace(A) · trace(B).
         return ft.reduce(jnp.multiply, rec_all(operator.operators))
-    if isinstance(operator, BlockTriDiag):
+    if isinstance(operator, BlockTriDiag | LowerBlockTriDiag | UpperBlockTriDiag):
         return _trace_block_tridiag(operator)
     if isinstance(operator, LowRankUpdate):
         return _trace_low_rank(operator, rec(operator.base))
@@ -111,7 +115,9 @@ def trace(
     return jnp.trace(operator.as_matrix())
 
 
-def _trace_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
+def _trace_block_tridiag(
+    operator: BlockTriDiag | LowerBlockTriDiag | UpperBlockTriDiag,
+) -> Float[Array, ""]:
     """trace of block-tridiagonal = sum of traces of diagonal blocks."""
     return jnp.sum(jax.vmap(jnp.trace)(operator.diagonal))
 

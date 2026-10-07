@@ -495,6 +495,8 @@ def _solve_tagged(
         BlockTriDiag,
         LowerBlockTriDiag,
         UpperBlockTriDiag,
+        # ``solve`` falls back itself when there is no capacitance (gh-391).
+        MaskedOperator,
     )
     if isinstance(operator.operator, structured):
         return solve(operator.operator, vector, solver=solver)

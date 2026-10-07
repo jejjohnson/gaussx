@@ -12,6 +12,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx import as_linear_operator, linear_solve
 from gaussx._einx import einsum
 from gaussx._linalg._symmetrize import symmetrize
@@ -258,3 +259,22 @@ def test_preconditioner_on_other_strategies_raises_clearly(name):
         linear_solve(
             op, jnp.ones(3), solver=solver, preconditioner=JacobiPreconditioner()
         )
+
+
+def test_negative_definite_keeps_structure_with_explicit_strategy(monkeypatch):
+    """Negation keeps the spectral solve instead of a matvec wrapper (gh-391)."""
+    n = 8
+    k = 2.0 * jnp.pi * jnp.fft.fftfreq(n)
+    symbol = -(3.0 - 2.0 * jnp.cos(k))  # conjugate-even, negative definite
+    op = gaussx.circulant_from_symbol(symbol, tags=lx.negative_semidefinite_tag)
+    b = jnp.arange(1.0, n + 1.0)
+    expected = jnp.linalg.solve(op.as_matrix(), b)
+
+    def _forbidden(self):
+        raise AssertionError("DiagonalisedOperator.as_matrix called")
+
+    monkeypatch.setattr(gaussx.DiagonalisedOperator, "as_matrix", _forbidden)
+    x = linear_solve(op, b, solver=gaussx.DenseSolver())
+    monkeypatch.undo()
+    assert tree_allclose(x, expected)
+    assert tree_allclose(x, -gaussx.solve(-op, b))
