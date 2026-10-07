@@ -16,6 +16,29 @@ from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 
 
+def _tilted_weights(
+    log_lik_fn: Callable[[Float[Array, " D"]], Float[Array, ""]],
+    chi: Float[Array, "P D"],
+    w_m: Float[Array, " P"],
+    power: float,
+) -> tuple[Float[Array, " P"], Float[Array, ""]]:
+    """Shifted tilted weights ``w_i p(y | f_i)^a / exp(shift)``.
+
+    Shared by `moment_match` and `gaussx.ep_tilted_moments`. The shift is
+    the largest ``a log p(y | f_i)``; it cancels in every normalised ratio
+    and is differentiated as a constant. Weights keep the rule's sign.
+    """
+    log_p = power * jax.vmap(log_lik_fn)(chi)  # (P,)
+    if log_p.ndim != 1:
+        msg = (
+            f"log_lik_fn must return a scalar per point, got trailing "
+            f"shape {log_p.shape[1:]}."
+        )
+        raise ValueError(msg)
+    shift = jax.lax.stop_gradient(jnp.max(log_p))
+    return w_m * jnp.exp(log_p - shift), shift
+
+
 class MomentMatchResult(eqx.Module):
     r"""Tilted log-normaliser and its derivatives w.r.t. the cavity mean.
 
@@ -118,18 +141,7 @@ def moment_match(
         ValueError: If ``log_lik_fn`` does not return a scalar per point.
     """
     chi, w_m, _ = integrator.points_and_weights(state)
-
-    # Tilted weights, shifted for numerical stability. The shift cancels in
-    # every ratio below and is differentiated as a constant.
-    log_p = power * jax.vmap(log_lik_fn)(chi)  # (P,)
-    if log_p.ndim != 1:
-        msg = (
-            f"log_lik_fn must return a scalar per point, got trailing "
-            f"shape {log_p.shape[1:]}."
-        )
-        raise ValueError(msg)
-    shift = jax.lax.stop_gradient(jnp.max(log_p))
-    p_tilde = w_m * jnp.exp(log_p - shift)  # (P,), signed
+    p_tilde, shift = _tilted_weights(log_lik_fn, chi, w_m, power)  # (P,), signed
     Z_tilde = jnp.sum(p_tilde)
 
     log_Z = shift + jnp.log(Z_tilde)
