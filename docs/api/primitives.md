@@ -129,9 +129,11 @@ known ahead of time.
 
 `inv_quad_logdet` returns $\mathrm{tr}(R^\top A^{-1}R)$ and $\log|A|$ from a
 single modified-batched-CG pass — the two halves of a Gaussian log-density at
-roughly the matvec budget of one. Supplying a preconditioner $P \approx A$
+roughly the matvec budget of one. Supplying `logdet_preconditioner=` $P \approx A$
 switches on the Artemev et al. variance reduction, estimating only the
-near-identity residual $\log(P^{-1}A)$ stochastically.
+near-identity residual $\log(P^{-1}A)$ stochastically. $P$ approximates $A$
+itself, unlike the `preconditioner=` ($M^{-1} \approx A^{-1}$) of the CG
+solvers. The old keyword `preconditioner=` is a deprecated alias.
 
 ::: gaussx
     options:

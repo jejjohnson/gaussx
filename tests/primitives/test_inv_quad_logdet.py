@@ -34,9 +34,10 @@ def _exact_strategy(n: int, seed: int = 0) -> gaussx.BBMMSolver:
     condition numbers used here.
     """
     return gaussx.BBMMSolver(
-        cg_max_iter=4 * n,
-        cg_tolerance=1e-12,
-        lanczos_iter=n,
+        max_steps=4 * n,
+        rtol=1e-12,
+        atol=1e-12,
+        lanczos_order=n,
         num_probes=64,
         seed=seed,
     )
@@ -117,7 +118,7 @@ def test_lanczos_quadrature_reproduces_a_single_probe() -> None:
     operator = random_pd_operator(jr.key(6), n)
     rhs = jr.normal(jr.key(7), (n, 1))
     strategy = gaussx.BBMMSolver(
-        cg_max_iter=2 * n, cg_tolerance=1e-12, lanczos_iter=n, num_probes=1, seed=11
+        max_steps=2 * n, rtol=1e-12, atol=1e-12, lanczos_order=n, num_probes=1, seed=11
     )
 
     probe = 2.0 * jr.bernoulli(jr.PRNGKey(11), 0.5, (n, 1)) - 1.0
@@ -145,7 +146,7 @@ def test_lanczos_order_may_exceed_the_operator_size() -> None:
         0.5 * (matrix + matrix.T), lx.positive_semidefinite_tag
     )
     strategy = gaussx.BBMMSolver(
-        cg_max_iter=10 * n, cg_tolerance=1e-12, lanczos_iter=10 * n, num_probes=1
+        max_steps=10 * n, rtol=1e-12, atol=1e-12, lanczos_order=10 * n, num_probes=1
     )
 
     probe = 2.0 * jr.bernoulli(jr.PRNGKey(0), 0.5, (n, 1)) - 1.0
@@ -166,7 +167,7 @@ def test_logdet_tracks_the_dense_value() -> None:
         operator,
         rhs,
         strategy=gaussx.BBMMSolver(
-            cg_max_iter=80, lanczos_iter=40, num_probes=256, seed=2
+            max_steps=80, lanczos_order=40, num_probes=256, seed=2
         ),
     )
 
@@ -264,11 +265,11 @@ def test_preconditioning_reduces_logdet_variance() -> None:
     plain, preconditioned = [], []
     for seed in range(6):
         strategy = gaussx.BBMMSolver(
-            cg_max_iter=120, lanczos_iter=30, num_probes=10, seed=seed
+            max_steps=120, lanczos_order=30, num_probes=10, seed=seed
         )
         _, raw = gaussx.inv_quad_logdet(operator, rhs, strategy=strategy)
         _, reduced = gaussx.inv_quad_logdet(
-            operator, rhs, strategy=strategy, preconditioner=preconditioner
+            operator, rhs, strategy=strategy, logdet_preconditioner=preconditioner
         )
         plain.append(raw)
         preconditioned.append(reduced)
@@ -292,9 +293,9 @@ def test_preconditioned_logdet_stays_accurate() -> None:
         operator,
         rhs,
         strategy=gaussx.BBMMSolver(
-            cg_max_iter=120, lanczos_iter=30, num_probes=16, seed=4
+            max_steps=120, lanczos_order=30, num_probes=16, seed=4
         ),
-        preconditioner=preconditioner,
+        logdet_preconditioner=preconditioner,
     )
 
     assert jnp.allclose(inv_quad, jnp.sum(_dense_inv_quad(operator, rhs)), rtol=1e-5)
@@ -340,7 +341,7 @@ def test_exact_strategy_ignores_the_preconditioner(strategy) -> None:
     rhs = jr.normal(jr.key(17), (30, 1))
 
     _, logdet = gaussx.inv_quad_logdet(
-        operator, rhs, strategy=strategy, preconditioner=preconditioner
+        operator, rhs, strategy=strategy, logdet_preconditioner=preconditioner
     )
 
     expected = jnp.linalg.slogdet(operator.as_matrix())[1]
@@ -370,7 +371,7 @@ def test_non_bbmm_strategy_applies_the_preconditioner_identity() -> None:
         operator,
         rhs,
         strategy=gaussx.CGSolver(num_probes=16, lanczos_order=20),
-        preconditioner=preconditioner,
+        logdet_preconditioner=preconditioner,
     )
 
     expected = jnp.linalg.slogdet(operator.as_matrix())[1]
@@ -413,7 +414,7 @@ def test_function_operator_is_supported_and_differentiable() -> None:
 def test_jit_matches_eager() -> None:
     operator = random_pd_operator(jr.key(15), 20)
     rhs = jr.normal(jr.key(16), (20, 2))
-    strategy = gaussx.BBMMSolver(cg_max_iter=40, lanczos_iter=20, num_probes=8, seed=5)
+    strategy = gaussx.BBMMSolver(max_steps=40, lanczos_order=20, num_probes=8, seed=5)
 
     def call(op, vectors):
         return gaussx.inv_quad_logdet(op, vectors, strategy=strategy)
@@ -503,7 +504,7 @@ def test_grad_flows_through_a_kernel_parameterisation_with_a_preconditioner() ->
     noise = 0.1
     rhs = jr.normal(jr.key(24), (n, 1))
     _, preconditioner = _kernel_system(n, rank=15, noise=noise)
-    strategy = gaussx.BBMMSolver(cg_max_iter=80, lanczos_iter=30, num_probes=32, seed=8)
+    strategy = gaussx.BBMMSolver(max_steps=80, lanczos_order=30, num_probes=32, seed=8)
 
     def kernel(lengthscale):
         return jnp.exp(-0.5 * squared / lengthscale**2) + noise * jnp.eye(n)
@@ -513,7 +514,7 @@ def test_grad_flows_through_a_kernel_parameterisation_with_a_preconditioner() ->
             kernel(lengthscale), lx.positive_semidefinite_tag
         )
         inv_quad, logdet = gaussx.inv_quad_logdet(
-            operator, rhs, strategy=strategy, preconditioner=preconditioner
+            operator, rhs, strategy=strategy, logdet_preconditioner=preconditioner
         )
         return 0.5 * inv_quad + 0.5 * logdet
 
@@ -639,8 +640,8 @@ def test_shared_pass_honours_throw():
     )
     rhs = jr.normal(jr.key(1), (20, 1), dtype=op.as_matrix().dtype)
     with pytest.raises(eqx.EquinoxRuntimeError):
-        gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver(cg_max_iter=1))
+        gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver(max_steps=1))
     inv_quad, _ = gaussx.inv_quad_logdet(
-        op, rhs, strategy=gaussx.BBMMSolver(cg_max_iter=1, throw=False)
+        op, rhs, strategy=gaussx.BBMMSolver(max_steps=1, throw=False)
     )
     assert jnp.isfinite(inv_quad)

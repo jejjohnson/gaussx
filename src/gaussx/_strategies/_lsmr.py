@@ -9,7 +9,9 @@ import lineax as lx
 import matfree.lstsq
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
@@ -34,12 +36,13 @@ class LSMRSolver(AbstractSolverStrategy):
         btol: Relative tolerance on the residual. ``None``: as ``atol``.
         ctol: Condition number tolerance (the lineax path uses
             ``conlim = 1 / ctol``).
-        maxiter: Maximum iterations.
+        max_steps: Maximum iterations (formerly ``maxiter``, a deprecated
+            alias; gh-405).
         damp: Tikhonov damping parameter.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Lanczos iterations for SLQ logdet.
         seed: Seed for probe vector generation.
-        throw: Raise when LSMR stops without converging (``maxiter``
+        throw: Raise when LSMR stops without converging (``max_steps``
             reached), on both the lineax and the damped matfree path. With
             ``False`` the last iterate is returned unchecked (gh-336).
     """
@@ -47,12 +50,44 @@ class LSMRSolver(AbstractSolverStrategy):
     atol: float | None = eqx.field(static=True, default=None)
     btol: float | None = eqx.field(static=True, default=None)
     ctol: float = eqx.field(static=True, default=1e-6)
-    maxiter: int = eqx.field(static=True, default=1000)
+    max_steps: int = eqx.field(static=True, default=1000)
     damp: float = eqx.field(static=True, default=0.0)
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
     throw: bool = eqx.field(static=True, default=True)
+
+    def __init__(
+        self,
+        *,
+        atol: float | None = None,
+        btol: float | None = None,
+        ctol: float = 1e-6,
+        max_steps: int = UNSET,
+        damp: float = 0.0,
+        num_probes: int = 20,
+        lanczos_order: int = 30,
+        seed: int = 0,
+        throw: bool = True,
+        maxiter: int = UNSET,
+    ) -> None:
+        self.atol = atol
+        self.btol = btol
+        self.ctol = ctol
+        self.max_steps = default(
+            renamed("LSMRSolver", "maxiter", maxiter, "max_steps", max_steps), 1000
+        )
+        self.damp = damp
+        self.num_probes = num_probes
+        self.lanczos_order = lanczos_order
+        self.seed = seed
+        self.throw = throw
+
+    @property
+    def maxiter(self) -> int:
+        """Deprecated: `max_steps` (gh-405)."""
+        warn_deprecated("LSMRSolver.maxiter is deprecated; use .max_steps (gh-405).")
+        return self.max_steps
 
     def solve(
         self,
@@ -75,7 +110,7 @@ class LSMRSolver(AbstractSolverStrategy):
             solver = lx.LSMR(
                 rtol=btol,
                 atol=atol,
-                max_steps=self.maxiter,
+                max_steps=self.max_steps,
                 conlim=1.0 / self.ctol if self.ctol > 0 else 1e8,
             )
             return lx.linear_solve(operator, vector, solver, throw=self.throw).value
@@ -86,7 +121,7 @@ class LSMRSolver(AbstractSolverStrategy):
             atol=atol,
             btol=btol,
             ctol=self.ctol,
-            maxiter=self.maxiter,
+            maxiter=self.max_steps,
         )
 
         def vecmat(v):
@@ -98,8 +133,8 @@ class LSMRSolver(AbstractSolverStrategy):
             x = eqx.error_if(
                 x,
                 jnp.logical_not(stats["success"]),
-                "LSMR did not converge within `maxiter` steps. Increase "
-                "`maxiter`, loosen `atol`/`btol`, or pass `throw=False`.",
+                "LSMR did not converge within `max_steps` steps. Increase "
+                "`max_steps`, loosen `atol`/`btol`, or pass `throw=False`.",
             )
         return x
 

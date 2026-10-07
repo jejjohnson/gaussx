@@ -50,9 +50,9 @@ MatvecLike = Callable[[Float[Array, " n"]], Float[Array, " n"]]
 OperatorLike = lx.AbstractLinearOperator | tuple[MatvecLike, tuple[int, int]]
 """Either a built operator or a ``(matvec, shape)`` pair."""
 
-PreconditionerLike = lx.AbstractLinearOperator | MatvecLike | object
-"""A preconditioner: a lineax operator, a callable applying ``M^{-1}``, or an
-object exposing ``.as_operator()`` (the Phase 1 ``AbstractPreconditioner``)."""
+PreconditionerLike = AbstractPreconditioner | lx.AbstractLinearOperator | MatvecLike
+"""A preconditioner: an `AbstractPreconditioner`, a lineax operator applying
+``M^{-1}``, or a callable ``v -> M^{-1} v`` (gh-405)."""
 
 
 def as_linear_operator(

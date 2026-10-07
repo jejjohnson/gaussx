@@ -27,7 +27,7 @@ K_SEM = 5.0
 @pytest.mark.slow
 def test_solve_square(getkey):
     """LSMR should solve square well-conditioned systems."""
-    solver = LSMRSolver(atol=1e-10, btol=1e-10, maxiter=500)
+    solver = LSMRSolver(atol=1e-10, btol=1e-10, max_steps=500)
     mat = random_pd_matrix(getkey(), 5)
     op = lx.MatrixLinearOperator(mat)
     v = jr.normal(getkey(), (5,))
@@ -38,7 +38,7 @@ def test_solve_square(getkey):
 def test_solve_with_damping(getkey):
     """LSMR with damping should solve regularized system."""
     damp = 0.5
-    solver = LSMRSolver(atol=1e-10, btol=1e-10, maxiter=500, damp=damp)
+    solver = LSMRSolver(atol=1e-10, btol=1e-10, max_steps=500, damp=damp)
     mat = random_pd_matrix(getkey(), 5)
     op = lx.MatrixLinearOperator(mat)
     v = jr.normal(getkey(), (5,))
@@ -51,7 +51,7 @@ def test_solve_with_damping(getkey):
 
 def test_solve_rectangular(getkey):
     """LSMR should solve rectangular least-squares systems."""
-    solver = LSMRSolver(atol=1e-10, btol=1e-10, maxiter=500)
+    solver = LSMRSolver(atol=1e-10, btol=1e-10, max_steps=500)
     mat = jr.normal(getkey(), (6, 4)) + 0.5 * jnp.ones((6, 4))
     op = lx.MatrixLinearOperator(mat)
     b = jr.normal(getkey(), (6,))

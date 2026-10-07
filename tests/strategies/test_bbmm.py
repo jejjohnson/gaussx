@@ -28,7 +28,7 @@ K_SEM = 5.0
 
 
 def test_solve_psd(getkey):
-    bbmm = BBMMSolver(cg_tolerance=1e-8, cg_max_iter=2000)
+    bbmm = BBMMSolver(rtol=1e-8, atol=1e-8, max_steps=2000)
     mat = random_pd_matrix(getkey(), 5)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     v = jr.normal(getkey(), (5,))
@@ -37,7 +37,7 @@ def test_solve_psd(getkey):
 
 
 def test_solve_diagonal(getkey):
-    bbmm = BBMMSolver(cg_tolerance=1e-8)
+    bbmm = BBMMSolver(rtol=1e-8, atol=1e-8)
     d = jnp.abs(jr.normal(getkey(), (4,))) + 0.1
     op = lx.TaggedLinearOperator(
         lx.DiagonalLinearOperator(d), lx.positive_semidefinite_tag
@@ -50,7 +50,7 @@ def test_solve_diagonal(getkey):
 @pytest.mark.slow
 def test_logdet_psd():
     """Stochastic logdet is within K_SEM standard errors of the exact one."""
-    bbmm = BBMMSolver(num_probes=50, lanczos_iter=20)
+    bbmm = BBMMSolver(num_probes=50, lanczos_order=20)
     op = random_pd_operator(jr.key(0), 20)
     # BBMMSolver.logdet with no key is SLQ seeded from bbmm.seed.
     est, sem = SLQLogdet(num_probes=50, lanczos_order=20).logdet_and_error(op)
@@ -65,7 +65,7 @@ def test_logdet_diagonal():
     Each probe gives zᵀ log(D) z = Σ log dᵢ when zᵢ² = 1, and full-order
     Lanczos is exact quadrature, so only round-off is left.
     """
-    bbmm = BBMMSolver(num_probes=50, lanczos_iter=10)
+    bbmm = BBMMSolver(num_probes=50, lanczos_order=10)
     d = jnp.abs(jr.normal(jr.key(0), (10,))) + 0.5
     op = lx.TaggedLinearOperator(
         lx.DiagonalLinearOperator(d), lx.positive_semidefinite_tag
@@ -76,7 +76,7 @@ def test_logdet_diagonal():
 @pytest.mark.slow
 def test_solve_and_logdet(getkey):
     """Joint solve + logdet should match individual calls."""
-    bbmm = BBMMSolver(cg_tolerance=1e-8, cg_max_iter=2000, num_probes=50)
+    bbmm = BBMMSolver(rtol=1e-8, atol=1e-8, max_steps=2000, num_probes=50)
     mat = random_pd_matrix(getkey(), 8)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     v = jr.normal(getkey(), (8,))
@@ -92,7 +92,7 @@ def test_solve_and_logdet(getkey):
 @pytest.mark.slow
 def test_deterministic_logdet(getkey):
     """logdet should be deterministic (same seed -> same result)."""
-    bbmm = BBMMSolver(seed=42, num_probes=20, lanczos_iter=15)
+    bbmm = BBMMSolver(seed=42, num_probes=20, lanczos_order=15)
     mat = random_pd_matrix(getkey(), 10)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
 
@@ -104,7 +104,7 @@ def test_deterministic_logdet(getkey):
 @pytest.mark.slow
 def test_logdet_respects_explicit_key(getkey):
     """Passing different keys should change the stochastic estimate."""
-    bbmm = BBMMSolver(seed=42, num_probes=5, lanczos_iter=8)
+    bbmm = BBMMSolver(seed=42, num_probes=5, lanczos_order=8)
     mat = random_pd_matrix(getkey(), 20)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
 
@@ -115,7 +115,7 @@ def test_logdet_respects_explicit_key(getkey):
 
 @pytest.mark.slow
 def test_filter_jit_solve(getkey):
-    bbmm = BBMMSolver(cg_tolerance=1e-6)
+    bbmm = BBMMSolver(rtol=1e-6, atol=1e-6)
     mat = random_pd_matrix(getkey(), 4)
     op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
     v = jr.normal(getkey(), (4,))
@@ -147,7 +147,7 @@ def test_solve_and_logdet_costs_solve_plus_logdet():
         mv, jax.ShapeDtypeStruct((n,), K.dtype), lx.positive_semidefinite_tag
     )
     y = jr.normal(jr.key(0), (n,), dtype=K.dtype)
-    bbmm = BBMMSolver(lanczos_iter=10, num_probes=4)
+    bbmm = BBMMSolver(lanczos_order=10, num_probes=4)
 
     def count(f):
         columns[0] = 0
