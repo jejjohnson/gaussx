@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import einx
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
+from gaussx._einx import einsum
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._low_rank_update import LowRankUpdate
 
 
 def submatrix(
@@ -25,9 +28,13 @@ def submatrix(
     Currently dispatches on:
 
     - `lineax.DiagonalLinearOperator`
-    - `lineax.TaggedLinearOperator` (delegates to the wrapped operator)
+    - `lineax.IdentityLinearOperator`
+    - `lineax.TaggedLinearOperator` / ``MulLinearOperator`` /
+      ``DivLinearOperator`` / ``NegLinearOperator`` / ``AddLinearOperator``
+      (recurse into the wrapped operators)
     - `gaussx.BlockDiag`
     - `gaussx.Kronecker`
+    - `gaussx.LowRankUpdate` (base sub-block plus ``U[r] diag(d) V[c]ᵀ``)
 
     Falls back to ``operator.as_matrix()[ix_(row_idx, col_idx)]`` for
     other operators.
@@ -49,9 +56,49 @@ def submatrix(
         return _submatrix_block_diag(operator, row_idx, col_idx)
     if isinstance(operator, Kronecker):
         return _submatrix_kronecker(operator, row_idx, col_idx)
+    if row_idx.shape[0] == 0 or col_idx.shape[0] == 0:
+        # einx rejects zero-length axes; an empty block needs no structure.
+        dtype = operator.in_structure().dtype
+        return jnp.zeros((row_idx.shape[0], col_idx.shape[0]), dtype=dtype)
+    if isinstance(operator, LowRankUpdate) and _is_square(operator.base):
+        return _submatrix_low_rank(operator, row_idx, col_idx)
+    if isinstance(operator, lx.IdentityLinearOperator) and _is_square(operator):
+        match = einx.equal("r, c -> r c", row_idx, col_idx)
+        return match.astype(operator.in_structure().dtype)
     if isinstance(operator, lx.TaggedLinearOperator):
         return submatrix(operator.operator, row_idx, col_idx)
+    if isinstance(operator, lx.MulLinearOperator):
+        return operator.scalar * submatrix(operator.operator, row_idx, col_idx)
+    if isinstance(operator, lx.DivLinearOperator):
+        return submatrix(operator.operator, row_idx, col_idx) / operator.scalar
+    if isinstance(operator, lx.NegLinearOperator):
+        return -submatrix(operator.operator, row_idx, col_idx)
+    if isinstance(operator, lx.AddLinearOperator):
+        return submatrix(operator.operator1, row_idx, col_idx) + submatrix(
+            operator.operator2, row_idx, col_idx
+        )
     return operator.as_matrix()[jnp.ix_(row_idx, col_idx)]
+
+
+def _is_square(operator: lx.AbstractLinearOperator) -> bool:
+    return operator.in_size() == operator.out_size()
+
+
+def _submatrix_low_rank(
+    operator: LowRankUpdate,
+    row_idx: Int[Array, " R"],
+    col_idx: Int[Array, " C"],
+) -> Float[Array, "R C"]:
+    """``(L + U diag(d) Vᵀ)[r, c] = L[r, c] + U[r] diag(d) V[c]ᵀ`` (gh-379).
+
+    ``O(R C k)`` plus the base's own sub-block.
+    """
+    base = submatrix(operator.base, row_idx, col_idx)
+    if operator.rank == 0:
+        # einx rejects a zero-length axis.
+        return base
+    U = operator.U[row_idx] * operator.d
+    return base + einsum(U, operator.V[col_idx], "r k, c k -> r c")
 
 
 def _normalize_indices(
