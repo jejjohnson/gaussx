@@ -15,6 +15,7 @@ from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._operators._utils import register_lineax_structure_functions
 
 
 _DEFAULT_LANCZOS_ORDER = 50
@@ -262,3 +263,7 @@ for _check in (
     @_check.register(SqrtOperator)
     def _(operator, check=_check):
         return False
+
+
+# lineax.linearise / materialise / diagonal / conj (gh-410).
+register_lineax_structure_functions(SqrtOperator)
