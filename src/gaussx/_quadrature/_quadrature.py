@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import warnings
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
@@ -59,6 +60,39 @@ def gauss_hermite_points(
     return points, weights
 
 
+def _warn_cancelling_centre_weight(
+    mean: Float[Array, " N"], alpha: float, kappa: float
+) -> None:
+    """Warn when a float32 rule's centre mean weight cancels catastrophically.
+
+    Skipped for traced ``alpha`` / ``kappa`` (no concrete value to test).
+    """
+    if jnp.finfo(mean.dtype).bits >= 64:
+        return
+    try:
+        a, k = float(alpha), float(kappa)
+    except jax.errors.ConcretizationTypeError:  # traced under jit / vmap
+        return
+    N = mean.shape[0]
+    lam = a**2 * (N + k) - N
+    if N + lam <= 0:
+        return
+    w0 = lam / (N + lam)
+    if abs(w0) >= _CENTRE_WEIGHT_WARN:
+        warnings.warn(
+            f"sigma_points/UnscentedIntegrator with alpha={a:g}, "
+            f"kappa={k:g} in {jnp.dtype(mean.dtype).name}: the centre "
+            f"mean weight is {w0:.1e}, so the moments are recovered by "
+            "cancellation and lose about log10|w0| digits. Use alpha=1.0 (gh-310).",
+            UserWarning,
+            stacklevel=3,
+        )
+
+
+# |centre mean weight| at which float32 has lost about half its ~7 digits.
+_CENTRE_WEIGHT_WARN = 1e3
+
+
 def sigma_points(
     mean: Float[Array, " N"],
     cov: lx.AbstractLinearOperator,
@@ -94,8 +128,10 @@ def sigma_points(
         ``kappa=0``) is the symmetric ``2N+1`` rule with a zero centre mean
         weight, exact for affine maps, and is what every gaussx-internal
         default (`moment_transform`, the nonlinear Kalman filters) uses.
-        A `UserWarning` is emitted when ``alpha < 1e-2`` with a float32
-        (or lower precision) mean.
+        A `UserWarning` is emitted when the actual centre mean weight
+        (computed from ``alpha``, ``kappa`` and ``N``) has magnitude
+        ``>= 1e3`` with a float32 (or lower precision) mean; it is skipped
+        when ``alpha`` or ``kappa`` is traced.
 
     Returns:
         Tuple ``(chi, w_m, w_c)`` where:
@@ -103,15 +139,7 @@ def sigma_points(
         - ``w_m``: Mean weights, shape ``(2N+1,)``.
         - ``w_c``: Covariance weights, shape ``(2N+1,)``.
     """
-    if alpha < 1e-2 and jnp.finfo(mean.dtype).bits < 64:
-        warnings.warn(
-            f"sigma_points/UnscentedIntegrator with alpha={alpha:g} in "
-            f"{jnp.dtype(mean.dtype).name}: the centre weight is about "
-            f"{1.0 - 1.0 / alpha**2:.1e} and the moments lose about six digits "
-            "to cancellation. Use alpha=1.0 (gh-310).",
-            UserWarning,
-            stacklevel=2,
-        )
+    _warn_cancelling_centre_weight(mean, alpha, kappa)
     N = mean.shape[0]
     lam = alpha**2 * (N + kappa) - N
     c = N + lam

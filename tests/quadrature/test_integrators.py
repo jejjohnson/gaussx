@@ -535,3 +535,25 @@ class TestUnscentedFloat32Alpha:
     @pytest.mark.filterwarnings("error::UserWarning")
     def test_default_alpha_float64_does_not_warn(self):
         UnscentedIntegrator().points_and_weights(_make_state())
+
+
+def test_traced_alpha_does_not_break_sigma_points():
+    """Review follow-up: alpha may be traced (no warning check then)."""
+    from gaussx._quadrature._quadrature import sigma_points
+
+    state = _make_state()
+    chi = jax.jit(lambda a: sigma_points(state.mean, state.cov, alpha=a)[0])(1.0)
+    assert chi.shape == (5, 2)
+
+
+@pytest.mark.filterwarnings("error::UserWarning")
+def test_no_warning_when_kappa_cancels_the_centre_weight():
+    """N=1, alpha=1e-3, kappa=999999 gives lambda = 0: zero centre weight."""
+    from gaussx._quadrature._quadrature import sigma_points
+
+    mean = jnp.zeros(1, jnp.float32)
+    cov = lx.MatrixLinearOperator(
+        jnp.eye(1, dtype=jnp.float32), lx.positive_semidefinite_tag
+    )
+    _, w_m, _ = sigma_points(mean, cov, alpha=1e-3, kappa=999999.0)
+    assert abs(float(w_m[0])) < 1e-3

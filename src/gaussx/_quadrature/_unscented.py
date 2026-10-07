@@ -37,8 +37,8 @@ class UnscentedIntegrator(AbstractIntegrator):
         symmetric ``2N+1`` rule with a zero centre mean weight (exact for
         affine maps and positive covariance weights), which is what
         `moment_transform` and the nonlinear Kalman filters use by
-        default. A `UserWarning` is emitted for ``alpha < 1e-2`` with a
-        float32 state.
+        default. A `UserWarning` is emitted when the centre
+        mean weight reaches magnitude ``1e3`` with a float32 state.
 
     Attributes:
         alpha: Spread parameter. Default ``1e-3``; ``1.0`` recommended.
