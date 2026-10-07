@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
+from gaussx._tags import kronecker_tag
 
 
 class Kronecker(lx.AbstractLinearOperator):
@@ -59,7 +60,6 @@ class Kronecker(lx.AbstractLinearOperator):
         self._in_size = _prod(op.in_size() for op in operators)
         self._out_size = _prod(op.out_size() for op in operators)
         self._dtype = _resolve_dtype(*operators)
-        from gaussx._tags import kronecker_tag
 
         self.tags = _to_frozenset(tags) | {kronecker_tag}
 

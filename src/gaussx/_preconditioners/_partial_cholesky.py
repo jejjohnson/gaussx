@@ -13,7 +13,9 @@ import lineax as lx
 from jaxtyping import Array, Float, Int
 
 from gaussx._einx import einsum
+from gaussx._operators import BlockDiag, LowRankUpdate
 from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._primitives._diag import _CHEAP_DIAGONAL, matrix_free_diag
 from gaussx._randomized._rpcholesky import _pivoted_cholesky
 
 
@@ -207,7 +209,6 @@ def _factor(
     *diagonal* and *column* describe *operator* itself; the shift is
     subtracted here.
     """
-    from gaussx._primitives._diag import matrix_free_diag
 
     n = operator.in_size()
     dtype = operator.in_structure().dtype
@@ -245,8 +246,6 @@ def _mv_column(operator, n, dtype):
 
 def _diagonal_is_exact(operator: lx.AbstractLinearOperator) -> bool:
     """Whether `matrix_free_diag` gives *operator*'s exact diagonal."""
-    from gaussx._operators import BlockDiag, LowRankUpdate
-    from gaussx._primitives._diag import _CHEAP_DIAGONAL
 
     if isinstance(operator, lx.TaggedLinearOperator | lx.NegLinearOperator):
         return _diagonal_is_exact(operator.operator)

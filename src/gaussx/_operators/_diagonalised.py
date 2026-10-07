@@ -24,6 +24,7 @@ from jaxtyping import Array, ArrayLike, Float, Inexact, Shaped
 from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _to_frozenset
+from gaussx._operators._kronecker_sum import KroneckerSum
 
 
 Transform = Callable[[Array], Array]
@@ -552,7 +553,6 @@ def as_diagonalized(operator: lx.AbstractLinearOperator) -> DiagonalizedOperator
         is neither a `DiagonalizedOperator` nor a `gaussx.KroneckerSum` of
         diagonalisable factors.
     """
-    from gaussx._operators._kronecker_sum import KroneckerSum
 
     if isinstance(operator, DiagonalizedOperator):
         return operator

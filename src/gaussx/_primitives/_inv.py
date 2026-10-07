@@ -19,6 +19,7 @@ from gaussx._operators._low_rank_update import (
     scaled_identity_like,
 )
 from gaussx._operators._utils import register_lineax_structure_functions
+from gaussx._primitives._cholesky import cholesky
 
 
 def inv(
@@ -144,6 +145,7 @@ def _inv_low_rank_symmetric(
     A zero weight gives a zero m, never a reciprocal (gh-307). Only k x k
     matrices are ever factorised.
     """
+    # lazy import, cycle: _primitives._solve -> _primitives._inv
     from gaussx._primitives._solve import _low_rank_capacitance
 
     Linv_U, K = _low_rank_capacitance(operator, solver)
@@ -193,6 +195,7 @@ def _inv_low_rank_general(
     k x k matrix K is ever factorised. Like the structured ``solve``, this
     needs an invertible base L.
     """
+    # lazy import, cycle: _primitives._solve -> _primitives._inv
     from gaussx._primitives._solve import _low_rank_capacitance, solve
 
     Linv_U, K = _low_rank_capacitance(operator, solver)
@@ -243,6 +246,7 @@ class InverseOperator(lx.AbstractLinearOperator):
         self._dtype = _resolve_dtype(original)
 
     def mv(self, vector):
+        # lazy import, cycle: _primitives._solve -> _primitives._inv
         from gaussx._primitives._solve import solve
 
         return solve(self.original, vector, solver=self._solver)
@@ -253,8 +257,6 @@ class InverseOperator(lx.AbstractLinearOperator):
         # Handles a leading batch shape (..., n, n) — ``L.shape[-1]`` and a
         # broadcast identity keep the cho_solve call rank-correct.
         if lx.is_positive_semidefinite(self.original):
-            from gaussx._primitives._cholesky import cholesky
-
             factor = cholesky(self.original)
             if not isinstance(factor, lx.AbstractLinearOperator):
                 # A `SparseCholeskyFactor` is permuted and has no dense form.

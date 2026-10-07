@@ -9,6 +9,7 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._primitives._solve import solve
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._likelihood import AbstractLikelihood
 from gaussx._quadrature._types import GaussianState
@@ -73,7 +74,6 @@ def gradient_expectation(
     Returns:
         Expected gradient, shape ``(N,)``.
     """
-    from gaussx._primitives._solve import solve
 
     # Wrap scalar fn to return (1,) for the integrator
     def fn_vec(x: Float[Array, " N"]) -> Float[Array, " 1"]:

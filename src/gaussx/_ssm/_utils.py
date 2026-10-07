@@ -15,6 +15,7 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._deprecation import warn_deprecated
+from gaussx._linalg._linalg import sandwich
 from gaussx._operators._low_rank_update import LowRankUpdate
 
 
@@ -95,8 +96,6 @@ def _innovation_covariance(
     leave ``woodbury=False`` so the full ``S = H P Hᵀ + R`` matrix is
     factored directly.
     """
-    # Import locally to avoid a cyclic _ssm <-> _linalg import.
-    from gaussx._linalg._linalg import sandwich
 
     P_mat = _materialise(P)
     if woodbury:

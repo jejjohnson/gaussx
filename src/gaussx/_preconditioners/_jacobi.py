@@ -7,6 +7,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._primitives._diag import matrix_free_diag
 
 
 class JacobiPreconditioner(AbstractPreconditioner):
@@ -49,7 +50,6 @@ class JacobiPreconditioner(AbstractPreconditioner):
                     "JacobiPreconditioner needs either an explicit `diagonal` "
                     "or an operator to extract one from."
                 )
-            from gaussx._primitives._diag import matrix_free_diag
 
             d = matrix_free_diag(operator, estimate=False)
         # Double where: the untaken 1/0 branch would make the gradient NaN.

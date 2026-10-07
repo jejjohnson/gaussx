@@ -36,7 +36,7 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
 )
-from gaussx._primitives._cholesky import warn_dense_fallback
+from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
 from gaussx._primitives._inv import InverseOperator
 
 
@@ -97,6 +97,8 @@ def solve(
         [0.25, 0.2, 0.125, 0.1]
     """
     if solver is not None and not isinstance(solver, lx.AbstractLinearSolver):
+        # lazy import, cycle: _strategies._base -> _strategies -> _strategies._dense ->
+        #   _primitives._solve
         from gaussx._strategies._base import AbstractSolveStrategy
 
         if isinstance(solver, AbstractSolveStrategy):
@@ -258,7 +260,6 @@ def _solve_kronecker(
     Uses the same reshape trick as Kronecker.mv but with
     per-factor solves: solve(A_i^T, ...) instead of mat @ ....
     """
-    from gaussx._einx import rearrange
 
     x = vector
     for i in range(len(operator.operators) - 1, -1, -1):
@@ -438,7 +439,6 @@ def _solve_block_tridiag(
     vector: Float[Array, " n"],
 ) -> Float[Array, " n"]:
     """Solve via block-banded Cholesky then forward/backward substitution."""
-    from gaussx._primitives._cholesky import cholesky
 
     L = cholesky(operator)
     # Forward solve: L y = b
@@ -454,7 +454,6 @@ def _solve_lower_block_tridiag(
     """Forward substitution for lower block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    from gaussx._einx import rearrange
 
     if N == 1:
         # Both lax.cond branches are traced, and the k > 0 one indexes the
@@ -485,7 +484,6 @@ def _solve_upper_block_tridiag(
     """Backward substitution for upper block-bidiagonal system."""
     N = operator._num_blocks
     d = operator._block_size
-    from gaussx._einx import rearrange
 
     if N == 1:
         # Both lax.cond branches are traced; see _solve_lower_block_tridiag.
@@ -565,7 +563,11 @@ def _solve_sparse(
     An explicit ``solver`` always wins. The exact sparse Cholesky path is the
     `SparseCholeskySolver` strategy, which callers pass explicitly.
     """
+    # lazy import, cycle: _strategies._auto -> _primitives -> _primitives._solve
     from gaussx._strategies._auto import AutoSolver
+
+    # lazy import, cycle: _strategies._cg -> _strategies -> _strategies._dense ->
+    #   _primitives._solve
     from gaussx._strategies._cg import CGSolver
 
     if (

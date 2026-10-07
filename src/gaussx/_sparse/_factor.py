@@ -9,6 +9,7 @@ from jaxtyping import Array, Float
 
 from gaussx._operators._sparse import SparseOperator
 from gaussx._sparse import _vjp
+from gaussx._sparse._cholmod import cholmod_cholesky
 from gaussx._sparse._numeric import lower_values, numeric_cholesky, solve_upper
 from gaussx._sparse._symbolic import SymbolicCholesky, symbolic_cholesky
 from gaussx._sparse._takahashi import takahashi
@@ -201,8 +202,6 @@ def sparse_cholesky(
         )
     a = lower_values(symbolic, op.values)
     if symbolic.backend == "cholmod":
-        from gaussx._sparse._cholmod import cholmod_cholesky
-
         L = cholmod_cholesky(symbolic, a)
     else:
         L = numeric_cholesky(symbolic, a)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._primitives._solve import solve
 
 
@@ -35,7 +36,6 @@ def woodbury_solve(
     Returns:
         Solution x, shape ``(N,)``.
     """
-    from gaussx._operators._low_rank_update import LowRankUpdate
 
     op = LowRankUpdate(base, U, D)
     return solve(op, b)

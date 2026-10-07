@@ -10,7 +10,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
+from gaussx._primitives._trace import trace
 
 
 class AbstractLikelihood(eqx.Module):
@@ -139,8 +140,6 @@ class GaussianLikelihood(AbstractLikelihood):
         ``prod(trace_factor)`` / per-block ``trace`` fast paths instead
         of materializing through ``trace_product(R^{-1}, q_cov)``.
         """
-        from gaussx._distributions._gaussian import gaussian_log_prob
-        from gaussx._primitives._trace import trace
 
         N = self.y.shape[-1]
         noise = lx.DiagonalLinearOperator(jnp.full(N, self.noise_var))

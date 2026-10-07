@@ -21,6 +21,7 @@ from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 from gaussx._operators._factored_eigen import FactoredEigen, kronecker_eigen
 from gaussx._operators._kronecker import Kronecker
+from gaussx._primitives._eig import eig
 
 
 class SumOfKroneckers(lx.AbstractLinearOperator):
@@ -209,8 +210,6 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
             raise ValueError("eigendecompose requires kron2 factors to be symmetric.")
         if not lx.is_symmetric(A1_op) or not lx.is_symmetric(B1_op):
             raise ValueError("eigendecompose requires kron1 factors to be symmetric.")
-
-        from gaussx._primitives._eig import eig
 
         A1, B1 = (op.as_matrix() for op in self.kron1.operators)
 
@@ -472,6 +471,7 @@ def _build_whitener(
             "be strictly positive to whiten by its square root.",
         )
         return _DiagonalWhitener(jnp.sqrt(diagonal))
+    # lazy import, cycle: _primitives._cholesky -> _operators._sum_kronecker
     from gaussx._primitives._cholesky import cholesky
 
     # ``operator`` unwrapped, so `cholesky` sees the tags and can dispatch.
@@ -775,6 +775,7 @@ def _eigen_solve(
         # Structurally reducible, but the only plan whitens by a concretely
         # non-positive diagonal (gh-317). The implicit JVP below does not
         # depend on how the primal was computed.
+        # lazy import, cycle: _primitives._solve -> _operators._sum_kronecker
         from gaussx._primitives._solve import _solve_fallback
 
         return _solve_fallback(operator, vector, None)
@@ -827,6 +828,7 @@ def sum_of_kroneckers_sample(
     Returns:
         Samples with shape ``(num_samples, op.in_size())``.
     """
+    # lazy import, cycle: _primitives._sqrt -> _operators._sum_kronecker
     from gaussx._primitives._sqrt import sqrt
 
     if op.in_size() != op.out_size():

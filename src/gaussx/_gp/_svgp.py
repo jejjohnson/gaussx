@@ -7,6 +7,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import reduce
+from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
 
 
@@ -47,7 +48,6 @@ def whitened_svgp_predict(
 
     # A = L_zz^{-1} K_xz^T  -> shape (M, N)
     # Solve L_zz @ A_col = K_xz^T_col for each column of K_xzᵀ
-    from gaussx._linalg._linalg import solve_columns
 
     K_zx = K_xz.T  # (M, N)
     A = solve_columns(L_zz, K_zx)

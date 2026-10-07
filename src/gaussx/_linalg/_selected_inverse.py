@@ -8,6 +8,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag, LowerBlockTriDiag
+from gaussx._primitives._cholesky import _cholesky_block_tridiag
 
 
 def selected_inverse(operator: BlockTriDiag) -> BlockTriDiag:
@@ -68,8 +69,6 @@ def selected_inverse(operator: BlockTriDiag) -> BlockTriDiag:
             "(it runs through the block Cholesky factor)."
         )
         raise ValueError(msg)
-
-    from gaussx._primitives._cholesky import _cholesky_block_tridiag
 
     return _block_takahashi(_cholesky_block_tridiag(operator))
 

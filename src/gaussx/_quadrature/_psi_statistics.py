@@ -7,6 +7,7 @@ from typing import Protocol, cast, runtime_checkable
 
 from jaxtyping import Array, Float
 
+from gaussx._quadrature._gp_predict import kernel_expectations
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 
@@ -88,6 +89,5 @@ def compute_psi_statistics(
         raise ValueError(msg)
 
     # ── Numerical fallback: one implementation, `kernel_expectations` ──
-    from gaussx._quadrature._gp_predict import kernel_expectations
 
     return kernel_expectations(cast(Callable, kernel), state, X_train, integrator)

@@ -14,6 +14,7 @@ from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import LowerBlockTriDiag
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._sparse import SparseOperator
 
 
 def scale_factor(
@@ -112,7 +113,6 @@ def scaled_root(
 
 
 def _contains_sparse(operator: lx.AbstractLinearOperator) -> bool:
-    from gaussx._operators._sparse import SparseOperator
 
     if isinstance(operator, SparseOperator):
         return True

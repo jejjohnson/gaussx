@@ -16,6 +16,7 @@ from jaxtyping import Array, Float
 
 from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum
+from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
 from gaussx._strategies._base import AbstractLogdetStrategy
 
@@ -407,6 +408,5 @@ class DenseLogdet(AbstractLogdetStrategy):
         Returns:
             Scalar ``log |det(A)|``.
         """
-        from gaussx._primitives._logdet import logdet as _logdet
 
         return _logdet(operator)

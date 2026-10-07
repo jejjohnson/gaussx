@@ -228,6 +228,7 @@ def _build_capacitance(
     left_null_vector: Float[Array, " N"] | None,
 ) -> CapacitanceSolver:
     """Capacitance solver on the full index space for a square mask."""
+    # lazy import, cycle: _primitives._solve -> _operators._masked
     from gaussx._primitives._solve import solve
 
     try:

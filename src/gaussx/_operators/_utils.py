@@ -7,6 +7,10 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array
 
+from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._kronecker import Kronecker
+from gaussx._operators._low_rank_update import LowRankUpdate
+
 
 def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:
     """``lineax.diagonal`` for a gaussx operator, via `gaussx.diag`.
@@ -16,6 +20,7 @@ def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:
     Its structured rules assume square components, so an operator with a
     rectangular block, factor or base takes the dense diagonal instead.
     """
+    # lazy import, cycle: _primitives._diag -> _operators -> _operators._utils
     from gaussx._primitives._diag import diag
 
     if not _square_components(operator):
@@ -24,9 +29,6 @@ def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:
 
 
 def _square_components(operator: lx.AbstractLinearOperator) -> bool:
-    from gaussx._operators._block_diag import BlockDiag
-    from gaussx._operators._kronecker import Kronecker
-    from gaussx._operators._low_rank_update import LowRankUpdate
 
     if operator.in_size() != operator.out_size():
         return False

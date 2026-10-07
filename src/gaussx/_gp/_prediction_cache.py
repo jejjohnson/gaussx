@@ -15,6 +15,7 @@ from jaxtyping import Array, Float
 
 from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange, reduce
+from gaussx._linalg._linalg import solve_columns, solve_rows
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._primitives._cholesky import cholesky
@@ -149,7 +150,6 @@ def predict_variance(
     Raises:
         ValueError: If the cache holds neither a factor nor an operator.
     """
-    from gaussx._linalg._linalg import solve_columns, solve_rows
 
     if not isinstance(cache, PredictionCache):
         warn_deprecated(

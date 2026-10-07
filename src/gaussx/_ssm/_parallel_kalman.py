@@ -262,6 +262,7 @@ def parallel_kalman_filter(
     elif form != "covariance":
         raise ValueError("form must be 'covariance' or 'sqrt'.")
     if psd_project:
+        # lazy import, cycle: _ssm._parallel_kalman_sqrt -> _ssm._parallel_kalman
         from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt
 
         return parallel_kalman_filter_sqrt(
@@ -459,6 +460,7 @@ def parallel_rts_smoother(
     elif form != "covariance":
         raise ValueError("form must be 'covariance' or 'sqrt'.")
     if psd_project:
+        # lazy import, cycle: _ssm._parallel_kalman_sqrt -> _ssm._parallel_kalman
         from gaussx._ssm._parallel_kalman_sqrt import parallel_rts_smoother_sqrt
 
         return parallel_rts_smoother_sqrt(filter_state, transition, solver=solver)

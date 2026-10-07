@@ -303,6 +303,7 @@ def _numeric_banded(
     sym: SymbolicCholesky, a: Float[Array, " nnz_L"]
 ) -> Float[Array, " nnz_L"]:
     """Block-tridiagonal Cholesky (``O(n b²)``, dense ``b × b`` blocks)."""
+    # lazy import, cycle: _primitives._cholesky -> _sparse._factor -> _sparse._numeric
     from gaussx._primitives._cholesky import _cholesky_block_tridiag
 
     diagonal, sub = to_blocks(sym, a)
@@ -322,6 +323,8 @@ def _solve_banded(
     *,
     upper: bool,
 ) -> Float[Array, " n"]:
+    # lazy import, cycle: _primitives._solve -> _primitives._cholesky ->
+    #   _sparse._factor -> _sparse._numeric
     from gaussx._primitives._solve import (
         _solve_lower_block_tridiag,
         _solve_upper_block_tridiag,

@@ -20,6 +20,7 @@ from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sparse import SparseOperator
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._diag import diag
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
@@ -109,9 +110,6 @@ def sandwich(
     """
     _check_sandwich_shapes(A, P)
     tags = _sandwich_tags(P)
-
-    from gaussx._operators._block_diag import BlockDiag
-    from gaussx._operators._kronecker import Kronecker
 
     if (
         isinstance(A, Kronecker)
@@ -217,10 +215,6 @@ def trace_product(
     Returns:
         Scalar ``tr(A @ B)``.
     """
-    from gaussx._operators._block_diag import BlockDiag
-    from gaussx._operators._kronecker import Kronecker
-    from gaussx._operators._low_rank_update import LowRankUpdate
-    from gaussx._primitives._diag import diag
 
     # Both diagonal: O(N) inner product of diagonals.
     if isinstance(A, lx.DiagonalLinearOperator) and isinstance(
