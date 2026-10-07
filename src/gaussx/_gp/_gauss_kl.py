@@ -54,8 +54,8 @@ def gauss_kl(
             `Kronecker` / `BlockDiag` operator is factorised per factor).
             If ``None``, uses white prior (identity).
         solver: Deprecated and ignored (the Cholesky factorisation takes
-            no solver); passing one warns. Removed in the next minor
-            release.
+            no solver); passing one warns. Removed in gaussx
+            0.7.0.
 
     Returns:
         Scalar KL divergence summed over all ``R`` output dimensions.
@@ -67,7 +67,7 @@ def gauss_kl(
     if solver is not None:
         warn_deprecated(
             "gauss_kl(solver=...) is ignored and deprecated; it will be "
-            "removed in the next minor release."
+            "removed in gaussx 0.7.0."
         )
     M = q_mu.shape[0]
     R = q_mu.shape[1]

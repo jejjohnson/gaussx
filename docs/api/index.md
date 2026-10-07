@@ -69,6 +69,36 @@ will be removed in gaussx 0.7.0.
 | Result containers | `*Result`: immutable output of a one-shot computation; `*State`: the carry of a sequential or recursive algorithm; `*Cache`: a precomputation reused across later calls; `*Decomposition`: a matrix factorization; `*Params`: model parameters; domain nouns (`GaussianSites`) are allowed | `EigenFactorization` → `EigenDecomposition` |
 | Classes vs factories | CamelCase is reserved for classes, so `isinstance` works on every CamelCase name. A function that builds and returns some other type is snake_case | `Circulant` → `circulant`, `SumOperator` → `sum_operator`, `ScaledOperator` → `scaled_operator`, `ProductOperator` → `product_operator` |
 
+### Deprecation policy
+
+gaussx is pre-1.0, but pyrox and other downstream code pin against it, so
+deprecated APIs are removed on a schedule rather than ad hoc:
+
+1. **Every deprecation names its removal version** in the warning message and
+   in the docstring, together with its replacement (for example, "SumKronecker
+   is deprecated and will be removed in gaussx 0.7.0; use SumOfKroneckers").
+   Warnings go through `gaussx._deprecation` (`warn_deprecated`,
+   `renamed_kwargs`, or the `RENAMED` table for renamed public names), so
+   they are a `GaussxDeprecationWarning`, a `DeprecationWarning` subclass,
+   attributed to the caller's line.
+2. **Window.** A deprecation is removed in the first minor release (`0.x.0`)
+   after the release that first ships its warning. Before 1.0, release-please
+   bumps only the patch version for `feat`/`fix`, so a minor release happens
+   only with a breaking change. The PR that removes the deprecated code is
+   that breaking change (`feat!:`/`refactor!:`). Every deprecation current
+   today is due in **gaussx 0.7.0**.
+3. **Guard tests.** `tests/test_deprecations.py` reads every
+   `warn_deprecated` call in the package. It fails if a message names no
+   removal version, and it fails once `gaussx.__version__` reaches a version
+   that a message promises, so CI goes red on the release that is due to
+   remove the code.
+4. **Docs.** Deprecated names leave the main `members:` lists and move to a
+   "Deprecated aliases" block at the end of their page.
+5. **Changelog.** A PR that only deprecates uses the `deprecate:` commit
+   type, which release-please lists under "Deprecations". A `feat`/`fix` PR
+   that also deprecates something adds a `deprecate(...)` line to its squash
+   commit through a `BEGIN_COMMIT_OVERRIDE` block in the PR body.
+
 Every public class and function carries a Google-style docstring with shapes in
 [jaxtyping](https://docs.kidger.site/jaxtyping/) notation; tensor contraction and
 reshaping inside the package go through [einx](https://github.com/fferflo/einx).

@@ -86,7 +86,10 @@ class LSMRSolver(AbstractSolverStrategy):
     @property
     def maxiter(self) -> int:
         """Deprecated: `max_steps` (gh-405)."""
-        warn_deprecated("LSMRSolver.maxiter is deprecated; use .max_steps (gh-405).")
+        warn_deprecated(
+            "LSMRSolver.maxiter is deprecated and will be removed in gaussx 0.7.0; "
+            "use .max_steps (gh-405)."
+        )
         return self.max_steps
 
     def solve(

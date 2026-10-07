@@ -936,7 +936,7 @@ def nonlinear_rts_smoother(
         dynamics: State transition ``(N,) -> (N,)``.
         process_noise: Deprecated and ignored -- the predicted covariances
             in ``filter_state`` already include it. Passing it warns; it will
-            be removed in 0.5.0.
+            be removed in gaussx 0.7.0.
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``; use the one the filter
             used.

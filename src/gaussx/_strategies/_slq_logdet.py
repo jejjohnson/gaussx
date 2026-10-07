@@ -194,7 +194,7 @@ def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
             f"{name} got an operator that is not tagged symmetric; symmetric "
             "Lanczos then gives a wrong log-determinant. Tag it with "
             "lineax.symmetric_tag or lineax.positive_semidefinite_tag. "
-            "This will raise a ValueError in a future release."
+            "This will raise a ValueError in gaussx 0.7.0."
         )
 
 

@@ -271,8 +271,6 @@ statistics that natural-gradient and EP updates are built from.
       members:
         - GaussianExpFam
         - to_mean_cov
-        - to_natural
-        - to_expectation
         - mean_cov_to_natural
         - natural_to_mean_cov
         - mean_chol_to_natural
@@ -285,3 +283,14 @@ statistics that natural-gradient and EP updates are built from.
         - fisher_info
         - sufficient_stats
         - kl_divergence
+
+## Deprecated aliases
+
+These names still work but warn on use and will be removed in gaussx 0.7.0
+(see the [deprecation policy](index.md#deprecation-policy)).
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [to_natural, to_expectation]

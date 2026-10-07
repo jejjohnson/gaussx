@@ -24,7 +24,7 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
     `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
     still imports and subclasses the new one — so `isinstance` checks keep
     working — but emits a `DeprecationWarning` on construction and will be
-    removed in a future release. Its square root and sampler followed in
+    removed in gaussx 0.7.0. Its square root and sampler followed in
     gh-297: `SumKroneckerSqrt` → `SumOfKroneckersSqrt` and
     `sumkronecker_sample` → `sum_of_kroneckers_sample`. The old names warn
     and will be removed in gaussx 0.7.0. Each square-root class sits next to
@@ -36,7 +36,7 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumOfKroneckers, SumOfKroneckersSqrt, SumKronecker, SumKroneckerSqrt]
+      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumOfKroneckers, SumOfKroneckersSqrt]
 
 ## Low-rank updates
 
@@ -65,13 +65,13 @@ result, and tag inference never depends on it.
     `orthonormal=True` and emits a `DeprecationWarning` on construction. New
     code should use `LowRankUpdate(base, U, S, V, orthonormal=True)` or
     [`svd_low_rank_plus_diag`](#gaussx.svd_low_rank_plus_diag). It will be
-    removed in a future release.
+    removed in gaussx 0.7.0.
 
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [LowRankUpdate, SVDLowRankUpdate, low_rank_plus_diag, low_rank_plus_identity, svd_low_rank_plus_diag]
+      members: [LowRankUpdate, low_rank_plus_diag, low_rank_plus_identity, svd_low_rank_plus_diag]
 
 ## Banded & Toeplitz
 
@@ -157,7 +157,7 @@ bordered systems through the capacitance (Schur-complement) form.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [sum_operator, scaled_operator, product_operator, kronecker_sum_sample, sum_of_kroneckers_sample, sumkronecker_sample, toeplitz_sample, CapacitanceSolver]
+      members: [sum_operator, scaled_operator, product_operator, kronecker_sum_sample, sum_of_kroneckers_sample, toeplitz_sample, CapacitanceSolver]
 
 ## Structural tags & predicates
 
@@ -198,3 +198,15 @@ re-exported from lineax so user code only needs one import.
         - upper_triangular_tag
         - tridiagonal_tag
         - unit_diagonal_tag
+
+## Deprecated aliases
+
+These names still work but warn on use and will be removed in gaussx 0.7.0
+(see the [deprecation policy](index.md#deprecation-policy)). Each one names its
+replacement.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [SumKronecker, SumKroneckerSqrt, sumkronecker_sample, SVDLowRankUpdate]

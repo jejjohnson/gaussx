@@ -865,7 +865,7 @@ class SumKronecker(SumOfKroneckers):
     rebuild the operator — ``transpose`` / ``.T`` — preserve this type, so
     they warn again. Note that instances built via `SumOfKroneckers` are
     *not* instances of this subclass; internal dispatch keys on the parent.
-    Will be removed in a future release.
+    Will be removed in gaussx 0.7.0.
     """
 
     def __init__(
@@ -877,7 +877,8 @@ class SumKronecker(SumOfKroneckers):
     ) -> None:
 
         warn_deprecated(
-            "SumKronecker is deprecated; use SumOfKroneckers "
+            "SumKronecker is deprecated and will be removed in gaussx 0.7.0; use "
+            "SumOfKroneckers "
             "(KroneckerSum remains a different operator)."
         )
         super().__init__(kron1, kron2, *krons, tags=tags)

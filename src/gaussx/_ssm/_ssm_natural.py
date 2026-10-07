@@ -51,7 +51,7 @@ def _transition_noise(
     warn_deprecated(
         f"{function} with Q of shape (N, d, d) and Q[0] == P_0 is deprecated; "
         "pass only the transition noise Q[1:] (shape (N-1, d, d)), as "
-        "MarkovGaussian does. The stacked layout will be removed in 0.5.0."
+        "MarkovGaussian does. The stacked layout will be removed in gaussx 0.7.0."
     )
     # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
     # Python ``bool()`` could only run eagerly (gh-359). Attached to both
@@ -91,7 +91,7 @@ def ssm_to_naturals(
             drives ``x_k → x_{k+1}``, as in `gaussx.MarkovGaussian`. The
             older stacked layout of shape ``(N, d, d)`` with ``Q[0] == P_0``
             (checked with `equinox.error_if`, so also under ``jax.jit``) is
-            deprecated and will be removed in 0.5.0.
+            deprecated and will be removed in gaussx 0.7.0.
         mu_0: Initial mean, shape ``(d,)``.
         P_0: Initial covariance, shape ``(d, d)``.
         solver: Optional solver strategy for structured linear algebra.
@@ -175,13 +175,13 @@ def naturals_to_ssm(
         theta_precision: Natural precision parameter as
             `BlockTriDiag` (eta2 convention).
         solver: Deprecated and ignored (the block inverses are dense);
-            passing it warns, and it will be removed in 0.5.0.
+            passing it warns, and it will be removed in gaussx 0.7.0.
         initial_in_q: Layout of the returned ``Q``. ``False`` returns only
             the transition noise, shape ``(N-1, d, d)``, as
             `gaussx.MarkovGaussian` takes it; ``True`` the older stacked
             layout of shape ``(N, d, d)`` with ``Q[0] == P_0``. The default
             ``None`` means ``True`` with a ``DeprecationWarning``; it becomes
-            ``False`` in 0.5.0.
+            ``False`` in gaussx 0.7.0.
 
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` where:
@@ -193,11 +193,11 @@ def naturals_to_ssm(
     if solver is not None:
         warn_deprecated(
             "naturals_to_ssm(solver=...) is deprecated and ignored; it will be "
-            "removed in 0.5.0."
+            "removed in gaussx 0.7.0."
         )
     if initial_in_q is None:
         warn_deprecated(
-            "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in 0.5.0 it "
+            "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in gaussx 0.7.0 it "
             "will return only the transition noise (shape (N-1, d, d)), as "
             "MarkovGaussian and ssm_to_naturals take it. Pass "
             "initial_in_q=False to adopt that layout now, or initial_in_q=True "

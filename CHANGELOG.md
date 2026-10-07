@@ -3,6 +3,18 @@
 ## [0.6.4](https://github.com/jejjohnson/gaussx/compare/v0.6.3...v0.6.4) (2026-10-07)
 
 
+### Deprecations
+
+Back-filled in [#300](https://github.com/jejjohnson/gaussx/issues/300): the deprecations in effect as of 0.6.4. Every one is removed in **0.7.0** (see the deprecation policy in `docs/api/index.md`). The items promised for 0.5.0 missed that date and move to 0.7.0.
+
+* **operators:** `SumKronecker` → `SumOfKroneckers` ([#136](https://github.com/jejjohnson/gaussx/issues/136)); `SVDLowRankUpdate` → `LowRankUpdate(..., orthonormal=True)` or `svd_low_rank_plus_diag`; `Circulant(symmetric=None)` value-inferred symmetry (the default becomes `False`)
+* **linalg:** the legacy three-positional `conditional_variance(base_diag, A_X, S_u)` → `conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u)`
+* **expfam:** `to_expectation` → `to_mean_cov`; `to_natural` → `mean_cov_to_natural`
+* **gp:** `base_conditional` → `sparse_conditional`; `collapsed_elbo(K_diag=)` → `K_xx_diag=`; the ignored `solver=` of `collapsed_elbo` and `gauss_kl`; `predict_variance(K_cross, K_test_diag, operator)` → `predict_variance(cache, K_cross, K_test_diag)`
+* **strategies:** `BBMMSolver.cg_tolerance` / `cg_max_iter` / `lanczos_iter` and `LSMRSolver.maxiter` (and their constructor keywords) → `rtol` / `max_steps` / `lanczos_order` ([#405](https://github.com/jejjohnson/gaussx/issues/405)); an SLQ logdet of a non-symmetric-tagged operator (will raise)
+* **ssm:** `InfiniteHorizonState` → `FilterState`; the old `infinite_horizon_smoother` argument order; `dare(P_init=)`; `parallel_kalman_filter(solver=)` without `woodbury_innovation=True`; `form="sqrt"` → `psd_project=True`; the stacked `Q[0] = P_0` layout (`naturals_to_ssm`, `ssm_to_naturals`, `udl_from_ssm_params`) and `naturals_to_ssm(solver=)`; the ignored `process_noise` argument of the RTS smoothers
+
+
 ### Features
 
 * **expfam:** add to_mean_cov and deprecate the misnamed to_expectation/to_natural ([#545](https://github.com/jejjohnson/gaussx/issues/545)) ([51cf276](https://github.com/jejjohnson/gaussx/commit/51cf276d5608a00e3155082baa1288090d56ee76))

@@ -154,7 +154,7 @@ def predict_variance(
     if not isinstance(cache, PredictionCache):
         warn_deprecated(
             "predict_variance(K_cross, K_test_diag, operator) is deprecated "
-            "and will be removed in the next minor release; build a cache "
+            "and will be removed in gaussx 0.7.0; build a cache "
             "with build_prediction_cache(operator, y) and call "
             "predict_variance(cache, K_cross, K_test_diag), which reuses the "
             "cached factorisation."

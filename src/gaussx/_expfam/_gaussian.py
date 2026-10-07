@@ -102,8 +102,7 @@ def to_expectation(
 
     Despite its name it returns the mean and covariance ``(mu, Sigma)``,
     not the expectation parameters ``(mu, mu mu^T + Sigma)`` (see
-    `gaussx.natural_to_expectation`). It will be removed in a future
-    release.
+    `gaussx.natural_to_expectation`). It will be removed in gaussx 0.7.0.
 
     Args:
         expfam: Gaussian in natural form.
@@ -112,7 +111,8 @@ def to_expectation(
         Tuple ``(mu, Sigma)`` — mean vector and covariance operator.
     """
     warn_deprecated(
-        "to_expectation is deprecated: it returns (mu, Sigma), not expectation "
+        "to_expectation is deprecated and will be removed in gaussx 0.7.0: it "
+        "returns (mu, Sigma), not expectation "
         "parameters. Use gaussx.to_mean_cov (same result), or "
         "gaussx.natural_to_expectation for (mu, mu mu^T + Sigma)."
     )
@@ -126,7 +126,7 @@ def to_natural(
     """Deprecated alias of `gaussx.mean_cov_to_natural`.
 
     It takes the mean and covariance, not expectation parameters. It will
-    be removed in a future release.
+    be removed in gaussx 0.7.0.
 
     Args:
         mu: Mean vector, shape ``(N,)``.
@@ -136,7 +136,8 @@ def to_natural(
         Tuple ``(eta1, eta2)`` — natural parameters.
     """
     warn_deprecated(
-        "to_natural is deprecated: it takes (mu, Sigma), not expectation "
+        "to_natural is deprecated and will be removed in gaussx 0.7.0: it takes "
+        "(mu, Sigma), not expectation "
         "parameters. Use gaussx.mean_cov_to_natural (same result)."
     )
     return mean_cov_to_natural(mu, Sigma)

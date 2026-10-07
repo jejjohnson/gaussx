@@ -220,13 +220,13 @@ def parallel_kalman_filter(
             delegates to `gaussx.kalman_filter`. The associative-scan
             combinators use dense solves, so passing ``solver`` without
             ``woodbury_innovation`` is deprecated (it warns, and will raise
-            in 0.5.0).
+            in gaussx 0.7.0).
         woodbury_innovation: When ``True``, delegates to
             `gaussx.kalman_filter` with the same flag so structured
             ``R`` uses the Woodbury innovation path.
         form: ``"covariance"``. The former ``"sqrt"`` is a deprecated
             spelling of ``psd_project=True`` (it warns, and will be removed
-            in 0.5.0): it never was a square-root filter.
+            in gaussx 0.7.0): it never was a square-root filter.
         psd_project: Project each returned covariance onto the PSD cone
             (eigenvalue clip) and keep lower-triangular factors of the
             projections. The associative scan still runs in covariance
@@ -250,13 +250,13 @@ def parallel_kalman_filter(
             "parallel_kalman_filter(solver=...) has no effect unless "
             "woodbury_innovation=True: the associative-scan combinators use "
             "dense solves. Passing it otherwise is deprecated and will raise "
-            "in 0.5.0."
+            "in gaussx 0.7.0."
         )
     if form == "sqrt":
         warn_deprecated(
             'form="sqrt" is deprecated: it is a PSD projection of the '
             "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.'
+            'psd_project=True instead; form="sqrt" will be removed in gaussx 0.7.0.'
         )
         psd_project = True
     elif form != "covariance":
@@ -431,11 +431,11 @@ def parallel_rts_smoother(
             `gaussx.kalman_filter`.
         transition: State transition matrix or operator.
         process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
-            it will be removed in 0.5.0.
+            it will be removed in gaussx 0.7.0.
         solver: Accepted for API symmetry; not currently threaded
             through.
         form: ``"covariance"``. ``"sqrt"`` is a deprecated spelling of
-            ``psd_project=True``, removed in 0.5.0.
+            ``psd_project=True``, removed in gaussx 0.7.0.
         psd_project: Build the per-step smoother elements from
             PSD-projected factors and combine the factors with QR, so the
             smoothed covariances are PSD. As in `parallel_kalman_filter`,
@@ -453,7 +453,7 @@ def parallel_rts_smoother(
         warn_deprecated(
             'form="sqrt" is deprecated: it is a PSD projection of the '
             "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.'
+            'psd_project=True instead; form="sqrt" will be removed in gaussx 0.7.0.'
         )
         psd_project = True
     elif form != "covariance":

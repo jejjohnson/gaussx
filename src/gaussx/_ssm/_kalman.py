@@ -311,7 +311,7 @@ def rts_smoother(
         transition: State transition matrix or operator.
         process_noise: Deprecated and ignored: the RTS recurrence never
             reads it, since the filter's predicted covariances already
-            include ``Q``. Passing it warns; it will be removed in 0.5.0.
+            include ``Q``. Passing it warns; it will be removed in gaussx 0.7.0.
         solver: Optional solver strategy.
 
     Returns:
