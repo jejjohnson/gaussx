@@ -463,7 +463,7 @@ what is supported.
 src/gaussx/
 ├── __init__.py             # Public API (`gaussx.__all__`)
 ├── _tags.py                # Structural tags + is_* predicates
-├── _einx.py                # einx wrappers (all reshape / einsum goes here)
+├── _einx.py                # einx wrappers: rearrange, reduce, repeat, einsum
 ├── _solve_frontend.py      # linear_solve + as_linear_operator
 ├── _testing.py             # Test utilities (random PD matrices, assertions)
 │

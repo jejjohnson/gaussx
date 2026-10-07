@@ -90,9 +90,17 @@ target-version = "py312"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "TID251"]
 ignore = ["E402", "E721", "E731", "E741", "F722"]
 allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺"]
+
+# The einx convention (CLAUDE.md, gh-404): contractions, permutations and
+# reshapes go through gaussx._einx, so the jnp spellings are banned outright.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"jax.numpy.einsum".msg = "use gaussx._einx.einsum"
+"jax.numpy.transpose".msg = "use gaussx._einx.rearrange (or .T on a lineax operator)"
+"jax.numpy.moveaxis".msg = "use gaussx._einx.rearrange"
+"jax.numpy.reshape".msg = "use gaussx._einx.rearrange"
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

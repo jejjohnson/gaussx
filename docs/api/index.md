@@ -100,8 +100,11 @@ deprecated APIs are removed on a schedule rather than ad hoc:
    commit through a `BEGIN_COMMIT_OVERRIDE` block in the PR body.
 
 Every public class and function carries a Google-style docstring with shapes in
-[jaxtyping](https://docs.kidger.site/jaxtyping/) notation; tensor contraction and
-reshaping inside the package go through [einx](https://github.com/fferflo/einx).
+[jaxtyping](https://docs.kidger.site/jaxtyping/) notation. Inside the package,
+every array operation that names axes (contractions, transposes and reshapes,
+axis reductions and broadcasts) goes through [einx](https://github.com/fferflo/einx),
+so the index pattern is written out; lineax operator algebra and plain
+matrix–vector products are exempt.
 
 ## See also
 

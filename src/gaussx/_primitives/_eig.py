@@ -264,10 +264,7 @@ def _eig_kronecker_sum(
     """
     evals_a, evecs_a = _factor_eig(operator.A, symmetric)
     evals_b, evecs_b = _factor_eig(operator.B, symmetric)
-    eigenvalues = jnp.reshape(
-        evals_a[:, None] + evals_b[None, :],
-        (-1,),
-    )
+    eigenvalues = einx.add("a, b -> (a b)", evals_a, evals_b)
     Q = jnp.kron(evecs_a, evecs_b)
     return eigenvalues, Q
 
@@ -276,7 +273,7 @@ def _eigvals_kronecker_sum(operator: KroneckerSum, *, symmetric: bool = False) -
     """eigvals(A (+) B) = sum-pairs of eigvals — no factor materialization."""
     evals_a = _eigvals(operator.A, None, None, symmetric=symmetric)
     evals_b = _eigvals(operator.B, None, None, symmetric=symmetric)
-    return jnp.reshape(evals_a[:, None] + evals_b[None, :], (-1,))
+    return einx.add("a, b -> (a b)", evals_a, evals_b)
 
 
 def _eig_partial(

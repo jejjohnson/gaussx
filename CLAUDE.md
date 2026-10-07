@@ -46,7 +46,7 @@ All implementation lives in `src/gaussx/`. The public API is re-exported through
 | `lineax` | Linear operators, solvers |
 | `matfree` | Krylov methods, stochastic trace |
 | `jaxtyping` | Array type annotations |
-| `einx` | Tensor reshaping/contraction (D9: einx for all reshape/einsum, via `gaussx._einx`) |
+| `einx` | Every axis-naming array op (contractions, reshapes, reductions, broadcasts); see the einx convention below |
 
 ## Common Commands
 
@@ -168,7 +168,8 @@ Either way, say in a comment where the bound came from.
 - All operators are `equinox.Module` subclasses (immutable, PyTree-compatible)
 - All primitives are pure functions with isinstance-based dispatch
 - Use `jaxtyping` annotations for array shapes
-- Use `einx` (via the `gaussx._einx` wrappers) for all tensor reshaping/contraction — no raw `jnp.reshape`/`jnp.transpose`/`jnp.einsum`
+- **einx convention** (src and tests): every dense-array operation that names axes goes through einx: contractions and matrix products of arrays (`gaussx._einx.einsum`), transposes, permutations and flatten/unflatten (`rearrange`), axis reductions (`reduce`, instead of `jnp.sum(x, axis=...)`), broadcasts that insert an axis (`einx.add`/`subtract`/`multiply`/`divide`, or `repeat`, instead of `x[:, None]`). Exempt: lineax operator methods (`op.T`, `op.mv`, `op @ other`), plain `L @ z` matrix–vector products, full reductions with no axis (`jnp.sum(x)`), elementwise ops on same-shaped arrays, and constructors such as `jnp.diag`/`jnp.eye`/`jnp.kron`.
+  - Enforced: ruff `TID251` bans `jnp.einsum`/`jnp.transpose`/`jnp.moveaxis`/`jnp.reshape`; `tests/test_einx_convention.py` caps the remaining legacy constructs (method `.reshape`/`.ravel`, `axis=`, `[:, None]`, `jnp.swapaxes`/`jnp.expand_dims`) at their current counts, so new code adds none. Lower a ceiling when you convert old sites.
 - Google-style docstrings
 - Type hints on all public functions and methods
 - Pure functions where possible; side effects isolated and explicit

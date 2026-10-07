@@ -15,6 +15,7 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._einx import einsum
 
 
 def _nonsymmetric(key, n: int, lo: float = -5.0, hi: float = -1.0):
@@ -141,9 +142,9 @@ def test_kronecker_sum_solve_3d():
     R = jr.normal(jr.key(13), (3, 4, 5))
     X = gaussx.kronecker_sum_solve(facs, R, 0.2)
     AX = (
-        jnp.einsum("ij,jbc->ibc", mats[0], X)
-        + jnp.einsum("ij,ajc->aic", mats[1], X)
-        + jnp.einsum("ij,abj->abi", mats[2], X)
+        einsum(mats[0], X, "i j, j b c -> i b c")
+        + einsum(mats[1], X, "i j, a j c -> a i c")
+        + einsum(mats[2], X, "i j, a b j -> a b i")
     )
     assert jnp.max(jnp.abs(AX - 0.2 * X - R)) < 1e-11
 
