@@ -36,6 +36,7 @@ from gaussx._expfam import (
     natural_to_meanvar as natural_to_meanvar,
     sufficient_stats as sufficient_stats,
     to_expectation as to_expectation,
+    to_mean_cov as to_mean_cov,
     to_natural as to_natural,
 )
 from gaussx._gmrf import (

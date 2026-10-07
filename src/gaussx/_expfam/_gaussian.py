@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import equinox as eqx
 import jax.numpy as jnp
 import lineax as lx
@@ -74,10 +76,14 @@ class GaussianExpFam(eqx.Module):
         return GaussianExpFam(eta1=eta1, eta2=eta2)
 
 
-def to_expectation(
+def to_mean_cov(
     expfam: GaussianExpFam,
 ) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
-    """Convert natural to expectation parameters.
+    """Convert natural parameters to the mean and covariance.
+
+    The inverse of `GaussianExpFam.from_mean_cov`. These are **not** the
+    expectation parameters ``(mu, mu mu^T + Sigma)``: for those, use
+    `gaussx.natural_to_expectation`.
 
     Args:
         expfam: Gaussian in natural form.
@@ -88,11 +94,40 @@ def to_expectation(
     return natural_to_mean_cov(expfam.eta1, expfam.eta2)
 
 
+def to_expectation(
+    expfam: GaussianExpFam,
+) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
+    """Deprecated alias of `to_mean_cov`.
+
+    Despite its name it returns the mean and covariance ``(mu, Sigma)``,
+    not the expectation parameters ``(mu, mu mu^T + Sigma)`` (see
+    `gaussx.natural_to_expectation`). It will be removed in a future
+    release.
+
+    Args:
+        expfam: Gaussian in natural form.
+
+    Returns:
+        Tuple ``(mu, Sigma)`` — mean vector and covariance operator.
+    """
+    warnings.warn(
+        "to_expectation is deprecated: it returns (mu, Sigma), not expectation "
+        "parameters. Use gaussx.to_mean_cov (same result), or "
+        "gaussx.natural_to_expectation for (mu, mu mu^T + Sigma).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return to_mean_cov(expfam)
+
+
 def to_natural(
     mu: Float[Array, " N"],
     Sigma: lx.AbstractLinearOperator,
 ) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
-    """Convert expectation to natural parameters.
+    """Deprecated alias of `gaussx.mean_cov_to_natural`.
+
+    It takes the mean and covariance, not expectation parameters. It will
+    be removed in a future release.
 
     Args:
         mu: Mean vector, shape ``(N,)``.
@@ -101,6 +136,12 @@ def to_natural(
     Returns:
         Tuple ``(eta1, eta2)`` — natural parameters.
     """
+    warnings.warn(
+        "to_natural is deprecated: it takes (mu, Sigma), not expectation "
+        "parameters. Use gaussx.mean_cov_to_natural (same result).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return mean_cov_to_natural(mu, Sigma)
 
 
@@ -183,7 +224,7 @@ def kl_divergence(
     `dist_kl_divergence`.
 
     The current implementation evaluates the Bregman form by routing
-    through `to_expectation` for the natural-gradient term
+    through `to_mean_cov` for the natural-gradient term
     ``(eta_p - eta_q)^T nabla A(eta_q)``. The second-moment contraction
     splits into a quadratic form (operator matvecs) plus
     `gaussx.trace_product`, so structured ``eta2`` / ``Sigma_q``
@@ -209,10 +250,11 @@ def kl_divergence(
     A_p = log_partition(p)
     A_q = log_partition(q)
 
-    # grad A(eta_q) w.r.t eta1 = mu_q, w.r.t eta2 = mu_q mu_q^T + Sigma_q
+    # grad A(eta_q) is the expectation parameters: mu_q w.r.t. eta1 and
+    # mu_q mu_q^T + Sigma_q w.r.t. eta2. Build them from (mu_q, Sigma_q).
     # The linear term: (eta_p - eta_q)^T grad A(eta_q)
     # For eta1 part: (eta1_p - eta1_q)^T mu_q
-    mu_q, Sigma_q = to_expectation(q)
+    mu_q, Sigma_q = to_mean_cov(q)
 
     delta_eta1 = p.eta1 - q.eta1
     linear_eta1 = delta_eta1 @ mu_q

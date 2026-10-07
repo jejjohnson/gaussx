@@ -243,6 +243,7 @@ statistics that natural-gradient and EP updates are built from.
       show_root_toc_entry: false
       members:
         - GaussianExpFam
+        - to_mean_cov
         - to_natural
         - to_expectation
         - mean_cov_to_natural
