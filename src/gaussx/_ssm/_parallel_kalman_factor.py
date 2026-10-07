@@ -115,7 +115,9 @@ def _factor(X: Float[Array, "n k"]) -> Float[Array, "n n"]:
     return _tria_gram(_pad_columns(X))
 
 
-def _input_factor(X: Float[Array, "n n"]) -> Float[Array, "n n"]:
+def _input_factor(
+    X: Float[Array, "n n"], shift_mask: Bool[Array, " n"] | None = None
+) -> Float[Array, "n n"]:
     r"""Cholesky factor of a model covariance, robust to rounding.
 
     With $D = \mathrm{diag}(X)^{1/2}$ (floored at ``tiny``) and the
@@ -128,15 +130,21 @@ def _input_factor(X: Float[Array, "n n"]) -> Float[Array, "n n"]:
     float32) while perturbing every component relative to its own scale —
     which matters for SDE process noise, whose diagonal spans many orders
     of magnitude at small steps. An all-zero ``X`` (e.g. ``Q₀ = 0``)
-    factors to a negligible ``L``.
+    factors to a negligible ``L``. ``shift_mask`` limits the shift to the
+    ``True`` components: the unit blocks `_masked_obs_inputs` substitutes
+    for masked channels are exact, and shifting them would leave a
+    ``-½ log(1 + 4 n ε)`` term per masked channel in the likelihood.
+    Factor ``X`` in its own dtype, so ``ε`` matches its rounding.
     """
     n = X.shape[-1]
     finfo = jnp.finfo(X.dtype)
     X = 0.5 * (X + _t(X))
     d = jnp.sqrt(jnp.maximum(jnp.diagonal(X), finfo.tiny))
     C = einsum(X, 1.0 / d, 1.0 / d, "i j, i, j -> i j")
-    eye = jnp.eye(n, dtype=X.dtype)
-    L_C = jnp.linalg.cholesky(C + 4 * n * finfo.eps * eye)
+    shift = jnp.full((n,), 4 * n * finfo.eps, dtype=X.dtype)
+    if shift_mask is not None:
+        shift = jnp.where(shift_mask, shift, jnp.zeros_like(shift))
+    L_C = jnp.linalg.cholesky(C + jnp.diag(shift))
     return einsum(d, L_C, "i, i j -> i j")
 
 
@@ -301,13 +309,15 @@ def parallel_kalman_filter_factor(
 
     def _masked(H, R, y, m):
         H_eff, R_eff, y_eff, n_missing = _masked_obs_inputs(H, R, y, m)
-        return H_eff, _input_factor(R_eff), y_eff, n_missing
+        return H_eff, _input_factor(R_eff, shift_mask=m), y_eff, n_missing
 
     H_eff, L_R, y_eff, n_missing = jax.vmap(_masked)(
         H_seq, R_seq, observations, mask_ch
     )
     L_Q = jax.vmap(_input_factor)(Q_seq)
-    N0 = _input_factor(init_cov.astype(dtype))
+    # Factor in the prior's own dtype (its rounding sets the shift), then
+    # promote.
+    N0 = _input_factor(init_cov).astype(dtype)
 
     elems = jax.vmap(_generic_element)(A_seq, H_eff, L_Q, L_R, y_eff)
     first = _first_element(A_seq[0], H_eff[0], L_Q[0], L_R[0], y_eff[0], init_mean, N0)
