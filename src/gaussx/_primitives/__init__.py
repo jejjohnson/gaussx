@@ -13,7 +13,12 @@ from gaussx._primitives._root import (
     root_inv_decomposition,
 )
 from gaussx._primitives._solve import solve
-from gaussx._primitives._sqrt import SqrtOperator, SumKroneckerSqrt, sqrt
+from gaussx._primitives._sqrt import (
+    SqrtOperator,
+    SumKroneckerSqrt,
+    SumOfKroneckersSqrt,
+    sqrt,
+)
 from gaussx._primitives._sqrt_matmul import (
     estimate_spectral_bounds,
     sqrt_inv_matmul,
@@ -30,6 +35,7 @@ __all__ = [
     "RootDecomposition",
     "SqrtOperator",
     "SumKroneckerSqrt",
+    "SumOfKroneckersSqrt",
     "cholesky",
     "cholesky_logdet",
     "diag",

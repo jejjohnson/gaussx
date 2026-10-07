@@ -159,7 +159,7 @@ def _cholesky_block_tridiag(operator: BlockTriDiag) -> LowerBlockTriDiag:
 def _cholesky_sum_kronecker(operator: SumOfKroneckers) -> lx.MatrixLinearOperator:
     warn_dense_fallback(
         "cholesky(SumOfKroneckers) materialises the dense covariance. "
-        "Use sumkronecker_sample(...) or sqrt(SumOfKroneckers) for matrix-free "
+        "Use sum_of_kroneckers_sample(...) or sqrt(SumOfKroneckers) for matrix-free "
         "Lanczos sampling."
     )
     return _cholesky_dense(operator)

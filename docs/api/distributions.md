@@ -219,7 +219,7 @@ FFT circulant embedding for a Toeplitz, and $L_B z_1 + U\sqrt{D}z_2$ for a
 low-rank update, so a $10^4 \times 10^4$ Kronecker covariance is never
 factorised densely. Every branch is exact. A `SumOfKroneckers` therefore takes
 the dense symmetric square root: its matrix-free sampler,
-`sumkronecker_sample`, is a truncated Lanczos approximation and stays an
+`sum_of_kroneckers_sample`, is a truncated Lanczos approximation and stays an
 explicit opt-in. The one-off helpers `toeplitz_sample` and
 `kronecker_sum_sample` also remain available for callers that want them
 directly.

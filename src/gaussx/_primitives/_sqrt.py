@@ -10,6 +10,7 @@ import matfree.decomp
 import matfree.funm
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalisedOperator
 from gaussx._operators._kronecker import Kronecker
@@ -146,8 +147,8 @@ def _sqrt_sum_kronecker(
     operator: SumOfKroneckers,
     *,
     lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
-) -> SumKroneckerSqrt:
-    return SumKroneckerSqrt(operator, lanczos_order=lanczos_order)
+) -> SumOfKroneckersSqrt:
+    return SumOfKroneckersSqrt(operator, lanczos_order=lanczos_order)
 
 
 @jax.custom_jvp
@@ -265,8 +266,11 @@ class SqrtOperator(lx.AbstractLinearOperator):
         return self.original.out_structure()
 
 
-class SumKroneckerSqrt(SqrtOperator):
+class SumOfKroneckersSqrt(SqrtOperator):
     """Lazy Lanczos square-root operator for ``SumOfKroneckers`` covariances.
+
+    What `gaussx.sqrt` returns for a `SumOfKroneckers`. Not to be confused
+    with `KroneckerSumSqrt`, the closed-form root of a `KroneckerSum`.
 
     Specialization of `SqrtOperator` that narrows ``original`` to a
     `SumOfKroneckers` operator. `mv` computes ``sqrt(A) v`` via
@@ -286,6 +290,27 @@ class SumKroneckerSqrt(SqrtOperator):
         original: SumOfKroneckers,
         lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
     ) -> None:
+        super().__init__(original, lanczos_order=lanczos_order)
+
+
+class SumKroneckerSqrt(SumOfKroneckersSqrt):
+    """Deprecated alias for `SumOfKroneckersSqrt` (gh-297).
+
+    Subclasses `SumOfKroneckersSqrt` so ``isinstance`` checks keep working,
+    and emits a `DeprecationWarning` on construction. `gaussx.sqrt` returns
+    the new class, which is *not* an instance of this alias. Will be removed
+    in gaussx 0.7.0.
+    """
+
+    def __init__(
+        self,
+        original: SumOfKroneckers,
+        lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
+    ) -> None:
+        warn_deprecated(
+            "SumKroneckerSqrt is deprecated and will be removed in gaussx 0.7.0; "
+            "use SumOfKroneckersSqrt."
+        )
         super().__init__(original, lanczos_order=lanczos_order)
 
 

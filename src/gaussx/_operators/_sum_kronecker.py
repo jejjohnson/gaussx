@@ -773,7 +773,7 @@ def _eigen_solve_jvp(primals, tangents):
     return x, _eigen_solve(operator, rhs)
 
 
-def sumkronecker_sample(
+def sum_of_kroneckers_sample(
     op: SumOfKroneckers,
     *,
     key: jax.Array,
@@ -800,7 +800,7 @@ def sumkronecker_sample(
 
     if op.in_size() != op.out_size():
         raise ValueError(
-            "sumkronecker_sample requires a square SumOfKroneckers, got "
+            "sum_of_kroneckers_sample requires a square SumOfKroneckers, got "
             f"in_size={op.in_size()} and out_size={op.out_size()}."
         )
     if num_samples < 1:
@@ -811,6 +811,26 @@ def sumkronecker_sample(
         key, (num_samples, op.in_size()), dtype=op.in_structure().dtype
     )
     return jax.vmap(sqrt_op.mv)(eps)
+
+
+def sumkronecker_sample(
+    op: SumOfKroneckers,
+    *,
+    key: jax.Array,
+    num_samples: int = 1,
+    lanczos_order: int = 50,
+) -> Float[Array, "num_samples n"]:
+    """Deprecated alias for `sum_of_kroneckers_sample` (gh-297).
+
+    Will be removed in gaussx 0.7.0.
+    """
+    warn_deprecated(
+        "sumkronecker_sample is deprecated and will be removed in gaussx 0.7.0; "
+        "use sum_of_kroneckers_sample."
+    )
+    return sum_of_kroneckers_sample(
+        op, key=key, num_samples=num_samples, lanczos_order=lanczos_order
+    )
 
 
 # ---------------------------------------------------------------------------
