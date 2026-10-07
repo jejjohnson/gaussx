@@ -144,11 +144,6 @@ def test_reduces_to_etkf_transform(getkey):
     assert jnp.allclose(got, expected, atol=1e-10, rtol=0.0)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="gh-367: etkf_transform densifies obs_noise via as_matrix()",
-)
 def test_deterministic_does_not_materialise_diagonal_noise(monkeypatch):
     """``deterministic=True`` with J < M keeps a diagonal R structured (gh-282)."""
     nextkey = key_sequence(0)

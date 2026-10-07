@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
+from gaussx._einx import einsum, rearrange, reduce
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
@@ -877,7 +879,8 @@ def etkf_transform(
     y: Float[Array, " M"],
     obs_noise: lx.AbstractLinearOperator,
     *,
-    inflation: float = 1.0,
+    inflation: float | Float[Array, ""] = 1.0,
+    solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, " J"], Float[Array, "J J"]]:
     r"""Ensemble Transform Kalman Filter (ETKF) analysis weights.
 
@@ -904,12 +907,27 @@ def etkf_transform(
     an eigenvector of ``W`` with eigenvalue ``1``, which makes the transform
     exactly mean-preserving (``sum_j X'^a_j = 0``).
 
+    Cost. ``R^{-1}`` is applied to the ``J + 1`` right-hand sides
+    ``[Y^T, d]`` in one `solve_rows` call, so a structured ``R`` (diagonal,
+    `gaussx.BlockDiag`, `gaussx.Kronecker`, ...) keeps its own solve and is
+    never materialised, and a dense ``R`` is factored once. The ensemble-space
+    algebra then takes a single ``(J, J)`` eigendecomposition
+    ``\tilde{A}^{-1} = V \operatorname{diag}(s) V^T``, from which both
+    ``\tilde{A} = V \operatorname{diag}(1/s) V^T`` and
+    ``W = V \operatorname{diag}(\sqrt{(J-1)/s}) V^T`` are read off (Hunt et
+    al. 2007), with no explicit inverse. Its derivative is taken in closed
+    form in the eigenbasis (Daleckii-Krein), which stays finite at the
+    repeated prior eigenvalue ``(J - 1)/\lambda`` that has multiplicity
+    ``J - M`` whenever ``M < J``.
+
     Args:
         obs_particles: Forecast ensemble in observation space, shape ``(J, M)``.
         y: Observation vector, shape ``(M,)``.
         obs_noise: Observation error covariance operator ``R``, shape ``(M, M)``.
         inflation: Multiplicative covariance inflation ``lambda >= 1``, applied
             to the prior term ``(J - 1) / lambda``.
+        solver: Optional solver strategy for the ``R^{-1}`` solves. ``None``
+            uses structural dispatch.
 
     Returns:
         ``(w_mean, transform)`` where ``w_mean`` has shape ``(J,)`` and
@@ -932,36 +950,100 @@ def etkf_transform(
         )
     if isinstance(inflation, (int, float)) and inflation <= 0:
         raise ValueError(f"inflation must be positive, got {inflation}.")
-    obs_mean = jnp.mean(obs_particles, axis=0)
-    obs_pert = obs_particles - obs_mean[None, :]  # (J, M), zero-mean rows
+    obs_mean = reduce(obs_particles, "J M -> M", "mean")
+    obs_pert = einx.subtract("J M, M -> J M", obs_particles, obs_mean)  # zero-mean
 
-    r_matrix = obs_noise.as_matrix()
-    # R^{-1} applied to the (M, .) right-hand sides.
-    rinv_pert = jnp.linalg.solve(r_matrix, obs_pert.T)  # (M, J)
-    rinv_d = jnp.linalg.solve(r_matrix, y - obs_mean)  # (M,)
+    # R^{-1} applied to all J + 1 right-hand sides at once: one structured
+    # solve, so a dense R is factored once and a structured R never densified.
+    rhs = jnp.vstack([obs_pert, y - obs_mean])  # (J + 1, M)
+    weighted = solve_rows(obs_noise, rhs, solver=solver)  # (J + 1, M)
+    rinv_pert, rinv_d = weighted[:-1], weighted[-1]
 
     eye = jnp.eye(n_ens, dtype=rinv_pert.dtype)
-    precision = (n_ens - 1) / inflation * eye + obs_pert @ rinv_pert
-    precision = symmetrize(precision)
-    analysis_cov = jnp.linalg.inv(precision)  # tilde A, (J, J)
+    precision = (n_ens - 1) / inflation * eye + einsum(
+        obs_pert, rinv_pert, "J M, K M -> J K"
+    )
+    analysis_cov, inv_sqrt = _inverse_and_inverse_sqrt(symmetrize(precision))
 
-    w_mean = analysis_cov @ (obs_pert @ rinv_d)  # (J,)
-    transform = _symmetric_sqrt((n_ens - 1) * analysis_cov)
+    w_mean = einsum(
+        analysis_cov, einsum(obs_pert, rinv_d, "J M, M -> J"), "J K, K -> J"
+    )
+    transform = jnp.sqrt(jnp.asarray(n_ens - 1, dtype=inv_sqrt.dtype)) * inv_sqrt
     return w_mean, transform
 
 
-def _symmetric_sqrt(matrix: Float[Array, "J J"]) -> Float[Array, "J J"]:
-    """Symmetric (eigendecomposition) square root of an SPD matrix.
+@jax.custom_jvp
+def _inverse_and_inverse_sqrt(
+    matrix: Float[Array, "J J"],
+) -> tuple[Float[Array, "J J"], Float[Array, "J J"]]:
+    """``(A^{-1}, A^{-1/2})`` of an SPD matrix from a single `eigh`.
 
-    Thin alias for `gaussx._primitives._sqrt.dense_symmetric_sqrt`, which
-    carries a Sylvester-equation JVP so that the derivative stays finite at
-    repeated eigenvalues. `etkf_transform` square-roots an analysis covariance
-    that always has them -- ``Y R^-1 Y^T`` has rank at most ``min(M, J - 1)``,
-    so the prior eigenvalue survives with multiplicity ``J - M`` whenever
-    ``M < J`` -- and while the naive derivative happens to stay finite on the
-    tangents that arise there, it is one input away from not doing so.
+    The custom JVP exists for the same reason as `dense_symmetric_sqrt`'s:
+    differentiating through `jax.numpy.linalg.eigh` divides by eigenvalue
+    gaps and is non-finite at a repeated eigenvalue, which `etkf_transform`'s
+    ensemble-space precision always has when ``M < J - 1``. See
+    `_inverse_and_inverse_sqrt_jvp` for the gap-free derivative.
     """
-    return dense_symmetric_sqrt(matrix)
+    eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    return _spectral_inverse_and_inverse_sqrt(eigenvalues, eigenvectors)
+
+
+def _spectral_inverse_and_inverse_sqrt(
+    eigenvalues: Float[Array, " J"],
+    eigenvectors: Float[Array, "J J"],
+) -> tuple[Float[Array, "J J"], Float[Array, "J J"]]:
+    def _apply(values: Float[Array, " J"]) -> Float[Array, "J J"]:
+        scaled = einx.multiply("J i, i -> J i", eigenvectors, values)
+        return einsum(scaled, eigenvectors, "J i, K i -> J K")  # V diag V^T
+
+    return _apply(1.0 / eigenvalues), _apply(1.0 / jnp.sqrt(eigenvalues))
+
+
+@_inverse_and_inverse_sqrt.defjvp
+def _inverse_and_inverse_sqrt_jvp(primals, tangents):
+    r"""Daleckii-Krein derivative of ``A^{-1}`` and ``A^{-1/2}``.
+
+    For a spectral function ``f(A) = V f(\Lambda) V^T`` the derivative is
+    ``V (F \circ V^T dA V) V^T`` with the divided differences
+    ``F_ij = (f(s_i) - f(s_j)) / (s_i - s_j)`` (``f'(s_i)`` on ties). For
+    these two functions the divided differences have gap-free closed forms,
+
+    $$
+    \frac{s_i^{-1} - s_j^{-1}}{s_i - s_j} = -\frac{1}{s_i s_j},
+    \qquad
+    \frac{s_i^{-1/2} - s_j^{-1/2}}{s_i - s_j}
+        = -\frac{1}{\sqrt{s_i s_j}\,(\sqrt{s_i} + \sqrt{s_j})},
+    $$
+
+    which reduce to ``f'(s_i)`` on the diagonal, so the derivative stays
+    finite however many eigenvalues coincide.
+    """
+    (matrix,) = primals
+    (tangent,) = tangents
+    eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    primal_out = _spectral_inverse_and_inverse_sqrt(eigenvalues, eigenvectors)
+
+    # eigh reads one triangle, so project the tangent onto the symmetric part.
+    tangent = 0.5 * (tangent + rearrange(tangent, "J K -> K J"))
+    rotated = einsum(eigenvectors, tangent, eigenvectors, "a i, a b, b j -> i j")
+    root = jnp.sqrt(eigenvalues)
+    inv_diff = -1.0 / einx.multiply("i, j -> i j", eigenvalues, eigenvalues)
+    inv_sqrt_diff = -1.0 / einx.multiply(
+        "i, j, i j -> i j",
+        root,
+        root,
+        einx.add("i, j -> i j", root, root),
+    )
+
+    def _back(coefficients: Float[Array, "J J"]) -> Float[Array, "J J"]:
+        return einsum(
+            eigenvectors,
+            coefficients * rotated,
+            eigenvectors,
+            "J i, i j, K j -> J K",
+        )
+
+    return primal_out, (_back(inv_diff), _back(inv_sqrt_diff))
 
 
 # ---------------------------------------------------------------------------
@@ -1048,9 +1130,8 @@ def eki_step(
             shape ``(J, M)``.
         observation: The observation $y$, shape ``(M,)``.
         obs_noise: Observation error covariance $R$, shape ``(M, M)``. Scaled
-            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator` for the gain
-            computation. Note: `etkf_transform` materializes ``obs_noise`` via
-            ``as_matrix()`` when ``deterministic=True``.
+            to $R/\Delta t$ as a lazy `gaussx.ScaledOperator`, so a
+            structured $R$ keeps its own solve in both variants.
         dt: Observation-side tempering step $\Delta t > 0$. Positivity is not
             checked -- it may be traced.
         step: State-side operator $\Lambda$, shape ``(N, N)``. ``None`` is the
@@ -1167,7 +1248,9 @@ def eki_step(
     if deterministic:
         obs_mean = jnp.mean(obs_particles, axis=0)  # (M,)
         anomalies = particles - jnp.mean(particles, axis=0, keepdims=True)  # (J, N)
-        _, transform = etkf_transform(obs_particles, observation, tempered_noise)
+        _, transform = etkf_transform(
+            obs_particles, observation, tempered_noise, solver=solver
+        )
         mean_increment = gain @ (observation - obs_mean)  # (N,)
         # The increment, not the transformed anomalies: Lambda acts on
         # differences, so Lambda = I leaves `transform @ anomalies` exactly.
