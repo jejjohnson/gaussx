@@ -6,8 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators import BlockDiag, Kronecker
-from gaussx._primitives._eig import eig, eigvals
+from gaussx import BlockDiag, Kronecker, eig, eigvals
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 

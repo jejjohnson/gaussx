@@ -8,11 +8,10 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._primitives._diag import diag
-from gaussx._primitives._eig import eig, eigvals
-from gaussx._primitives._sqrt import SqrtOperator, sqrt
-from gaussx._primitives._svd import svd
-from gaussx._primitives._trace import trace
+from gaussx import diag, eig, eigvals, sqrt, svd, trace
+
+# Not public: the lazy square-root operator sqrt returns.
+from gaussx._primitives._sqrt import SqrtOperator
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 

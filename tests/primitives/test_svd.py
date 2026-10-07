@@ -6,7 +6,7 @@ import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._primitives._svd import svd
+from gaussx import svd
 from gaussx._testing import tree_allclose
 
 
