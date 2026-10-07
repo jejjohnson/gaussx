@@ -495,3 +495,15 @@ class TestSumKroneckerDeprecatedAlias:
 
         assert gaussx.SumOfKroneckers is SumOfKroneckers
         assert gaussx.SumKronecker is SumKronecker
+
+
+def test_sum_kronecker_deprecation_points_at_the_caller():
+    """gh-332: the warning names this file, not equinox's Module machinery."""
+    from gaussx._deprecation import GaussxDeprecationWarning
+
+    k = Kronecker(
+        lx.MatrixLinearOperator(jnp.eye(2)), lx.MatrixLinearOperator(jnp.eye(3))
+    )
+    with pytest.warns(GaussxDeprecationWarning) as record:
+        SumKronecker(k, k)
+    assert record[0].filename == __file__

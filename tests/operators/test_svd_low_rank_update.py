@@ -18,7 +18,9 @@ def psd_operator():
     S = jnp.array([3.0, 2.0, 1.0])
     base = lx.DiagonalLinearOperator(diag)
     base = lx.TaggedLinearOperator(base, lx.positive_semidefinite_tag)
-    return gaussx.SVDLowRankUpdate(base, U, S)
+    # The deprecated alias is the subject here; say so (gh-332).
+    with pytest.warns(DeprecationWarning, match="SVDLowRankUpdate"):
+        return gaussx.SVDLowRankUpdate(base, U, S)
 
 
 @pytest.fixture()
@@ -32,7 +34,8 @@ def nonsym_operator():
     V, _, _ = jnp.linalg.svd(jax.random.normal(k2, (n, k)), full_matrices=False)
     S = jnp.array([2.0, 1.0])
     base = lx.DiagonalLinearOperator(diag)
-    return gaussx.SVDLowRankUpdate(base, U, S, V)
+    with pytest.warns(DeprecationWarning, match="SVDLowRankUpdate"):
+        return gaussx.SVDLowRankUpdate(base, U, S, V)
 
 
 class TestSVDLowRankUpdate:
@@ -80,3 +83,14 @@ class TestSVDLowRankUpdate:
     def test_in_out_size(self, psd_operator):
         assert psd_operator.in_size() == 6
         assert psd_operator.out_size() == 6
+
+
+def test_deprecation_points_at_the_caller():
+    """gh-332: the warning names this file, not equinox's Module machinery."""
+    from gaussx._deprecation import GaussxDeprecationWarning
+
+    U = jnp.linalg.qr(jax.random.normal(jax.random.key(0), (4, 2)))[0]
+    base = lx.DiagonalLinearOperator(jnp.ones(4))
+    with pytest.warns(GaussxDeprecationWarning) as record:
+        gaussx.SVDLowRankUpdate(base, U, jnp.ones(2))
+    assert record[0].filename == __file__

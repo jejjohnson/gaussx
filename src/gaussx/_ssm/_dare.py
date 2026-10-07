@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_matrix
 from gaussx._linalg._symmetrize import symmetrize
@@ -97,11 +96,9 @@ def dare(
         Kalman gain, and convergence flag.
     """
     if P_init is not None:
-        warnings.warn(
+        warn_deprecated(
             "dare(P_init=...) is deprecated and ignored: the doubling "
-            "algorithm needs no initial guess. It will be removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "algorithm needs no initial guess. It will be removed in 0.5.0."
         )
     A_op = _as_operator(A)
     H_op = _as_operator(H)

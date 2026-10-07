@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import warnings
-
 import equinox as eqx
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
@@ -112,12 +111,10 @@ def to_expectation(
     Returns:
         Tuple ``(mu, Sigma)`` — mean vector and covariance operator.
     """
-    warnings.warn(
+    warn_deprecated(
         "to_expectation is deprecated: it returns (mu, Sigma), not expectation "
         "parameters. Use gaussx.to_mean_cov (same result), or "
-        "gaussx.natural_to_expectation for (mu, mu mu^T + Sigma).",
-        DeprecationWarning,
-        stacklevel=2,
+        "gaussx.natural_to_expectation for (mu, mu mu^T + Sigma)."
     )
     return to_mean_cov(expfam)
 
@@ -138,11 +135,9 @@ def to_natural(
     Returns:
         Tuple ``(eta1, eta2)`` — natural parameters.
     """
-    warnings.warn(
+    warn_deprecated(
         "to_natural is deprecated: it takes (mu, Sigma), not expectation "
-        "parameters. Use gaussx.mean_cov_to_natural (same result).",
-        DeprecationWarning,
-        stacklevel=2,
+        "parameters. Use gaussx.mean_cov_to_natural (same result)."
     )
     return mean_cov_to_natural(mu, Sigma)
 

@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._operators._block_diag import _to_frozenset
 
 
@@ -317,12 +318,9 @@ class SVDLowRankUpdate(LowRankUpdate):
         *,
         tags: object | frozenset[object] = frozenset(),
     ) -> None:
-        import warnings
 
-        warnings.warn(
+        warn_deprecated(
             "SVDLowRankUpdate is deprecated; use "
-            "LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag().",
-            DeprecationWarning,
-            stacklevel=2,
+            "LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag()."
         )
         super().__init__(base, U, S, V, tags=tags, orthonormal=True)

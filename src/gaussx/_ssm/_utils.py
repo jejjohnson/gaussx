@@ -9,13 +9,12 @@ sandwich sites.
 
 from __future__ import annotations
 
-import warnings
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._operators._low_rank_update import LowRankUpdate
 
 
@@ -346,10 +345,8 @@ def _warn_unused_process_noise(function: str, process_noise: object) -> None:
     not exist.
     """
     if process_noise is not None:
-        warnings.warn(
+        warn_deprecated(
             f"{function}(..., process_noise) is deprecated and ignored: the RTS "
             "recurrence never reads it (the filter's predicted covariances "
-            "already include Q). Omit it; the argument will be removed in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=3,
+            "already include Q). Omit it; the argument will be removed in 0.5.0."
         )

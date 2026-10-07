@@ -18,14 +18,13 @@ factor-propagating combinator is tracked in #454.
 
 from __future__ import annotations
 
-import warnings
-
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._symmetrize import symmetrize as _sym
 from gaussx._primitives._logdet import cholesky_logdet
@@ -247,21 +246,17 @@ def parallel_kalman_filter(
         and the total log-likelihood.
     """
     if solver is not None and not woodbury_innovation:
-        warnings.warn(
+        warn_deprecated(
             "parallel_kalman_filter(solver=...) has no effect unless "
             "woodbury_innovation=True: the associative-scan combinators use "
             "dense solves. Passing it otherwise is deprecated and will raise "
-            "in 0.5.0.",
-            DeprecationWarning,
-            stacklevel=2,
+            "in 0.5.0."
         )
     if form == "sqrt":
-        warnings.warn(
+        warn_deprecated(
             'form="sqrt" is deprecated: it is a PSD projection of the '
             "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.',
-            DeprecationWarning,
-            stacklevel=2,
+            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.'
         )
         psd_project = True
     elif form != "covariance":
@@ -455,12 +450,10 @@ def parallel_rts_smoother(
     """
     _warn_unused_process_noise("parallel_rts_smoother", process_noise)
     if form == "sqrt":
-        warnings.warn(
+        warn_deprecated(
             'form="sqrt" is deprecated: it is a PSD projection of the '
             "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.',
-            DeprecationWarning,
-            stacklevel=2,
+            'psd_project=True instead; form="sqrt" will be removed in 0.5.0.'
         )
         psd_project = True
     elif form != "covariance":
