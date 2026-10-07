@@ -9,6 +9,7 @@ cost is $J$ structural solves rather than an $O(N^3)$ factorisation.
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -17,6 +18,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
 from gaussx._operators._block_diag import BlockDiag
+from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -366,10 +368,13 @@ def _shift_operator(
 
     Diagonals and identities -- tagged, scaled or bare -- stay diagonal; tags
     and scalars are peeled off (``cA + sI = c(A + (s/c)I)``) so the structure
-    underneath is shifted instead; a `gaussx.BlockDiag` shifts each block; and
-    a `gaussx.LowRankUpdate` shifts its base so the Woodbury solve still
-    applies. Anything else would fall through to a dense factorisation per
-    quadrature node.
+    underneath is shifted instead; a `gaussx.BlockDiag` shifts each block; a
+    `gaussx.LowRankUpdate` shifts its base so the Woodbury solve still
+    applies; a `gaussx.KroneckerSum` shifts one factor
+    (``(A ⊕ B) + sI = (A + sI) ⊕ B``); and a `gaussx.BlockTriDiag` shifts its
+    diagonal blocks. Anything else — including a multi-factor
+    `gaussx.Kronecker`, which has no cheap shift — falls through to a dense
+    factorisation per quadrature node.
 
     ``lineax`` does not propagate the positive-semidefinite tag across
     `lineax.AddLinearOperator`, so the sum is re-tagged: every shift is
@@ -404,9 +409,24 @@ def _shift_operator(
             tags=operator.tags,
             orthonormal=operator.orthonormal,
         )
+    if isinstance(operator, KroneckerSum):
+        # (A ⊕ B) + sI = (A + sI) ⊕ B, since I_ab = I_a ⊗ I_b (gh-337).
+        return KroneckerSum(
+            _shift_operator(operator.A, shift), operator.B, tags=operator.tags
+        )
+    if isinstance(operator, BlockTriDiag):
+        # Only the diagonal blocks change (gh-337).
+        eye = jnp.eye(operator._block_size, dtype=operator.diagonal.dtype)
+        return BlockTriDiag(
+            einx.add("N d e, d e -> N d e", operator.diagonal, shift * eye),
+            operator.sub_diagonal,
+            symmetric=operator.symmetric,
+            tags=operator.tags,
+        )
     identity = lx.IdentityLinearOperator(operator.in_structure())
     return lx.TaggedLinearOperator(
-        operator + shift * identity, lx.positive_semidefinite_tag
+        operator + shift * identity,
+        (lx.symmetric_tag, lx.positive_semidefinite_tag),
     )
 
 

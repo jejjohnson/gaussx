@@ -195,7 +195,11 @@ class BlockTriDiag(lx.AbstractLinearOperator):
             tags=self._definiteness() & other._definiteness(),
         )
 
-    def __add__(self, other: BlockTriDiag) -> BlockTriDiag:
+    def __add__(self, other):
+        if not isinstance(other, BlockTriDiag):
+            # A foreign operand (e.g. ``s * Identity``) becomes a lineax sum
+            # instead of crashing on ``other.diagonal`` (gh-337).
+            return super().__add__(other)
         return self.add(other)
 
     def __radd__(self, other: object) -> BlockTriDiag:
@@ -205,7 +209,9 @@ class BlockTriDiag(lx.AbstractLinearOperator):
             return self
         return NotImplemented
 
-    def __sub__(self, other: BlockTriDiag) -> BlockTriDiag:
+    def __sub__(self, other):
+        if not isinstance(other, BlockTriDiag):
+            return super().__sub__(other)
         return BlockTriDiag(
             self.diagonal - other.diagonal,
             self.sub_diagonal - other.sub_diagonal,
