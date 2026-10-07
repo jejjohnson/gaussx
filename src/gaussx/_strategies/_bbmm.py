@@ -29,8 +29,9 @@ class BBMMSolver(AbstractSolverStrategy):
 
     Attributes:
         cg_max_iter: Maximum CG iterations.
-        cg_tolerance: Relative and absolute tolerance for CG. ``None``:
-            ``1e-4`` in float64, ``1e-3`` in float32 (gh-327).
+        cg_tolerance: Relative and absolute tolerance for CG. ``None``: a
+            relative ``1e-4`` in float64 and ``1e-3`` in float32 (gh-327),
+            and an absolute ``1e-4`` in every dtype.
         lanczos_iter: Lanczos iterations for SLQ.
         num_probes: Number of probe vectors for Hutchinson.
         seed: Seed for probe vector generation.
@@ -64,8 +65,9 @@ class BBMMSolver(AbstractSolverStrategy):
         Returns:
             The solution x.
         """
-        tol = self._cg_tolerance(operator_dtype(operator))
-        solver = lx.CG(rtol=tol, atol=tol, max_steps=self.cg_max_iter)
+        rtol = self._cg_tolerance(operator_dtype(operator, vector))
+        atol = 1e-4 if self.cg_tolerance is None else self.cg_tolerance
+        solver = lx.CG(rtol=rtol, atol=atol, max_steps=self.cg_max_iter)
         return lx.linear_solve(operator, vector, solver, throw=self.throw).value
 
     def logdet(

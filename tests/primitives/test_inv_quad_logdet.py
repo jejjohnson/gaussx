@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -628,3 +629,18 @@ def test_unstructured_operators_still_take_bbmm() -> None:
     bbmm = gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver())
     assert jnp.array_equal(default[1], bbmm[1])
     assert jnp.allclose(default[0], bbmm[0])
+
+
+def test_shared_pass_honours_throw():
+    # The mBCG pass bypasses BBMMSolver.solve, so it checks the right-hand
+    # sides itself: out of budget raises unless throw=False.
+    op = lx.MatrixLinearOperator(
+        random_pd_matrix(jr.key(0), 20), lx.positive_semidefinite_tag
+    )
+    rhs = jr.normal(jr.key(1), (20, 1), dtype=op.as_matrix().dtype)
+    with pytest.raises(eqx.EquinoxRuntimeError):
+        gaussx.inv_quad_logdet(op, rhs, strategy=gaussx.BBMMSolver(cg_max_iter=1))
+    inv_quad, _ = gaussx.inv_quad_logdet(
+        op, rhs, strategy=gaussx.BBMMSolver(cg_max_iter=1, throw=False)
+    )
+    assert jnp.isfinite(inv_quad)

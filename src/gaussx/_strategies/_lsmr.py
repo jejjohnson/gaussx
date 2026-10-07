@@ -63,7 +63,7 @@ class LSMRSolver(AbstractSolverStrategy):
         Returns:
             The (least-squares) solution x.
         """
-        dtype = operator_dtype(operator)
+        dtype = operator_dtype(operator, vector)
         atol = resolve_tolerance(self.atol, dtype, 1e-6)
         btol = resolve_tolerance(self.btol, dtype, 1e-6)
         if self.damp == 0.0:

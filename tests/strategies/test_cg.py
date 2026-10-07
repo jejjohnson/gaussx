@@ -16,6 +16,7 @@ from gaussx._strategies import (
     AutoSolver,
     BBMMSolver,
     CGSolver,
+    MINRESSolver,
     PreconditionedCGSolver,
     SLQLogdet,
 )
@@ -166,3 +167,27 @@ def test_default_tolerance_follows_the_dtype(dtype, expected):
     # float64 keeps the historical default, so its results are unchanged.
     assert resolve_tolerance(None, dtype, 1e-5) == expected
     assert resolve_tolerance(1e-7, dtype, 1e-5) == 1e-7
+
+
+@pytest.mark.parametrize("cls", [CGSolver, MINRESSolver])
+def test_float32_default_keeps_a_small_absolute_tolerance(cls):
+    # Only rtol is relaxed in float32: with atol = 1e-3 a right-hand side of
+    # norm 1e-4 counted as solved by the zero iterate.
+    op = lx.MatrixLinearOperator(jnp.eye(4, dtype=jnp.float32), lx.symmetric_tag)
+    if cls is CGSolver:
+        op = lx.TaggedLinearOperator(op, lx.positive_semidefinite_tag)
+    b = jnp.full(4, 5e-5, dtype=jnp.float32)
+    assert tree_allclose(cls().solve(op, b), b)
+
+
+def test_default_tolerance_uses_the_narrowest_dtype():
+    from gaussx._strategies._tolerances import operator_dtype
+
+    # A float64-in, float32-out operator, or a float32 rhs: the float32
+    # residual decides which default is reachable.
+    op = lx.FunctionLinearOperator(
+        lambda v: v.astype(jnp.float32), jax.ShapeDtypeStruct((3,), jnp.float64)
+    )
+    assert operator_dtype(op) == jnp.float32
+    square = lx.MatrixLinearOperator(jnp.eye(3, dtype=jnp.float64))
+    assert operator_dtype(square, jnp.ones(3, dtype=jnp.float32)) == jnp.float32

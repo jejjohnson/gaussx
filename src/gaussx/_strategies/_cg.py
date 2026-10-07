@@ -21,15 +21,17 @@ class CGSolver(AbstractSolverStrategy):
     for large PSD operators where dense factorization is too
     expensive.
 
-    The tolerances default to ``None``, which resolves from the operator's
-    dtype at solve time: ``1e-5`` in float64 and ``1e-3`` in float32, where
+    The relative tolerance defaults to ``None``, which resolves from the
+    operator's dtype at solve time: ``1e-5`` in float64 and ``1e-3`` in
+    float32, where
     a relative residual of ``1e-5`` is out of reach once the condition number
     passes about ``1e3`` (gh-327). Set them explicitly to override.
 
     Attributes:
         rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
             ``1e-3`` in float32.
-        atol: Absolute tolerance for CG. ``None``: as ``rtol``.
+        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in every dtype
+            (only the relative tolerance is relaxed for float32).
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
@@ -63,10 +65,10 @@ class CGSolver(AbstractSolverStrategy):
         Returns:
             Solution ``x``, shape ``(n,)``.
         """
-        dtype = operator_dtype(operator)
+        dtype = operator_dtype(operator, vector)
         solver = lx.CG(
             rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
-            atol=resolve_tolerance(self.atol, dtype, 1e-5),
+            atol=1e-5 if self.atol is None else self.atol,
             max_steps=self.max_steps,
         )
         options: dict[str, lx.AbstractLinearOperator] = {}

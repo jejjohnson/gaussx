@@ -167,7 +167,8 @@ class MINRESSolver(AbstractSolverStrategy):
     Attributes:
         rtol: Relative tolerance for MINRES. ``None``: ``1e-5`` in float64,
             ``1e-3`` in float32 (gh-327).
-        atol: Absolute tolerance for MINRES. ``None``: as ``rtol``.
+        atol: Absolute tolerance for MINRES. ``None``: ``1e-5`` in every
+            dtype.
         max_steps: Maximum MINRES iterations.
         shift: Diagonal shift — solves ``(A + shift * I) x = b``.
         num_probes: Number of probe vectors for stochastic logdet.
@@ -195,12 +196,12 @@ class MINRESSolver(AbstractSolverStrategy):
         Returns:
             Solution ``x``, shape ``(n,)``.
         """
-        dtype = operator_dtype(operator)
+        dtype = operator_dtype(operator, vector)
         return _minres_solve(
             operator.mv,
             vector,
             rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
-            atol=resolve_tolerance(self.atol, dtype, 1e-5),
+            atol=1e-5 if self.atol is None else self.atol,
             max_steps=self.max_steps,
             shift=self.shift,
         )
