@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import einx
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, Int
@@ -56,15 +57,15 @@ def submatrix(
         return _submatrix_block_diag(operator, row_idx, col_idx)
     if isinstance(operator, Kronecker):
         return _submatrix_kronecker(operator, row_idx, col_idx)
+    dtype = _matrix_dtype(operator)
     if row_idx.shape[0] == 0 or col_idx.shape[0] == 0:
         # einx rejects zero-length axes; an empty block needs no structure.
-        dtype = operator.in_structure().dtype
         return jnp.zeros((row_idx.shape[0], col_idx.shape[0]), dtype=dtype)
     if isinstance(operator, LowRankUpdate) and _is_square(operator.base):
         return _submatrix_low_rank(operator, row_idx, col_idx)
     if isinstance(operator, lx.IdentityLinearOperator) and _is_square(operator):
         match = einx.equal("r, c -> r c", row_idx, col_idx)
-        return match.astype(operator.in_structure().dtype)
+        return match.astype(dtype)
     if isinstance(operator, lx.TaggedLinearOperator):
         return submatrix(operator.operator, row_idx, col_idx)
     if isinstance(operator, lx.MulLinearOperator):
@@ -78,6 +79,14 @@ def submatrix(
             operator.operator2, row_idx, col_idx
         )
     return operator.as_matrix()[jnp.ix_(row_idx, col_idx)]
+
+
+def _matrix_dtype(operator: lx.AbstractLinearOperator):
+    """The dtype ``as_matrix`` would have, also for PyTree structures."""
+    leaves = jax.tree_util.tree_leaves(
+        (operator.in_structure(), operator.out_structure())
+    )
+    return jnp.result_type(*(leaf.dtype for leaf in leaves))
 
 
 def _is_square(operator: lx.AbstractLinearOperator) -> bool:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -222,3 +223,18 @@ def test_conditional_low_rank_does_not_materialise(monkeypatch):
     monkeypatch.undo()
     assert tree_allclose(mean, mean_ref)
     assert tree_allclose(cov.as_matrix(), cov_ref.as_matrix())
+
+
+def test_submatrix_pytree_structures():
+    """PyTree-structured operators: identity and empty selections still work."""
+    struct = {
+        "a": jax.ShapeDtypeStruct((2,), jnp.float32),
+        "b": jax.ShapeDtypeStruct((1,), jnp.float32),
+    }
+    identity = lx.IdentityLinearOperator(struct)
+    rows, cols = jnp.array([0, 2]), jnp.array([2, 1])
+    assert jnp.array_equal(
+        submatrix(identity, rows, cols), identity.as_matrix()[jnp.ix_(rows, cols)]
+    )
+    empty = submatrix(identity, jnp.array([], dtype=jnp.int32), cols)
+    assert empty.shape == (0, 2)
