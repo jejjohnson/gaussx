@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
+import re
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx import cov_transform, diag_conditional_variance, sandwich, trace_product
+from gaussx import (
+    BlockDiag,
+    Kronecker,
+    LowRankUpdate,
+    cov_transform,
+    diag_conditional_variance,
+    sandwich,
+    solve_columns,
+    solve_matrix,
+    trace_product,
+)
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -332,3 +344,67 @@ def test_trace_product_low_rank_is_jittable_and_differentiable():
 
     assert jnp.allclose(jax.jit(f)(2.0), f_dense(2.0), rtol=1e-10)
     assert jnp.allclose(jax.grad(f)(2.0), jax.grad(f_dense)(2.0), rtol=1e-10)
+
+
+# ---------------------------------------------------------------------------
+# solve_matrix keeps structure (gh-356)
+# ---------------------------------------------------------------------------
+
+
+def _psd(key, n):
+    return lx.MatrixLinearOperator(
+        random_pd_matrix(key, n), lx.positive_semidefinite_tag
+    )
+
+
+@pytest.mark.parametrize(
+    ("cls", "build"),
+    [
+        pytest.param(
+            LowRankUpdate,
+            lambda k: LowRankUpdate(
+                lx.DiagonalLinearOperator(jnp.ones(6)),
+                jr.normal(k, (6, 2)),
+                jnp.ones(2),
+                tags=lx.positive_semidefinite_tag,
+            ),
+            id="low_rank_update",
+        ),
+        pytest.param(
+            Kronecker,
+            lambda k: Kronecker(_psd(jr.fold_in(k, 0), 2), _psd(jr.fold_in(k, 1), 3)),
+            id="kronecker",
+        ),
+        pytest.param(
+            BlockDiag,
+            lambda k: BlockDiag(_psd(jr.fold_in(k, 0), 2), _psd(jr.fold_in(k, 1), 4)),
+            id="block_diag",
+        ),
+    ],
+)
+def test_solve_matrix_structured_does_not_materialise(monkeypatch, cls, build):
+    op = build(jr.key(0))
+    assert lx.is_positive_semidefinite(op)
+    B = jr.normal(jr.key(1), (op.in_size(), 3))
+    expected = jnp.linalg.solve(op.as_matrix(), B)
+
+    def _forbidden(self):
+        raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+    monkeypatch.setattr(cls, "as_matrix", _forbidden)
+    X = solve_matrix(op, B)
+    X_cols = solve_columns(op, B)
+    monkeypatch.undo()
+    assert tree_allclose(X, X_cols)
+    assert tree_allclose(X, expected)
+
+
+@pytest.mark.parametrize("tagged", [False, True])
+def test_solve_matrix_dense_factors_once(tagged):
+    op = _psd(jr.key(0), 4)
+    if tagged:
+        op = lx.TaggedLinearOperator(op, lx.positive_semidefinite_tag)
+    B = jr.normal(jr.key(1), (4, 5))
+    jaxpr = str(jax.make_jaxpr(lambda b: solve_matrix(op, b))(B))
+    assert len(re.findall(r"= cholesky\b", jaxpr)) == 1
+    assert tree_allclose(solve_matrix(op, B), jnp.linalg.solve(op.as_matrix(), B))

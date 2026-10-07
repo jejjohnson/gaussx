@@ -361,13 +361,16 @@ def solve_matrix(
 ) -> Float[Array, "N K"]:
     """Solve ``A X = B`` with a single factorization on the matrix RHS.
 
-    When ``solver`` is ``None`` and ``A`` is positive semidefinite, this
-    factors ``A = L L^T`` once via `gaussx.cholesky` and then uses
-    a single ``cho_solve`` on the full matrix RHS — avoiding the
-    per-column re-factorization incurred by `solve_columns`.
+    When ``solver`` is ``None`` and ``A`` is a dense positive semidefinite
+    operator (a ``MatrixLinearOperator``, possibly tagged), this factors
+    ``A = L L^T`` once via `gaussx.cholesky` and then uses a single
+    ``cho_solve`` on the full matrix RHS — avoiding the per-column
+    re-factorization incurred by `solve_columns`.
 
-    For non-PSD operators (or when a custom ``solver`` is supplied),
-    falls back to `solve_columns`.
+    Structured operators (``LowRankUpdate``, ``Kronecker``, ``BlockDiag``,
+    ...), non-PSD operators and a custom ``solver`` go to `solve_columns`,
+    whose per-column structured `gaussx.solve` (Woodbury, Roth's lemma,
+    per block) is cheaper than densifying a Cholesky factor (gh-356).
 
     Args:
         operator: Linear operator A, shape ``(N, N)``.
@@ -379,8 +382,12 @@ def solve_matrix(
         Solution X = A⁻¹ B, shape ``(N, K)``.
     """
     if solver is None and lx.is_positive_semidefinite(operator):
-        L = cholesky(operator).as_matrix()
-        return jax.scipy.linalg.cho_solve((L, True), matrix)
+        inner = operator
+        while isinstance(inner, lx.TaggedLinearOperator):
+            inner = inner.operator
+        if isinstance(inner, lx.MatrixLinearOperator):
+            L = cholesky(inner).as_matrix()
+            return jax.scipy.linalg.cho_solve((L, True), matrix)
     return solve_columns(operator, matrix, solver=solver)
 
 
