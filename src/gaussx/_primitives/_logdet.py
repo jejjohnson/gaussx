@@ -235,17 +235,24 @@ def _logdet_sum_of_kroneckers(operator: SumOfKroneckers) -> Float[Array, ""]:
 def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)).
 
-    Factor eigenvalues come from the shared ``_eigh_factor`` helper
-    (structural shortcut for diagonal factors, ``eigh`` otherwise) —
-    the same routine the KroneckerSum solve and eigendecomposition
-    paths use, so the symmetry assumption is identical everywhere.
+    The eigenvalues of ``A ⊕ B`` are ``λ_i(A) + μ_j(B)`` for any square
+    factors. Symmetric factors (tagged, or diagonal) use the shared
+    ``_eigh_factor`` helper — the same routine the KroneckerSum solve
+    path uses. ``eigh`` reads only one triangle, so any other factor
+    takes the general per-factor ``eigvals`` instead (still
+    ``O(n_A³ + n_B³)``; gh-308), mirroring the symmetry guard in `solve`.
+    ``jnp.linalg.eigvals`` runs on CPU only.
     """
     diagonalised = as_diagonalised(operator)
     if diagonalised is not None:
         return _logdet_diagonalised(diagonalised)
-    evals_a, _ = _eigh_factor(operator.A)
-    evals_b, _ = _eigh_factor(operator.B)
-    eig_mat = evals_a[None, :] + evals_b[:, None]
+    if lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B):
+        evals_a, _ = _eigh_factor(operator.A)
+        evals_b, _ = _eigh_factor(operator.B)
+    else:
+        evals_a = jnp.linalg.eigvals(operator.A.as_matrix())
+        evals_b = jnp.linalg.eigvals(operator.B.as_matrix())
+    eig_mat = einx.add("a, b -> a b", evals_a, evals_b)
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
 
 
