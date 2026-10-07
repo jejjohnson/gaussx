@@ -63,7 +63,7 @@ def frobenius_norm(
         return jnp.sqrt(jnp.asarray(float(operator.in_size())))
     if isinstance(operator, lx.DiagonalLinearOperator):
         d = lx.diagonal(operator)
-        return jnp.sqrt(jnp.sum(d * d))
+        return jnp.sqrt(jnp.sum(jnp.abs(d) ** 2))
     if isinstance(operator, BlockDiag):
         norms = jnp.stack(rec_all(operator.operators))
         return jnp.sqrt(jnp.sum(norms * norms))
@@ -79,8 +79,9 @@ def frobenius_norm(
         return rec(operator.operator)
     if stochastic:
         return _frobenius_stochastic(operator, num_probes, key, sampler)
+    # |a|², so a complex operator gets a real norm.
     mat = operator.as_matrix()
-    return jnp.sqrt(jnp.sum(mat * mat))
+    return jnp.sqrt(jnp.sum(jnp.abs(mat) ** 2))
 
 
 def _frobenius_stochastic(

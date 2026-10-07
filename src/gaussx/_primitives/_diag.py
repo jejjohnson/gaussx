@@ -141,6 +141,9 @@ def _diag_low_rank(
     """diag(L + U diag(d) V^T) = diag(L) + sum_k U[:, k] d[k] V[:, k]."""
     from gaussx._einx import reduce
 
+    if operator.rank == 0:
+        # einx rejects a zero-length axis.
+        return base_diag
     update = reduce(operator.U * operator.d * operator.V, "n k -> n", "sum")
     return base_diag + update
 
