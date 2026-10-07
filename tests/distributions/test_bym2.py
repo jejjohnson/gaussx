@@ -45,7 +45,7 @@ def _graph():
 def _dense(R_star, n, tau, phi):
     """Exact constrained covariance of (b, u*) and the log-density constant."""
     Rd = np.asarray(R_star.as_matrix())
-    Rp = np.linalg.pinv(Rd)
+    Rp = np.linalg.pinv(Rd, hermitian=True, rtol=None)
     cov_u = Rp
     cov_b = ((1 - phi) * np.eye(n) + phi * Rp) / tau
     cross = np.sqrt(phi / tau) * Rp
