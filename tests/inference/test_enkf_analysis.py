@@ -184,7 +184,7 @@ def test_perturbed_obs_reproduces_the_key_path(getkey):
     # the same factor the implementation uses -- a PSD square root rather than
     # a Cholesky, so that a singular R still works (both satisfy L L^T = R, but
     # they are different factors and so give different draws for one key).
-    from gaussx._inference._ensemble import _noise_factor
+    from gaussx._inference._enkf import _noise_factor
 
     n_ens, n_obs = obs_prior.shape
     factor = _noise_factor(noise).as_matrix()
@@ -606,7 +606,7 @@ def test_noise_factor_reproduces_the_covariance(getkey):
     for every one of them except the plain diagonal, whose elementwise
     ``sqrt`` happens to tolerate a zero.
     """
-    from gaussx._inference._ensemble import _noise_factor
+    from gaussx._inference._enkf import _noise_factor
 
     singular_dense = lx.MatrixLinearOperator(
         jnp.diag(jnp.array([1.0, 0.0])), lx.positive_semidefinite_tag
@@ -707,7 +707,7 @@ class TestNoiseFactorDispatch:
         A block-tridiagonal ``R`` is chosen precisely when ``M`` is too large
         to materialise, so a dense fallback trades a NaN for an OOM.
         """
-        from gaussx._inference._ensemble import _noise_factor
+        from gaussx._inference._enkf import _noise_factor
 
         operator = self._block_tridiag(getkey)
         factor = _noise_factor(operator)
@@ -719,7 +719,7 @@ class TestNoiseFactorDispatch:
         """A truncated Lanczos square root would give the draws a covariance
         that is only approximately ``R``, biasing the analysis silently.
         """
-        from gaussx._inference._ensemble import _noise_factor
+        from gaussx._inference._enkf import _noise_factor
 
         def kron(size):
             return Kronecker(
@@ -777,7 +777,7 @@ class TestNoiseFactorDispatch:
         the caller has picked one of those the ``(M, M)`` allocation is
         happening regardless and the banded factor buys nothing.
         """
-        from gaussx._inference._ensemble import _noise_factor
+        from gaussx._inference._enkf import _noise_factor
 
         operator = self._block_tridiag(getkey)
         assert isinstance(_noise_factor(operator), LowerBlockTriDiag)
@@ -826,7 +826,7 @@ class TestNoiseFactorDispatch:
         That is only actionable while the gain path would have kept ``R``
         structured; otherwise it is advice that saves nothing.
         """
-        from gaussx._inference._ensemble import _noise_factor
+        from gaussx._inference._enkf import _noise_factor
 
         def kron(size):
             return Kronecker(

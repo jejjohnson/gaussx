@@ -484,7 +484,7 @@ def test_etkf_gradient_is_finite_at_repeated_eigenvalues():
 @pytest.mark.parametrize("solver", [gaussx.DenseSolver(), gaussx.CGSolver()])
 def test_etkf_forwards_solver(solver, monkeypatch):
     """gh-367: ``solver=`` reaches the R solve and gives the same answer."""
-    from gaussx._inference import _ensemble
+    from gaussx._inference import _etkf
 
     nextkey = key_sequence(8)
     J, M = 5, 3
@@ -493,13 +493,13 @@ def test_etkf_forwards_solver(solver, monkeypatch):
     R_op = psd_operator(random_pd_matrix(nextkey(), M, jitter=1.0))
 
     seen = []
-    original = _ensemble.solve_rows
+    original = _etkf.solve_rows
 
     def spy(op, rows, *, solver=None):
         seen.append(solver)
         return original(op, rows, solver=solver)
 
-    monkeypatch.setattr(_ensemble, "solve_rows", spy)
+    monkeypatch.setattr(_etkf, "solve_rows", spy)
     w, t = etkf_transform(obs_particles, y, R_op, solver=solver)
     w_ref, t_ref = etkf_transform(obs_particles, y, R_op)
     assert seen == [solver, None]
