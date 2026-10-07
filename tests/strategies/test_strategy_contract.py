@@ -266,12 +266,7 @@ def test_float32_defaults_converge(name):
 # 4. max_steps exhaustion
 # ---------------------------------------------------------------------------
 
-# MINRES runs a fixed-length scan and returns its last iterate whatever the
-# residual; the damped LSMR path (matfree) likewise reports nothing.
-_MAX_STEPS_XFAIL = {
-    "minres": "gh-336: MINRESSolver returns unconverged iterates silently",
-    "lsmr_damped": "gh-336: damped LSMR (matfree) returns unconverged iterates",
-}
+_MAX_STEPS_XFAIL: dict[str, str] = {}
 
 
 @pytest.mark.parametrize("name", _cases(ITERATIVE, _MAX_STEPS_XFAIL, ("cg", "minres")))
