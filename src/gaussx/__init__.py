@@ -400,6 +400,9 @@ try:
         MarkovGaussian as MarkovGaussian,
     )
     from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
+    from gaussx._distributions._mvn_base import (
+        AbstractMultivariateNormal as AbstractMultivariateNormal,
+    )
     from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
@@ -417,6 +420,7 @@ except ModuleNotFoundError as _e:
 
 _NUMPYRO_NAMES = frozenset(
     {
+        "AbstractMultivariateNormal",
         "MultivariateNormal",
         "MultivariateNormalPrecision",
         "MarkovGaussian",

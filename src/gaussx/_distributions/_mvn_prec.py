@@ -6,13 +6,14 @@ import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-import numpyro.distributions as dist
 from jaxtyping import Array, Float
-from numpyro.distributions.util import lazy_property, validate_sample
+from numpyro.distributions.util import lazy_property
 
 from gaussx._distributions._gaussian import _LOG_2PI
-from gaussx._distributions._utils import _reshape_batch, _reshape_samples
+from gaussx._distributions._mvn_base import AbstractMultivariateNormal
+from gaussx._distributions._utils import _reshape_samples
 from gaussx._einx import einsum, rearrange
+from gaussx._linalg._diag_inv import _diag_inv_structured
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._sparse import SparseOperator
 from gaussx._primitives._cholesky import cholesky as _cholesky
@@ -24,12 +25,15 @@ from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
-class MultivariateNormalPrecision(dist.Distribution):
+class MultivariateNormalPrecision(AbstractMultivariateNormal):
     """Multivariate normal parameterized by a precision (inverse covariance) operator.
 
     This is the natural parameterization for many inference algorithms
     (e.g. message passing, variational inference in natural coordinates).
     The precision operator ``Lambda`` satisfies ``Lambda = Sigma^{-1}``.
+    Precision-parameterised member of `AbstractMultivariateNormal`, which
+    supplies the shared accessors (``covariance_operator``,
+    ``precision_operator``, ``covariance_matrix``, ``scale_tril``, `kl`, ...).
 
     Requires the ``numpyro`` optional extra
     (``pip install "gaussx[numpyro]"``).
@@ -54,9 +58,6 @@ class MultivariateNormalPrecision(dist.Distribution):
         >>> d.log_prob(jnp.ones(3))
     """
 
-    arg_constraints = {"loc": dist.constraints.real_vector}  # noqa: RUF012
-    support = dist.constraints.real_vector
-    reparametrized_params = ["loc"]  # noqa: RUF012
     pytree_data_fields = ("loc", "prec_operator", "solver")
 
     def __init__(
@@ -80,19 +81,21 @@ class MultivariateNormalPrecision(dist.Distribution):
             validate_args=validate_args,
         )
 
+    @property
+    def covariance_operator(self) -> lx.AbstractLinearOperator:
+        """The covariance: the lazy `gaussx.inv` of ``prec_operator``."""
+        return _inv(self.prec_operator)
+
+    @property
+    def precision_operator(self) -> lx.AbstractLinearOperator:
+        """The precision operator (native; the same object as ``prec_operator``)."""
+        return self.prec_operator
+
     def _log_prob_single(self, residual: Float[Array, " N"]) -> Float[Array, ""]:
         quad = jnp.sum(residual * self.prec_operator.mv(residual), axis=-1)
         ld = self.solver.logdet(self.prec_operator)
         n = self.loc.shape[-1]
         return -0.5 * (n * _LOG_2PI - ld + quad)
-
-    @validate_sample
-    def log_prob(self, value: Float[Array, "*batch N"]) -> Float[Array, "*batch"]:
-        residual = value - self.loc
-        leading_shape = residual.shape[:-1]
-        residual_flat = rearrange(residual, "... D -> (...) D")
-        log_prob_flat = jax.vmap(self._log_prob_single)(residual_flat)
-        return _reshape_batch(log_prob_flat, leading_shape)
 
     def sample(
         self,
@@ -137,14 +140,16 @@ class MultivariateNormalPrecision(dist.Distribution):
         return self.loc + _reshape_samples(samples_flat, shape[:-1])
 
     @lazy_property
-    def mean(self) -> Float[Array, "*batch N"]:
-        return self.loc
-
-    @lazy_property
     def variance(self) -> Float[Array, "*batch N"]:
-        return jnp.broadcast_to(
-            _diag(_inv(self.prec_operator)), self.batch_shape + self.event_shape
+        # diag(Λ⁻¹) through the exact structured paths of `diag_inv` (e.g. the
+        # O(N d³) selected inverse of a BlockTriDiag); only an operator with
+        # none densifies (gh-360).
+        variance = _diag_inv_structured(
+            self.prec_operator, pinv=False, num_probes=30, key=None, solver=None
         )
+        if variance is None:
+            variance = _diag(_inv(self.prec_operator))
+        return jnp.broadcast_to(variance, self.batch_shape + self.event_shape)
 
     def entropy(self) -> Float[Array, "*batch"]:
         n = self.loc.shape[-1]

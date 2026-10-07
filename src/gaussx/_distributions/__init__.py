@@ -21,6 +21,7 @@ from gaussx._distributions._sample import sample_joint_conditional, sample_mvn
 __all__ = [
     "BYM2GMRF",
     "LGSSM",
+    "AbstractMultivariateNormal",
     "ConstrainedGMRF",
     "GaussianMRF",
     "IntrinsicGMRF",
@@ -67,6 +68,10 @@ def __getattr__(name: str) -> Any:
         from gaussx._distributions._markov_gaussian import MarkovGaussian
 
         return MarkovGaussian
+    if name == "AbstractMultivariateNormal":
+        from gaussx._distributions._mvn_base import AbstractMultivariateNormal
+
+        return AbstractMultivariateNormal
     if name == "MultivariateNormal":
         from gaussx._distributions._mvn import MultivariateNormal
 
