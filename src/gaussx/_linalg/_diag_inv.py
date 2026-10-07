@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange, reduce
@@ -184,9 +185,14 @@ def _diag_inv_structured(
         )
         if inner is None:
             return None
-        if isinstance(operator, lx.MulLinearOperator):
-            return inner / operator.scalar
-        return inner * operator.scalar
+        if isinstance(operator, lx.DivLinearOperator):
+            return inner * operator.scalar
+        if pinv:
+            # (0 · A)⁺ = 0, so a zero multiplier gives a zero diagonal.
+            scalar = operator.scalar
+            is_zero = scalar == 0
+            return jnp.where(is_zero, 0.0, inner / jnp.where(is_zero, 1.0, scalar))
+        return inner / operator.scalar
     if isinstance(operator, lx.NegLinearOperator):
         inner = _diag_inv_structured(
             operator.operator,
@@ -208,8 +214,12 @@ def _diag_inv_structured(
             ]
         )
     if isinstance(operator, LowRankUpdate):
-        # Woodbury keeps inv(A) a LowRankUpdate, whose diagonal is O(N k).
-        if pinv or operator.base.in_size() != operator.base.out_size():
+        # Woodbury keeps inv(A) a LowRankUpdate, whose diagonal is O(N k). It
+        # solves against the base, so only a base known to be invertible and
+        # cheap qualifies: an identity, or a concrete nonzero diagonal. A
+        # singular base (e.g. the zero base of `ensemble_covariance`) or a
+        # dense one keeps the general path.
+        if pinv or not _invertible_diagonal_base(operator.base):
             return None
         inverse = inv(operator)
         return None if isinstance(inverse, InverseOperator) else diag(inverse)
@@ -243,6 +253,18 @@ def _diag_inv_structured(
         factorization = _shifted_kronecker_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     return None
+
+
+def _invertible_diagonal_base(base: lx.AbstractLinearOperator) -> bool:
+    if isinstance(base, lx.IdentityLinearOperator):
+        return base.in_size() == base.out_size()
+    if not isinstance(base, lx.DiagonalLinearOperator):
+        return False
+    try:
+        d = np.asarray(lx.diagonal(base))
+    except jax.errors.TracerArrayConversionError:
+        return False
+    return bool(np.all(d != 0))
 
 
 def _sparse_factor(

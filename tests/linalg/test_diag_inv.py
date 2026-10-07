@@ -294,3 +294,18 @@ def test_diag_inv_negated_structured(monkeypatch):
     monkeypatch.undo()
     rtol, atol = default_tolerances(result)
     assert jnp.allclose(result, expected, rtol=rtol, atol=atol)
+
+
+def test_diag_inv_low_rank_with_singular_base_stays_finite():
+    """A zero base filled by the update: Woodbury would divide by zero."""
+    U = jr.normal(jr.key(0), (3, 5))
+    op = gaussx.LowRankUpdate(lx.DiagonalLinearOperator(jnp.zeros(3)), U)
+    expected = jnp.diag(jnp.linalg.inv(op.as_matrix()))
+    result = diag_inv(op)
+    rtol, atol = default_tolerances(result)
+    assert jnp.allclose(result, expected, rtol=1e3 * rtol, atol=atol)
+
+
+def test_diag_inv_pinv_of_zero_multiple_is_zero():
+    Q = gaussx.Circulant(jnp.array([2.0, -1.0, 0.0, -1.0]), symmetric=True)
+    assert jnp.array_equal(diag_inv(0.0 * Q, pinv=True), jnp.zeros(4))
