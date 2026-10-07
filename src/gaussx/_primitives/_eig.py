@@ -35,9 +35,13 @@ def eig(
     """Compute eigenvalues and eigenvectors.
 
     For symmetric operators returns real eigenvalues via ``eigh``.
-    When ``rank`` is given (and the operator has no exploitable
-    structure), computes a partial eigendecomposition of a symmetric
-    operator without matrix materialization, by ``method``:
+
+    ``rank`` follows one rule shared with `eigvals` and `gaussx.svd`: an
+    operator with a structured decomposition (diagonal, `gaussx.BlockDiag`,
+    `gaussx.Kronecker`, `gaussx.KroneckerSum`) is decomposed exactly and
+    truncated to its ``rank`` largest eigenvalues (by real part,
+    descending). Any other operator gets a partial eigendecomposition of a
+    symmetric operator without matrix materialization, by ``method``:
 
     - ``"lanczos"`` (default): matfree Lanczos.
     - ``"randomized"``: `randomized_eigh` with its defaults
@@ -92,6 +96,26 @@ def _eig(
             key,
             symmetric=symmetric or _is_real_symmetric(operator),
         )
+    structured = _eig_structured(operator, symmetric=symmetric)
+    if structured is not None:
+        # Exact structured decomposition first, then the top ``rank`` (gh-383).
+        vals, vecs = structured
+        if rank is None:
+            return vals, vecs
+        order = _top_order(vals, rank)
+        return vals[order], vecs[:, order]
+    if rank is not None:
+        if method == "randomized":
+            return randomized_eigh(operator, rank, key=key)
+        return _eig_partial(operator, rank, key)
+    return _eig_dense(operator, symmetric=symmetric)
+
+
+def _eig_structured(
+    operator: lx.AbstractLinearOperator,
+    *,
+    symmetric: bool,
+) -> tuple[Array, Array] | None:
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _eig_diagonal(operator)
     # Per-factor paths need square factors; a square product of rectangular
@@ -103,11 +127,12 @@ def _eig(
         return _eig_kronecker(operator, symmetric=symmetric)
     if isinstance(operator, KroneckerSum):
         return _eig_kronecker_sum(operator, symmetric=symmetric)
-    if rank is not None:
-        if method == "randomized":
-            return randomized_eigh(operator, rank, key=key)
-        return _eig_partial(operator, rank, key)
-    return _eig_dense(operator, symmetric=symmetric)
+    return None
+
+
+def _top_order(vals: Array, rank: int) -> Array:
+    """Indices of the ``rank`` largest eigenvalues (by real part), descending."""
+    return jnp.argsort(-jnp.real(vals))[:rank]
 
 
 def eigvals(
@@ -118,8 +143,9 @@ def eigvals(
 ) -> Array:
     """Compute eigenvalues only.
 
-    When ``rank`` is given, returns the top-k eigenvalues via
-    matfree Lanczos without matrix materialization.
+    When ``rank`` is given, returns the top-k eigenvalues: exactly and
+    truncated for an operator with a structured decomposition (as in
+    `eig`), via matfree Lanczos without matrix materialization otherwise.
 
     Args:
         operator: A square linear operator.
@@ -147,6 +173,19 @@ def _eigvals(
             key,
             symmetric=symmetric or _is_real_symmetric(operator),
         )
+    structured = _eigvals_structured(operator, symmetric=symmetric)
+    if structured is not None:
+        # Exact structured eigenvalues first, then the top ``rank`` (gh-383).
+        return structured if rank is None else structured[_top_order(structured, rank)]
+    if rank is not None:
+        vals, _ = _eig_partial(operator, rank, key)
+        return vals
+    return _eigvals_dense(operator, symmetric=symmetric)
+
+
+def _eigvals_structured(
+    operator: lx.AbstractLinearOperator, *, symmetric: bool
+) -> Array | None:
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.diagonal(operator)
     if isinstance(operator, BlockDiag) and _square_factors(operator):
@@ -157,10 +196,7 @@ def _eigvals(
         return _eigvals_kronecker(operator, symmetric=symmetric)
     if isinstance(operator, KroneckerSum):
         return _eigvals_kronecker_sum(operator, symmetric=symmetric)
-    if rank is not None:
-        vals, _ = _eig_partial(operator, rank, key)
-        return vals
-    return _eigvals_dense(operator, symmetric=symmetric)
+    return None
 
 
 def _eig_diagonal(
