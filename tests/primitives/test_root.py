@@ -157,3 +157,22 @@ def test_root_decomposition_top_level_export_and_jit_grad():
 
     assert jnp.isfinite(value)
     assert jnp.all(jnp.isfinite(grad))
+
+
+@pytest.mark.parametrize(
+    ("method", "kept"),
+    [
+        # Dominant eigenspace of A: the largest d, inverted (1/4, 1/3).
+        pytest.param("lanczos", [0.0, 0.25, 0.0, 1.0 / 3.0], id="lanczos"),
+        pytest.param("svd", [0.0, 0.25, 0.0, 1.0 / 3.0], id="svd"),
+        # Dominant eigenspace of A⁻¹: the largest 1/d (1, 1/2).
+        pytest.param("pivoted_cholesky", [1.0, 0.0, 0.5, 0.0], id="pivoted_cholesky"),
+    ],
+)
+def test_root_inv_decomposition_diagonal_target_per_method(method, kept):
+    """Each method's approximation target, pinned exactly (gh-413)."""
+    op = lx.DiagonalLinearOperator(jnp.array([1.0, 4.0, 2.0, 3.0]))
+    R = root_inv_decomposition(op, rank=2, method=method).root
+    approx = einsum(R, R, "i k, j k -> i j")
+    rtol, atol = default_tolerances(approx)
+    assert jnp.allclose(approx, jnp.diag(jnp.array(kept)), rtol=rtol, atol=atol)

@@ -83,6 +83,20 @@ def root_inv_decomposition(
 ) -> RootDecomposition:
     r"""Compute a tall factor ``R⁻`` such that ``R⁻ (R⁻)ᵀ ≈ A⁻¹``.
 
+    ``method`` chooses the approximation target, not only the algorithm
+    (gh-413):
+
+    - ``"lanczos"`` / ``"svd"``: ``R⁻ (R⁻)ᵀ`` is ``A⁻¹`` restricted to the
+      dominant ``rank``-dimensional eigenspace of ``A`` (its *largest*
+      eigenvalues, inverted) — GPyTorch's convention, used by
+      `gaussx.love_cache`.
+    - ``"pivoted_cholesky"``: ``R⁻ (R⁻)ᵀ`` is a rank-``rank`` approximation
+      of ``A⁻¹`` itself, which favours the dominant subspace of ``A⁻¹`` (the
+      *smallest* eigenvalues of ``A``); on a diagonal ``A`` it keeps the
+      ``rank`` largest ``1/d``, the Frobenius-optimal rank-``rank``
+      approximation of ``A⁻¹``.
+    - ``"cholesky"``: exact (``rank`` is ignored).
+
     Args:
         operator: Square symmetric positive-definite operator ``A``.
         rank: Number of retained directions. Ignored by ``"cholesky"``,
