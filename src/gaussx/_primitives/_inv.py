@@ -215,7 +215,11 @@ class InverseOperator(lx.AbstractLinearOperator):
         if lx.is_positive_semidefinite(self.original):
             from gaussx._primitives._cholesky import cholesky
 
-            L = cholesky(self.original).as_matrix()
+            factor = cholesky(self.original)
+            if not isinstance(factor, lx.AbstractLinearOperator):
+                # A `SparseCholeskyFactor` is permuted and has no dense form.
+                return jnp.linalg.inv(self.original.as_matrix())
+            L = factor.as_matrix()
             n = L.shape[-1]
             identity = jnp.broadcast_to(
                 jnp.eye(n, dtype=L.dtype), (*L.shape[:-2], n, n)

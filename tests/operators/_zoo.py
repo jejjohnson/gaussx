@@ -82,7 +82,10 @@ ZOO: dict[str, Callable[[jax.Array], lx.AbstractLinearOperator]] = {
     "block_diag": lambda k: random_block_diag_pd(k, (2, 3)),
     "block_tridiag": lambda k: random_spd_block_tridiag(k, 3, 2),
     "lower_block_tridiag": lambda k: gaussx.LowerBlockTriDiag(*_lower_upper_blocks(k)),
-    "upper_block_tridiag": lambda k: gaussx.UpperBlockTriDiag(*_lower_upper_blocks(k)),
+    # Upper-triangular diagonal blocks, as UpperBlockTriDiag requires.
+    "upper_block_tridiag": lambda k: (
+        gaussx.LowerBlockTriDiag(*_lower_upper_blocks(k)).T
+    ),
     "circulant": lambda k: gaussx.Circulant(_toeplitz_column(5)),
     "circulant_complex": lambda k: gaussx.Circulant(
         jr.normal(k, (4,), dtype=_float()) * (1.0 + 0.5j)
