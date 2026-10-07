@@ -649,7 +649,7 @@ requires-dist = [
     { name = "jaxlib", specifier = ">=0.10" },
     { name = "jaxtyping", specifier = ">=0.3" },
     { name = "lineax", specifier = ">=0.1.1" },
-    { name = "matfree", specifier = ">=0.6" },
+    { name = "matfree", specifier = ">=0.6.2" },
     { name = "numpyro", marker = "extra == 'numpyro'", specifier = ">=0.21" },
 ]
 provides-extras = ["numpyro"]

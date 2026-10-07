@@ -67,6 +67,30 @@ sd = jnp.sqrt(gaussx.diag_inv(H))  # O(N), not O(N³)
 sd = jnp.sqrt(gaussx.diag_inv(gaussx.KroneckerSum(L_H, L_W), pinv=True))
 ```
 
+For a precision too large to factor (a 10⁶-node mesh, where Cholesky fill is
+prohibitive), `method="xdiag"` is the variance-reduced estimator of Epperly,
+Tropp & Webber (2024), wrapping matfree's `leave_one_out_xdiag`. It computes
+the range of $Q^{-1}\Omega$ exactly and runs Hutchinson only on the remainder,
+reusing every probe for both. With $k$ probes it costs $2k$ solves through
+`solver` (Jacobi-preconditioned CG for a precision matrix), and it beats
+Hutchinson at equal solve counts whenever $Q^{-1}$ has a few dominant
+directions, as GMRF covariances do. `method="auto"` still picks Hutchinson
+above $N = 2048$, so XDiag is opt-in.
+
+```python
+sd = jnp.sqrt(
+    gaussx.diag_inv(
+        H,
+        method="xdiag",
+        num_probes=64,
+        key=key,
+        solver=gaussx.PreconditionedCGSolver(
+            preconditioner=gaussx.JacobiPreconditioner()
+        ),
+    )
+)
+```
+
 ::: gaussx
     options:
       show_root_heading: false

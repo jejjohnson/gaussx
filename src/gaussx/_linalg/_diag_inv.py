@@ -5,6 +5,7 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import matfree.stochtrace
 import numpy as np
 from jaxtyping import Array, Float
 
@@ -38,7 +39,7 @@ def diag_inv(
     solver: AbstractSolveStrategy | None = None,
     pinv: bool = False,
 ) -> Float[Array, " N"]:
-    """Compute the diagonal of the inverse of a linear operator.
+    r"""Compute the diagonal of the inverse of a linear operator.
 
     Returns ``diag(A⁻¹)`` without forming the full inverse matrix — the
     marginal variances of a Gaussian with precision ``A``.
@@ -71,20 +72,60 @@ def diag_inv(
     Anything else uses Cholesky for ``N ≤ 2048`` (the sparse factor for a
     `SparseOperator`, dense otherwise) and Hutchinson above.
 
+    **XDiag** (``method="xdiag"``, Epperly, Tropp & Webber, 2024) is the
+    variance-reduced estimator for operators too large to factor (e.g. the
+    Laplace Hessian of a GMRF on a 10⁶-node mesh). For $B = A^{-1}$, probes
+    $\Omega = [\omega_1, \dots, \omega_k]$ (random signs) and
+    $Q = \operatorname{orth}(B\Omega)$,
+
+    $$
+    \operatorname{diag}(B) = \operatorname{diag}(QQ^\top B)
+    + \operatorname{diag}\big((I - QQ^\top)B\big),
+    $$
+
+    the first term exact and the second estimated by Hutchinson,
+    $\operatorname{diag}(M) \approx \omega \odot M\omega$. XDiag uses every
+    probe for both terms: the $i$-th estimate builds $Q_{-i}$ from the
+    other $k - 1$ probes and applies Hutchinson with $\omega_i$, and the
+    result is the mean of the $k$ leave-one-out estimates. A GMRF covariance
+    has a few large-variance (smooth, large-scale) directions where plain
+    Hutchinson is noisy; the low-rank part captures exactly those. It costs
+    $2k$ solves ($B\Omega$ and $B^\top Q$), so compare it with Hutchinson
+    at ``num_probes = 2k``. With $2k \ge N$ it returns the exact diagonal
+    from $N$ solves instead.
+
+    ```text
+    Ω = signs(key, N × k)
+    Y = A⁻¹ Ω;  Q, R = qr(Y);  Z = A⁻ᵀ Q          # 2k solves
+    for i in 1..k:                                # in closed form, vectorised
+        dᵢ = diag(Q₋ᵢ Q₋ᵢᵀ B) + ωᵢ ⊙ (I − Q₋ᵢ Q₋ᵢᵀ) B ωᵢ
+    return mean(dᵢ)
+    ```
+
+    It wraps matfree's ``stochtrace.leave_one_out_xdiag``. The solves go
+    through ``solver`` (any solve strategy; for a precision matrix,
+    Jacobi-preconditioned CG, since the Nyström and RPCholesky
+    preconditioners are for covariance form). Prefer an exact path (the
+    structured ones above, or Takahashi via ``SparseCholeskySolver``)
+    whenever the operator factors; XDiag beats Hutchinson whenever
+    $A^{-1}$'s spectrum decays, and matches it when the spectrum is flat.
+
     Args:
         operator: A linear operator representing A.
         method: Algorithm to use. One of ``"cholesky"`` (exact via
             dense Cholesky), ``"solve"`` (exact via repeated solves),
-            ``"hutchinson"`` (stochastic estimator),
-            or ``"auto"`` (the structured paths above; otherwise cholesky
-            for N ≤ 2048, hutchinson above). ``"cholesky"`` on a
+            ``"hutchinson"`` (stochastic estimator), ``"xdiag"`` (the
+            variance-reduced estimator above), or ``"auto"`` (the
+            structured paths above; otherwise cholesky for N ≤ 2048,
+            hutchinson above). ``"cholesky"`` on a
             `SparseOperator` is the sparse factor's Takahashi sweep.
         num_probes: Number of Rademacher probe vectors for the
-            hutchinson method.
-        key: PRNG key for probe generation in the hutchinson method.
-            When ``None``, defaults to ``jax.random.PRNGKey(0)``.
-        solver: Optional solve strategy for ``"solve"`` and
-            ``"hutchinson"`` methods.
+            hutchinson and xdiag methods (xdiag: $1 \le k \le N$, and
+            $2k$ solves).
+        key: PRNG key for probe generation in the hutchinson and xdiag
+            methods. When ``None``, defaults to ``jax.random.PRNGKey(0)``.
+        solver: Optional solve strategy for the ``"solve"``,
+            ``"hutchinson"`` and ``"xdiag"`` methods.
         pinv: Return the diagonal of the pseudo-inverse instead: eigenvalues
             below ``max(n_k) · eps · max|λ|`` contribute nothing. For
             intrinsic (singular) precisions on grids, e.g. the exact ICAR /
@@ -97,8 +138,14 @@ def diag_inv(
         1D array of shape ``(N,)`` with the diagonal entries of A⁻¹.
 
     Raises:
-        ValueError: For an unknown ``method``, or ``pinv=True`` on an
-            operator without an eigenvalue-based path.
+        ValueError: For an unknown ``method``, ``pinv=True`` on an
+            operator without an eigenvalue-based path, or ``method="xdiag"``
+            with ``num_probes`` outside ``[1, N]``.
+
+    References:
+        Epperly, E. N., Tropp, J. A. & Webber, R. J. (2024). XTrace: making
+        the most of every sample in stochastic trace estimation. *SIAM J.
+        Matrix Anal. Appl.*, 45(1), 1-23.
 
     Examples:
         ```python
@@ -118,6 +165,25 @@ def diag_inv(
         variances = gaussx.diag_inv(Q, pinv=True)
         dense = jnp.diag(jnp.linalg.pinv(Q.as_matrix()))
         assert jnp.allclose(variances, dense, atol=1e-5)
+        ```
+
+        Marginal sd of a precision too large to factor (e.g. a 2M-node
+        global mesh; ``H`` a `SparseOperator` tagged
+        ``lx.positive_semidefinite_tag``, which CG needs), with
+        Jacobi-preconditioned CG for the solves:
+
+        ```python
+        sd = jnp.sqrt(
+            gaussx.diag_inv(
+                H,
+                method="xdiag",
+                num_probes=64,
+                key=key,
+                solver=gaussx.PreconditionedCGSolver(
+                    preconditioner=gaussx.JacobiPreconditioner()
+                ),
+            )
+        )
         ```
     """
     n = operator.in_size()
@@ -149,10 +215,12 @@ def diag_inv(
         return _diag_inv_hutchinson(
             operator, num_probes=num_probes, key=key, solver=solver
         )
+    if method == "xdiag":
+        return _diag_inv_xdiag(operator, num_probes=num_probes, key=key, solver=solver)
 
     msg = (
         f"Unknown method {method!r}; expected 'cholesky', 'solve', "
-        "'hutchinson', or 'auto'."
+        "'hutchinson', 'xdiag', or 'auto'."
     )
     raise ValueError(msg)
 
@@ -333,3 +401,53 @@ def _diag_inv_hutchinson(
 
     samples = jax.vmap(_single_probe)(keys)
     return jnp.mean(samples, axis=0)
+
+
+def _is_symmetric(operator: lx.AbstractLinearOperator) -> bool:
+    try:
+        return lx.is_symmetric(operator)
+    except NotImplementedError:
+        return False
+
+
+def _diag_inv_xdiag(
+    operator: lx.AbstractLinearOperator,
+    *,
+    num_probes: int,
+    key: jax.Array | None,
+    solver: AbstractSolveStrategy | None,
+) -> Float[Array, " N"]:
+    """XDiag estimate of diag(A⁻¹) (Epperly, Tropp & Webber, 2024), via matfree."""
+    n = operator.in_size()
+    if not 1 <= num_probes <= n:
+        msg = (
+            f"diag_inv(method='xdiag') needs 1 <= num_probes <= N = {n}, "
+            f"got {num_probes}."
+        )
+        raise ValueError(msg)
+    if key is None:
+        key = jax.random.PRNGKey(0)
+    symmetric = _is_symmetric(operator)
+
+    def transpose_solve(_: object, b: Float[Array, " N"]) -> Float[Array, " N"]:
+        return dispatch_solve(operator.T, b, solver)
+
+    def apply_inverse(v: Float[Array, " N"]) -> Float[Array, " N"]:
+        # XDiag needs A⁻ᵀ too (matfree takes the linear transpose). A custom
+        # linear solve transposes by solving again (with A when symmetric,
+        # Aᵀ otherwise) instead of transposing the solver's internals, so
+        # any solve strategy works, including non-lineax loops.
+        return jax.lax.custom_linear_solve(
+            operator.mv,
+            v,
+            solve=lambda _, b: dispatch_solve(operator, b, solver),
+            transpose_solve=None if symmetric else transpose_solve,
+            symmetric=symmetric,
+        )
+
+    template = jnp.zeros((n,), dtype=operator.out_structure().dtype)
+    estimate = matfree.stochtrace.estimator_leave_one_out(
+        matfree.stochtrace.leave_one_out_xdiag(),
+        matfree.stochtrace.sampler_signs(template, num=num_probes),
+    )
+    return estimate(apply_inverse, key)
