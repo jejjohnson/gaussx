@@ -236,24 +236,29 @@ def _logdet_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
     """logdet(A (+) B) = sum(log(lambda_A_i + lambda_B_j)).
 
     The eigenvalues of ``A ⊕ B`` are ``λ_i(A) + μ_j(B)`` for any square
-    factors. Symmetric factors (tagged, or diagonal) use the shared
-    ``_eigh_factor`` helper — the same routine the KroneckerSum solve
-    path uses. ``eigh`` reads only one triangle, so any other factor
-    takes the general per-factor ``eigvals`` instead (still
-    ``O(n_A³ + n_B³)``; gh-308), mirroring the symmetry guard in `solve`.
-    ``jnp.linalg.eigvals`` runs on CPU only.
+    factors. Each factor is handled on its own: a symmetric one (tagged,
+    or diagonal) uses the shared ``_eigh_factor`` helper — the same
+    routine the KroneckerSum solve path uses, ``O(n)`` for a diagonal.
+    ``eigh`` reads only one triangle, so any other factor takes the
+    general ``eigvals`` instead (still ``O(n³)`` in that factor alone;
+    gh-308), mirroring the symmetry guard in `solve`. The general
+    eigensolver runs on CPU (LAPACK ``geev``) and on CUDA GPUs
+    (cuSOLVER / MAGMA ``geev``).
     """
     diagonalised = as_diagonalised(operator)
     if diagonalised is not None:
         return _logdet_diagonalised(diagonalised)
-    if lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B):
-        evals_a, _ = _eigh_factor(operator.A)
-        evals_b, _ = _eigh_factor(operator.B)
-    else:
-        evals_a = jnp.linalg.eigvals(operator.A.as_matrix())
-        evals_b = jnp.linalg.eigvals(operator.B.as_matrix())
+    evals_a = _factor_eigvals(operator.A)
+    evals_b = _factor_eigvals(operator.B)
     eig_mat = einx.add("a, b -> a b", evals_a, evals_b)
     return jnp.sum(jnp.log(jnp.abs(eig_mat)))
+
+
+def _factor_eigvals(operator: lx.AbstractLinearOperator) -> Array:
+    """Eigenvalues of one Kronecker-sum factor: ``eigh`` iff symmetric."""
+    if lx.is_symmetric(operator):
+        return _eigh_factor(operator)[0]
+    return jnp.linalg.eigvals(operator.as_matrix())
 
 
 def _logdet_diagonalised(operator: DiagonalisedOperator) -> Float[Array, ""]:

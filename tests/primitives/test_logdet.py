@@ -92,3 +92,19 @@ def test_logdet_kronecker_sum_symmetric_keeps_eigh(getkey):
     jaxpr = str(jax.make_jaxpr(logdet)(op))
     assert re.search(r"\beigh\[", jaxpr)
     assert not re.search(r"\beig\[", jaxpr)
+
+
+def test_logdet_kronecker_sum_mixed_factors_per_factor(getkey, monkeypatch):
+    """A diagonal factor keeps its O(n) path next to a non-symmetric one."""
+    D = lx.DiagonalLinearOperator(jnp.arange(1.0, 5.0))
+    B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3))
+    op = KroneckerSum(D, B)
+    expected = dense_logdet(op)
+
+    def _forbidden(self):
+        raise AssertionError("DiagonalLinearOperator.as_matrix called")
+
+    monkeypatch.setattr(lx.DiagonalLinearOperator, "as_matrix", _forbidden)
+    result = logdet(op)
+    monkeypatch.undo()
+    assert tree_allclose(result, expected)
