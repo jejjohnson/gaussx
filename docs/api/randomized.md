@@ -74,3 +74,25 @@ is the classic pivoted Cholesky behind
       show_root_heading: false
       show_root_toc_entry: false
       members: [rp_cholesky]
+
+## Interpolative and CUR decompositions
+
+`column_id` returns $k$ **actual** columns $J$ of $A$ and an interpolation
+matrix $X$ ($X_{:,J} = I$) with $A \approx A_{:,J}X$, from column-pivoted QR
+of a randomized sketch of the row space (`range_finder` on $A^\top$; Voronin
+& Martinsson, 2017). `cur` adds a row ID of $C = A_{:,J}$ and returns
+$A \approx CUR$ with $C = A_{:,J}$, $R = A_{I,:}$ and $U = XR^{+}$. Unlike
+the SVD factors, $C$ and $R$ are columns and rows of $A$: they keep its
+sparsity, sign and units, which makes them interpretable as representative
+stations, time steps or landmark points.
+
+```python
+# 40 representative stations (columns) of a (days × stations) anomaly matrix
+cols, X = gx.column_id(anomalies_op, 40, key=key)
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [column_id, cur, ColumnID, CUR]
