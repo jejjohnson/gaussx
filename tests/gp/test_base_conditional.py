@@ -262,7 +262,9 @@ def test_single_output_f_matches_two_d(white, q):
     }[q]
     for knn in (K_nn, jnp.diag(K_nn)):
         mean, var = _bc(K_mm, K_mn, knn, u, q_sqrt=q_1d, white=white)
-        mean2, var2 = _bc(K_mm, K_mn, knn, u[:, None], q_sqrt=q_2d, white=white)
+        mean2, var2 = _bc(
+            K_mm, K_mn, knn, rearrange(u, "m -> m 1"), q_sqrt=q_2d, white=white
+        )
         assert mean.shape == (50,)
         assert jnp.array_equal(mean, mean2[:, 0])
         assert jnp.array_equal(var, var2[..., 0])
