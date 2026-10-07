@@ -28,6 +28,7 @@ filter and smoother of that design.
 
 from __future__ import annotations
 
+import functools as ft
 from collections.abc import Callable
 
 import jax
@@ -155,6 +156,61 @@ def nonlinear_rts_step(
         "UnscentedIntegrator(alpha=1.0).",
     )
     return mean_new, cov_new
+
+
+def _filter_step(
+    dynamics: Callable[[Float[Array, " N"]], Float[Array, " N"]],
+    obs_fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],
+    integrator: AbstractIntegrator,
+    channel_mask: bool,
+    joseph: bool,
+    solver: AbstractSolverStrategy | None,
+    validate: bool | None,
+    carry: tuple[Float[Array, " N"], Float[Array, "N N"], Float[Array, ""]],
+    inputs: tuple[Array, Array, Array, Array],
+):
+    """One `nonlinear_kalman_filter` scan step: predict, then (gated) update."""
+    mean, cov, ll = carry
+    Q_t, R_t, y_t, mask_t = inputs
+
+    # The loop is exactly `predict` then `update`; both are public, so
+    # a caller who wants a different loop can use them directly.
+    mean_pred, cov_pred = nonlinear_kalman_predict(
+        dynamics, mean, cov, Q_t, integrator=integrator, validate=validate
+    )
+
+    def _update(_):
+        return nonlinear_kalman_update(
+            obs_fn,
+            mean_pred,
+            cov_pred,
+            y_t,
+            R_t,
+            integrator=integrator,
+            mask=mask_t if channel_mask else None,
+            joseph=joseph,
+            solver=solver,
+            validate=validate,
+        )
+
+    def _skip(_):
+        # Gated-off step: keep the prediction and contribute no
+        # likelihood. Filtered == predicted here, which is also what
+        # makes the smoother's gain degenerate harmlessly at this step.
+        return mean_pred, cov_pred, jnp.zeros((), dtype=cov_pred.dtype)
+
+    if channel_mask:
+        # No lax.cond needed: an all-False row already reduces the
+        # update to the identity via the substitutions inside
+        # `nonlinear_kalman_update`, so this path is branch-free.
+        mean_new, cov_new, ll_inc = _update(None)
+    else:
+        # Gate the whole step so the predict-only branch evaluates
+        # neither the update arithmetic nor its gradients.
+        mean_new, cov_new, ll_inc = jax.lax.cond(mask_t, _update, _skip, operand=None)
+
+    carry_new = (mean_new, cov_new, ll + ll_inc)
+    return carry_new, (mean_new, cov_new, mean_pred, cov_pred)
 
 
 def nonlinear_kalman_filter(
@@ -295,50 +351,16 @@ def nonlinear_kalman_filter(
     mask_seq = _normalise_mask(mask, T, M)
     channel_mask = mask_seq.ndim == 2
 
-    def step(carry, inputs):
-        mean, cov, ll = carry
-        Q_t, R_t, y_t, mask_t = inputs
-
-        # The loop is exactly `predict` then `update`; both are public, so
-        # a caller who wants a different loop can use them directly.
-        mean_pred, cov_pred = nonlinear_kalman_predict(
-            dynamics, mean, cov, Q_t, integrator=integrator, validate=validate
-        )
-
-        def _update(_):
-            return nonlinear_kalman_update(
-                obs_fn,
-                mean_pred,
-                cov_pred,
-                y_t,
-                R_t,
-                integrator=integrator,
-                mask=mask_t if channel_mask else None,
-                joseph=joseph,
-                solver=solver,
-                validate=validate,
-            )
-
-        def _skip(_):
-            # Gated-off step: keep the prediction and contribute no
-            # likelihood. Filtered == predicted here, which is also what
-            # makes the smoother's gain degenerate harmlessly at this step.
-            return mean_pred, cov_pred, jnp.zeros((), dtype=cov_pred.dtype)
-
-        if channel_mask:
-            # No lax.cond needed: an all-False row already reduces the
-            # update to the identity via the substitutions inside
-            # `nonlinear_kalman_update`, so this path is branch-free.
-            mean_new, cov_new, ll_inc = _update(None)
-        else:
-            # Gate the whole step so the predict-only branch evaluates
-            # neither the update arithmetic nor its gradients.
-            mean_new, cov_new, ll_inc = jax.lax.cond(
-                mask_t, _update, _skip, operand=None
-            )
-
-        carry_new = (mean_new, cov_new, ll + ll_inc)
-        return carry_new, (mean_new, cov_new, mean_pred, cov_pred)
+    step = ft.partial(
+        _filter_step,
+        dynamics,
+        obs_fn,
+        integrator,
+        channel_mask,
+        joseph,
+        solver,
+        validate,
+    )
 
     init_carry = (init_mean, init_cov, jnp.zeros((), dtype=init_cov.dtype))
     final_carry, (f_means, f_covs, p_means, p_covs) = jax.lax.scan(

@@ -345,6 +345,155 @@ def nonlinear_kalman_predict(
     return mean_pred, cov_pred
 
 
+def _innovation_gain(
+    innovation: Float[Array, "M M"],
+    cross_e: Float[Array, "N M"],
+    residual: Float[Array, " M"],
+    solver: AbstractSolverStrategy | None,
+    validate: bool,
+) -> tuple[
+    Float[Array, "M M"], Float[Array, "N M"], Float[Array, " M"], Float[Array, ""]
+]:
+    """Gain ``K = C S⁻¹``, ``S⁻¹ v`` and ``log|S|`` from one factorisation of S.
+
+    Returns ``(innovation, gain, solved, logdet)``; ``innovation`` is passed
+    back because the validity check wraps it in `equinox.error_if`.
+    """
+    # A quadrature rule with negative weights can return an indefinite
+    # Cov[h(x)], and R may be too small to repair it. Neither the update
+    # nor the likelihood is defined then -- the quadratic form can go
+    # negative and the log-determinant becomes log|det S| -- so this is
+    # rejected rather than allowed to produce a plausible-looking but
+    # meaningless number. With a positive-weight rule S_yy is PSD, so S is
+    # positive definite whenever R is and the check is skipped (gh-331).
+    innovation_message = (
+        "nonlinear_kalman_update: the innovation covariance S = Cov[h(x)] + R "
+        "is not positive definite. A negative-weight quadrature rule (the "
+        "scaled unscented transform, or the degree-5 cubature rule above "
+        "N = 4) can return an indefinite Cov[h(x)]. Use a positive-weight "
+        "rule such as CubatureIntegrator or UnscentedIntegrator(alpha=1.0), "
+        "or increase obs_noise."
+    )
+    if solver is None:
+        # One Cholesky of S serves the gain, the residual solve and the
+        # log-determinant; a non-finite factor is the definiteness check.
+        chol = jnp.linalg.cholesky(innovation)
+        if validate:
+            chol = eqx.error_if(
+                chol, ~jnp.all(jnp.isfinite(jnp.diagonal(chol))), innovation_message
+            )
+        # K = C S^-1, i.e. S Kᵀ = Cᵀ.
+        gain = jsla.cho_solve((chol, True), cross_e.T).T  # (N, M)
+        solved = jsla.cho_solve((chol, True), residual)
+        logdet = 2.0 * jnp.sum(jnp.log(jnp.diagonal(chol)))
+    else:
+        if validate:
+            innovation = eqx.error_if(
+                innovation,
+                jnp.linalg.eigvalsh(innovation).min() <= 0.0,
+                innovation_message,
+            )
+        innovation_op = _symmetric(innovation)
+        # K = C S^-1. solve_rows solves S x = c for each *row* of C.
+        gain = solve_rows(innovation_op, cross_e, solver=solver)  # (N, M)
+        solved = dispatch_solve(innovation_op, residual, solver)
+        logdet = dispatch_logdet(innovation_op, solver)
+
+    return innovation, gain, solved, logdet
+
+
+def _updated_covariance(
+    cov: Float[Array, "N N"],
+    gain: Float[Array, "N M"],
+    innovation: Float[Array, "M M"],
+    cross_e: Float[Array, "N M"],
+    joseph: bool,
+) -> Float[Array, "N N"]:
+    """The posterior covariance, in Joseph or standard form."""
+    if joseph:
+        # Joseph form: P+ = (I - K H)P-(I - K H)^T + K R K^T.
+        #
+        # That needs an H, which a moment-matched filter does not have. The
+        # right stand-in is the statistical linearisation of h under the
+        # predicted belief (gaussx#161 section 3.3.5): writing
+        # h(x) ~ A x + b + eps, the regression gain is
+        #
+        #     A = C^T (P-)^-1
+        #
+        # which is exactly what statistical_linear_regression returns, and
+        # exactly H when h is linear. So this reduces to the textbook
+        # Joseph update in the linear case, while staying PSD for the
+        # merely-approximate gain otherwise.
+        #
+        # Relative to the standard form the two differ by K Omega K^T, with
+        # Omega = S_yy - A P- A^T the linearisation residual: PSD, and zero
+        # for affine h. Hence switching this default cannot perturb the
+        # linear reduction.
+        # H_eff = C^T (P^-)^-1. P^- is legitimately singular for a
+        # deterministic initial state, zero process noise, or
+        # dimension-reducing dynamics, and a well-posed solve returns NaN
+        # on those even though the update itself is perfectly well defined
+        # (R keeps S invertible). The pseudo-inverse then gives the
+        # minimum-norm H_eff, the natural reading of the linearisation when
+        # the belief is confined to a subspace; a Cholesky solve covers the
+        # nonsingular case at a fraction of the cost.
+        obs_eff = _solve_psd_or_lstsq(cov, cross_e).T
+
+        # The noise of that regression is R + Omega, *not* R: linearising
+        # h leaves a residual eps ~ N(0, Omega) on top of the measurement
+        # noise, and Joseph form must be given the noise of the model whose
+        # H it is using. Omega = S_yy - H_eff P- H_eff^T, so
+        #
+        #     R + Omega = S - H_eff C
+        #
+        # which is free here -- both factors are already formed.
+        #
+        # Passing R alone would return the matched-joint posterior minus
+        # K Omega K^T, i.e. systematically overconfident on nonlinear maps.
+        # With the residual included the two covariance forms agree to
+        # 2.8e-17, so Joseph is a numerically safer route to the *same*
+        # answer rather than a different one.
+        effective_noise = symmetrize(innovation - obs_eff @ cross_e)
+        cov_upd = joseph_update(cov, gain, obs_eff, effective_noise)
+    else:
+        # P+ = P- - K S K^T. Correct and cheaper, but its PSD-ness relies
+        # on the moment triple being mutually consistent (Omega >= 0),
+        # which a negative-weight rule can violate.
+        cov_upd = symmetrize(cov - gain @ innovation @ gain.T)
+
+    return cov_upd
+
+
+def _reject_inconsistent_posterior(cov_upd: Float[Array, "N N"]) -> Float[Array, "N N"]:
+    """Raise if the updated covariance is not PSD (an inconsistent joint)."""
+    # A positive-definite S is not on its own enough: the *joint* over
+    # (x, h(x)) must be consistent. An inconsistent triple -- Omega =
+    # S_yy - H_eff P^- H_eff^T indefinite, which a negative-weight rule can
+    # produce even where S is fine -- leaves the posterior indefinite.
+    #
+    # The full spectrum is checked, not just the diagonal: an indefinite
+    # covariance can have entirely positive variances, e.g.
+    # [[0.36, -0.64], [-0.64, 0.36]], whose smallest eigenvalue is -0.28.
+    # A diagonal test would pass that and hand the next predict step a
+    # covariance it will go on to treat as PSD.
+    #
+    # The threshold is scaled to the size of the covariance rather than
+    # being exactly zero. A legitimately rank-deficient posterior -- a
+    # deterministic state, zero process noise -- is singular by
+    # construction, and rounding puts its null directions a few ulps either
+    # side of zero; a strict test would reject those. Genuine
+    # inconsistency is not marginal: the example above sits at -0.28
+    # against a trace of 0.72, many orders above this bound.
+    return _reject_indefinite(
+        cov_upd,
+        "nonlinear_kalman_update: the updated covariance is not positive "
+        "semi-definite. The matched moments (Cov[h(x)], Cov[x, h(x)]) are "
+        "not a consistent joint, which a negative-weight quadrature rule "
+        "can produce. Use a positive-weight rule such as CubatureIntegrator "
+        "or UnscentedIntegrator(alpha=1.0).",
+    )
+
+
 def nonlinear_kalman_update(
     obs_fn: Callable[[Float[Array, " N"]], Float[Array, " M"]],
     mean: Float[Array, " N"],
@@ -432,129 +581,19 @@ def nonlinear_kalman_update(
     # outer-product sum, which drifts asymmetric.
     innovation = symmetrize(obs_cov_e + R_e)
 
-    # A quadrature rule with negative weights can return an indefinite
-    # Cov[h(x)], and R may be too small to repair it. Neither the update
-    # nor the likelihood is defined then -- the quadratic form can go
-    # negative and the log-determinant becomes log|det S| -- so this is
-    # rejected rather than allowed to produce a plausible-looking but
-    # meaningless number. With a positive-weight rule S_yy is PSD, so S is
-    # positive definite whenever R is and the check is skipped (gh-331).
-    innovation_message = (
-        "nonlinear_kalman_update: the innovation covariance S = Cov[h(x)] + R "
-        "is not positive definite. A negative-weight quadrature rule (the "
-        "scaled unscented transform, or the degree-5 cubature rule above "
-        "N = 4) can return an indefinite Cov[h(x)]. Use a positive-weight "
-        "rule such as CubatureIntegrator or UnscentedIntegrator(alpha=1.0), "
-        "or increase obs_noise."
+    innovation, gain, solved, logdet = _innovation_gain(
+        innovation, cross_e, residual, solver, validate
     )
-    if solver is None:
-        # One Cholesky of S serves the gain, the residual solve and the
-        # log-determinant; a non-finite factor is the definiteness check.
-        chol = jnp.linalg.cholesky(innovation)
-        if validate:
-            chol = eqx.error_if(
-                chol, ~jnp.all(jnp.isfinite(jnp.diagonal(chol))), innovation_message
-            )
-        # K = C S^-1, i.e. S Kᵀ = Cᵀ.
-        gain = jsla.cho_solve((chol, True), cross_e.T).T  # (N, M)
-        solved = jsla.cho_solve((chol, True), residual)
-        logdet = 2.0 * jnp.sum(jnp.log(jnp.diagonal(chol)))
-    else:
-        if validate:
-            innovation = eqx.error_if(
-                innovation,
-                jnp.linalg.eigvalsh(innovation).min() <= 0.0,
-                innovation_message,
-            )
-        innovation_op = _symmetric(innovation)
-        # K = C S^-1. solve_rows solves S x = c for each *row* of C.
-        gain = solve_rows(innovation_op, cross_e, solver=solver)  # (N, M)
-        solved = dispatch_solve(innovation_op, residual, solver)
-        logdet = dispatch_logdet(innovation_op, solver)
 
     # m+ = m- + K v
     mean_upd = mean + gain @ residual
 
-    if joseph:
-        # Joseph form: P+ = (I - K H)P-(I - K H)^T + K R K^T.
-        #
-        # That needs an H, which a moment-matched filter does not have. The
-        # right stand-in is the statistical linearisation of h under the
-        # predicted belief (gaussx#161 section 3.3.5): writing
-        # h(x) ~ A x + b + eps, the regression gain is
-        #
-        #     A = C^T (P-)^-1
-        #
-        # which is exactly what statistical_linear_regression returns, and
-        # exactly H when h is linear. So this reduces to the textbook
-        # Joseph update in the linear case, while staying PSD for the
-        # merely-approximate gain otherwise.
-        #
-        # Relative to the standard form the two differ by K Omega K^T, with
-        # Omega = S_yy - A P- A^T the linearisation residual: PSD, and zero
-        # for affine h. Hence switching this default cannot perturb the
-        # linear reduction.
-        # H_eff = C^T (P^-)^-1. P^- is legitimately singular for a
-        # deterministic initial state, zero process noise, or
-        # dimension-reducing dynamics, and a well-posed solve returns NaN
-        # on those even though the update itself is perfectly well defined
-        # (R keeps S invertible). The pseudo-inverse then gives the
-        # minimum-norm H_eff, the natural reading of the linearisation when
-        # the belief is confined to a subspace; a Cholesky solve covers the
-        # nonsingular case at a fraction of the cost.
-        obs_eff = _solve_psd_or_lstsq(cov, cross_e).T
+    cov_upd = _updated_covariance(cov, gain, innovation, cross_e, joseph)
 
-        # The noise of that regression is R + Omega, *not* R: linearising
-        # h leaves a residual eps ~ N(0, Omega) on top of the measurement
-        # noise, and Joseph form must be given the noise of the model whose
-        # H it is using. Omega = S_yy - H_eff P- H_eff^T, so
-        #
-        #     R + Omega = S - H_eff C
-        #
-        # which is free here -- both factors are already formed.
-        #
-        # Passing R alone would return the matched-joint posterior minus
-        # K Omega K^T, i.e. systematically overconfident on nonlinear maps.
-        # With the residual included the two covariance forms agree to
-        # 2.8e-17, so Joseph is a numerically safer route to the *same*
-        # answer rather than a different one.
-        effective_noise = symmetrize(innovation - obs_eff @ cross_e)
-        cov_upd = joseph_update(cov, gain, obs_eff, effective_noise)
-    else:
-        # P+ = P- - K S K^T. Correct and cheaper, but its PSD-ness relies
-        # on the moment triple being mutually consistent (Omega >= 0),
-        # which a negative-weight rule can violate.
-        cov_upd = symmetrize(cov - gain @ innovation @ gain.T)
-
-    # A positive-definite S is not on its own enough: the *joint* over
-    # (x, h(x)) must be consistent. An inconsistent triple -- Omega =
-    # S_yy - H_eff P^- H_eff^T indefinite, which a negative-weight rule can
-    # produce even where S is fine -- leaves the posterior indefinite.
-    #
-    # The full spectrum is checked, not just the diagonal: an indefinite
-    # covariance can have entirely positive variances, e.g.
-    # [[0.36, -0.64], [-0.64, 0.36]], whose smallest eigenvalue is -0.28.
-    # A diagonal test would pass that and hand the next predict step a
-    # covariance it will go on to treat as PSD.
-    #
-    # The threshold is scaled to the size of the covariance rather than
-    # being exactly zero. A legitimately rank-deficient posterior -- a
-    # deterministic state, zero process noise -- is singular by
-    # construction, and rounding puts its null directions a few ulps either
-    # side of zero; a strict test would reject those. Genuine
-    # inconsistency is not marginal: the example above sits at -0.28
-    # against a trace of 0.72, many orders above this bound.
     ll_inc = _log_likelihood_increment(residual, solved, logdet, M, n_missing)
     if not validate:
         return mean_upd, cov_upd, ll_inc
-    cov_upd = _reject_indefinite(
-        cov_upd,
-        "nonlinear_kalman_update: the updated covariance is not positive "
-        "semi-definite. The matched moments (Cov[h(x)], Cov[x, h(x)]) are "
-        "not a consistent joint, which a negative-weight quadrature rule "
-        "can produce. Use a positive-weight rule such as CubatureIntegrator "
-        "or UnscentedIntegrator(alpha=1.0).",
-    )
+    cov_upd = _reject_inconsistent_posterior(cov_upd)
 
     return mean_upd, cov_upd, ll_inc
 
