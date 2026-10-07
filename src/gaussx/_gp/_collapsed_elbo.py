@@ -7,16 +7,20 @@ import lineax as lx
 from jax import lax
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import renamed_kwargs, warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
+from gaussx._einx import einsum, rearrange
+from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
+@renamed_kwargs(K_diag="K_xx_diag")
 def collapsed_elbo(
     y: Float[Array, " N"],
-    K_diag: Float[Array, " N"],
+    K_xx_diag: Float[Array, " N"],
     K_xz: Float[Array, "N M"],
-    K_zz: Float[Array, "M M"],
+    K_zz: Float[Array, "M M"] | lx.AbstractLinearOperator,
     noise_var: float,
     *,
     jitter: float = 1e-6,
@@ -29,45 +33,48 @@ def collapsed_elbo(
 
         ELBO = log 𝒩(y | 0, Q_ff + σ²I) − ½σ⁻² tr(K_ff − Q_ff)
 
-    where Q_ff = K_xz K_zz⁻¹ K_xzᵀ is the Nyström approximation.
+    where Q_ff = K_xz K_zz⁻¹ K_xzᵀ is the Nyström approximation. With
+    ``L L^T = K_zz`` and ``V = L⁻¹ K_xzᵀ`` (structured triangular solves),
+    ``B = I + σ⁻² V Vᵀ`` is the only dense ``(M, M)`` factorisation.
 
     Args:
         y: Observations, shape ``(N,)``.
-        K_diag: Diagonal of full kernel matrix K_ff, shape ``(N,)``.
+        K_xx_diag: Diagonal of the full kernel matrix K_ff, shape ``(N,)``.
+            (Formerly ``K_diag``; the old keyword is deprecated.)
         K_xz: Cross-covariance between data and inducing points,
             shape ``(N, M)``.
-        K_zz: Inducing point kernel matrix, shape ``(M, M)``.
+        K_zz: Inducing point kernel matrix, ``(M, M)`` array or PSD
+            operator. A `Kronecker` / `BlockDiag` operator is factorised
+            per factor.
         noise_var: Observation noise variance σ² (scalar).
-        jitter: Diagonal jitter for numerical stability in Cholesky
-            decomposition of K_zz.
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch. This parameter
-            is accepted for API consistency but is not currently used by the
-            Cholesky decompositions in this function.
+        jitter: Diagonal jitter added to ``K_zz`` before the Cholesky
+            factorisation, for a dense array, `lineax.MatrixLinearOperator`
+            or `lineax.DiagonalLinearOperator`. It is **not** added to other
+            structured operators (it would destroy their structure):
+            include any jitter in the operator itself, e.g. per factor.
+        solver: Deprecated and ignored (the Cholesky factorisations take no
+            solver); passing one warns. Removed in the next minor release.
 
     Returns:
         Scalar ELBO value.
     """
-    del solver  # cholesky does not accept a solver; parameter reserved for future use
+    if solver is not None:
+        warn_deprecated(
+            "collapsed_elbo(solver=...) is ignored and deprecated; it will be "
+            "removed in the next minor release."
+        )
     N = y.shape[0]
-    M = K_zz.shape[0]
+    K_zz_op = _jittered(K_zz, jitter)
+    M = K_zz_op.in_size()
 
-    # L_zz L_zzᵀ = K_zz + jitter · I
-    K_zz_jitter = K_zz + jitter * jnp.eye(M)
-    L_zz = cholesky(  # (M, M)
-        lx.MatrixLinearOperator(K_zz_jitter, lx.positive_semidefinite_tag)
-    ).as_matrix()
-
-    # V = L_zz⁻¹ K_xzᵀ
-    V = lax.linalg.triangular_solve(
-        L_zz,
-        K_xz.T,
-        left_side=True,
-        lower=True,
-    )  # (M, N)
+    # L_zz L_zzᵀ = K_zz (+ jitter · I);  V = L_zz⁻¹ K_xzᵀ  (M, N)
+    L_zz = cholesky(K_zz_op)
+    V = solve_columns(L_zz, rearrange(K_xz, "n m -> m n"))
 
     # B = I_M + σ⁻² V Vᵀ
-    B = jnp.eye(M) + (1.0 / noise_var) * (V @ V.T)  # (M, M)
+    B = jnp.eye(M, dtype=V.dtype) + (1.0 / noise_var) * einsum(
+        V, V, "i n, j n -> i j"
+    )  # (M, M)
     L_B = cholesky(  # (M, M)
         lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
     ).as_matrix()
@@ -92,6 +99,22 @@ def collapsed_elbo(
 
     # Trace penalty: −½σ⁻² (tr(K_ff) − tr(Q_ff))
     # where tr(Q_ff) = ‖V‖²_F
-    trace_penalty = -0.5 / noise_var * (jnp.sum(K_diag) - jnp.sum(V**2))
+    trace_penalty = -0.5 / noise_var * (jnp.sum(K_xx_diag) - jnp.sum(V**2))
 
     return -0.5 * (log_det + quad + N * _LOG_2PI) + trace_penalty
+
+
+def _jittered(
+    K_zz: Float[Array, "M M"] | lx.AbstractLinearOperator, jitter: float
+) -> lx.AbstractLinearOperator:
+    """``K_zz + jitter I`` for dense / diagonal inputs; others unchanged."""
+    if isinstance(K_zz, lx.DiagonalLinearOperator):
+        return lx.DiagonalLinearOperator(lx.diagonal(K_zz) + jitter)
+    if isinstance(K_zz, lx.MatrixLinearOperator):
+        K_zz = K_zz.as_matrix()
+    if isinstance(K_zz, lx.AbstractLinearOperator):
+        return K_zz
+    M = K_zz.shape[0]
+    return lx.MatrixLinearOperator(
+        K_zz + jitter * jnp.eye(M, dtype=K_zz.dtype), lx.positive_semidefinite_tag
+    )

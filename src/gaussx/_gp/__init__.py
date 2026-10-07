@@ -1,6 +1,20 @@
-"""GaussX GP-specific helpers -- ELBO, whitening, prediction caches, SVGP."""
+"""GaussX GP-specific helpers -- ELBO, whitening, prediction caches, SVGP.
 
-from gaussx._gp._base_conditional import base_conditional
+Sparse-GP convention (gh-353): new helpers follow it, existing ones are
+being moved onto it with one-release deprecations.
+
+| Object | Name | Shape / type |
+|---|---|---|
+| Inducing covariance (first argument) | ``K_zz`` | ``(M, M)`` array or PSD operator |
+| Cross-covariance (data x inducing) | ``K_xz`` | ``(N, M)`` |
+| Prior at the evaluation points | ``K_xx`` / ``K_xx_diag`` | ``(N, N)`` / ``(N,)`` |
+| Variational mean | ``q_mu`` | ``(M, R)`` or ``(M,)`` |
+| Variational root | ``q_sqrt`` | ``(R, M, M)`` or ``(M, R)`` |
+
+Functions take no ``solver=`` they would ignore.
+"""
+
+from gaussx._gp._base_conditional import base_conditional, sparse_conditional
 from gaussx._gp._collapsed_elbo import collapsed_elbo
 from gaussx._gp._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._gp._gauss_kl import gauss_kl
@@ -52,6 +66,7 @@ __all__ = [
     "predict_mean",
     "predict_variance",
     "rts_interpolate",
+    "sparse_conditional",
     "svgp_variance_adjustment",
     "unwhiten",
     "unwhiten_covariance",

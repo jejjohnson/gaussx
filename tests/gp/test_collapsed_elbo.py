@@ -1,10 +1,13 @@
 """Tests for the collapsed ELBO (Titsias bound)."""
 
+import einx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import pytest
 
 from gaussx import collapsed_elbo
+from gaussx._testing import psd_operator, random_kronecker_pd
 
 
 def _exact_mll(K, y, noise_var):
@@ -116,3 +119,65 @@ class TestCollapsedELBO:
         # ELBO should increase (or stay same) with more inducing points
         assert elbos[1] >= elbos[0] - 1e-4
         assert elbos[2] >= elbos[1] - 1e-4
+
+
+# gh-353: K_xx_diag name, operator K_zz, deprecated solver=.
+
+
+def _small_problem():
+    x = jnp.linspace(0.0, 5.0, 12)
+    z = jnp.linspace(0.5, 4.5, 4)
+
+    def k(a, b):
+        return jnp.exp(-0.5 * einx.subtract("i, j -> i j", a, b) ** 2)
+
+    return jnp.sin(x), jnp.ones(12), k(x, z), k(z, z)
+
+
+def test_k_diag_keyword_is_deprecated():
+    y, K_xx_diag, K_xz, K_zz = _small_problem()
+    new = collapsed_elbo(y, K_xx_diag=K_xx_diag, K_xz=K_xz, K_zz=K_zz, noise_var=0.3)
+    with pytest.warns(DeprecationWarning, match="K_xx_diag"):
+        old = collapsed_elbo(y, K_diag=K_xx_diag, K_xz=K_xz, K_zz=K_zz, noise_var=0.3)
+    assert old == new
+    with pytest.raises(TypeError, match="both"):
+        collapsed_elbo(
+            y,
+            K_diag=K_xx_diag,
+            K_xx_diag=K_xx_diag,
+            K_xz=K_xz,
+            K_zz=K_zz,
+            noise_var=0.3,
+        )
+
+
+def test_solver_is_deprecated():
+    from gaussx import DenseSolver
+
+    y, K_xx_diag, K_xz, K_zz = _small_problem()
+    with pytest.warns(DeprecationWarning, match="solver"):
+        collapsed_elbo(y, K_xx_diag, K_xz, K_zz, 0.3, solver=DenseSolver())
+
+
+def test_operator_k_zz_matches_array():
+    y, K_xx_diag, K_xz, K_zz = _small_problem()
+    ref = collapsed_elbo(y, K_xx_diag, K_xz, K_zz, 0.3)
+    assert jnp.allclose(
+        collapsed_elbo(y, K_xx_diag, K_xz, psd_operator(K_zz), 0.3), ref
+    )
+
+
+def test_kronecker_k_zz_is_factorised_per_factor():
+    """Only B = I + V Vᵀ / σ² is factorised at (16, 16); K_zz per factor."""
+    K_zz = random_kronecker_pd(jr.key(0), (4, 4), jitter=1.0)
+    K_xz = 0.3 * jr.normal(jr.key(1), (20, 16))
+    y = jr.normal(jr.key(2), (20,))
+    K_xx_diag = 4.0 * jnp.ones(20)
+    structured = collapsed_elbo(y, K_xx_diag, K_xz, K_zz, 0.3, jitter=0.0)
+    dense = collapsed_elbo(y, K_xx_diag, K_xz, K_zz.as_matrix(), 0.3, jitter=0.0)
+    assert jnp.allclose(structured, dense, rtol=1e-10)
+    jaxpr = str(
+        jax.make_jaxpr(lambda yy: collapsed_elbo(yy, K_xx_diag, K_xz, K_zz, 0.3))(y)
+    )
+    chol = [ln for ln in jaxpr.splitlines() if "= cholesky" in ln]
+    assert sum("[16,16]" in ln for ln in chol) == 1

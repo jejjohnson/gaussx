@@ -18,11 +18,26 @@ $$
 plus a precomputed-cache variant for repeated test-time queries and a
 Kronecker-structured path for separable kernels on grids.
 
+The sparse-GP helpers share one convention (gh-353):
+
+| Object | Name | Shape / type |
+|---|---|---|
+| Inducing covariance (first argument) | `K_zz` | `(M, M)` array or PSD operator |
+| Cross-covariance (data × inducing) | `K_xz` | `(N, M)` |
+| Prior at the evaluation points | `K_xx` / `K_xx_diag` | `(N, N)` / `(N,)` |
+| Variational mean | `q_mu` | `(M, R)` or `(M,)` |
+| Variational root | `q_sqrt` | `(R, M, M)` or `(M, R)` |
+
+`sparse_conditional` follows it; `base_conditional` (cross-covariance
+`(M, N)`) is deprecated in its favour. `collapsed_elbo`'s `K_diag=` keyword
+is now `K_xx_diag=`, and the unused `solver=` of `collapsed_elbo` and
+`gauss_kl` is deprecated; the old forms warn for one release.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [base_conditional, build_prediction_cache, PredictionCache, predict_mean, predict_variance, conditional_interpolate, rts_interpolate, kronecker_posterior_predictive, kronecker_mll]
+      members: [sparse_conditional, base_conditional, build_prediction_cache, PredictionCache, predict_mean, predict_variance, conditional_interpolate, rts_interpolate, kronecker_posterior_predictive, kronecker_mll]
 
 ## Pathwise sampling
 

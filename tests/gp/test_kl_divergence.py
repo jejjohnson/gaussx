@@ -161,3 +161,36 @@ class TestGradient:
 
         g = jax.grad(loss)(q_mu)
         assert jnp.all(jnp.isfinite(g))
+
+
+# gh-353: operator prior K, deprecated solver=.
+
+
+def _kl_inputs(M=16, R=2):
+    q_mu = jr.normal(jr.key(0), (M, R))
+    q_full = jnp.tril(jr.normal(jr.key(1), (R, M, M)), -1) + jnp.eye(M)
+    q_diag = jnp.abs(jr.normal(jr.key(2), (M, R))) + 0.1
+    return q_mu, q_full, q_diag
+
+
+@pytest.mark.parametrize("layout", ["full", "diag"])
+def test_kronecker_prior_matches_dense_without_16x16_cholesky(layout):
+    from gaussx._testing import random_kronecker_pd
+
+    K = random_kronecker_pd(jr.key(3), (4, 4), jitter=1.0)
+    q_mu, q_full, q_diag = _kl_inputs()
+    q_sqrt = q_full if layout == "full" else q_diag
+    structured = gauss_kl(q_mu, q_sqrt, K)
+    dense = gauss_kl(q_mu, q_sqrt, K.as_matrix())
+    assert jnp.allclose(structured, dense, rtol=1e-10)
+    jaxpr = str(jax.make_jaxpr(lambda m: gauss_kl(m, q_sqrt, K))(q_mu))
+    chol = [ln for ln in jaxpr.splitlines() if "= cholesky" in ln]
+    assert not any("[16,16]" in ln for ln in chol)
+
+
+def test_solver_is_deprecated():
+    from gaussx import DenseSolver
+
+    q_mu, _, q_diag = _kl_inputs(M=3)
+    with pytest.warns(DeprecationWarning, match="solver"):
+        gauss_kl(q_mu, q_diag, jnp.eye(3), solver=DenseSolver())

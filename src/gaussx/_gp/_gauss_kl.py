@@ -2,21 +2,27 @@
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
-import jax.scipy.linalg as jsla
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._deprecation import warn_deprecated
+from gaussx._einx import rearrange, reduce
+from gaussx._gp._base_conditional import _as_psd_operator
+from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._diag import diag
 from gaussx._primitives._logdet import cholesky_logdet
+from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def gauss_kl(
     q_mu: Float[Array, "M R"],
     q_sqrt: Float[Array, "R M M"] | Float[Array, "M R"],
-    K: Float[Array, "M M"] | None = None,
+    K: Float[Array, "M M"] | lx.AbstractLinearOperator | None = None,
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
@@ -44,12 +50,12 @@ def gauss_kl(
     Args:
         q_mu: Variational mean, shape ``(M, R)``.
         q_sqrt: Variational Cholesky factor or diagonal std devs.
-        K: Prior covariance matrix, shape ``(M, M)``.
+        K: Prior covariance, ``(M, M)`` array or PSD operator (a
+            `Kronecker` / `BlockDiag` operator is factorised per factor).
             If ``None``, uses white prior (identity).
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch. This parameter
-            is accepted for API consistency but is not currently used by the
-            Cholesky decomposition in this function.
+        solver: Deprecated and ignored (the Cholesky factorisation takes
+            no solver); passing one warns. Removed in the next minor
+            release.
 
     Returns:
         Scalar KL divergence summed over all ``R`` output dimensions.
@@ -58,18 +64,18 @@ def gauss_kl(
         `dist_kl_divergence`: General KL
         between two multivariate normals with lineax covariance operators.
     """
-    del solver  # cholesky does not accept a solver; parameter reserved for future use
+    if solver is not None:
+        warn_deprecated(
+            "gauss_kl(solver=...) is ignored and deprecated; it will be "
+            "removed in the next minor release."
+        )
     M = q_mu.shape[0]
     R = q_mu.shape[1]
 
     is_diagonal = q_sqrt.ndim == 2
 
-    # Prior Cholesky factor
-    L_K = (
-        cholesky(lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)).as_matrix()
-        if K is not None
-        else None
-    )
+    # Prior Cholesky factor (structured where gaussx.cholesky preserves it)
+    L_K = cholesky(_as_psd_operator(K)) if K is not None else None
 
     if is_diagonal:
         # q_sqrt shape: (M, R) — diagonal standard deviations
@@ -77,7 +83,7 @@ def gauss_kl(
 
         if L_K is not None:
             # alpha = L_K^{-1} q_mu  ->  Mahalanobis term
-            alpha = jsla.solve_triangular(L_K, q_mu, lower=True)  # (M, R)
+            alpha = solve_columns(L_K, q_mu)  # (M, R)
             mahal = jnp.sum(alpha**2)
 
             # tr(K^{-1} diag(q_var_r)) = sum_i q_var[i,r] * (K^{-1})_{ii}
@@ -85,14 +91,15 @@ def gauss_kl(
             # each standard basis vector — but that's O(M^2) total.
             # More efficient: solve L_K x_i = e_i for each i, then
             # diag(K^{-1})_i = ||x_i||^2.  Use a single batched solve:
-            Kinv_diag = jnp.sum(
-                jsla.solve_triangular(L_K, jnp.eye(M), lower=True) ** 2,
-                axis=0,
+            Kinv_diag = reduce(
+                solve_columns(L_K, jnp.eye(M, dtype=q_mu.dtype)) ** 2,
+                "i j -> j",
+                "sum",
             )  # (M,)
-            trace_term = jnp.sum(q_var * Kinv_diag[:, None])
+            trace_term = jnp.sum(einx.multiply("m r, m -> m r", q_var, Kinv_diag))
 
             # log|K| − log|S|
-            logdet_K = cholesky_logdet(L_K)
+            logdet_K = _factor_logdet(L_K)
             logdet_S = jnp.sum(jnp.log(q_var))
             logdet_diff = R * logdet_K - logdet_S
         else:
@@ -105,7 +112,7 @@ def gauss_kl(
 
     # q_sqrt shape: (R, M, M) — full lower-triangular Cholesky factors
     # Hoist prior-only quantities outside the per-output computation.
-    logdet_K = cholesky_logdet(L_K) if L_K is not None else 0.0
+    logdet_K = _factor_logdet(L_K) if L_K is not None else 0.0
 
     def _kl_single(
         q_mu_r: Float[Array, " M"], L_q_r: Float[Array, "M M"]
@@ -113,9 +120,9 @@ def gauss_kl(
         logdet_q = cholesky_logdet(L_q_r)
 
         if L_K is not None:
-            alpha = jsla.solve_triangular(L_K, q_mu_r, lower=True)
+            alpha = solve(L_K, q_mu_r)
             mahal_r = jnp.sum(alpha**2)
-            L_K_inv_L_q = jsla.solve_triangular(L_K, L_q_r, lower=True)
+            L_K_inv_L_q = solve_columns(L_K, L_q_r)
             trace_r = jnp.sum(L_K_inv_L_q**2)
             logdet_diff_r = logdet_K - logdet_q
         else:
@@ -126,5 +133,10 @@ def gauss_kl(
         return 0.5 * (logdet_diff_r - M + trace_r + mahal_r)
 
     # vmap over R output dimensions: q_mu.T -> (R, M), q_sqrt -> (R, M, M)
-    kl_per_output = jax.vmap(_kl_single)(q_mu.T, q_sqrt)
+    kl_per_output = jax.vmap(_kl_single)(rearrange(q_mu, "m r -> r m"), q_sqrt)
     return jnp.sum(kl_per_output)
+
+
+def _factor_logdet(L: lx.AbstractLinearOperator) -> Float[Array, ""]:
+    """``log|L Lᵀ| = 2 Σ log diag(L)`` for a (structured) Cholesky factor."""
+    return 2.0 * jnp.sum(jnp.log(diag(L)))

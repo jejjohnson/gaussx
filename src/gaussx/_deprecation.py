@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import warnings
+from collections.abc import Callable
+from typing import Any, ParamSpec, TypeVar
 
 import equinox
+
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class GaussxDeprecationWarning(DeprecationWarning):
@@ -32,3 +39,34 @@ def warn_deprecated(message: str) -> None:
     warnings.warn(
         message, GaussxDeprecationWarning, stacklevel=2, skip_file_prefixes=_SKIP
     )
+
+
+def renamed_kwargs(**renames: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    """Accept deprecated keyword names for one release.
+
+    ``@renamed_kwargs(K_diag="K_xx_diag")`` maps a call with ``K_diag=...``
+    onto ``K_xx_diag=...`` and emits a `GaussxDeprecationWarning`; passing
+    both names raises `TypeError`.
+    """
+
+    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        name = getattr(fn, "__name__", "function")
+
+        @functools.wraps(fn)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
+            mapped: dict[str, Any] = dict(kwargs)
+            for old, new in renames.items():
+                if old in mapped:
+                    if new in mapped:
+                        msg = f"{name}() got both {old}= (deprecated) and {new}=."
+                        raise TypeError(msg)
+                    warn_deprecated(
+                        f"{name}({old}=...) is deprecated and will be removed "
+                        f"in the next minor release; use {new}=... instead."
+                    )
+                    mapped[new] = mapped.pop(old)
+            return fn(*args, **mapped)
+
+        return wrapper
+
+    return decorator
