@@ -2,19 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array
-
-
-def vmap_over_batch_dims(fn: Callable, num_batch_dims: int) -> Callable:
-    """Apply ``jax.vmap`` repeatedly over the leading batch dimensions."""
-    for _ in range(num_batch_dims):
-        fn = jax.vmap(fn)
-    return fn
 
 
 def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:
