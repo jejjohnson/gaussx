@@ -74,6 +74,7 @@ from gaussx._gp import (
     oilmm_project as oilmm_project,
     predict_mean as predict_mean,
     predict_variance as predict_variance,
+    rts_interpolate as rts_interpolate,
     svgp_variance_adjustment as svgp_variance_adjustment,
     unwhiten as unwhiten,
     unwhiten_covariance as unwhiten_covariance,
