@@ -7,6 +7,7 @@ import jax.random as jr
 import lineax as lx
 
 from gaussx import BlockDiag, Kronecker, eig, eigvals
+from gaussx._einx import einsum
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
@@ -142,3 +143,62 @@ def test_eigvals_kronecker_sum_matches_dense(getkey):
     vals = eigvals(op)
     vals_ref = jnp.linalg.eigvalsh(op.as_matrix())
     assert jnp.allclose(jnp.sort(vals), jnp.sort(vals_ref), atol=1e-6)
+
+
+def _repeated_eigenvalue_spd():
+    # SPD with a repeated eigenvalue: ``eig`` there returns a non-orthonormal
+    # basis of the repeated eigenspace, ``eigh`` an orthonormal one.
+    Q, _ = jnp.linalg.qr(jr.normal(jr.key(1), (4, 4)))
+    S = einsum(Q * jnp.array([1.0, 1.0, 2.0, 3.0]), Q, "i k, j k -> i j")
+    return 0.5 * (S + S.T)
+
+
+def _assert_real_orthonormal(vals, vecs, matrix):
+    assert not jnp.iscomplexobj(vals)
+    assert not jnp.iscomplexobj(vecs)
+    n = vecs.shape[0]
+    assert tree_allclose(einsum(vecs, vecs, "i k, i l -> k l"), jnp.eye(n))
+    assert tree_allclose(einsum(vecs * vals, vecs, "i k, j k -> i j"), matrix)
+
+
+def test_eig_psd_tagged_wrapper_takes_eigh():
+    """lineax says ``is_symmetric(Tagged(X, psd))`` is False (gh-314)."""
+    S = _repeated_eigenvalue_spd()
+    op = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(S), lx.positive_semidefinite_tag
+    )
+    vals, vecs = eig(op)
+    _assert_real_orthonormal(vals, vecs, S)
+    ev = eigvals(op)
+    assert not jnp.iscomplexobj(ev)
+    assert tree_allclose(jnp.sort(ev), jnp.array([1.0, 1.0, 2.0, 3.0]))
+
+
+def test_eig_tagged_kronecker_keeps_structure(getkey, monkeypatch):
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
+    K = Kronecker(lx.MatrixLinearOperator(A), lx.MatrixLinearOperator(B))
+    dense = K.as_matrix()
+    op = lx.TaggedLinearOperator(K, lx.positive_semidefinite_tag)
+
+    def _forbidden(self):
+        raise AssertionError("Kronecker.as_matrix called")
+
+    monkeypatch.setattr(Kronecker, "as_matrix", _forbidden)
+    vals, _vecs = eig(op)
+    ev = eigvals(op)
+    monkeypatch.undo()
+    assert tree_allclose(jnp.sort(jnp.real(vals)), jnp.linalg.eigvalsh(dense))
+    assert tree_allclose(jnp.sort(jnp.real(ev)), jnp.linalg.eigvalsh(dense))
+
+
+def test_eig_kronecker_of_psd_tagged_factors_is_real_orthonormal(getkey):
+    A = random_pd_matrix(getkey(), 2)
+    B = random_pd_matrix(getkey(), 3)
+    psd = lx.positive_semidefinite_tag
+    op = Kronecker(
+        lx.TaggedLinearOperator(lx.MatrixLinearOperator(A), psd),
+        lx.TaggedLinearOperator(lx.MatrixLinearOperator(B), psd),
+    )
+    vals, vecs = eig(op)
+    _assert_real_orthonormal(vals, vecs, op.as_matrix())

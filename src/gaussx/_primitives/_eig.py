@@ -70,6 +70,28 @@ def eig(
         raise ValueError(f"method must be 'lanczos' or 'randomized', got {method!r}.")
     if method == "randomized" and rank is None:
         raise ValueError("method='randomized' needs a rank.")
+    return _eig(operator, rank, method, key, symmetric=False)
+
+
+def _eig(
+    operator: lx.AbstractLinearOperator,
+    rank: int | None,
+    method: Literal["lanczos", "randomized"],
+    key: jax.Array | None,
+    *,
+    symmetric: bool,
+) -> tuple[Array, Array]:
+    """`eig` dispatch; ``symmetric`` carries an outer wrapper's tags (gh-314)."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        # Tags cannot change the spectrum, but a PSD/NSD tag implies a real
+        # symmetric operator, so the inner one takes ``eigh`` (gh-314).
+        return _eig(
+            operator.operator,
+            rank,
+            method,
+            key,
+            symmetric=symmetric or _is_real_symmetric(operator),
+        )
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _eig_diagonal(operator)
     if isinstance(operator, BlockDiag):
@@ -82,7 +104,7 @@ def eig(
         if method == "randomized":
             return randomized_eigh(operator, rank, key=key)
         return _eig_partial(operator, rank, key)
-    return _eig_dense(operator)
+    return _eig_dense(operator, symmetric=symmetric)
 
 
 def eigvals(
@@ -104,6 +126,24 @@ def eigvals(
     Returns:
         Eigenvalues array of shape ``(K,)``.
     """
+    return _eigvals(operator, rank, key, symmetric=False)
+
+
+def _eigvals(
+    operator: lx.AbstractLinearOperator,
+    rank: int | None,
+    key: jax.Array | None,
+    *,
+    symmetric: bool,
+) -> Array:
+    """`eigvals` dispatch; ``symmetric`` as in ``_eig`` (gh-314)."""
+    if isinstance(operator, lx.TaggedLinearOperator):
+        return _eigvals(
+            operator.operator,
+            rank,
+            key,
+            symmetric=symmetric or _is_real_symmetric(operator),
+        )
     if isinstance(operator, lx.DiagonalLinearOperator):
         return lx.diagonal(operator)
     if isinstance(operator, BlockDiag):
@@ -115,7 +155,7 @@ def eigvals(
     if rank is not None:
         vals, _ = _eig_partial(operator, rank, key)
         return vals
-    return _eigvals_dense(operator)
+    return _eigvals_dense(operator, symmetric=symmetric)
 
 
 def _eig_diagonal(
@@ -200,18 +240,40 @@ def _eig_partial(
     return vals, vecs.T
 
 
+def _is_real_symmetric(operator: lx.AbstractLinearOperator) -> bool:
+    """Symmetric, or PSD/NSD-tagged with a real dtype (lineax's own rule).
+
+    lineax reports ``is_symmetric(Tagged(X, positive_semidefinite_tag))`` as
+    ``False``, yet a real PSD/NSD operator is symmetric (gh-314).
+    """
+    if lx.is_symmetric(operator):
+        return True
+    definite = lx.is_positive_semidefinite(operator) or lx.is_negative_semidefinite(
+        operator
+    )
+    return definite and not jnp.issubdtype(
+        operator.in_structure().dtype, jnp.complexfloating
+    )
+
+
 def _eig_dense(
     operator: lx.AbstractLinearOperator,
+    *,
+    symmetric: bool = False,
 ) -> tuple[Array, Array]:
     mat = operator.as_matrix()
-    if lx.is_symmetric(operator):
+    if symmetric or _is_real_symmetric(operator):
         return jnp.linalg.eigh(mat)
     return jnp.linalg.eig(mat)
 
 
-def _eigvals_dense(operator: lx.AbstractLinearOperator) -> Array:
+def _eigvals_dense(
+    operator: lx.AbstractLinearOperator,
+    *,
+    symmetric: bool = False,
+) -> Array:
     mat = operator.as_matrix()
-    if lx.is_symmetric(operator):
+    if symmetric or _is_real_symmetric(operator):
         return jnp.linalg.eigvalsh(mat)
     return jnp.linalg.eigvals(mat)
 
