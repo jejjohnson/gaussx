@@ -11,6 +11,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx import (
     CGSolver,
     JacobiPreconditioner,
@@ -20,7 +21,7 @@ from gaussx import (
     linear_solve,
     randomized_nystrom,
 )
-from gaussx._einx import einsum
+from gaussx._einx import einsum, reduce
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -449,3 +450,143 @@ def test_preconditioner_non_cg_solver_raises(getkey):
             solver=MINRESSolver(),
             preconditioner=JacobiPreconditioner(diagonal=jnp.diag(sym)),
         )
+
+
+# -- Matrix-free diagonals (gh-361) and column functions (gh-544) -----------
+
+
+def _low_rank_plus_diagonal(n):
+    """``diag(d) + U Uᵀ`` (U: n × 5), the gh-361 system, pinned keys."""
+    U = jr.normal(jr.key(0), (n, 5))
+    d = 1.0 + jr.uniform(jr.key(1), (n,))
+    return U, d
+
+
+def _matrix_free(U, d):
+    return gaussx.as_linear_operator(
+        lambda v: d * v + U @ einsum(U, v, "n k, n -> k"),
+        shape=(d.shape[0],) * 2,
+        dtype=d.dtype,
+        positive_semidefinite=True,
+    )
+
+
+def _temp_mib(f, *args):
+    compiled = jax.jit(f).lower(*args).compile()
+    return compiled.memory_analysis().temp_size_in_bytes / 2**20
+
+
+def test_partial_cholesky_does_not_materialise_a_matrix_free_operator():
+    # gh-361: at n = 8000 the dense n x n matrix is 488 MiB (float64) and the
+    # preconditioned solve allocated exactly that; plain CG needs 0.7 MiB.
+    n = 8000
+    U, d = _low_rank_plus_diagonal(n)
+    pre = PartialCholeskyPreconditioner(rank=5, shift=1.0)
+
+    def solve(U, d, b):
+        return CGSolver(preconditioner=pre).solve(_matrix_free(U, d), b)
+
+    assert _temp_mib(solve, U, d, jnp.ones(n, dtype=d.dtype)) < 5.0
+
+
+@pytest.mark.parametrize(
+    "operator",
+    ["block_diag", "kronecker", "low_rank_update"],
+)
+def test_jacobi_reads_structured_diagonals_without_materialising(operator):
+    # gh-361: structured operators have an exact diagonal formula, so the
+    # Jacobi build stays O(n) in memory instead of forming the matrix.
+    n = 4096
+    if operator == "block_diag":
+        blocks = [lx.MatrixLinearOperator(jnp.eye(64) * (i + 1.0)) for i in range(64)]
+        op = gaussx.BlockDiag(*blocks)
+    elif operator == "kronecker":
+        op = gaussx.Kronecker(
+            lx.MatrixLinearOperator(random_pd_matrix(jr.key(0), 64)),
+            lx.MatrixLinearOperator(random_pd_matrix(jr.key(1), 64)),
+        )
+    else:
+        U, d = _low_rank_plus_diagonal(n)
+        op = gaussx.LowRankUpdate(lx.DiagonalLinearOperator(d), U)
+
+    def build(op):
+        return JacobiPreconditioner().as_operator(op).mv(jnp.ones(n))
+
+    # Dense would be 128 MiB; O(n) work arrays are well under 1 MiB.
+    assert _temp_mib(build, op) < 4.0
+    assert tree_allclose(build(op), 1.0 / jnp.diag(op.as_matrix()))
+
+
+def test_explicit_diagonal_matches_the_default_on_dense_operators():
+    mat, op = _matrix_and_operator(jr.key(2), 12)
+    d = jnp.diag(mat)
+    assert tree_allclose(
+        PartialCholeskyPreconditioner(rank=5, shift=0.1, diagonal=d)
+        .as_operator(op)
+        .as_matrix(),
+        PartialCholeskyPreconditioner(rank=5, shift=0.1).as_operator(op).as_matrix(),
+    )
+    assert tree_allclose(
+        JacobiPreconditioner(diagonal=d).as_operator(op).as_matrix(),
+        JacobiPreconditioner().as_operator(op).as_matrix(),
+    )
+
+
+def test_estimated_diagonal_keeps_the_factor_exact():
+    # A matrix-free diagonal is only a Hutchinson estimate, which picks the
+    # pivots, but each pivot's value is read from its exact column. So F Fᵀ
+    # is the column Nyström approximation on the chosen pivots: K − F Fᵀ is
+    # PSD and vanishes on every pivot row. A pivot scaled by the estimated
+    # diagonal would break both.
+    n, rank = 40, 8
+    U, d = _low_rank_plus_diagonal(n)
+    K = jnp.diag(d) + einsum(U, U, "n k, m k -> n m")
+    F = PartialCholeskyPreconditioner.from_operator(
+        _matrix_free(U, d), rank=rank, shift=0.5
+    ).factor
+    residual = K - einsum(F, F, "n k, m k -> n m")
+    assert jnp.min(jnp.linalg.eigvalsh(residual)) >= -1e-10 * jnp.max(d)
+    used = int(jnp.sum(reduce(jnp.abs(F), "n k -> k", "max") > 0.0))
+    pivot_rows = jnp.sum(jnp.abs(jnp.diag(residual)) <= 1e-10 * jnp.max(d))
+    assert used > 0 and int(pivot_rows) == used
+
+
+def test_from_operator_column_function_replaces_matvecs():
+    # gh-544: with column= (and diagonal=) the build calls the column
+    # function once per pivot and never applies the operator.
+    n, rank = 30, 6
+    x = jnp.linspace(0.0, 15.0, n)
+    kernel = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+    matvecs, columns = [0], [0]
+    K = _counting_operator(kernel, matvecs)
+
+    def column(k):
+        jax.debug.callback(lambda: columns.__setitem__(0, columns[0] + 1))
+        return kernel[:, k]
+
+    pre = PartialCholeskyPreconditioner.from_operator(
+        K, rank=rank, shift=1e-2, diagonal=jnp.diag(kernel), column=column
+    )
+    jax.effects_barrier()
+    assert columns[0] == rank and matvecs[0] == 0
+
+    dense = PartialCholeskyPreconditioner.from_operator(
+        lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag),
+        rank=rank,
+        shift=1e-2,
+    )
+    assert jnp.array_equal(pre.factor, dense.factor)
+
+
+def test_matrix_free_build_costs_rank_plus_probes_matvecs():
+    # gh-361: a matrix-free build used to materialise the operator (n
+    # columns); now it is `rank` pivot columns plus 20 Hutchinson probes.
+    n, rank = 60, 6
+    x = jnp.linspace(0.0, 15.0, n)
+    kernel = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+    count = [0]
+    PartialCholeskyPreconditioner.from_operator(
+        _counting_operator(kernel, count), rank=rank, shift=1e-2
+    )
+    jax.effects_barrier()
+    assert count[0] == rank + 20

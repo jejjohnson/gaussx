@@ -88,6 +88,26 @@ def rp_cholesky(
         raise ValueError(f"pivoting must be 'random' or 'greedy', got {pivoting!r}")
     if block_size != 1:
         raise NotImplementedError("rp_cholesky supports only block_size=1 for now")
+    return _pivoted_cholesky(diagonal, column, rank, pivoting, key)
+
+
+def _pivoted_cholesky(
+    diagonal: Float[Array, " N"],
+    column: Callable[[Int[Array, ""]], Float[Array, " N"]],
+    rank: int,
+    pivoting: Literal["random", "greedy"],
+    key: jax.Array | None,
+    *,
+    approximate_diagonal: bool = False,
+) -> tuple[Float[Array, "N k"], Int[Array, " k"]]:
+    """The `rp_cholesky` loop.
+
+    With ``approximate_diagonal`` the diagonal only *selects* pivots: each
+    pivot's value is read from its exact column instead, and the diagonal
+    entry is corrected to it, so the factor columns stay exact however rough
+    the diagonal (gh-361; e.g. a Hutchinson estimate). With an exact
+    diagonal both are the same number up to rounding.
+    """
     if key is None:
         key = jax.random.PRNGKey(0)
 
@@ -95,7 +115,7 @@ def rp_cholesky(
     tol = diagonal.shape[0] * jnp.finfo(diagonal.dtype).eps * jnp.max(jnp.abs(diagonal))
 
     def body(i, carry):
-        F, pivots = carry
+        F, pivots, diagonal = carry
         residual = diagonal - reduce(F * F, "n k -> n", "sum")
         if pivoting == "greedy":
             s = jnp.argmax(residual)
@@ -107,15 +127,22 @@ def rp_cholesky(
                 usable, jnp.log(jnp.where(usable, residual, 1.0)), -jnp.inf
             )
             s = jax.random.categorical(jax.random.fold_in(key, i), log_weights)
-        pivot = residual[s]
+        raw = column(s)
+        residual_column = raw - F @ F[s, :]
+        if approximate_diagonal:
+            pivot = residual_column[s]
+            diagonal = diagonal.at[s].set(raw[s])
+        else:
+            pivot = residual[s]
         ok = pivot > tol
         # Double-where keeps the sqrt's gradient finite when guarded.
         denom = jnp.sqrt(jnp.where(ok, pivot, 1.0))
-        col = (column(s) - F @ F[s, :]) / denom
+        col = residual_column / denom
         F = F.at[:, i].set(jnp.where(ok, col, 0.0))
         pivots = pivots.at[i].set(jnp.where(ok, s, -1).astype(pivots.dtype))
-        return F, pivots
+        return F, pivots, diagonal
 
     F0 = jnp.zeros((diagonal.shape[0], rank), dtype=diagonal.dtype)
     pivots0 = jnp.full((rank,), -1, dtype=jnp.int32)
-    return jax.lax.fori_loop(0, rank, body, (F0, pivots0))
+    F, pivots, _ = jax.lax.fori_loop(0, rank, body, (F0, pivots0, diagonal))
+    return F, pivots

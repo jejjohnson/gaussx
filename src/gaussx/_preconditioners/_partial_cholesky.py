@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Literal
 
 import equinox as eqx
@@ -9,11 +10,16 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, Int
 
 from gaussx._einx import einsum
 from gaussx._preconditioners._base import AbstractPreconditioner
-from gaussx._randomized._rpcholesky import rp_cholesky
+from gaussx._randomized._rpcholesky import _pivoted_cholesky
+
+
+# Hutchinson probes for the diagonal of a matrix-free operator (gh-361). The
+# diagonal only selects pivots; the factor columns are exact either way.
+_DIAGONAL_PROBES = 20
 
 
 class PartialCholeskyPreconditioner(AbstractPreconditioner):
@@ -42,6 +48,15 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
     the surplus columns are exactly zero instead of NaN or inf, and the
     preconditioner degrades gracefully to the lower-rank one (gh-237).
 
+    **Cost.** A build applies the operator to ``rank`` pivot columns (or
+    calls ``column``, see `from_operator`) and needs its diagonal. A given
+    ``diagonal``, a stored matrix and the structured operators
+    (`gaussx.diag`) cost nothing more. For a matrix-free part, such as a bare
+    `lineax.FunctionLinearOperator`, the diagonal is a Hutchinson estimate
+    from 20 matvecs: it only selects the pivots, and each factor column is
+    read exactly from its pivot column, so the operator is never
+    materialised (O(n · rank) memory, gh-361).
+
     Covariance form only: the factor captures the *top* of ``K``'s spectrum,
     which is right for ``K + σ² I``. It is not a good preconditioner for a
     precision-form system ``Q + Aᵀ W A``, whose hard directions are its
@@ -53,8 +68,12 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         shift: Noise variance ``σ²`` for the lazy path: the part of the
             system's diagonal treated as noise.
         pivoting: ``"greedy"`` (default) or ``"random"``.
-        key: PRNG key for ``"random"`` pivoting. ``None`` means
+        key: PRNG key for ``"random"`` pivoting and for the diagonal
+            estimate of a matrix-free operator. ``None`` means
             ``jax.random.PRNGKey(0)``.
+        diagonal: The diagonal of the *system* operator for the lazy path.
+            ``None`` takes it from the operator (exact unless it is
+            matrix-free; see **Cost**).
         factor: Stored factor ``F``, shape ``(n, k)``; set by `from_operator`.
         capacitance: Lower Cholesky factor of ``σ² I + Fᵀ F``, shape
             ``(k, k)``; set by `from_operator`.
@@ -81,6 +100,7 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
     shift: float = eqx.field(static=True, default=1.0)
     pivoting: Literal["greedy", "random"] = eqx.field(static=True, default="greedy")
     key: jax.Array | None = None
+    diagonal: Float[Array, " n"] | None = None
     factor: Float[Array, "n k"] | None = None
     capacitance: Float[Array, "k k"] | None = None
     factor_shift: Float[Array, ""] | None = None
@@ -94,6 +114,8 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         shift: float | Float[Array, ""],
         pivoting: Literal["greedy", "random"] = "greedy",
         key: jax.Array | None = None,
+        diagonal: Float[Array, " n"] | None = None,
+        column: Callable[[Int[Array, ""]], Float[Array, " n"]] | None = None,
     ) -> PartialCholeskyPreconditioner:
         """Factor the PSD part once and store the preconditioner.
 
@@ -104,8 +126,15 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
             shift: The noise variance ``σ²``; the preconditioner approximates
                 ``(K + σ² I)⁻¹``. Must be positive.
             pivoting: ``"greedy"`` or ``"random"`` (see `gaussx.rp_cholesky`).
-            key: PRNG key for ``"random"`` pivoting. ``None`` means
-                ``jax.random.PRNGKey(0)``.
+            key: PRNG key for ``"random"`` pivoting and the diagonal
+                estimate. ``None`` means ``jax.random.PRNGKey(0)``.
+            diagonal: The diagonal of ``K``. ``None`` takes it from
+                *operator* (see **Cost** in the class docstring).
+            column: ``k -> K[:, k]``, used instead of ``operator.mv(e_k)``
+                (gh-544). For a matrix-free kernel operator a column is
+                ``n`` kernel evaluations, where ``mv(e_k)`` is a full
+                matvec. With ``column`` and ``diagonal`` both given, the
+                build never applies *operator*.
 
         Returns:
             A built `PartialCholeskyPreconditioner` whose `as_operator`
@@ -117,7 +146,7 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         if rank < 1:
             raise ValueError("rank must be at least 1")
         rank = min(rank, operator.in_size())
-        factor = _factor(lx.diagonal(operator), operator, rank, 0.0, pivoting, key)
+        factor = _factor(operator, rank, 0.0, pivoting, key, diagonal, column)
         shift = jnp.asarray(shift, dtype=factor.dtype)
         return cls(
             rank=rank,
@@ -156,30 +185,82 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         shift = jnp.asarray(self.shift, dtype=dtype)
         # Factor K = A − σ²I, never A itself: the Woodbury step adds σ² back
         # (#345).
-        diagonal = lx.diagonal(operator) - shift
-        factor = _factor(diagonal, operator, rank, shift, self.pivoting, self.key)
+        factor = _factor(
+            operator, rank, shift, self.pivoting, self.key, self.diagonal, None
+        )
         return _woodbury(
             factor, _capacitance(factor, shift), shift, operator.out_structure()
         )
 
 
 def _factor(
-    diagonal: Float[Array, " n"],
     operator: lx.AbstractLinearOperator,
     rank: int,
     shift: float | Float[Array, ""],
     pivoting: Literal["greedy", "random"],
     key: jax.Array | None,
+    diagonal: Float[Array, " n"] | None,
+    column: Callable[[Int[Array, ""]], Float[Array, " n"]] | None,
 ) -> Float[Array, "n k"]:
-    """Partial Cholesky of ``operator − shift · I``, one matvec per pivot."""
+    """Partial Cholesky of ``operator − shift · I``, one column per pivot.
+
+    *diagonal* and *column* describe *operator* itself; the shift is
+    subtracted here.
+    """
+    from gaussx._primitives._diag import matrix_free_diag
+
     n = operator.in_size()
+    dtype = operator.in_structure().dtype
+    # Only a Hutchinson estimate is approximate; the pivots then take their
+    # values from the exact columns.
+    approximate = diagonal is None and not _diagonal_is_exact(operator)
+    if diagonal is None:
+        diagonal = matrix_free_diag(
+            operator, estimate=True, num_probes=_DIAGONAL_PROBES, key=key
+        )
+    diagonal = jnp.asarray(diagonal, dtype=dtype) - shift
+    if column is None:
+        column = _mv_column(operator, n, dtype)
 
-    def column(k):
-        e_k = jnp.zeros(n, dtype=diagonal.dtype).at[k].set(1.0)
-        return operator.mv(e_k) - shift * e_k
+    def shifted_column(k):
+        return column(k) - shift * jnp.zeros(n, dtype=dtype).at[k].set(1.0)
 
-    factor, _ = rp_cholesky(diagonal, column, rank, pivoting=pivoting, key=key)
+    factor, _ = _pivoted_cholesky(
+        diagonal,
+        shifted_column,
+        rank,
+        pivoting,
+        key,
+        approximate_diagonal=approximate,
+    )
     return factor
+
+
+def _mv_column(operator, n, dtype):
+    def column(k):
+        return operator.mv(jnp.zeros(n, dtype=dtype).at[k].set(1.0))
+
+    return column
+
+
+def _diagonal_is_exact(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether `matrix_free_diag` gives *operator*'s exact diagonal."""
+    from gaussx._operators import BlockDiag, LowRankUpdate
+    from gaussx._primitives._diag import _CHEAP_DIAGONAL
+
+    if isinstance(operator, lx.TaggedLinearOperator | lx.NegLinearOperator):
+        return _diagonal_is_exact(operator.operator)
+    if isinstance(operator, lx.MulLinearOperator | lx.DivLinearOperator):
+        return _diagonal_is_exact(operator.operator)
+    if isinstance(operator, lx.AddLinearOperator):
+        return _diagonal_is_exact(operator.operator1) and _diagonal_is_exact(
+            operator.operator2
+        )
+    if isinstance(operator, BlockDiag):
+        return all(_diagonal_is_exact(op) for op in operator.operators)
+    if isinstance(operator, LowRankUpdate):
+        return _diagonal_is_exact(operator.base)
+    return isinstance(operator, _CHEAP_DIAGONAL)
 
 
 def _capacitance(
