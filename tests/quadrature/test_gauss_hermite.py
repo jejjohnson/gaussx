@@ -131,3 +131,32 @@ class TestGaussHermiteIntegrator:
         # E[x] = 0 under N(0,1)
         result = integrator.integrate(lambda x: x, state)
         assert jnp.allclose(result.state.mean[0], 0.0, atol=1e-10)
+
+
+@pytest.mark.x64_only(reason="1e-8 against a float64 adaptive-quadrature reference")
+def test_gh20_matches_scipy_quad_non_polynomial():
+    """gh-392: E[log sigmoid(f)], f ~ N(0.7, 1.3), against scipy.integrate.quad."""
+    import numpy as np
+    import scipy.integrate
+
+    from gaussx._quadrature._expectations import mean_expectation
+
+    mu, var = 0.7, 1.3
+    state = GaussianState(
+        mean=jnp.array([mu]),
+        cov=lx.MatrixLinearOperator(jnp.array([[var]]), lx.positive_semidefinite_tag),
+    )
+    gh = mean_expectation(jax.nn.log_sigmoid, state, GaussHermiteIntegrator(order=20))[
+        0
+    ]
+
+    def integrand(t):
+        return (
+            -np.logaddexp(0.0, -t)
+            * np.exp(-((t - mu) ** 2) / (2 * var))
+            / np.sqrt(2 * np.pi * var)
+        )
+
+    ref, _ = scipy.integrate.quad(integrand, -np.inf, np.inf, epsabs=1e-14)
+    # Observed GH-20 error 1.8e-10.
+    assert abs(float(gh) - ref) < 1e-8

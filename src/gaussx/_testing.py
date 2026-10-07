@@ -7,6 +7,9 @@ other internal tests; not part of the public, stable gaussx API.
 
 from __future__ import annotations
 
+import itertools
+from collections.abc import Callable
+
 import einx
 import equinox as eqx
 import jax
@@ -83,6 +86,18 @@ def _resolve_dtype(dtype):
     test run in the x64 and the no-x64 lanes.
     """
     return jnp.result_type(float) if dtype is None else dtype
+
+
+def key_sequence(seed: int = 0) -> Callable[[], jax.Array]:
+    """A fixed stream of PRNG keys: each call returns the next one.
+
+    ``nextkey = key_sequence(0)`` replaces the per-test ``getkey`` fixture
+    where the randomness is incidental, so the drawn model is the same for
+    every run, independent of the test's name and of ``EQX_GETKEY_SEED``.
+    """
+    base = jr.key(seed)
+    counter = itertools.count()
+    return lambda: jr.fold_in(base, next(counter))
 
 
 def random_pd_matrix(
