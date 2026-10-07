@@ -162,6 +162,35 @@ building block for low-rank posterior sampling and BBMM-style solvers.
       show_root_toc_entry: false
       members: [root_decomposition, root_inv_decomposition, RootDecomposition]
 
+## Quantiles
+
+`mixture_quantile` inverts a CDF $F$ at levels $q$ by solving
+$F(x) - q = 0$ on a bracket $[\ell, u]$ — the standard remedy for a mixture
+$F_{\text{mix}} = \tfrac{1}{E}\sum_e F_e$, which has no closed-form inverse.
+It runs [optimistix](https://docs.kidger.site/optimistix/)'s `root_find`
+with `Chandrupatla`, a bracketing solver that mixes inverse quadratic
+interpolation with bisection (Chandrupatla, 1997), so it needs no
+derivatives, and differentiates through the implicit adjoint
+$\partial x_q / \partial\theta = -\partial_\theta F / p(x_q)$.
+`mixture_quantile_gaussian_approx` is the cheap moment-matched Gaussian
+alternative for Gaussian ensembles (Lakshminarayanan et al., 2017).
+
+```python
+import jax.numpy as jnp
+from jax.scipy.stats import norm
+import gaussx
+
+means = jnp.array([-1.0, 1.0])  # two-component mixture
+cdf = lambda x: 0.5 * (norm.cdf(x - means[0]) + norm.cdf(x - means[1]))
+gaussx.mixture_quantile(cdf, jnp.array([0.025, 0.5, 0.975]), -10.0, 10.0)
+```
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [mixture_quantile, mixture_quantile_gaussian_approx, Chandrupatla]
+
 ## Support types
 
 ::: gaussx
