@@ -8,7 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx import frobenius_norm, trace, trace_and_diag
+from gaussx import diag as gaussx_diag, frobenius_norm, trace, trace_and_diag
 from gaussx._operators import BlockDiag, Kronecker
 from gaussx._primitives._root import root_decomposition
 from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet, SLQLogdet
@@ -166,3 +166,54 @@ class TestPivotedCholeskyViaMatfree:
 
         root = f(mat)
         assert tree_allclose(root @ root.T, op.as_matrix(), atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# stochastic=True is forwarded through every wrapper and structure (gh-320)
+# ---------------------------------------------------------------------------
+
+
+class _NoMatrix(lx.FunctionLinearOperator):
+    """Matvec-only operator whose ``as_matrix`` is forbidden."""
+
+    def as_matrix(self):
+        raise AssertionError("as_matrix called")
+
+
+def _spy():
+    M = random_pd_matrix(jr.key(0), 4)
+    return _NoMatrix(lambda v: M @ v, jax.ShapeDtypeStruct((4,), M.dtype))
+
+
+_WRAPPERS = [
+    pytest.param(lambda op: 2.0 * op, id="mul"),
+    pytest.param(lambda op: op / 2.0, id="div"),
+    pytest.param(lambda op: -op, id="neg"),
+    pytest.param(lambda op: op + op, id="add"),
+    pytest.param(lambda op: BlockDiag(op, op), id="block_diag"),
+    pytest.param(lambda op: Kronecker(op, op), id="kronecker"),
+]
+_PRIMITIVES = [
+    pytest.param(trace, id="trace"),
+    pytest.param(gaussx_diag, id="diag"),
+    pytest.param(frobenius_norm, id="frobenius_norm"),
+]
+
+
+@pytest.mark.parametrize("primitive", _PRIMITIVES)
+@pytest.mark.parametrize("wrap", _WRAPPERS)
+def test_stochastic_is_forwarded(primitive, wrap):
+    result = primitive(wrap(_spy()), stochastic=True, num_probes=4, key=jr.key(0))
+    assert jnp.all(jnp.isfinite(result))
+
+
+@pytest.mark.parametrize("primitive", _PRIMITIVES)
+def test_stochastic_scalar_wrapper_is_exact_rescaling(primitive):
+    """Same key, same probes: the wrapper's estimate is the rescaled one."""
+    op = _spy()
+    kw = dict(stochastic=True, num_probes=4, key=jr.key(0))
+    inner = primitive(op, **kw)
+    scale = 1.0 if primitive is frobenius_norm else -1.0
+    assert jnp.array_equal(primitive(2.0 * op, **kw), 2.0 * inner)
+    assert jnp.array_equal(primitive(op / 2.0, **kw), inner / 2.0)
+    assert jnp.array_equal(primitive(-op, **kw), scale * inner)

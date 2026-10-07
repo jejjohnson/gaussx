@@ -19,7 +19,7 @@ from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._operators._toeplitz import Toeplitz
-from gaussx._primitives._samplers import SamplerName, resolve_sampler
+from gaussx._primitives._samplers import SamplerName, resolve_sampler, split_keys
 
 
 def trace(
@@ -52,6 +52,24 @@ def trace(
     Returns:
         Scalar trace value (exact or estimated).
     """
+
+    # Every recursive call forwards the estimator options, so a wrapped or
+    # structured matrix-free operator is never materialised (gh-320).
+    def rec(op: lx.AbstractLinearOperator, k: jax.Array | None = key) -> Array:
+        return trace(
+            op,
+            stochastic=stochastic,
+            num_probes=num_probes,
+            key=k,
+            sampler=sampler,
+            algorithm=algorithm,
+        )
+
+    def rec_all(ops) -> list[Array]:
+        ops = tuple(ops)
+        keys = split_keys(key, len(ops))
+        return [rec(op, k) for op, k in zip(ops, keys, strict=True)]
+
     if isinstance(operator, lx.IdentityLinearOperator):
         return jnp.asarray(operator.in_size(), dtype=operator.in_structure().dtype)
     if isinstance(operator, lx.DiagonalLinearOperator):
@@ -63,46 +81,34 @@ def trace(
         # Constant diagonal c[0] (gh-373).
         return operator.in_size() * operator.column[0]
     if isinstance(operator, BlockDiag):
-        return _trace_block_diag(operator)
+        return ft.reduce(jnp.add, rec_all(operator.operators))
     if isinstance(operator, Kronecker):
-        return _trace_kronecker(operator)
+        # trace(A ⊗ B) = trace(A) · trace(B).
+        return ft.reduce(jnp.multiply, rec_all(operator.operators))
     if isinstance(operator, BlockTriDiag):
         return _trace_block_tridiag(operator)
     if isinstance(operator, LowRankUpdate):
-        return _trace_low_rank(operator)
+        return _trace_low_rank(operator, rec(operator.base))
     if isinstance(operator, KroneckerSum):
-        return _trace_kronecker_sum(operator)
+        # trace(A ⊕ B) = n_b · trace(A) + n_a · trace(B).
+        trace_a, trace_b = rec_all((operator.A, operator.B))
+        return operator.B.out_size() * trace_a + operator.A.out_size() * trace_b
     if isinstance(operator, SumOfKroneckers):
-        return ft.reduce(jnp.add, (trace(kron) for kron in operator.operators))
+        return ft.reduce(jnp.add, rec_all(operator.operators))
     if isinstance(operator, lx.TaggedLinearOperator):
-        return trace(
-            operator.operator,
-            stochastic=stochastic,
-            num_probes=num_probes,
-            key=key,
-            sampler=sampler,
-            algorithm=algorithm,
-        )
+        return rec(operator.operator)
     if isinstance(operator, lx.AddLinearOperator):
-        return trace(operator.operator1) + trace(operator.operator2)
+        first, second = rec_all((operator.operator1, operator.operator2))
+        return first + second
     if isinstance(operator, lx.MulLinearOperator):
-        return operator.scalar * trace(operator.operator)
+        return operator.scalar * rec(operator.operator)
     if isinstance(operator, lx.DivLinearOperator):
-        return trace(operator.operator) / operator.scalar
+        return rec(operator.operator) / operator.scalar
     if isinstance(operator, lx.NegLinearOperator):
-        return -trace(operator.operator)
+        return -rec(operator.operator)
     if stochastic:
         return _trace_stochastic(operator, num_probes, key, sampler, algorithm)
     return jnp.trace(operator.as_matrix())
-
-
-def _trace_block_diag(operator: BlockDiag) -> Float[Array, ""]:
-    return ft.reduce(jnp.add, (trace(op) for op in operator.operators))
-
-
-def _trace_kronecker(operator: Kronecker) -> Float[Array, ""]:
-    """trace(A kron B) = trace(A) * trace(B)."""
-    return ft.reduce(jnp.multiply, (trace(op) for op in operator.operators))
 
 
 def _trace_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
@@ -110,17 +116,12 @@ def _trace_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
     return jnp.sum(jax.vmap(jnp.trace)(operator.diagonal))
 
 
-def _trace_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
+def _trace_low_rank(
+    operator: LowRankUpdate, base_trace: Float[Array, ""]
+) -> Float[Array, ""]:
     """trace(L + U diag(d) V^T) = trace(L) + sum_k d[k] (V[:, k] . U[:, k])."""
     update = jnp.sum(operator.U * operator.d * operator.V)
-    return trace(operator.base) + update
-
-
-def _trace_kronecker_sum(operator: KroneckerSum) -> Float[Array, ""]:
-    """trace(A (+) B) = n_b * trace(A) + n_a * trace(B)."""
-    n_a = operator.A.out_size()
-    n_b = operator.B.out_size()
-    return n_b * trace(operator.A) + n_a * trace(operator.B)
+    return base_trace + update
 
 
 def _trace_stochastic(
