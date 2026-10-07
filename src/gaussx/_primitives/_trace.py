@@ -24,6 +24,7 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._operators._toeplitz import Toeplitz
 from gaussx._primitives._samplers import SamplerName, resolve_sampler, split_keys
+from gaussx._randomized._trace import hutchpp_trace
 
 
 def trace(
@@ -33,12 +34,33 @@ def trace(
     num_probes: int = 20,
     key: jax.Array | None = None,
     sampler: SamplerName | None = None,
-    algorithm: Literal["hutchinson", "xtrace"] = "hutchinson",
+    algorithm: Literal["hutchinson", "hutchpp", "xtrace"] = "hutchinson",
 ) -> Float[Array, ""]:
-    """Compute the trace of an operator.
+    r"""Compute the trace of an operator.
 
-    When ``stochastic=True``, uses a matfree stochastic estimator —
-    only requires matvec access, no materialization.
+    When ``stochastic=True``, uses a stochastic estimator — only requires
+    matvec access, no materialization. Hutchinson averages $z^\top A z$
+    over probes, with variance $O(\|A\|_F^2 / m)$ after $m$ matvecs. The
+    variance-reduced estimators deflate a low-rank part first,
+
+    $$
+    \operatorname{tr}(A) = \operatorname{tr}(Q^\top A Q)
+    + \operatorname{tr}\big((I - QQ^\top) A (I - QQ^\top)\big),
+    $$
+
+    with $Q$ from a randomized range finder: the first term is exact and
+    only the (small) remainder is probed. For PSD $A$ with a decaying
+    spectrum that reaches relative error $\varepsilon$ in
+    $O(1/\varepsilon)$ matvecs instead of $O(1/\varepsilon^2)$.
+
+    - ``"hutchpp"`` (Hutch++, Meyer, Musco, Musco & Woodruff, 2021):
+      ``num_probes`` is the total matvec budget $m \ge 3$, a third each
+      for the range sketch, the exact projection and Hutchinson on the
+      remainder.
+    - ``"xtrace"`` (Epperly, Tropp & Webber, 2024; matfree's
+      ``leave_one_out_xtrace``): every probe both builds $Q$ and estimates
+      the remainder, by leave-one-out; ``num_probes`` probes cost
+      ``2 * num_probes`` matvecs. Usually the most accurate per matvec.
 
     Args:
         operator: A square linear operator.
@@ -49,12 +71,37 @@ def trace(
             ``"sphere"``). Defaults to ``"signs"`` for Hutchinson and
             ``"sphere"`` for XTrace (which requires a rotationally
             invariant distribution).
-        algorithm: ``"hutchinson"`` (Monte-Carlo) or ``"xtrace"``
+        algorithm: ``"hutchinson"`` (Monte-Carlo), ``"hutchpp"``
+            (Hutch++, low-rank deflation plus Hutchinson) or ``"xtrace"``
             (leave-one-out, Epperly et al. 2024 — much lower variance
             for the same number of matvecs).
 
     Returns:
         Scalar trace value (exact or estimated).
+
+    Raises:
+        ValueError: For an unknown ``algorithm``, ``algorithm="xtrace"``
+            with ``sampler="signs"``, or ``algorithm="hutchpp"`` with
+            ``num_probes < 3``.
+
+    References:
+        Meyer, R. A., Musco, C., Musco, C. & Woodruff, D. P. (2021).
+        Hutch++: optimal stochastic trace estimation. *SOSA*, 142-155.
+
+        Epperly, E. N., Tropp, J. A. & Webber, R. J. (2024). XTrace: making
+        the most of every sample in stochastic trace estimation. *SIAM J.
+        Matrix Anal. Appl.*, 45(1), 1-23.
+
+    Examples:
+        >>> import einx, jax.numpy as jnp, jax.random as jr, lineax as lx
+        >>> import gaussx as gx
+        >>> U, _ = jnp.linalg.qr(jr.normal(jr.key(0), (200, 200)))
+        >>> lam = 1.0 / jnp.arange(1.0, 201.0) ** 2  # decaying spectrum
+        >>> U_lam = einx.multiply("i k, k -> i k", U, lam)
+        >>> A = lx.MatrixLinearOperator(einx.dot("i k, j k -> i j", U_lam, U))
+        >>> est = gx.trace(A, stochastic=True, num_probes=30, algorithm="hutchpp")
+        >>> bool(jnp.abs(est - jnp.sum(lam)) / jnp.sum(lam) < 0.05)
+        True
     """
 
     # Every recursive call forwards the estimator options, so a wrapped or
@@ -135,9 +182,9 @@ def _trace_stochastic(
     num_probes: int,
     key: jax.Array | None,
     sampler: SamplerName | None,
-    algorithm: Literal["hutchinson", "xtrace"],
+    algorithm: Literal["hutchinson", "hutchpp", "xtrace"],
 ) -> Float[Array, ""]:
-    """Stochastic trace estimator via matfree (Hutchinson or XTrace)."""
+    """Stochastic trace estimator (matfree Hutchinson / XTrace, or Hutch++)."""
     if key is None:
         key = jax.random.PRNGKey(0)
 
@@ -160,9 +207,12 @@ def _trace_stochastic(
         )
         integrand = matfree.stochtrace.monte_carlo_trace()
         estimate = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
+    elif algorithm == "hutchpp":
+        return hutchpp_trace(operator, num_probes, key, sampler or "signs")
     else:
         raise ValueError(
-            f'Unknown algorithm {algorithm!r}; expected "hutchinson" or "xtrace".'
+            f"Unknown algorithm {algorithm!r}; expected "
+            '"hutchinson", "hutchpp" or "xtrace".'
         )
     return estimate(operator.mv, key)
 
