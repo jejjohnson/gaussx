@@ -613,13 +613,22 @@ def _select_anchor(
     return min(plans, key=_AnchorPlan.rank)
 
 
-def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
-    """Whether `_sum_of_kroneckers_eigen` has an exact path for ``operator``.
+def is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
+    r"""Whether a sum of Kronecker products has the exact two-term reduction.
+
+    "Eigen-reducible" means ``operator`` is ``A₁ ⊗ B₁ + A₂ ⊗ B₂`` — a
+    two-term `SumOfKroneckers`, or the same two terms built with
+    `SumOperator` — whose main factors are symmetric and whose other
+    ("anchor") term is positive definite. Then whitening by the anchor
+    leaves one eigendecomposition per factor, so `gaussx.solve`,
+    `gaussx.logdet` and `SumOfKroneckers.eigendecompose` cost
+    ``O(n_A³ + n_B³)`` instead of the ``O((n_A n_B)³)`` dense fallback.
+    Three or more terms are never eigen-reducible.
 
     A purely structural query — operator types and lineax tags only, no
-    array work — so it is safe to call from solver-strategy selection.
-    `_sum_of_kroneckers_eigen` can still decline an operator this accepts,
-    when a diagonal anchor factor is concretely non-positive.
+    array work — so it is safe to call from solver-strategy selection and
+    under ``jax.jit``. The exact path can still decline an operator this
+    accepts, when a diagonal anchor factor is concretely non-positive.
 
     Args:
         operator: Any lineax operator.
@@ -629,6 +638,11 @@ def _is_eigen_reducible(operator: lx.AbstractLinearOperator) -> bool:
     """
     terms = _kronecker_terms(operator)
     return terms is not None and _select_anchor(terms) is not None
+
+
+# The private name predates the export (gh-322); it was never public, so it
+# stays a plain alias with no warning.
+_is_eigen_reducible = is_eigen_reducible
 
 
 def _sum_of_kroneckers_eigen(
@@ -729,7 +743,7 @@ def _sum_of_kroneckers_solve(
     Returns:
         The solution ``x``, or ``None`` when no exact path applies.
     """
-    if not _is_eigen_reducible(operator):
+    if not is_eigen_reducible(operator):
         return None
     return _eigen_solve(operator, vector)
 
