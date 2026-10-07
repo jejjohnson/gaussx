@@ -131,7 +131,9 @@ def test_scalar_algebra_stays_closed(periodic_2d):
 def test_shift_drops_definiteness_tags():
     """A PSD tag must not survive ``A − λI`` or ``−A``."""
     op = gaussx.Circulant(
-        jnp.array([2.0, -1.0, 0.0, -1.0]), tags=lx.positive_semidefinite_tag
+        jnp.array([2.0, -1.0, 0.0, -1.0]),
+        symmetric=True,
+        tags=lx.positive_semidefinite_tag,
     )
     assert lx.is_positive_semidefinite(op)
     shifted = op - 5.0 * lx.IdentityLinearOperator(op.in_structure())
@@ -254,7 +256,7 @@ def test_circulant_1d_matches_scipy():
 def test_circulant_2d_block_circulant():
     c = jnp.zeros((8, 8)).at[0, 0].set(4.0).at[0, 1].set(-1.0).at[1, 0].set(-1.0)
     c = c.at[0, -1].set(-1.0).at[-1, 0].set(-1.0)  # symmetric 5-point kernel
-    op = gaussx.Circulant(c, tags=lx.positive_semidefinite_tag)
+    op = gaussx.Circulant(c, symmetric=True, tags=lx.positive_semidefinite_tag)
     dense = op.as_matrix()
     assert jnp.allclose(dense, dense.T, atol=1e-12)
     assert jnp.allclose(dense[0].reshape(8, 8), c, atol=1e-12)  # first row = kernel
@@ -419,3 +421,48 @@ def test_complex_output_is_not_tagged_symmetric():
     real = gaussx.circulant_from_symbol(jnp.array([1.0, 2.0, 3.0, 2.0]))
     assert lx.is_symmetric(real)
     assert jnp.allclose(real.T.as_matrix(), real.as_matrix().T, atol=1e-12)
+
+
+# ---------------------------------------------------------------------------
+# Circulant symmetry is structural, not value-inferred (gh-440)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("symmetric", [True, False])
+def test_circulant_eager_and_traced_agree(symmetric):
+    c = jnp.array([2.0, 0.5, 0.1, 0.5])  # even, real
+    eager = gaussx.Circulant(c, symmetric=symmetric)
+    traced = jax.jit(lambda c: gaussx.Circulant(c, symmetric=symmetric))(c)
+    assert jax.tree_util.tree_structure(eager) == jax.tree_util.tree_structure(traced)
+    assert [x.dtype for x in jax.tree.leaves(eager)] == [
+        x.dtype for x in jax.tree.leaves(traced)
+    ]
+    assert lx.is_symmetric(eager) == lx.is_symmetric(traced) == symmetric
+    assert jnp.allclose(traced.as_matrix(), eager.as_matrix())
+
+
+def test_circulant_value_inference_is_deprecated():
+    c = jnp.array([2.0, 0.5, 0.1, 0.5])
+    with pytest.warns(DeprecationWarning, match="symmetric=True"):
+        op = gaussx.Circulant(c)
+    assert lx.is_symmetric(op)
+    # A non-even column infers nothing, so it does not warn.
+    assert not lx.is_symmetric(gaussx.Circulant(jnp.array([2.0, 0.5, 0.1, 0.3])))
+
+
+@pytest.mark.parametrize(
+    "column",
+    [
+        pytest.param(jnp.array([2.0, 0.5, 0.1, 0.3]), id="not_even"),
+        pytest.param(jnp.array([2.0, 0.5j, 0.1, -0.5j]), id="complex"),
+    ],
+)
+def test_circulant_symmetric_flag_validates(column):
+    with pytest.raises(ValueError, match="symmetric=True"):
+        gaussx.Circulant(column, symmetric=True)
+
+
+def test_circulant_symmetric_flag_accepts_integer_column():
+    op = gaussx.Circulant(jnp.array([2, -1, 0, -1]), symmetric=True)
+    assert lx.is_symmetric(op)
+    assert not jnp.iscomplexobj(op.eigenvalues)

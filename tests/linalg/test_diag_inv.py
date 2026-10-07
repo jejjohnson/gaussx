@@ -147,7 +147,9 @@ class TestStructuredDiagInv:
         assert jnp.allclose(diag_inv(op), _dense_diag_inv(dense), atol=1e-12)
 
     def test_diagonalised_operator(self):
-        circulant = gaussx.Circulant(jnp.array([2.5, -1.0, 0.0, 0.0, -1.0]))
+        circulant = gaussx.Circulant(
+            jnp.array([2.5, -1.0, 0.0, 0.0, -1.0]), symmetric=True
+        )
         op = gaussx.KroneckerSum(
             random_pd_operator(jr.key(0), 3, jitter=3, tags=lx.symmetric_tag), circulant
         )
@@ -197,7 +199,9 @@ class TestShiftedKronecker:
 
     @pytest.mark.x64_only(reason="dense-reference tolerance below float32 round-off")
     def test_fft_spatial_factor(self):
-        spatial = gaussx.Circulant(jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0]))
+        spatial = gaussx.Circulant(
+            jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0]), symmetric=True
+        )
         temporal, shifted, _ = self._operators(spatial)
         K = self._dense(temporal, spatial.as_matrix())
         b = jr.normal(jr.key(1), (K.shape[0],))
