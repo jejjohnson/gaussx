@@ -74,8 +74,8 @@ def _spectral_function(key: jax.Array) -> gaussx.SpectralFunction:
     return gaussx.SpectralFunction(random_kronecker_pd(key, (2, 3)), jnp.sqrt)
 
 
-def _sum_kronecker_sqrt(key: jax.Array) -> gaussx.SumKroneckerSqrt:
-    return gaussx.SumKroneckerSqrt(random_sum_of_kroneckers_pd(key, (2, 3)))
+def _sum_kronecker_sqrt(key: jax.Array) -> gaussx.SumOfKroneckersSqrt:
+    return gaussx.SumOfKroneckersSqrt(random_sum_of_kroneckers_pd(key, (2, 3)))
 
 
 ZOO: dict[str, Callable[[jax.Array], lx.AbstractLinearOperator]] = {

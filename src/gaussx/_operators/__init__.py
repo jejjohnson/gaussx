@@ -43,6 +43,7 @@ from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
     SumKronecker,
     SumOfKroneckers,
+    sum_of_kroneckers_sample as sum_of_kroneckers_sample,
     sumkronecker_sample as sumkronecker_sample,
 )
 from gaussx._operators._toeplitz import (
@@ -511,6 +512,7 @@ __all__ = [
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
+    "sum_of_kroneckers_sample",
     "sumkronecker_sample",
     "svd_low_rank_plus_diag",
     "toeplitz_sample",

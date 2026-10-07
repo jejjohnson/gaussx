@@ -74,7 +74,7 @@ def sample_mvn(
     same reason: a Cholesky factor of a singular covariance is ``NaN``.
 
     A `gaussx.SumOfKroneckers` takes the dense fallback: its matrix-free
-    square root, `gaussx.sumkronecker_sample`, is a truncated Lanczos
+    square root, `gaussx.sum_of_kroneckers_sample`, is a truncated Lanczos
     approximation, so it stays an explicit opt-in rather than a default.
 
     Some structured routes hold only for some values, and each takes the

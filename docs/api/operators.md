@@ -24,13 +24,19 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
     `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
     still imports and subclasses the new one — so `isinstance` checks keep
     working — but emits a `DeprecationWarning` on construction and will be
-    removed in a future release.
+    removed in a future release. Its square root and sampler followed in
+    gh-297: `SumKroneckerSqrt` → `SumOfKroneckersSqrt` and
+    `sumkronecker_sample` → `sum_of_kroneckers_sample`. The old names warn
+    and will be removed in gaussx 0.7.0. Each square-root class sits next to
+    its operator: `KroneckerSumSqrt` is the closed-form root of a
+    `KroneckerSum`, and `SumOfKroneckersSqrt` is the lazy Lanczos root that
+    `sqrt` returns for a `SumOfKroneckers`.
 
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumOfKroneckers, SumKronecker]
+      members: [Kronecker, BlockDiag, KroneckerSum, KroneckerSumSqrt, SumOfKroneckers, SumOfKroneckersSqrt, SumKronecker, SumKroneckerSqrt]
 
 ## Low-rank updates
 
@@ -151,7 +157,7 @@ bordered systems through the capacitance (Schur-complement) form.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [SumOperator, ScaledOperator, ProductOperator, kronecker_sum_sample, sumkronecker_sample, toeplitz_sample, CapacitanceSolver]
+      members: [SumOperator, ScaledOperator, ProductOperator, kronecker_sum_sample, sum_of_kroneckers_sample, sumkronecker_sample, toeplitz_sample, CapacitanceSolver]
 
 ## Structural tags & predicates
 

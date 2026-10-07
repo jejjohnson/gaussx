@@ -92,7 +92,7 @@ Two properties are worth internalising:
   path where a structured operator you would reasonably expect to stay
   structured must materialize the dense covariance, so it raises a
   [`DenseFallbackWarning`](api/primitives.md#gaussx.DenseFallbackWarning) and
-  points you at `sqrt(...)` / `sumkronecker_sample(...)` instead. Ordinary
+  points you at `sqrt(...)` / `sum_of_kroneckers_sample(...)` instead. Ordinary
   unstructured operators densify quietly --- there was never a fast path to
   lose.
 
@@ -134,7 +134,7 @@ instance, has no block-tridiagonal path and falls back there.
 | `BlockDiag` | per block | sum of logdets | per block | per block | per block | per block |
 | `Kronecker` | Roth's lemma | scaled sum | per factor | per factor | per factor | per factor |
 | `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | eigen-based | `KroneckerSumSqrt` | lazy |
-| `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumKroneckerSqrt` | lazy |
+| `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumOfKroneckersSqrt` | lazy |
 | `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | dense | Woodbury (if symmetric) |
 | `BlockTriDiag` | block-banded | block Cholesky | block Cholesky | per block | dense | lazy |
 | `DiagonalisedOperator` / `Circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |

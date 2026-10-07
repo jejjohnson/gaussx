@@ -13,11 +13,13 @@ from gaussx._operators import (
     Kronecker,
     SumKronecker,
     SumOfKroneckers,
+    sum_of_kroneckers_sample,
     sumkronecker_sample,
 )
 from gaussx._primitives import (
     DenseFallbackWarning,
     SumKroneckerSqrt,
+    SumOfKroneckersSqrt,
     cholesky,
     diag,
     sqrt,
@@ -384,17 +386,17 @@ def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
 
     monkeypatch.setattr(SumOfKroneckers, "as_matrix", fail_as_matrix)
     sqrt_op = sqrt(SK, lanczos_order=SK.in_size())
-    assert isinstance(sqrt_op, SumKroneckerSqrt)
+    assert type(sqrt_op) is SumOfKroneckersSqrt
     result = sqrt_op.mv(v)
     assert result.shape == v.shape
     assert jnp.all(jnp.isfinite(result))
 
 
-def test_sumkronecker_sample_matches_dense_reference(getkey):
+def test_sum_of_kroneckers_sample_matches_dense_reference(getkey):
     SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     key = getkey()
     num_samples = 3
-    samples = sumkronecker_sample(
+    samples = sum_of_kroneckers_sample(
         SK,
         key=key,
         num_samples=num_samples,
@@ -411,25 +413,59 @@ def test_sumkronecker_sample_matches_dense_reference(getkey):
 
 
 @pytest.mark.slow
-def test_sumkronecker_sample_reproducible(getkey):
+def test_sum_of_kroneckers_sample_reproducible(getkey):
     SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     key = getkey()
-    samples1 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
-    samples2 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
+    samples1 = sum_of_kroneckers_sample(SK, key=key, num_samples=2, lanczos_order=4)
+    samples2 = sum_of_kroneckers_sample(SK, key=key, num_samples=2, lanczos_order=4)
     assert tree_allclose(samples1, samples2)
 
 
 def test_cholesky_sumkronecker_warns_dense_fallback(getkey):
     SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
-    with pytest.warns(DenseFallbackWarning, match="sumkronecker_sample"):
+    with pytest.warns(DenseFallbackWarning, match="sum_of_kroneckers_sample"):
         L = cholesky(SK)
     assert tree_allclose(L.as_matrix() @ L.as_matrix().T, SK.as_matrix(), rtol=1e-4)
 
 
-def test_sumkronecker_sample_rejects_nonpositive_num_samples(getkey):
+def test_sum_of_kroneckers_sample_rejects_nonpositive_num_samples(getkey):
     SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     with pytest.raises(ValueError, match="num_samples"):
-        sumkronecker_sample(SK, key=getkey(), num_samples=0)
+        sum_of_kroneckers_sample(SK, key=getkey(), num_samples=0)
+
+
+class TestSumOfKroneckersRootAndSamplerAliases:
+    """`SumKroneckerSqrt` / `sumkronecker_sample` were renamed (gh-297)."""
+
+    def test_sqrt_alias_warns_and_is_a_subclass(self, getkey):
+        SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
+        with pytest.warns(
+            DeprecationWarning,
+            match=r"SumKroneckerSqrt .* 0\.7\.0.*SumOfKroneckersSqrt",
+        ):
+            old = SumKroneckerSqrt(SK, lanczos_order=4)
+        assert isinstance(old, SumOfKroneckersSqrt)
+        assert isinstance(sqrt(SK), SumOfKroneckersSqrt)
+        assert not isinstance(sqrt(SK), SumKroneckerSqrt)
+
+    def test_sampler_alias_warns_and_matches_bit_for_bit(self, getkey):
+        SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
+        key = getkey()
+        new = sum_of_kroneckers_sample(SK, key=key, num_samples=2, lanczos_order=4)
+        with pytest.warns(
+            DeprecationWarning,
+            match=r"sumkronecker_sample .* 0\.7\.0.*sum_of_kroneckers_sample",
+        ):
+            old = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
+        assert jnp.array_equal(old, new)
+
+    def test_exported_from_top_level(self):
+        import gaussx
+
+        assert gaussx.SumOfKroneckersSqrt is SumOfKroneckersSqrt
+        assert gaussx.sum_of_kroneckers_sample is sum_of_kroneckers_sample
+        assert gaussx.SumKroneckerSqrt is SumKroneckerSqrt
+        assert gaussx.sumkronecker_sample is sumkronecker_sample
 
 
 class TestSumKroneckerDeprecatedAlias:
