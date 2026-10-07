@@ -206,6 +206,8 @@ class MINRESSolver(AbstractSolverStrategy):
         shift: Diagonal shift — solves ``(A + shift * I) x = b``.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
+        seed: Seed of the SLQ probes when `logdet` gets no ``key`` (the same
+            probes on every call; see `gaussx.KeyedSolver`).
         throw: Raise when MINRES does not converge within ``max_steps`` (the
             default). With ``False`` the last iterate is returned unchecked.
     """
@@ -216,6 +218,7 @@ class MINRESSolver(AbstractSolverStrategy):
     shift: float = eqx.field(static=True, default=0.0)
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
+    seed: int = eqx.field(static=True, default=0)
     throw: bool = eqx.field(static=True, default=True)
 
     def solve(
@@ -257,7 +260,7 @@ class MINRESSolver(AbstractSolverStrategy):
         Args:
             operator: A symmetric linear operator.
             key: PRNG key for probe vector sampling. If None,
-                uses ``jax.random.PRNGKey(0)``.
+                uses ``jax.random.PRNGKey(seed)``.
 
         Returns:
             Scalar estimate of ``log|det(A + shift I)|``.
@@ -266,4 +269,5 @@ class MINRESSolver(AbstractSolverStrategy):
             num_probes=self.num_probes,
             lanczos_order=self.lanczos_order,
             shift=self.shift,
+            seed=self.seed,
         ).logdet(operator, key=key)

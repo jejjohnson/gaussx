@@ -560,3 +560,24 @@ def test_to_event_entropy_sums_the_batch():
     single = MultivariateNormal(jnp.zeros(3), op).entropy()
     d = MultivariateNormal(jnp.zeros((4, 3)), op).to_event(1)
     assert jnp.allclose(d.entropy(), 4 * single, rtol=1e-14)
+
+
+class TestKeyedSolver:
+    def test_log_prob_uses_the_bound_key(self):
+        # gh-384: a distribution method cannot take a key, so KeyedSolver
+        # carries it; the result is the functional API's with key=.
+        from gaussx import CGSolver, KeyedSolver, gaussian_log_prob
+
+        op = psd_operator(random_pd_matrix(jr.key(0), 12, jitter=12.0))
+        y = jr.normal(jr.key(1), (12,), dtype=op.as_matrix().dtype)
+        loc = jnp.zeros_like(y)
+        cg = CGSolver(num_probes=4, lanczos_order=4)
+
+        @jax.jit
+        def log_prob(key):
+            return MultivariateNormal(loc, op, solver=KeyedSolver(cg, key)).log_prob(y)
+
+        lp1, lp2 = log_prob(jr.key(10)), log_prob(jr.key(11))
+        assert not tree_allclose(lp1, lp2)
+        expected = gaussian_log_prob(loc, op, y, solver=cg, key=jr.key(10))
+        assert tree_allclose(lp1, expected)

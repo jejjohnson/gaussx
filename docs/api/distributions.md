@@ -12,6 +12,14 @@ operator, so `sample` / `log_prob` inherit every structured fast path.
 natural home for natural-parameter guides, where materializing $\Sigma$ would
 be wasted work. Both require `numpyro` to be installed.
 
+With a stochastic `solver` (e.g. `CGSolver()`), `log_prob` and `entropy`
+estimate the log-determinant from the strategy's fixed seed, so every call
+reuses the same probes. That is fine for SVI gradients, but averaging calls
+reduces no variance and MCMC targets a fixed pseudo-likelihood. To vary the
+probes, pass `solver=KeyedSolver(CGSolver(), key)` with a fresh key per step
+(see [Solvers](solvers.md)). The functional `gaussian_log_prob`,
+`gaussian_entropy` and `kl_standard_normal` take `key=` directly.
+
 ::: gaussx
     options:
       show_root_heading: false

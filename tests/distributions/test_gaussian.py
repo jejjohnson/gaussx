@@ -20,7 +20,7 @@ from gaussx import (
     kl_standard_normal,
     quadratic_form,
 )
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._testing import psd_operator, random_pd_matrix, tree_allclose
 
 
 def test_quadratic_form_diagonal():
@@ -238,3 +238,42 @@ def test_default_dense_solve_matches_lineax_by_tag(tag):
     b = jr.normal(jr.key(1), (5,))
     reference = lx.linear_solve(op, b, lx.AutoLinearSolver(well_posed=True)).value
     assert jnp.allclose(gaussx.solve(op, b), reference, rtol=1e-12, atol=1e-12)
+
+
+# -- PRNG key threading to stochastic logdets (gh-384) ----------------------
+
+
+def _key_test_problem():
+    op = psd_operator(random_pd_matrix(jr.key(0), 12, jitter=12.0))
+    return op, jr.normal(jr.key(1), (12,), dtype=op.as_matrix().dtype)
+
+
+def test_gaussian_log_prob_threads_the_key_to_the_probes():
+    op, y = _key_test_problem()
+    loc = jnp.zeros_like(y)
+    cg = gaussx.CGSolver(num_probes=4, lanczos_order=4)
+    k1, k2 = jr.key(10), jr.key(11)
+    lp1 = gaussian_log_prob(loc, op, y, solver=cg, key=k1)
+    lp2 = gaussian_log_prob(loc, op, y, solver=cg, key=k2)
+    assert not tree_allclose(lp1, lp2)
+    # The key reaches the probes: the log-prob is assembled from exactly
+    # CGSolver().logdet(op, key=k1).
+    quad = y @ cg.solve(op, y)
+    expected = -0.5 * (12 * jnp.log(2 * jnp.pi) + cg.logdet(op, key=k1) + quad)
+    assert tree_allclose(lp1, expected)
+    # No key: unchanged, the strategy's own seed.
+    no_key = -0.5 * (12 * jnp.log(2 * jnp.pi) + cg.logdet(op) + quad)
+    assert tree_allclose(gaussian_log_prob(loc, op, y, solver=cg), no_key)
+
+
+def test_entropy_and_kl_thread_the_key():
+    op, y = _key_test_problem()
+    cg = gaussx.CGSolver(num_probes=4, lanczos_order=4)
+    k = jr.key(10)
+    entropy = gaussian_entropy(op, solver=cg, key=k)
+    assert tree_allclose(
+        entropy, 0.5 * (12 * (1 + jnp.log(2 * jnp.pi)) + cg.logdet(op, key=k))
+    )
+    kl = kl_standard_normal(y, op, solver=cg, key=k)
+    expected = 0.5 * (jnp.trace(op.as_matrix()) + y @ y - 12 - cg.logdet(op, key=k))
+    assert tree_allclose(kl, expected)

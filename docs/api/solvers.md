@@ -38,7 +38,7 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, SparseCholeskySolver]
+      members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, KeyedSolver, SparseCholeskySolver]
 
 ### Tolerances and float32
 
@@ -55,6 +55,19 @@ override.
 CG exhausts its step budget. With `throw=False` they return the last iterate
 unchecked instead. Use that only where the caller checks the result, because
 an unconverged CG iterate can be far from the solution.
+
+### Probe keys and common random numbers
+
+A stochastic log-determinant (SLQ, used by `CGSolver`, `PreconditionedCGSolver`,
+`BBMMSolver`, `MINRESSolver`, `LSMRSolver` and a large PSD `AutoSolver`) called
+without a `key` draws its probes from `PRNGKey(seed)`, so every call sees the
+same probes. These are common random numbers: right for stochastic-gradient
+training, where the objective becomes a fixed smooth function of the
+parameters, but averaging such estimates reduces no variance, and MCMC then
+targets a fixed pseudo-likelihood. Pass `key=` to `gaussian_log_prob`,
+`gaussian_entropy` or `kl_standard_normal`. Distribution methods cannot take
+one, so wrap their strategy in [`KeyedSolver`](#gaussx.KeyedSolver), whose key
+is a PyTree leaf, or change `seed`.
 
 ## Logdet strategies
 

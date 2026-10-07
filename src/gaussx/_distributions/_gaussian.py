@@ -19,6 +19,7 @@ from gaussx._strategies._base import (
 )
 from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
+from gaussx._strategies._keyed import KeyedSolver
 
 
 # A Python float, not a jnp array: it is weakly typed, so it takes the dtype
@@ -52,6 +53,7 @@ def _gaussian_log_prob_residual(
     cov_operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractSolverStrategy | None = None,
+    key: jax.Array | None = None,
 ) -> Float[Array, ""]:
     """Gaussian log-prob given a pre-computed residual ``value - loc``."""
     N = residual.shape[-1]
@@ -64,7 +66,7 @@ def _gaussian_log_prob_residual(
         return -0.5 * (N * _LOG_2PI + _cholesky_logdet(factor) + whitened @ whitened)
     alpha = dispatch_solve(cov_operator, residual, solver)
     quad = residual @ alpha
-    ld = dispatch_logdet(cov_operator, solver)
+    ld = dispatch_logdet(cov_operator, solver, key=key)
     return -0.5 * (N * _LOG_2PI + ld + quad)
 
 
@@ -79,6 +81,10 @@ def _uses_structural_dispatch(
     """
     if solver is None or isinstance(solver, DenseSolver):
         return True
+    if isinstance(solver, KeyedSolver) and isinstance(
+        solver.strategy, AbstractSolverStrategy
+    ):
+        return _uses_structural_dispatch(operator, solver.strategy)
     if isinstance(solver, AutoSolver):
         return isinstance(solver._get_strategy(operator), DenseSolver)
     return False
@@ -90,6 +96,7 @@ def gaussian_log_prob(
     value: Float[Array, " N"],
     *,
     solver: AbstractSolverStrategy | None = None,
+    key: jax.Array | None = None,
 ) -> Float[Array, ""]:
     """Multivariate normal log-probability.
 
@@ -107,17 +114,23 @@ def gaussian_log_prob(
         value: Observation vector, shape ``(N,)``.
         solver: Optional solver strategy (needs both solve and logdet).
             When ``None``, uses structural dispatch.
+        key: PRNG key for a stochastic logdet strategy's probes. ``None``
+            uses the strategy's own seed, i.e. the same probes on every call
+            (see `gaussx.KeyedSolver`). Ignored by exact strategies.
 
     Returns:
         Scalar log-probability.
     """
-    return _gaussian_log_prob_residual(value - loc, cov_operator, solver=solver)
+    return _gaussian_log_prob_residual(
+        value - loc, cov_operator, solver=solver, key=key
+    )
 
 
 def gaussian_entropy(
     cov_operator: lx.AbstractLinearOperator,
     *,
     solver: AbstractLogdetStrategy | None = None,
+    key: jax.Array | None = None,
 ) -> Float[Array, ""]:
     """Entropy of a multivariate normal ``N(mu, Sigma)``.
 
@@ -131,12 +144,15 @@ def gaussian_entropy(
         cov_operator: Covariance operator, shape ``(N, N)``.
         solver: Optional logdet strategy. When ``None``, uses
             structural dispatch.
+        key: PRNG key for a stochastic logdet strategy's probes. ``None``
+            uses the strategy's own seed, i.e. the same probes on every call
+            (see `gaussx.KeyedSolver`). Ignored by exact strategies.
 
     Returns:
         Scalar entropy.
     """
     N = cov_operator.in_size()
-    ld = dispatch_logdet(cov_operator, solver)
+    ld = dispatch_logdet(cov_operator, solver, key=key)
     return 0.5 * (N * (1.0 + _LOG_2PI) + ld)
 
 
@@ -145,6 +161,7 @@ def kl_standard_normal(
     S: lx.AbstractLinearOperator,
     *,
     solver: AbstractLogdetStrategy | None = None,
+    key: jax.Array | None = None,
 ) -> Float[Array, ""]:
     """KL divergence ``KL(N(m, S) || N(0, I))``.
 
@@ -164,6 +181,9 @@ def kl_standard_normal(
         S: Covariance operator, shape ``(N, N)``.
         solver: Optional logdet strategy. When ``None``, uses
             structural dispatch.
+        key: PRNG key for a stochastic logdet strategy's probes. ``None``
+            uses the strategy's own seed, i.e. the same probes on every call
+            (see `gaussx.KeyedSolver`). Ignored by exact strategies.
 
     Returns:
         Scalar KL divergence.
@@ -176,7 +196,7 @@ def kl_standard_normal(
     N = m.shape[-1]
     tr_S = trace(S)
     mTm = m @ m
-    ld = dispatch_logdet(S, solver)
+    ld = dispatch_logdet(S, solver, key=key)
     return 0.5 * (tr_S + mTm - N - ld)
 
 
