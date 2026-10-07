@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import jax.numpy as jnp
 import lineax as lx
 import numpy as np
@@ -75,10 +77,25 @@ def sigma_points(
         mean: Mean vector, shape ``(N,)``.
         cov: Covariance operator, shape ``(N, N)``.
         alpha: Spread parameter. Controls how far sigma points are
-            from the mean. Default ``1e-3``.
+            from the mean. Default ``1e-3`` (the classic Wan-van der Merwe
+            scaled transform). See the warning below; ``alpha=1.0`` is the
+            recommended choice, especially in float32.
         beta: Prior distribution parameter. ``beta=2`` is optimal for
             Gaussians. Default ``2.0``.
         kappa: Secondary scaling parameter. Default ``0.0``.
+
+    Warning:
+        With ``lambda = alpha^2 (N + kappa) - N`` the centre mean weight is
+        ``lambda / (N + lambda) \approx 1 - 1/alpha^2``: about ``-1e6`` at
+        the default ``alpha=1e-3``. The moments are then recovered by
+        cancellation between weights of order ``1e6``, which costs about
+        six digits; in float32 a smooth nonlinearity comes out wrong in
+        the second digit (gh-310). ``alpha=1.0`` (with ``beta=2``,
+        ``kappa=0``) is the symmetric ``2N+1`` rule with a zero centre mean
+        weight, exact for affine maps, and is what every gaussx-internal
+        default (`moment_transform`, the nonlinear Kalman filters) uses.
+        A `UserWarning` is emitted when ``alpha < 1e-2`` with a float32
+        (or lower precision) mean.
 
     Returns:
         Tuple ``(chi, w_m, w_c)`` where:
@@ -86,6 +103,15 @@ def sigma_points(
         - ``w_m``: Mean weights, shape ``(2N+1,)``.
         - ``w_c``: Covariance weights, shape ``(2N+1,)``.
     """
+    if alpha < 1e-2 and jnp.finfo(mean.dtype).bits < 64:
+        warnings.warn(
+            f"sigma_points/UnscentedIntegrator with alpha={alpha:g} in "
+            f"{jnp.dtype(mean.dtype).name}: the centre weight is about "
+            f"{1.0 - 1.0 / alpha**2:.1e} and the moments lose about six digits "
+            "to cancellation. Use alpha=1.0 (gh-310).",
+            UserWarning,
+            stacklevel=2,
+        )
     N = mean.shape[0]
     lam = alpha**2 * (N + kappa) - N
     c = N + lam

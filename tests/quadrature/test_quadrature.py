@@ -146,7 +146,7 @@ class TestFloat32Preservation:
 
     def test_sigma_points_stay_float32(self):
         mean, cov = self._state()
-        chi, w_m, w_c = sigma_points(mean, cov)
+        chi, w_m, w_c = sigma_points(mean, cov, alpha=1.0)
         assert chi.dtype == jnp.float32
         assert w_m.dtype == jnp.float32
         assert w_c.dtype == jnp.float32
