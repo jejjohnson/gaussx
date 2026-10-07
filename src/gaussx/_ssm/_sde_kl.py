@@ -29,7 +29,9 @@ from gaussx._einx import rearrange, repeat
 from gaussx._linalg._linalg import solve_rows
 from gaussx._quadrature._expectations import mean_expectation
 from gaussx._quadrature._integrator import AbstractIntegrator, moment_transform
+from gaussx._quadrature._taylor import TaylorIntegrator
 from gaussx._quadrature._types import GaussianState
+from gaussx._quadrature._unscented import UnscentedIntegrator
 
 
 class LinearizedSDE(eqx.Module):
@@ -50,8 +52,6 @@ class LinearizedSDE(eqx.Module):
 def _default_integrator(integrator: AbstractIntegrator | None) -> AbstractIntegrator:
     if integrator is not None:
         return integrator
-    from gaussx._quadrature._unscented import UnscentedIntegrator
-
     # alpha=1.0 for the reason given in `moment_transform`: the 1e-3 default
     # recovers the moments by cancellation and is unsafe in float32.
     return UnscentedIntegrator(alpha=1.0)
@@ -219,9 +219,11 @@ def sde_kl_divergence(
     Each expectation is the integrator's weighted sum over its points of
     the whitened residual's squared norm, so for a rule with non-negative
     mean weights the result is non-negative by construction. A
-    non-point-based rule (`gaussx.TaylorIntegrator`) evaluates the
-    residual at the mean only. For the optimal drift of `linearize_sde`
-    and a linear $f$ the residual vanishes and the KL is zero.
+    first-order `gaussx.TaylorIntegrator` is rejected: it evaluates the
+    residual at the mean only, where the drift of `linearize_sde` makes it
+    vanish, so it would report a zero KL for every drift. For the optimal
+    drift and a linear $f$ the residual vanishes everywhere and the KL is
+    zero.
 
     Pseudocode:
 
@@ -237,7 +239,7 @@ def sde_kl_divergence(
             must be positive definite.
         path_means: Marginal means $m_t$, shape ``(T, d)``.
         path_covs: Marginal covariances $S_t$, shape ``(T, d, d)``.
-        dt: Step size, a scalar or per-step ``(T,)`` array.
+        dt: Step size, a non-negative scalar or per-step ``(T,)`` array.
         integrator: Gaussian integration rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``.
 
@@ -245,7 +247,10 @@ def sde_kl_divergence(
         Scalar path-KL.
 
     Raises:
-        ValueError: If the path and ``linear_drift`` shapes disagree.
+        ValueError: If the path and ``linear_drift`` shapes disagree, or
+            ``integrator`` is a first-order `gaussx.TaylorIntegrator`.
+        EquinoxRuntimeError: If any step size is negative (also under
+            ``jit``).
 
     References:
         Archambeau, C., Cornford, D., Opper, M. & Shawe-Taylor, J. (2007).
@@ -270,6 +275,12 @@ def sde_kl_divergence(
         )
     Q = _broadcast_diffusion(linear_drift.Q, T, d)
     integrator = _default_integrator(integrator)
+    if isinstance(integrator, TaylorIntegrator) and integrator.order < 2:
+        raise ValueError(
+            "sde_kl_divergence needs the residual's spread, not its value at "
+            "the mean: a first-order TaylorIntegrator returns zero for every "
+            "drift. Use a point-based rule or TaylorIntegrator(order=2)."
+        )
 
     def one(m, S, A, b, Q_t):
         L = jnp.linalg.cholesky(Q_t)
@@ -286,4 +297,7 @@ def sde_kl_divergence(
 
     e = jax.vmap(one)(path_means, path_covs, linear_drift.A, linear_drift.b, Q)
     dt_arr = jnp.broadcast_to(jnp.asarray(dt, dtype=e.dtype), (T,))
+    dt_arr = eqx.error_if(
+        dt_arr, jnp.any(dt_arr < 0), "sde_kl_divergence: dt must be non-negative."
+    )
     return 0.5 * jnp.sum(dt_arr * e)

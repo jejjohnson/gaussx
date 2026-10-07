@@ -227,3 +227,24 @@ class TestLinearizeSDE:
             gaussx.sde_kl_divergence(
                 jnp.sin, lin, jnp.zeros((4, 1)), jnp.ones((4, 1, 1)), dt=0.1
             )
+
+
+def test_kl_rejects_first_order_taylor():
+    """Taylor order 1 sees the residual only at the mean, where it is 0."""
+    m, S = jnp.zeros((2, 1)), jnp.full((2, 1, 1), 0.5)
+
+    def drift(x):
+        return x - x**3
+
+    lin = gaussx.linearize_sde(drift, jnp.eye(1), m, S)
+    with pytest.raises(ValueError, match="first-order TaylorIntegrator"):
+        gaussx.sde_kl_divergence(
+            drift, lin, m, S, dt=0.1, integrator=gaussx.TaylorIntegrator()
+        )
+
+
+def test_kl_rejects_negative_dt():
+    m, S = jnp.zeros((2, 1)), jnp.full((2, 1, 1), 0.5)
+    lin = gaussx.linearize_sde(jnp.sin, jnp.eye(1), m, S)
+    with pytest.raises(Exception, match="dt must be non-negative"):
+        gaussx.sde_kl_divergence(jnp.sin, lin, m, S, dt=jnp.array([0.1, -0.1]))
