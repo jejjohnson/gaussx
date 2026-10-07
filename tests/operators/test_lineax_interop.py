@@ -13,6 +13,7 @@ import lineax as lx
 import pytest
 
 import gaussx
+from gaussx._einx import rearrange
 from gaussx._testing import default_tolerances
 
 from ._zoo import ZOO, exported_operator_classes
@@ -87,3 +88,23 @@ def test_lsmr_on_toeplitz_cholesky():
     x = lx.linear_solve(operator, b, solver).value
     expected = jnp.linalg.lstsq(operator.as_matrix(), b)[0]
     assert jnp.allclose(x, expected, rtol=1e-8, atol=1e-8)
+
+
+def test_diagonal_with_rectangular_blocks_is_dense():
+    """Structured diagonal rules assume square components (review of gh-410)."""
+    A = lx.MatrixLinearOperator(rearrange(jnp.arange(1.0, 7.0), "(i j) -> i j", i=2))
+    B = lx.MatrixLinearOperator(rearrange(jnp.arange(1.0, 7.0), "(i j) -> i j", i=3))
+    for operator in (gaussx.BlockDiag(A, B), gaussx.Kronecker(A, B)):
+        expected = jnp.diag(operator.as_matrix())
+        assert jnp.allclose(lx.diagonal(operator), expected)
+
+
+def test_conj_keeps_structural_tags():
+    operator = ZOO["circulant_complex"](jr.key(0))
+    tagged = gaussx.Circulant(
+        operator.as_matrix()[:, 0], tags=lx.positive_semidefinite_tag
+    )
+    assert lx.is_positive_semidefinite(lx.conj(tagged)) == lx.is_positive_semidefinite(
+        tagged
+    )
+    assert lx.is_symmetric(lx.conj(tagged)) == lx.is_symmetric(tagged)

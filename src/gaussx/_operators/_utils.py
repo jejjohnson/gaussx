@@ -22,17 +22,48 @@ def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:
 
     `gaussx.diag` is structured where a structured diagonal exists and
     dense otherwise (imported lazily: the primitives import the operators).
+    Its structured rules assume square components, so an operator with a
+    rectangular block, factor or base takes the dense diagonal instead.
     """
     from gaussx._primitives._diag import diag
 
+    if not _square_components(operator):
+        return jnp.diag(operator.as_matrix())
     return diag(operator)
+
+
+def _square_components(operator: lx.AbstractLinearOperator) -> bool:
+    from gaussx._operators._block_diag import BlockDiag
+    from gaussx._operators._kronecker import Kronecker
+    from gaussx._operators._low_rank_update import LowRankUpdate
+
+    if operator.in_size() != operator.out_size():
+        return False
+    if isinstance(operator, BlockDiag | Kronecker):
+        return all(_square_components(op) for op in operator.operators)
+    if isinstance(operator, LowRankUpdate):
+        return _square_components(operator.base)
+    return True
+
+
+_TAG_PREDICATES = (
+    (lx.is_symmetric, lx.symmetric_tag),
+    (lx.is_diagonal, lx.diagonal_tag),
+    (lx.is_lower_triangular, lx.lower_triangular_tag),
+    (lx.is_upper_triangular, lx.upper_triangular_tag),
+    (lx.is_positive_semidefinite, lx.positive_semidefinite_tag),
+    (lx.is_negative_semidefinite, lx.negative_semidefinite_tag),
+    (lx.is_tridiagonal, lx.tridiagonal_tag),
+    (lx.has_unit_diagonal, lx.unit_diagonal_tag),
+)
 
 
 def lineax_conj(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
     """``lineax.conj`` for a gaussx operator.
 
     The identity for a real operator; for a complex one (e.g. a complex
-    ``Circulant``) the matrix-free ``v ↦ conj(A conj(v))``.
+    ``Circulant``) the matrix-free ``v ↦ conj(A conj(v))``, carrying the
+    structural tags of ``A``: conjugation preserves all of them.
     """
     structures = (operator.in_structure(), operator.out_structure())
     if not any(
@@ -40,9 +71,11 @@ def lineax_conj(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperato
         for leaf in jax.tree_util.tree_leaves(structures)
     ):
         return operator
+    tags = tuple(tag for check, tag in _TAG_PREDICATES if check(operator))
     return lx.FunctionLinearOperator(
         lambda vector: jnp.conj(operator.mv(jnp.conj(vector))),
         operator.in_structure(),
+        tags=tags,
     )
 
 
