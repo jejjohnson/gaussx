@@ -8,8 +8,21 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._strategies import BBMMSolver
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._strategies import BBMMSolver, SLQLogdet
+from gaussx._testing import (
+    dense_logdet,
+    random_pd_matrix,
+    random_pd_operator,
+    tree_allclose,
+)
+
+
+# Stochastic logdet tests bound |est − exact| by the estimator's own standard
+# error (gh-409, as gh-303 did for test_slq_logdet.py): the matrix and the
+# probes are pinned, the strategy's logdet is checked to be that SLQ estimate,
+# and lanczos_order >= n makes the quadrature exact, so there is no Lanczos
+# bias term. Over 1000 random matrices |err| / SEM peaked at 3.4 (gh-303).
+K_SEM = 5.0
 
 
 def test_solve_psd(getkey):
@@ -33,28 +46,29 @@ def test_solve_diagonal(getkey):
 
 
 @pytest.mark.slow
-def test_logdet_psd(getkey):
-    """Stochastic logdet should be within ~10% for moderate-size PSD."""
+def test_logdet_psd():
+    """Stochastic logdet is within K_SEM standard errors of the exact one."""
     bbmm = BBMMSolver(num_probes=50, lanczos_iter=20)
-    mat = random_pd_matrix(getkey(), 20)
-    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
-    estimated = bbmm.logdet(op)
-    true_ld = jnp.linalg.slogdet(mat)[1]
-    # Stochastic estimate — allow generous tolerance
-    assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+    op = random_pd_operator(jr.key(0), 20)
+    # BBMMSolver.logdet with no key is SLQ seeded from bbmm.seed.
+    est, sem = SLQLogdet(num_probes=50, lanczos_order=20).logdet_and_error(op)
+    assert tree_allclose(bbmm.logdet(op), est)
+    assert jnp.abs(est - dense_logdet(op)) <= K_SEM * sem
 
 
 @pytest.mark.slow
-def test_logdet_diagonal(getkey):
-    """Stochastic logdet on diagonal should be reasonably accurate."""
+def test_logdet_diagonal():
+    """On a diagonal operator SLQ with sign probes is exact, not stochastic.
+
+    Each probe gives zᵀ log(D) z = Σ log dᵢ when zᵢ² = 1, and full-order
+    Lanczos is exact quadrature, so only round-off is left.
+    """
     bbmm = BBMMSolver(num_probes=50, lanczos_iter=10)
-    d = jnp.abs(jr.normal(getkey(), (10,))) + 0.5
+    d = jnp.abs(jr.normal(jr.key(0), (10,))) + 0.5
     op = lx.TaggedLinearOperator(
         lx.DiagonalLinearOperator(d), lx.positive_semidefinite_tag
     )
-    estimated = bbmm.logdet(op)
-    true_ld = jnp.sum(jnp.log(d))
-    assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+    assert tree_allclose(bbmm.logdet(op), jnp.sum(jnp.log(d)), rtol=1e-8)
 
 
 @pytest.mark.slow

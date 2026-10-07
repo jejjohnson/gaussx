@@ -7,8 +7,21 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._strategies import LSMRSolver
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._strategies import LSMRSolver, SLQLogdet
+from gaussx._testing import (
+    dense_logdet,
+    random_pd_matrix,
+    random_pd_operator,
+    tree_allclose,
+)
+
+
+# Stochastic logdet tests bound |est − exact| by the estimator's own standard
+# error (gh-409, as gh-303 did for test_slq_logdet.py): the matrix and the
+# probes are pinned, the strategy's logdet is checked to be that SLQ estimate,
+# and lanczos_order >= n makes the quadrature exact, so there is no Lanczos
+# bias term. Over 1000 random matrices |err| / SEM peaked at 3.4 (gh-303).
+K_SEM = 5.0
 
 
 @pytest.mark.slow
@@ -52,14 +65,14 @@ def test_solve_rectangular(getkey):
 
 
 @pytest.mark.slow
-def test_logdet_psd(getkey):
-    """Stochastic logdet should approximate true logdet."""
+def test_logdet_psd():
+    """Stochastic logdet is within K_SEM standard errors of the exact one."""
     solver = LSMRSolver(num_probes=50, lanczos_order=20)
-    mat = random_pd_matrix(getkey(), 15)
-    op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
-    estimated = solver.logdet(op)
-    true_ld = jnp.linalg.slogdet(mat)[1]
-    assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+    op = random_pd_operator(jr.key(0), 15)
+    # LSMRSolver.logdet with no key is SLQ seeded from solver.seed.
+    est, sem = SLQLogdet(num_probes=50, lanczos_order=20).logdet_and_error(op)
+    assert tree_allclose(solver.logdet(op), est)
+    assert jnp.abs(est - dense_logdet(op)) <= K_SEM * sem
 
 
 @pytest.mark.slow

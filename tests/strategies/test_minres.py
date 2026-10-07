@@ -9,8 +9,23 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._strategies import MINRESSolver
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._einx import einsum
+from gaussx._strategies import IndefiniteSLQLogdet, MINRESSolver
+from gaussx._testing import (
+    dense_logdet,
+    random_pd_matrix,
+    random_pd_operator,
+    tree_allclose,
+)
+
+
+# Stochastic logdet tests bound |est − exact| by the estimator's own standard
+# error (gh-409, as gh-303 did for test_slq_logdet.py): the matrix and the
+# probes are pinned, the strategy's logdet is checked to be that SLQ estimate,
+# and lanczos_order >= n makes the quadrature exact, so there is no Lanczos
+# bias term. Over 1000 random matrices |err| / SEM peaked at 3.1 for the
+# indefinite estimator (gh-303).
+K_SEM = 5.0
 
 
 # -------------------------------------------------------------------
@@ -109,43 +124,43 @@ class TestShiftedMINRES:
 # -------------------------------------------------------------------
 
 
+def _assert_logdet_within_sem(solver, op, exact, key):
+    """``solver.logdet`` is its SLQ estimate, within K_SEM SEMs of *exact*."""
+    est, sem = IndefiniteSLQLogdet(
+        num_probes=solver.num_probes,
+        lanczos_order=solver.lanczos_order,
+        shift=solver.shift,
+    ).logdet_and_error(op, key=key)
+    assert tree_allclose(solver.logdet(op, key=key), est)
+    assert jnp.abs(est - exact) <= K_SEM * sem, (est, exact, sem)
+
+
 class TestLogdet:
     @pytest.mark.slow
-    def test_logdet_psd(self, getkey):
+    def test_logdet_psd(self):
         """Stochastic logdet should be reasonable for PSD."""
         solver = MINRESSolver(num_probes=50, lanczos_order=20)
-        mat = random_pd_matrix(getkey(), 20)
-        op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
-        key = jr.PRNGKey(42)
-        estimated = solver.logdet(op, key=key)
-        true_ld = jnp.linalg.slogdet(mat)[1]
-        assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+        op = random_pd_operator(jr.key(0), 20)
+        _assert_logdet_within_sem(solver, op, dense_logdet(op), jr.PRNGKey(42))
 
-    def test_logdet_respects_shift(self, getkey):
+    def test_logdet_respects_shift(self):
         """Shifted solve/logdet pair should target the same matrix."""
         shift = 1.5
         solver = MINRESSolver(shift=shift, num_probes=50, lanczos_order=20)
-        mat = random_pd_matrix(getkey(), 20)
+        mat = random_pd_matrix(jr.key(0), 20)
         op = lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
-
-        estimated = solver.logdet(op, key=jr.PRNGKey(0))
-        shifted_mat = mat + shift * jnp.eye(mat.shape[0])
-        true_ld = jnp.linalg.slogdet(shifted_mat)[1]
-        assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+        exact = jnp.linalg.slogdet(mat + shift * jnp.eye(mat.shape[0]))[1]
+        _assert_logdet_within_sem(solver, op, exact, jr.PRNGKey(0))
 
     @pytest.mark.slow
-    def test_logdet_indefinite_uses_logabsdet(self, getkey):
+    def test_logdet_indefinite_uses_logabsdet(self):
         """Indefinite symmetric matrices should return log|det(A)|."""
         solver = MINRESSolver(num_probes=100, lanczos_order=6)
         diag = jnp.array([-4.0, -2.0, 3.0, 5.0, 7.0, 11.0])
-        q, _ = jnp.linalg.qr(jr.normal(getkey(), (diag.shape[0], diag.shape[0])))
-        mat = q @ jnp.diag(diag) @ q.T
+        q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (diag.shape[0], diag.shape[0])))
+        mat = einsum(q * diag, q, "i k, j k -> i j")
         op = lx.MatrixLinearOperator(mat, lx.symmetric_tag)
-
-        estimated = solver.logdet(op, key=jr.PRNGKey(0))
-        true_ld = jnp.linalg.slogdet(mat)[1]
-        assert jnp.isfinite(estimated)
-        assert jnp.abs(estimated - true_ld) < 0.1 * jnp.abs(true_ld) + 1.0
+        _assert_logdet_within_sem(solver, op, dense_logdet(op), jr.PRNGKey(0))
 
 
 # -------------------------------------------------------------------
