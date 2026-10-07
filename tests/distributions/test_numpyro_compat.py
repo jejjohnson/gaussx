@@ -31,11 +31,6 @@ from gaussx._operators import Kronecker
 from gaussx._testing import tree_allclose
 
 
-def _make_psd(key, n):
-    A = jr.normal(key, (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
-
-
 # ------------------------------------------------------------------ #
 # Helpers: reusable numpyro models
 # ------------------------------------------------------------------ #

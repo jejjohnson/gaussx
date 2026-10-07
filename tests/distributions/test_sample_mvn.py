@@ -20,29 +20,35 @@ from gaussx._testing import assert_sample_moments, random_pd_operator
 _NUM_SAMPLES = 4096
 
 
-def _pd(seed: int, n: int) -> lx.MatrixLinearOperator:
-    return random_pd_operator(jr.key(seed), n)
-
-
 def _structured_covariances() -> dict[str, lx.AbstractLinearOperator]:
     """Small instances of every structure `sample_mvn` dispatches on."""
     lags = jnp.arange(6.0)
-    kronecker = gaussx.Kronecker(_pd(1, 2), _pd(2, 3))
+    kronecker = gaussx.Kronecker(
+        random_pd_operator(jr.key(1), 2), random_pd_operator(jr.key(2), 3)
+    )
     return {
-        "dense": _pd(0, 5),
+        "dense": random_pd_operator(jr.key(0), 5),
         "diagonal": lx.DiagonalLinearOperator(jnp.array([0.5, 1.0, 2.0, 4.0])),
         "kronecker": kronecker,
-        "block_diag": gaussx.BlockDiag(_pd(3, 2), _pd(4, 3)),
+        "block_diag": gaussx.BlockDiag(
+            random_pd_operator(jr.key(3), 2), random_pd_operator(jr.key(4), 3)
+        ),
         # Diagonally dominant, so positive definite: 3 blocks of 2x2.
         "block_tridiag": gaussx.BlockTriDiag(
             jnp.stack([4.0 * jnp.eye(2)] * 3),
             jnp.stack([jnp.array([[0.5, 0.2], [0.1, 0.4]])] * 2),
         ),
         "toeplitz": gaussx.Toeplitz(jnp.exp(-0.5 * lags**2)),
-        "kronecker_sum": gaussx.KroneckerSum(_pd(5, 2), _pd(6, 3)),
+        "kronecker_sum": gaussx.KroneckerSum(
+            random_pd_operator(jr.key(5), 2), random_pd_operator(jr.key(6), 3)
+        ),
         "sum_of_kroneckers": gaussx.SumOfKroneckers(
-            gaussx.Kronecker(_pd(7, 2), _pd(8, 3)),
-            gaussx.Kronecker(_pd(9, 2), _pd(10, 3)),
+            gaussx.Kronecker(
+                random_pd_operator(jr.key(7), 2), random_pd_operator(jr.key(8), 3)
+            ),
+            gaussx.Kronecker(
+                random_pd_operator(jr.key(9), 2), random_pd_operator(jr.key(10), 3)
+            ),
         ),
         "low_rank": low_rank_plus_diag(
             jnp.linspace(0.5, 1.5, 5), jr.normal(jr.key(11), (5, 2))
@@ -130,7 +136,9 @@ def test_batched_mean_gets_independent_noise() -> None:
 
 
 def test_batched_draws_have_the_requested_moments() -> None:
-    covariance = gaussx.Kronecker(_pd(15, 2), _pd(16, 2))
+    covariance = gaussx.Kronecker(
+        random_pd_operator(jr.key(15), 2), random_pd_operator(jr.key(16), 2)
+    )
     mean = jnp.stack([jnp.zeros(4), jnp.ones(4)])
 
     samples = gaussx.sample_mvn(
@@ -182,8 +190,8 @@ def test_negative_low_rank_weights_fall_back_to_dense() -> None:
         (
             "untagged_kronecker_sum",
             gaussx.KroneckerSum(
-                lx.MatrixLinearOperator(_pd(22, 2).as_matrix()),
-                lx.MatrixLinearOperator(_pd(23, 3).as_matrix()),
+                lx.MatrixLinearOperator(random_pd_operator(jr.key(22), 2).as_matrix()),
+                lx.MatrixLinearOperator(random_pd_operator(jr.key(23), 3).as_matrix()),
             ),
         ),
         # Positive definite, but its 2x circulant embedding is not.
@@ -215,8 +223,12 @@ def test_negative_low_rank_weights_fall_back_to_dense() -> None:
         (
             "large_sum_of_kroneckers",
             gaussx.SumOfKroneckers(
-                gaussx.Kronecker(_pd(24, 8), _pd(25, 8)),
-                gaussx.Kronecker(_pd(26, 8), _pd(27, 8)),
+                gaussx.Kronecker(
+                    random_pd_operator(jr.key(24), 8), random_pd_operator(jr.key(25), 8)
+                ),
+                gaussx.Kronecker(
+                    random_pd_operator(jr.key(26), 8), random_pd_operator(jr.key(27), 8)
+                ),
             ),
         ),
     ],
@@ -286,7 +298,7 @@ def test_more_awkward_covariances_are_sampled_exactly(
 def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -> None:
     # t I has one eigenvalue repeated three times; differentiating through
     # eigh's eigenvectors there gives NaN.
-    other = _pd(36, 2).as_matrix()
+    other = random_pd_operator(jr.key(36), 2).as_matrix()
 
     def loss(t):
         isotropic = lx.MatrixLinearOperator(t * jnp.eye(3))
@@ -311,7 +323,10 @@ def test_pathwise_gradients_are_finite_at_repeated_eigenvalues(structure: str) -
 def test_kronecker_sum_root_jvp_matches_the_dense_root() -> None:
     # The structured Sylvester JVP against dense_symmetric_sqrt's own JVP on
     # the materialised A ⊕ B, for random symmetric tangents.
-    a, b = _pd(38, 3).as_matrix(), _pd(39, 2).as_matrix()
+    a, b = (
+        random_pd_operator(jr.key(38), 3).as_matrix(),
+        random_pd_operator(jr.key(39), 2).as_matrix(),
+    )
     noise = jr.normal(jr.key(40), (5, 3, 2))
     tangent_a = jr.normal(jr.key(41), (3, 3))
     tangent_b = jr.normal(jr.key(42), (2, 2))
@@ -336,7 +351,10 @@ def test_kronecker_sum_root_jvp_matches_the_dense_root() -> None:
 
 def test_kronecker_sum_with_traced_factors() -> None:
     # The KroneckerSumSqrt route used a Python bool on a traced eigenvalue.
-    a, b = _pd(29, 2).as_matrix(), _pd(30, 3).as_matrix()
+    a, b = (
+        random_pd_operator(jr.key(29), 2).as_matrix(),
+        random_pd_operator(jr.key(30), 3).as_matrix(),
+    )
 
     @jax.jit
     def draw(a, b):

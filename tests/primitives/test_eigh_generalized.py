@@ -16,6 +16,8 @@ from gaussx._einx import einsum
 
 
 def _spd(key, n, shift=1.0):
+    # Kept local (gh-316): a scaled Wishart, M Mᵀ / n + shift·I, whose spectrum
+    # stays O(1) as n grows; the generalized-eigenproblem tolerances assume it.
     M = jr.normal(key, (n, n))
     return einsum(M, M, "i k, j k -> i j") / n + shift * jnp.eye(n)
 

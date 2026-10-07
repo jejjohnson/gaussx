@@ -23,30 +23,11 @@ from gaussx._primitives import (
     sqrt,
     trace,
 )
-from gaussx._testing import tree_allclose
-
-
-def _make_psd(key, n):
-    A = jr.normal(key, (n, n))
-    return A @ A.T + 0.1 * jnp.eye(n)
-
-
-def _make_psd_sum_kronecker(getkey):
-    A1 = _make_psd(getkey(), 2)
-    B1 = _make_psd(getkey(), 3)
-    A2 = _make_psd(getkey(), 2)
-    B2 = _make_psd(getkey(), 3)
-    return SumOfKroneckers(
-        Kronecker(
-            lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
-            lx.MatrixLinearOperator(B1, lx.positive_semidefinite_tag),
-        ),
-        Kronecker(
-            lx.MatrixLinearOperator(A2, lx.positive_semidefinite_tag),
-            lx.MatrixLinearOperator(B2, lx.positive_semidefinite_tag),
-        ),
-        tags=lx.positive_semidefinite_tag,
-    )
+from gaussx._testing import (
+    random_pd_matrix,
+    random_sum_of_kroneckers_pd,
+    tree_allclose,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -129,8 +110,8 @@ class TestMv:
 
     def test_mv_scalar_identity_noise(self, getkey):
         """K_task kron K_spatial + sigma^2 I kron I (common GP pattern)."""
-        A = lx.MatrixLinearOperator(_make_psd(getkey(), 2))
-        B = lx.MatrixLinearOperator(_make_psd(getkey(), 3))
+        A = lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2))
+        B = lx.MatrixLinearOperator(random_pd_matrix(getkey(), 3))
         sigma2 = 0.1
         I_a = lx.MatrixLinearOperator(jnp.sqrt(sigma2) * jnp.eye(2))
         I_b = lx.MatrixLinearOperator(jnp.sqrt(sigma2) * jnp.eye(3))
@@ -227,10 +208,10 @@ class TestTags:
 
 class TestEigendecompose:
     def test_eigendecompose_matches_dense(self, getkey):
-        A1 = _make_psd(getkey(), 2)
-        B1 = _make_psd(getkey(), 3)
-        A2 = _make_psd(getkey(), 2)
-        B2 = _make_psd(getkey(), 3)
+        A1 = random_pd_matrix(getkey(), 2)
+        B1 = random_pd_matrix(getkey(), 3)
+        A2 = random_pd_matrix(getkey(), 2)
+        B2 = random_pd_matrix(getkey(), 3)
         SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
@@ -247,10 +228,10 @@ class TestEigendecompose:
         assert tree_allclose(reconstructed, SK.as_matrix(), rtol=1e-4)
 
     def test_eigenvalues_positive_for_psd(self, getkey):
-        A1 = _make_psd(getkey(), 3)
-        B1 = _make_psd(getkey(), 2)
-        A2 = _make_psd(getkey(), 3)
-        B2 = _make_psd(getkey(), 2)
+        A1 = random_pd_matrix(getkey(), 3)
+        B1 = random_pd_matrix(getkey(), 2)
+        A2 = random_pd_matrix(getkey(), 3)
+        B2 = random_pd_matrix(getkey(), 2)
         SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
@@ -265,10 +246,10 @@ class TestEigendecompose:
         assert jnp.all(evals > -1e-6)
 
     def test_logdet_via_eigendecompose(self, getkey):
-        A1 = _make_psd(getkey(), 2)
-        B1 = _make_psd(getkey(), 3)
-        A2 = _make_psd(getkey(), 2)
-        B2 = _make_psd(getkey(), 3)
+        A1 = random_pd_matrix(getkey(), 2)
+        B1 = random_pd_matrix(getkey(), 3)
+        A2 = random_pd_matrix(getkey(), 2)
+        B2 = random_pd_matrix(getkey(), 3)
         SK = SumOfKroneckers(
             Kronecker(
                 lx.MatrixLinearOperator(A1, lx.positive_semidefinite_tag),
@@ -395,7 +376,7 @@ def test_eigendecompose_rejects_nonsymmetric_kron1(getkey):
 
 
 def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
-    SK = _make_psd_sum_kronecker(getkey)
+    SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     v = jr.normal(getkey(), (SK.in_size(),))
 
     def fail_as_matrix(self):
@@ -410,7 +391,7 @@ def test_sqrt_sum_kronecker_returns_lanczos_operator(getkey, monkeypatch):
 
 
 def test_sumkronecker_sample_matches_dense_reference(getkey):
-    SK = _make_psd_sum_kronecker(getkey)
+    SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     key = getkey()
     num_samples = 3
     samples = sumkronecker_sample(
@@ -431,7 +412,7 @@ def test_sumkronecker_sample_matches_dense_reference(getkey):
 
 @pytest.mark.slow
 def test_sumkronecker_sample_reproducible(getkey):
-    SK = _make_psd_sum_kronecker(getkey)
+    SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     key = getkey()
     samples1 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
     samples2 = sumkronecker_sample(SK, key=key, num_samples=2, lanczos_order=4)
@@ -439,14 +420,14 @@ def test_sumkronecker_sample_reproducible(getkey):
 
 
 def test_cholesky_sumkronecker_warns_dense_fallback(getkey):
-    SK = _make_psd_sum_kronecker(getkey)
+    SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     with pytest.warns(DenseFallbackWarning, match="sumkronecker_sample"):
         L = cholesky(SK)
     assert tree_allclose(L.as_matrix() @ L.as_matrix().T, SK.as_matrix(), rtol=1e-4)
 
 
 def test_sumkronecker_sample_rejects_nonpositive_num_samples(getkey):
-    SK = _make_psd_sum_kronecker(getkey)
+    SK = random_sum_of_kroneckers_pd(getkey(), (2, 3))
     with pytest.raises(ValueError, match="num_samples"):
         sumkronecker_sample(SK, key=getkey(), num_samples=0)
 
@@ -459,8 +440,8 @@ class TestSumKroneckerDeprecatedAlias:
     """
 
     def _krons(self, getkey):
-        A = lx.MatrixLinearOperator(_make_psd(getkey(), 2), lx.symmetric_tag)
-        B = lx.MatrixLinearOperator(_make_psd(getkey(), 3), lx.symmetric_tag)
+        A = lx.MatrixLinearOperator(random_pd_matrix(getkey(), 2), lx.symmetric_tag)
+        B = lx.MatrixLinearOperator(random_pd_matrix(getkey(), 3), lx.symmetric_tag)
         return Kronecker(A, B), Kronecker(A, B)
 
     def test_construction_warns(self, getkey):

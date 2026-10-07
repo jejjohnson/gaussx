@@ -8,20 +8,15 @@ import pytest
 
 import gaussx
 from gaussx._einx import rearrange
-
-
-def _make_psd(key, n):
-    """Create a random PSD matrix."""
-    M = jax.random.normal(key, (n, n))
-    return M @ M.T + jnp.eye(n)
+from gaussx._testing import random_pd_matrix
 
 
 @pytest.fixture()
 def kron_sum():
     """A (+) B with small PSD factors."""
     k1, k2 = jax.random.split(jax.random.PRNGKey(0))
-    A_mat = _make_psd(k1, 3)
-    B_mat = _make_psd(k2, 4)
+    A_mat = random_pd_matrix(k1, 3, jitter=1.0)
+    B_mat = random_pd_matrix(k2, 4, jitter=1.0)
     A = lx.MatrixLinearOperator(A_mat, lx.positive_semidefinite_tag)
     B = lx.MatrixLinearOperator(B_mat, lx.positive_semidefinite_tag)
     return gaussx.KroneckerSum(A, B)
@@ -172,7 +167,7 @@ def test_sqrt_entry_points_run_under_jit(kron_sum, entry_point):
 def test_kronecker_sum_sample_grad_with_repeated_eigenvalue():
     # gh-295: the sample inherited KroneckerSumSqrt's NaN eigenvector
     # gradient for an isotropic factor.
-    B = _make_psd(jax.random.key(0), 2)
+    B = random_pd_matrix(jax.random.key(0), 2, jitter=1.0)
     psd = lx.positive_semidefinite_tag
 
     def loss(s):

@@ -9,30 +9,19 @@ import pytest
 
 import gaussx
 from gaussx._einx import einsum
-from gaussx._testing import random_pd_matrix
+from gaussx._testing import random_pd_matrix, random_spd_block_tridiag
 
 
-def _make_spd_block_tridiag(N, d, key):
-    """Create a random SPD block-tridiagonal matrix.
-
-    Makes the diagonal blocks dominant enough to ensure positive definiteness.
-    """
-    k1, k2 = jax.random.split(key)
-    # Sub-diagonal blocks: random
-    sub = 0.3 * jax.random.normal(k1, (N - 1, d, d))
-    # Diagonal blocks: SPD with diagonal dominance
-    raw = jax.random.normal(k2, (N, d, d))
-    diags = jax.vmap(lambda M: M @ M.T)(raw) + 5.0 * jnp.eye(d)[None]
-    # Make symmetric
-    diags = 0.5 * (diags + jnp.swapaxes(diags, -2, -1))
-    return diags, sub
+def _blocks(op):
+    """``(diagonal, sub_diagonal)`` arrays of a ``BlockTriDiag``."""
+    return op.diagonal, op.sub_diagonal
 
 
 @pytest.fixture()
 def block_tridiag():
     """SPD block-tridiagonal operator."""
     N, d = 5, 3
-    diags, sub = _make_spd_block_tridiag(N, d, jax.random.PRNGKey(42))
+    diags, sub = _blocks(random_spd_block_tridiag(jax.random.PRNGKey(42), N, d))
     return gaussx.BlockTriDiag(diags, sub)
 
 
@@ -244,7 +233,7 @@ class TestSymmetryAndTags:
         return D, A
 
     @staticmethod
-    def _psd():
+    def _tagged_psd_band():
         D, A = TestSymmetryAndTags._nonsymmetric()
         Ds = einsum(D, D, "n i j, n k j -> n i k") + 4.0 * jnp.eye(D.shape[-1])
         return gaussx.BlockTriDiag(Ds, A, tags=lx.positive_semidefinite_tag)
@@ -266,14 +255,14 @@ class TestSymmetryAndTags:
         assert not lx.is_symmetric(op.T)
 
     def test_roundoff_asymmetry_is_accepted(self):
-        op = self._psd()
+        op = self._tagged_psd_band()
         noise = 1e-12 * jr.normal(jr.key(1), op.diagonal.shape)
         assert lx.is_symmetric(
             gaussx.BlockTriDiag(op.diagonal + noise, op.sub_diagonal)
         )
 
     def test_psd_tags_propagate(self):
-        psd = self._psd()
+        psd = self._tagged_psd_band()
         assert lx.is_positive_semidefinite(psd + psd)
         assert lx.is_positive_semidefinite(2.0 * psd)
         assert lx.is_negative_semidefinite(-psd)
@@ -286,10 +275,10 @@ class TestSymmetryAndTags:
     def test_nonsymmetric_operand_drops_symmetry(self):
         D, A = self._nonsymmetric()
         nonsym = gaussx.BlockTriDiag(D, A, symmetric=False)
-        assert not lx.is_symmetric(self._psd() + nonsym)
+        assert not lx.is_symmetric(self._tagged_psd_band() + nonsym)
 
     def test_tags_under_jit(self):
-        psd = self._psd()
+        psd = self._tagged_psd_band()
 
         @eqx.filter_jit
         def run(op, scale):

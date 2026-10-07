@@ -25,13 +25,13 @@ from gaussx._linalg._symmetrize import symmetrize
 from gaussx._testing import random_pd_matrix, tree_allclose
 
 
-def _psd_operator(key, n):
+def _matrix_and_operator(key, n):
     mat = random_pd_matrix(key, n)
     return mat, lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
 
 
 def test_jacobi_explicit_diagonal(getkey):
-    mat, op = _psd_operator(getkey(), 6)
+    mat, op = _matrix_and_operator(getkey(), 6)
     pre = JacobiPreconditioner(diagonal=jnp.diag(mat))
     minv = pre.as_operator(op)
     assert lx.is_positive_semidefinite(minv)
@@ -40,7 +40,7 @@ def test_jacobi_explicit_diagonal(getkey):
 
 
 def test_jacobi_extracts_diagonal_from_operator(getkey):
-    mat, op = _psd_operator(getkey(), 5)
+    mat, op = _matrix_and_operator(getkey(), 5)
     pre = JacobiPreconditioner()  # no explicit diagonal
     minv = pre.as_operator(op)
     v = jr.normal(getkey(), (5,))
@@ -54,7 +54,7 @@ def test_jacobi_needs_diagonal_or_operator():
 
 @pytest.mark.slow
 def test_solve_with_jacobi(getkey):
-    mat, op = _psd_operator(getkey(), 12)
+    mat, op = _matrix_and_operator(getkey(), 12)
     b = jr.normal(getkey(), (12,))
     x = linear_solve(
         op,
@@ -241,7 +241,7 @@ def test_nystrom_cg_iterations_on_matern32_do_not_grow_below_full_rank():
 
 
 def test_partial_cholesky_disabled_returns_none(getkey):
-    _, op = _psd_operator(getkey(), 5)
+    _, op = _matrix_and_operator(getkey(), 5)
     pre = PartialCholeskyPreconditioner(rank=0)
     assert pre.as_operator(op) is None
 
@@ -411,14 +411,14 @@ def test_partial_cholesky_built_is_a_jittable_pytree():
 
 
 def test_partial_cholesky_from_operator_needs_positive_rank():
-    _, op = _psd_operator(jr.key(6), 5)
+    _, op = _matrix_and_operator(jr.key(6), 5)
     with pytest.raises(ValueError, match="rank"):
         PartialCholeskyPreconditioner.from_operator(op, rank=0, shift=1.0)
 
 
 @pytest.mark.slow
 def test_operator_preconditioner_callable(getkey):
-    mat, op = _psd_operator(getkey(), 15)
+    mat, op = _matrix_and_operator(getkey(), 15)
     b = jr.normal(getkey(), (15,))
     inv_diag = 1.0 / jnp.diag(mat)
     pre = OperatorPreconditioner(lambda v: inv_diag * v)
@@ -428,7 +428,7 @@ def test_operator_preconditioner_callable(getkey):
 
 def test_operator_preconditioner_operator_tags_psd(getkey):
     """An untagged operator approximate-inverse is tagged PSD for lineax CG."""
-    mat, op = _psd_operator(getkey(), 10)
+    mat, op = _matrix_and_operator(getkey(), 10)
     untagged = lx.DiagonalLinearOperator(1.0 / jnp.diag(mat))
     pre = OperatorPreconditioner(untagged)
     assert lx.is_positive_semidefinite(pre.as_operator(op))

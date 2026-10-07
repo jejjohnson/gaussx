@@ -17,13 +17,13 @@ from gaussx._strategies import (
     IndefiniteSLQLogdet,
     SLQLogdet,
 )
-from gaussx._testing import tree_allclose
+from gaussx._testing import random_pd_operator, tree_allclose
 
 
-def _make_pd_operator(key, n=8):
-    A = jr.normal(key, (n, n))
-    M = A @ A.T + n * jnp.eye(n)
-    return lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag), M
+def _operator_and_matrix(key, n):
+    """A PD operator (``A Aᵀ + n·I``) and its matrix."""
+    op = random_pd_operator(key, n, jitter=n)
+    return op, op.as_matrix()
 
 
 # The SLQ estimators report their own standard error of the mean (SEM), so
@@ -45,7 +45,7 @@ def _assert_within_sem(strategy, op, ref):
 @pytest.mark.slow
 def test_slq_logdet_psd():
     """SLQLogdet should approximate logdet of a PSD matrix."""
-    op, M = _make_pd_operator(jr.key(0))
+    op, M = _operator_and_matrix(jr.key(0), 8)
     _, ref = jnp.linalg.slogdet(M)
     _assert_within_sem(SLQLogdet(num_probes=40, lanczos_order=8), op, ref)
 
@@ -58,7 +58,7 @@ def test_slq_logdet_is_abstract_logdet():
 @pytest.mark.slow
 def test_slq_logdet_jit(getkey):
     """SLQLogdet.logdet should be JIT-compatible."""
-    op, _ = _make_pd_operator(getkey())
+    op, _ = _operator_and_matrix(getkey(), 8)
     slq = SLQLogdet(num_probes=10, lanczos_order=8)
     eager = slq.logdet(op)
     jitted = jax.jit(slq.logdet)(op)
@@ -67,7 +67,7 @@ def test_slq_logdet_jit(getkey):
 
 def test_slq_logdet_with_key(getkey):
     """Passing an explicit key should work and produce a result."""
-    op, _ = _make_pd_operator(getkey())
+    op, _ = _operator_and_matrix(getkey(), 8)
     slq = SLQLogdet(num_probes=10, lanczos_order=8)
     key = jr.PRNGKey(42)
     result = slq.logdet(op, key=key)
@@ -79,7 +79,7 @@ def test_slq_logdet_with_key(getkey):
 
 def test_indefinite_slq_logdet_psd():
     """IndefiniteSLQLogdet on PSD should match |logdet|."""
-    op, M = _make_pd_operator(jr.key(0))
+    op, M = _operator_and_matrix(jr.key(0), 8)
     _, ref = jnp.linalg.slogdet(M)
     _assert_within_sem(IndefiniteSLQLogdet(num_probes=40, lanczos_order=8), op, ref)
 
@@ -103,7 +103,7 @@ def test_indefinite_slq_logdet_indefinite():
 
 def test_indefinite_slq_logdet_shift():
     """Shift parameter should be applied correctly."""
-    op, M = _make_pd_operator(jr.key(0))
+    op, M = _operator_and_matrix(jr.key(0), 8)
     shift = 2.0
     M_shifted = M + shift * jnp.eye(M.shape[0])
     _, ref = jnp.linalg.slogdet(M_shifted)
@@ -121,7 +121,7 @@ def test_indefinite_slq_logdet_is_abstract_logdet():
 
 def test_dense_logdet_matches_primitive(getkey):
     """DenseLogdet should match the gaussx.logdet primitive exactly."""
-    op, _M = _make_pd_operator(getkey())
+    op, _M = _operator_and_matrix(getkey(), 8)
     from gaussx._primitives._logdet import logdet as _logdet
 
     ref = _logdet(op)
@@ -136,7 +136,7 @@ def test_dense_logdet_is_abstract_logdet():
 
 def test_dense_logdet_jit(getkey):
     """DenseLogdet.logdet should be JIT-compatible."""
-    op, _ = _make_pd_operator(getkey())
+    op, _ = _operator_and_matrix(getkey(), 8)
     dl = DenseLogdet()
     eager = dl.logdet(op)
     jitted = jax.jit(dl.logdet)(op)
@@ -149,7 +149,7 @@ def test_dense_logdet_jit(getkey):
 @pytest.mark.slow
 def test_composed_with_slq_logdet(getkey):
     """ComposedSolver should accept SLQLogdet as logdet_strategy."""
-    op, _M = _make_pd_operator(getkey())
+    op, _M = _operator_and_matrix(getkey(), 8)
     v = jr.normal(getkey(), (8,))
     composed = ComposedSolver(
         solve_strategy=DenseSolver(),
@@ -163,7 +163,7 @@ def test_composed_with_slq_logdet(getkey):
 
 def test_composed_with_dense_logdet(getkey):
     """ComposedSolver(Dense, DenseLogdet) should match DenseSolver."""
-    op, _ = _make_pd_operator(getkey())
+    op, _ = _operator_and_matrix(getkey(), 8)
     v = jr.normal(getkey(), (8,))
     ref = DenseSolver()
     composed = ComposedSolver(

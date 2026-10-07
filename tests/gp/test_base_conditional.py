@@ -11,12 +11,7 @@ import pytest
 
 from gaussx._gp._base_conditional import base_conditional
 from gaussx._gp._svgp import whitened_svgp_predict
-from gaussx._testing import tree_allclose
-
-
-def _make_pd(key, M):
-    A = jr.normal(key, (M, M))
-    return A @ A.T + 0.1 * jnp.eye(M)
+from gaussx._testing import random_pd_matrix, tree_allclose
 
 
 def _valid_diag_model(M, N, seed):
@@ -27,7 +22,7 @@ def _valid_diag_model(M, N, seed):
     (gh-363). Slicing a PD joint keeps them positive. Pinned: the tests
     check formulas, so any valid model will do.
     """
-    joint = _make_pd(jr.key(seed), M + N)
+    joint = random_pd_matrix(jr.key(seed), M + N)
     return joint[:M, :M], joint[:M, M:], jnp.diag(joint[M:, M:])
 
 
@@ -40,7 +35,7 @@ class TestPriorConditional:
     @pytest.mark.slow
     def test_mean_shape(self, getkey):
         M, N, R = 5, 8, 2
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
         f = jr.normal(getkey(), (M, R))
@@ -51,7 +46,7 @@ class TestPriorConditional:
     def test_mean_matches_dense(self, getkey):
         """Mean should be K_nm K_mm^{-1} f."""
         M, N, R = 5, 8, 1
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
         f = jr.normal(getkey(), (M, R))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
@@ -66,7 +61,7 @@ class TestPriorConditional:
         M, N = 4, 6
         # Slice a PD joint so the true conditional variances are positive
         # (a random K_mn gives negative ones, which are now clipped).
-        joint = _make_pd(jr.key(0), M + N)
+        joint = random_pd_matrix(jr.key(0), M + N)
         K_mm, K_mn = joint[:M, :M], joint[:M, M:]
         K_nn_diag = jnp.diag(joint[M:, M:])
         f = jr.normal(jr.key(1), (M, 1))
@@ -83,9 +78,9 @@ class TestPriorConditional:
     def test_var_full_knn(self, getkey):
         """Variance with full K_nn."""
         M, N = 4, 6
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
-        K_nn = _make_pd(getkey(), N)
+        K_nn = random_pd_matrix(getkey(), N)
         f = jr.normal(getkey(), (M, 1))
 
         _, var = base_conditional(K_mm, K_mn, K_nn, f)
@@ -105,7 +100,7 @@ class TestWhitened:
     def test_mean_whitened(self, getkey):
         """Whitened: mean = A^T f where A = L^{-1} K_mn."""
         M, N, R = 5, 8, 1
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
         f = jr.normal(getkey(), (M, R))
@@ -140,7 +135,7 @@ class TestVariational:
 
     def test_full_q_sqrt(self, getkey):
         M, N, R = 4, 6, 2
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
         f = jr.normal(getkey(), (M, R))
@@ -159,9 +154,9 @@ class TestVariational:
     def test_full_q_sqrt_full_knn(self, getkey):
         """Full q_sqrt with full K_nn should give (N, N, R) variance."""
         M, N, R = 4, 6, 2
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
-        K_nn = _make_pd(getkey(), N)
+        K_nn = random_pd_matrix(getkey(), N)
         f = jr.normal(getkey(), (M, R))
 
         q_sqrt_list = []
@@ -216,7 +211,7 @@ class TestVariational:
 class TestGradient:
     def test_grad_through_f(self, getkey):
         M, N = 5, 8
-        K_mm = _make_pd(getkey(), M)
+        K_mm = random_pd_matrix(getkey(), M)
         K_mn = jr.normal(getkey(), (M, N))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
 

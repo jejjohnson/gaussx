@@ -7,12 +7,7 @@ import numpy as np
 import pytest
 
 import gaussx
-
-
-def _make_psd_mat(key, n):
-    """Create a random PSD matrix."""
-    M = jax.random.normal(key, (n, n))
-    return M @ M.T + jnp.eye(n)
+from gaussx._testing import random_pd_matrix
 
 
 class TestConditional:
@@ -39,7 +34,7 @@ class TestConditional:
         n = 5
         key = jax.random.PRNGKey(0)
         mu = jax.random.normal(key, (n,))
-        Sigma = _make_psd_mat(jax.random.PRNGKey(1), n)
+        Sigma = random_pd_matrix(jax.random.PRNGKey(1), n, jitter=1.0)
         cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 
         # Observe 2 variables
@@ -57,7 +52,7 @@ class TestConditional:
         n = 6
         key = jax.random.PRNGKey(42)
         mu = jnp.zeros(n)
-        Sigma = _make_psd_mat(key, n)
+        Sigma = random_pd_matrix(key, n, jitter=1.0)
         cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 
         obs_idx = jnp.array([0, 2, 4])
@@ -73,7 +68,7 @@ class TestConditional:
         n = 4
         key = jax.random.PRNGKey(7)
         mu = jnp.zeros(n)
-        Sigma = _make_psd_mat(key, n)
+        Sigma = random_pd_matrix(key, n, jitter=1.0)
         cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 
         obs_idx = jnp.array([1])
@@ -91,7 +86,7 @@ class TestConditional:
         key = jax.random.PRNGKey(99)
         k1, k2 = jax.random.split(key)
         mu = jax.random.normal(k1, (n,))
-        Sigma = _make_psd_mat(k2, n)
+        Sigma = random_pd_matrix(k2, n, jitter=1.0)
         cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 
         obs_idx = jnp.array([0, 3])
@@ -119,7 +114,7 @@ class TestConditional:
         key = jax.random.PRNGKey(123)
         k1, k2 = jax.random.split(key)
         mu = jax.random.normal(k1, (n,))
-        Sigma = _make_psd_mat(k2, n)
+        Sigma = random_pd_matrix(k2, n, jitter=1.0)
         cov = lx.MatrixLinearOperator(Sigma, lx.positive_semidefinite_tag)
 
         obs_idx = jnp.array([0, 3])
@@ -178,7 +173,7 @@ class TestConditionalUnderJit:
 
     @pytest.fixture
     def joint(self):
-        S = _make_psd_mat(jax.random.key(0), 4)
+        S = random_pd_matrix(jax.random.key(0), 4, jitter=1.0)
         return jnp.zeros(4), lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
 
     @pytest.mark.parametrize(

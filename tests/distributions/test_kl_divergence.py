@@ -6,13 +6,7 @@ import lineax as lx
 import pytest
 
 import gaussx
-
-
-def _make_psd_op(key, n):
-    """Create a random PSD operator."""
-    M = jax.random.normal(key, (n, n))
-    mat = M @ M.T + jnp.eye(n)
-    return lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+from gaussx._testing import random_pd_operator
 
 
 class TestDistKLDivergence:
@@ -22,7 +16,7 @@ class TestDistKLDivergence:
         n = 4
         key = jax.random.PRNGKey(0)
         mu = jax.random.normal(key, (n,))
-        cov = _make_psd_op(jax.random.PRNGKey(1), n)
+        cov = random_pd_operator(jax.random.PRNGKey(1), n, jitter=1.0)
         kl = gaussx.dist_kl_divergence(mu, cov, mu, cov)
         assert jnp.allclose(kl, 0.0, atol=1e-4)
 
@@ -33,8 +27,8 @@ class TestDistKLDivergence:
         k1, k2, k3, k4 = jax.random.split(jax.random.PRNGKey(0), 4)
         mu_p = jax.random.normal(k1, (n,))
         mu_q = jax.random.normal(k2, (n,))
-        cov_p = _make_psd_op(k3, n)
-        cov_q = _make_psd_op(k4, n)
+        cov_p = random_pd_operator(k3, n, jitter=1.0)
+        cov_q = random_pd_operator(k4, n, jitter=1.0)
         kl = gaussx.dist_kl_divergence(mu_p, cov_p, mu_q, cov_q)
         assert kl >= -1e-6
 
@@ -73,8 +67,8 @@ class TestDistKLDivergence:
         k1, k2, k3, k4 = jax.random.split(jax.random.PRNGKey(42), 4)
         mu_p = jax.random.normal(k1, (n,))
         mu_q = jax.random.normal(k2, (n,))
-        cov_p = _make_psd_op(k3, n)
-        cov_q = _make_psd_op(k4, n)
+        cov_p = random_pd_operator(k3, n, jitter=1.0)
+        cov_q = random_pd_operator(k4, n, jitter=1.0)
         kl_pq = gaussx.dist_kl_divergence(mu_p, cov_p, mu_q, cov_q)
         kl_qp = gaussx.dist_kl_divergence(mu_q, cov_q, mu_p, cov_p)
         assert not jnp.allclose(kl_pq, kl_qp, atol=1e-3)
@@ -104,7 +98,7 @@ class TestKLStandardNormalConsistency:
         """kl_standard_normal matches dist_kl_divergence for dense covariance."""
         n = 3
         m = jax.random.normal(jax.random.PRNGKey(42), (n,))
-        S_op = _make_psd_op(jax.random.PRNGKey(43), n)
+        S_op = random_pd_operator(jax.random.PRNGKey(43), n, jitter=1.0)
 
         result = gaussx.kl_standard_normal(m, S_op)
 
