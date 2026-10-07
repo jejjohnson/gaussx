@@ -12,8 +12,9 @@ work is strictly larger than `gaussx.kalman_filter`'s ``O(T)``
 The element math is the covariance-form combinators from §III.A / §III.B
 of the paper. ``psd_project=True`` projects the returned covariances onto
 the PSD cone -- a safety net for ill-conditioned float32 chains, not a
-square-root filter: the scan itself still runs in covariance form. A
-factor-propagating combinator is tracked in #454.
+square-root filter: the scan itself still runs in covariance form.
+``square_root=True`` runs the factor-propagating combinator of Yaghoobi
+et al. (2022) instead (`gaussx._ssm._parallel_kalman_factor`, gh-454).
 """
 
 from __future__ import annotations
@@ -185,6 +186,7 @@ def parallel_kalman_filter(
     woodbury_innovation: bool = False,
     form: str = "covariance",
     psd_project: bool = False,
+    square_root: bool = False,
 ) -> FilterState:
     """Parallel Kalman filter via `jax.lax.associative_scan`.
 
@@ -234,12 +236,27 @@ def parallel_kalman_filter(
             guarantees PSD outputs, which float32 chains with very small
             observation noise can otherwise lose (the covariance form can
             return an indefinite covariance and a NaN log-likelihood
-            there). Gradients are those of the unprojected path. gaussx has
-            no square-root (PSD-by-construction) filter yet, sequential or
-            parallel; see #454.
+            there). Gradients are those of the unprojected path. For
+            covariances that are PSD by construction use ``square_root``.
+        square_root: Run the square-root (factor-propagating) filter of
+            Yaghoobi, Corenflos, Hassan & Särkkä (2022, §III). The scan
+            carries ``(A, b, U, η, Z)`` with ``C = U Uᵀ`` and ``J = Z Zᵀ``;
+            every element and every combination is built from QR
+            decompositions (``tria``) of stacked factors, so no covariance
+            is formed inside the scan and the returned covariances are Gram
+            matrices ``U Uᵀ``, PSD by construction. ``Q``, ``R`` and
+            ``init_cov`` are factored once by Cholesky after adding
+            ``4 n ε max diag`` to their diagonals (``ε`` the dtype's
+            epsilon), the size of their own rounding error, so a covariance
+            that is singular or indefinite only by rounding still factors.
+            The factors are the differentiated path; there is no projection
+            and no ``stop_gradient``. Supports both mask ranks. Not
+            combinable with ``psd_project`` or ``woodbury_innovation``.
 
     Raises:
-        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
+        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
+            ``square_root`` is combined with ``psd_project`` or
+            ``woodbury_innovation``.
 
     Returns:
         `FilterState` with filtered / predicted means and covs
@@ -261,6 +278,26 @@ def parallel_kalman_filter(
         psd_project = True
     elif form != "covariance":
         raise ValueError("form must be 'covariance' or 'sqrt'.")
+    if square_root:
+        if psd_project or woodbury_innovation:
+            raise ValueError(
+                "square_root=True cannot be combined with psd_project=True "
+                "(or form='sqrt') or woodbury_innovation=True."
+            )
+        from gaussx._ssm._parallel_kalman_factor import (
+            parallel_kalman_filter_factor,
+        )
+
+        return parallel_kalman_filter_factor(
+            transition,
+            obs_model,
+            process_noise,
+            obs_noise,
+            observations,
+            init_mean,
+            init_cov,
+            mask=mask,
+        )
     if psd_project:
         # lazy import, cycle: _ssm._parallel_kalman_sqrt -> _ssm._parallel_kalman
         from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt

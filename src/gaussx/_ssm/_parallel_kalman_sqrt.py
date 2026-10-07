@@ -2,7 +2,8 @@
 
 Not a square-root filter: the filter's associative scan runs the
 covariance-form combinator and projects its outputs onto the PSD cone
-(gh-306). A factor-propagating combinator is tracked in #454.
+(gh-306). The factor-propagating combinator is
+`gaussx._ssm._parallel_kalman_factor` (``square_root=True``, gh-454).
 """
 
 from __future__ import annotations
