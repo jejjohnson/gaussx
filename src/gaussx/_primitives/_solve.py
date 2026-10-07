@@ -33,6 +33,7 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_solve,
 )
+from gaussx._primitives._cholesky import warn_dense_fallback
 from gaussx._primitives._inv import InverseOperator
 
 
@@ -307,8 +308,18 @@ def _solve_sum_of_kroneckers(
     """
     x = _sum_of_kroneckers_solve(operator, vector)
     if x is None:
+        if solver is None:
+            _warn_sum_of_kroneckers_solve()
         return _solve_fallback(operator, vector, solver)
     return x
+
+
+def _warn_sum_of_kroneckers_solve() -> None:
+    warn_dense_fallback(
+        "solve(SumOfKroneckers) has no closed form here (three or more "
+        "terms, or no positive-definite anchor) and materialises the "
+        "operator; pass solver=lineax.CG(...) for a matrix-free solve."
+    )
 
 
 def _solve_kronecker_sum(
@@ -338,6 +349,13 @@ def _solve_kronecker_sum(
     if diagonalised is not None:
         return _solve_diagonalised(diagonalised, vector)
     if not (lx.is_symmetric(operator.A) and lx.is_symmetric(operator.B)):
+        if solver is None:
+            warn_dense_fallback(
+                "solve(KroneckerSum) with factors not tagged symmetric "
+                "materialises the operator. Tag both factors with "
+                "lineax.symmetric_tag, or wrap them as DiagonalisedOperator "
+                "(e.g. DiagonalisedOperator.from_eigen_factorization)."
+            )
         return _solve_fallback(operator, vector, solver)
 
     return _eigen_solve_kronecker_sum(operator, vector)
@@ -478,6 +496,8 @@ def _solve_tagged(
         x = _sum_of_kroneckers_solve(operator.operator, vector)
         if x is not None:
             return x
+        if isinstance(operator.operator, SumOfKroneckers) and solver is None:
+            _warn_sum_of_kroneckers_solve()
     structured = (
         lx.IdentityLinearOperator,
         lx.DiagonalLinearOperator,

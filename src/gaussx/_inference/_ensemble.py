@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
 
 import jax
@@ -20,7 +19,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._lazy_algebra import ScaledOperator
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sum_kronecker import SumOfKroneckers
-from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
+from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -438,15 +437,13 @@ def _noise_factor(
     # materialises R regardless, drawing the perturbations elsewhere saves
     # nothing.
     if isinstance(obs_noise, SumOfKroneckers) and not allow_dense:
-        warnings.warn(
+        warn_dense_fallback(
             "enkf_analysis materialises a SumOfKroneckers obs_noise to draw "
             "exact perturbations. For a matrix-free alternative, sample "
             "eps ~ N(0, R) yourself -- sumkronecker_sample or "
             "sqrt(obs_noise, lanczos_order=...) -- and pass them as "
             "perturbed_obs=observation + eps. Both are approximate, so that "
-            "is an opt-in, not the default.",
-            DenseFallbackWarning,
-            stacklevel=2,
+            "is an opt-in, not the default."
         )
     return lx.MatrixLinearOperator(dense_symmetric_sqrt(obs_noise.as_matrix()))
 
