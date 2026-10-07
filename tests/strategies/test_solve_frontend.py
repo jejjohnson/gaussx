@@ -5,12 +5,16 @@ Covers ``as_linear_operator`` and ``linear_solve``.
 
 from __future__ import annotations
 
+import einx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import pytest
 
 from gaussx import as_linear_operator, linear_solve
+from gaussx._einx import einsum
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._strategies import CGSolver, MINRESSolver
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -154,3 +158,103 @@ def test_dispatch_solve_wraps_a_lineax_solver():
     A = jnp.array([[2.0, 0.0], [0.0, 4.0]])
     x = dispatch_solve(lx.MatrixLinearOperator(A), jnp.array([2.0, 4.0]), lx.LU())
     assert tree_allclose(x, jnp.ones(2))
+
+
+# -- Default solver and preconditioner attachment (gh-390) ------------------
+
+
+def test_default_solver_for_a_small_psd_matrix_is_auto():
+    from gaussx import AutoSolver
+    from gaussx._solve_frontend import _default_solver
+
+    A = jnp.array([[4.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 2.0]])
+    b = jnp.array([1.0, 2.0, 3.0])
+    op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
+    assert isinstance(_default_solver(op), AutoSolver)
+    # AutoSolver picks a direct solve at n = 3: exact, not CG's 1e-5.
+    assert tree_allclose(linear_solve(op, b), jnp.linalg.solve(A, b), rtol=1e-12)
+
+
+def test_negative_definite_diagonal_is_solved_structurally():
+    # _negate keeps -A a NegLinearOperator, so a diagonal stays diagonal.
+    from gaussx import AutoSolver, DenseSolver
+    from gaussx._solve_frontend import _negate
+
+    d = jnp.array([1.0, 2.0, 4.0])
+    op = lx.TaggedLinearOperator(
+        lx.DiagonalLinearOperator(-d),
+        (lx.symmetric_tag, lx.negative_semidefinite_tag),
+    )
+    b = jnp.array([1.0, 1.0, 1.0])
+    assert isinstance(AutoSolver()._get_strategy(_negate(op)), DenseSolver)
+    assert tree_allclose(linear_solve(op, b), -b / d, rtol=1e-12)
+
+
+def _kappa_1e3_system(n=60):
+    q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (n, n)))
+    scale = jnp.logspace(0, 3, n)
+    # Badly scaled on the diagonal so that Jacobi helps.
+    A = einsum(q * scale, q, "i k, j k -> i j")
+    D = jnp.logspace(0, 1.5, n)
+    A = einx.multiply("i j, i, j -> i j", A, D, D)
+    return symmetrize(A), jr.normal(jr.key(1), (n,))
+
+
+def _counting(A, count):
+    def mv(v):
+        jax.debug.callback(lambda: count.__setitem__(0, count[0] + 1))
+        return A @ v
+
+    return lx.FunctionLinearOperator(
+        mv, jax.ShapeDtypeStruct((A.shape[0],), A.dtype), lx.positive_semidefinite_tag
+    )
+
+
+@pytest.mark.parametrize("wrapper", ["composed", "auto"])
+def test_preconditioner_reaches_the_cg_of_composed_and_auto(wrapper):
+    from gaussx import (
+        AutoSolver,
+        ComposedSolver,
+        JacobiPreconditioner,
+        SLQLogdet,
+    )
+
+    A, b = _kappa_1e3_system()
+    pre = JacobiPreconditioner(diagonal=jnp.diag(A))
+    if wrapper == "composed":
+        solver = ComposedSolver(CGSolver(rtol=1e-8, atol=1e-8), SLQLogdet())
+    else:
+        solver = AutoSolver(size_threshold=10)
+
+    def matvecs(preconditioner):
+        count = [0]
+        x = linear_solve(
+            _counting(A, count), b, solver=solver, preconditioner=preconditioner
+        )
+        jax.effects_barrier()
+        return count[0], x
+
+    plain, _ = matvecs(None)
+    preconditioned, x = matvecs(pre)
+    assert preconditioned < plain
+    rtol = 1e-4 if wrapper == "auto" else 1e-6
+    assert tree_allclose(A @ x, b, rtol=rtol, atol=rtol * float(jnp.max(jnp.abs(b))))
+
+
+@pytest.mark.parametrize("name", ["preconditioned_cg", "bbmm", "minres"])
+def test_preconditioner_on_other_strategies_raises_clearly(name):
+    from gaussx import BBMMSolver, JacobiPreconditioner, PreconditionedCGSolver
+
+    solver = {
+        "preconditioned_cg": PreconditionedCGSolver(),
+        "bbmm": BBMMSolver(),
+        "minres": MINRESSolver(),
+    }[name]
+    op = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
+    match = (
+        "its own preconditioner" if name == "preconditioned_cg" else "not implemented"
+    )
+    with pytest.raises(ValueError, match=match):
+        linear_solve(
+            op, jnp.ones(3), solver=solver, preconditioner=JacobiPreconditioner()
+        )
