@@ -387,7 +387,7 @@ flowchart TB
         D["Inference and ensembles<br/><small>_inference/</small>"]
     end
 
-    A -->|"conditioning · ELBO · whitening"| A1["base_conditional · collapsed_elbo<br/>unwhiten · love_variance · oilmm_project"]
+    A -->|"conditioning · ELBO · whitening"| A1["sparse_conditional · collapsed_elbo<br/>unwhiten · love_variance · oilmm_project"]
     B -->|"filtering · smoothing"| B1["kalman_filter · rts_smoother<br/>parallel_* · spingp_* · cvi_update_sites"]
     C -->|"expectations under a Gaussian"| C1["GaussHermite · Unscented · Taylor · MC<br/>ep_tilted_moments · uncertain_gp_predict"]
     D -->|"posterior updates"| D1["blr_full_update · damped_natural_update<br/>ensemble_kalman_gain · gaspari_cohn"]

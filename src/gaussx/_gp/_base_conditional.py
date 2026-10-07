@@ -1,16 +1,137 @@
-"""Gaussian conditional via Schur complement (base_conditional)."""
+"""Sparse-GP conditional via Schur complement (`sparse_conditional`)."""
 
 from __future__ import annotations
 
-import jax
+import einx
 import jax.numpy as jnp
-import jax.scipy.linalg as jsla
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._einx import rearrange, repeat
+from gaussx._deprecation import warn_deprecated
+from gaussx._einx import einsum, rearrange, reduce, repeat
+from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
 from gaussx._strategies._base import AbstractSolverStrategy
+
+
+def _as_psd_operator(
+    K: Float[Array, "M M"] | lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator:
+    """Wrap a dense array as a PSD operator; pass operators through."""
+    if isinstance(K, lx.AbstractLinearOperator):
+        return K
+    return lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+
+
+def sparse_conditional(
+    K_zz: Float[Array, "M M"] | lx.AbstractLinearOperator,
+    K_xz: Float[Array, "N M"],
+    K_xx: Float[Array, "N N"] | Float[Array, " N"],
+    q_mu: Float[Array, "M R"] | Float[Array, " M"],
+    *,
+    q_sqrt: Float[Array, "R M M"]
+    | Float[Array, "M R"]
+    | Float[Array, "M M"]
+    | Float[Array, " M"]
+    | None = None,
+    white: bool = False,
+) -> tuple[Float[Array, "N R"], Float[Array, ...]]:
+    r"""Sparse-GP conditional ``q(f_x) = \int p(f_x | u) q(u) du``.
+
+    Follows the `gaussx._gp` sparse-GP convention: inducing covariance
+    ``K_zz`` first (array or operator), cross-covariance ``K_xz`` with
+    shape ``(N, M)`` (data × inducing), prior ``K_xx`` at the evaluation
+    points, variational ``q(u) = N(q_mu, q_sqrt q_sqrtᵀ)``.
+
+    With ``L = chol(K_zz)`` and ``A = L^{-1} K_xz^\top`` (shape ``(M, N)``),
+
+    $$
+    \begin{aligned}
+    \mu &= A^\top L^{-1} q_\mu
+        \;(= K_{xz} K_{zz}^{-1} q_\mu), \qquad
+        \mu = A^\top q_\mu \text{ if white}, \\
+    \Sigma_r &= K_{xx} - A^\top A + W_r^\top W_r, \qquad
+    W_r = S_r^\top P, \quad
+    P = \begin{cases} A & \text{white} \\ L^{-\top} A & \text{otherwise}
+        \end{cases},
+    \end{aligned}
+    $$
+
+    where ``S_r`` is the ``r``-th ``q_sqrt`` factor (``diag(q_sqrt[:, r])``
+    for the diagonal layout). Only the diagonal of ``Σ_r`` is formed when
+    ``K_xx`` is a vector. ``K_zz`` is factorised with `gaussx.cholesky`
+    and every solve with its factor is a structured triangular solve, so a
+    `Kronecker` or `BlockDiag` ``K_zz`` is never densified.
+
+    Args:
+        K_zz: Prior covariance at the inducing points, ``(M, M)`` array or
+            PSD operator.
+        K_xz: Cross-covariance ``k(X, Z)``, shape ``(N, M)``.
+        K_xx: Prior covariance at ``X``: full ``(N, N)`` or diagonal ``(N,)``.
+        q_mu: Variational mean ``(M, R)``, or ``(M,)`` for a single output
+            (the outputs then drop their trailing ``R`` axis).
+        q_sqrt: Optional variational root. Full ``(R, M, M)`` (lower
+            triangular) or diagonal ``(M, R)``; with a 1-D ``q_mu`` also
+            ``(M, M)`` or ``(M,)``.
+        white: If ``True``, ``q_mu`` and ``q_sqrt`` are in whitened space
+            (prior ``N(0, I)``).
+
+    Returns:
+        ``(mean, var)``: ``mean`` ``(N, R)``; ``var`` ``(N, N, R)`` (full
+        ``K_xx``) or ``(N, R)`` (diagonal); no trailing ``R`` for a 1-D
+        ``q_mu``. Diagonal variances are clipped at 0 against round-off; a
+        full covariance is returned unclipped.
+
+    Raises:
+        ValueError: If ``q_mu`` / ``q_sqrt`` do not match ``M`` and ``R``.
+    """
+    K_zz_op = _as_psd_operator(K_zz)
+    M = K_zz_op.in_size()
+    single_output = q_mu.ndim == 1
+    f, q_sqrt = _check_shapes(M, q_mu, q_sqrt)
+    R = f.shape[1]
+
+    L = cholesky(K_zz_op)  # lower factor, structured where possible
+    A = solve_columns(L, rearrange(K_xz, "n m -> m n"))  # (M, N)
+
+    if white:
+        mean = einsum(A, f, "m n, m r -> n r")
+        P = A
+    else:
+        mean = einsum(A, solve_columns(L, f), "m n, m r -> n r")
+        P = solve_columns(L.transpose(), A)  # L^{-T} A = K_zz^{-1} K_zx
+
+    full_cov = K_xx.ndim == 2
+    if full_cov:
+        var_base = K_xx - einsum(A, A, "m i, m j -> i j")  # (N, N)
+    else:
+        var_base = K_xx - reduce(A**2, "m n -> n", "sum")  # (N,)
+
+    if q_sqrt is None:
+        if full_cov:
+            var = repeat(var_base, "i j -> i j r", r=R)
+        else:
+            var = repeat(var_base, "n -> n r", r=R)
+    else:
+        if q_sqrt.ndim == 2:  # (M, R) diagonal roots
+            W = einx.multiply("m r, m n -> r m n", q_sqrt, P)
+        else:  # (R, M, M) lower-triangular roots: W_r = S_rᵀ P
+            W = einsum(q_sqrt, P, "r m k, m n -> r k n")
+        if full_cov:
+            var = einx.add(
+                "i j, i j r -> i j r", var_base, einsum(W, W, "r k i, r k j -> i j r")
+            )
+        else:
+            var = einx.add(
+                "n, n r -> n r", var_base, reduce(W**2, "r k n -> n r", "sum")
+            )
+
+    if not full_cov:
+        # K_xx - diag(Q_xx) can round below zero (gh-363).
+        var = jnp.maximum(var, 0.0)
+    if single_output:
+        return mean[:, 0], var[..., 0]
+    return mean, var
 
 
 def base_conditional(
@@ -27,234 +148,51 @@ def base_conditional(
     white: bool = False,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "N R"], Float[Array, ...]]:
-    r"""Gaussian conditional distribution via Schur complement.
+    r"""Deprecated: use `sparse_conditional` (note ``K_xz = K_mn.T``).
 
-    Computes the conditional distribution ``q(f_* | u)`` given:
-
-    - Prior covariance ``K_mm`` at inducing locations
-    - Cross-covariance ``K_mn`` between inducing and test locations
-    - Prior (co)variance ``K_nn`` at test locations (full or diagonal)
-    - Inducing function values ``f`` (or whitened values if ``white=True``)
-    - Optional variational posterior ``q(u) = N(f, q_sqrt q_sqrt^T)``
-
-    The conditional mean is:
-
-        mu = K_nm K_mm^{-1} f   (or  K_nm L_mm^{-T} f  if white)
-
-    The conditional covariance is:
-
-        Sigma = K_nn - K_nm K_mm^{-1} K_mn + K_nm K_mm^{-1} S K_mm^{-1} K_mn
-
-    where ``S = q_sqrt @ q_sqrt^T`` is the variational covariance.
+    ``base_conditional(K_mm, K_mn, K_nn, f, q_sqrt=..., white=...)`` equals
+    ``sparse_conditional(K_mm, K_mn.T, K_nn, f, q_sqrt=..., white=...)``.
+    It takes the cross-covariance as ``(M, N)`` (inducing × data), the
+    transpose of every other sparse-GP helper; for ``M == N`` a transposed
+    argument is not detectable, so the convention is changed under a new
+    name rather than in place. ``solver`` was never used. Removed in the
+    next minor release.
 
     Args:
         K_mm: Prior covariance at inducing points, shape ``(M, M)``.
         K_mn: Cross-covariance, shape ``(M, N)``.
-        K_nn: Test-point covariance.  Full ``(N, N)`` or diagonal ``(N,)``.
-        f: Inducing function values, shape ``(M, R)``, or ``(M,)`` for a
-            single output (the outputs then drop their trailing ``R`` axis).
-        q_sqrt: Optional variational Cholesky factor.
-            Full: ``(R, M, M)``, diagonal: ``(M, R)``, or ``None``. With a
-            1-D ``f`` also full ``(M, M)`` or diagonal ``(M,)``.
-        white: If ``True``, ``f`` and ``q_sqrt`` are in whitened space
-            (prior is ``N(0, I)``).
-        solver: Optional solver strategy for structured linear algebra.
-            When ``None``, falls back to structural dispatch. This parameter
-            is accepted for API consistency but is not currently used by the
-            Cholesky decomposition in this function.
+        K_nn: Test-point covariance, full ``(N, N)`` or diagonal ``(N,)``.
+        f: Inducing function values, shape ``(M, R)`` or ``(M,)``.
+        q_sqrt: Optional variational root, as in `sparse_conditional`.
+        white: Whitened parameterisation, as in `sparse_conditional`.
+        solver: Ignored.
 
     Returns:
-        ``(mean, var)`` where ``mean`` has shape ``(N, R)`` and ``var``
-        has shape ``(N, N, R)`` (full K_nn) or ``(N, R)`` (diagonal K_nn);
-        without the trailing ``R`` for a 1-D ``f``. Diagonal variances are
-        clipped at 0 against round-off, as in `whitened_svgp_predict`; a
-        full covariance is returned unclipped and may be slightly
-        indefinite (add jitter to ``K_mm``, e.g. with `add_jitter`).
-
-    Raises:
-        ValueError: If ``f`` is not ``(M,)`` / ``(M, R)``, or ``q_sqrt``
-            does not match ``M`` and ``R``.
+        ``(mean, var)`` as in `sparse_conditional`.
     """
-    del solver  # cholesky does not accept a solver; parameter reserved for future use
-    single_output = f.ndim == 1
-    f, q_sqrt = _check_shapes(K_mm, f, q_sqrt)
-    R = f.shape[1]
-
-    # Cholesky of prior
-    L_mm = cholesky(  # (M, M)
-        lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag)
-    ).as_matrix()
-
-    # A = L_mm^{-1} K_mn  ->  (M, N)
-    A = jsla.solve_triangular(L_mm, K_mn, lower=True)
-
-    # --- Conditional mean ---
-    if white:
-        mean = A.T @ f  # (N, R)
-    else:
-        alpha = jsla.solve_triangular(L_mm, f, lower=True)  # (M, R)
-        mean = A.T @ alpha  # (N, R)
-
-    # --- Conditional variance ---
-    is_diag_knn = K_nn.ndim == 1
-
-    # Prior variance reduction: K_nn - A^T A
-    if is_diag_knn:
-        prior_reduction = jnp.sum(A**2, axis=0)  # (N,)
-        var_base = K_nn - prior_reduction  # (N,)
-    else:
-        var_base = K_nn - A.T @ A  # (N, N)
-
-    if q_sqrt is not None:
-        is_diag_q = q_sqrt.ndim == 2
-
-        if is_diag_q:
-            # q_sqrt: (M, R) — diagonal standard deviations
-            # For non-white: precompute B = L_mm^{-1}, so
-            #   var_adj_r = diag(A^T diag(B q_sqrt_r)^T diag(B q_sqrt_r) A)
-            #             = diag((q_sqrt_r * B)^T A)^2 summed over M
-            # For white: A_scaled = q_sqrt_r * A elementwise
-
-            if white:
-
-                def _var_adj_diag_white(q_r: Float[Array, " M"]) -> Float[Array, " N"]:
-                    A_scaled = q_r[:, None] * A  # (M, N)
-                    return jnp.sum(A_scaled**2, axis=0)
-
-                var_adj = jax.vmap(_var_adj_diag_white, in_axes=1, out_axes=1)(
-                    q_sqrt
-                )  # (N, R)
-            else:
-                # B = L_mm^{-T} (solve once)
-                # Then for each r: scaled = q_sqrt_r * B^T @ A
-                # But simpler: A_scaled_r = (B * q_sqrt_r[None, :]) @ ... no.
-                # Actually: var_adj = diag(A^T (L_mm^{-1} diag(s_r))^T
-                #                         (L_mm^{-1} diag(s_r)) A)
-                # Let C = L_mm^{-1}  (M, M), then
-                #   A_scaled = (C * s_r[None,:])^T @ ... nah.
-                # Simplest efficient: C = L_mm^{-1} (precompute once)
-                # Then for each r: D_r = C * s_r  (broadcast M,M * M -> M,M)
-                #   var_adj_r = sum((D_r @ ... wait, we need D_r.T @ A
-                # Let me just do: for each r, solve L_mm @ x = diag(s_r),
-                # but diag(s_r) is diagonal so L_mm^{-1} diag(s_r) = C * s_r
-                # where C[:,j] * s_r[j].  Then (C * s_r).T @ A = ...
-                # Let's just precompute C once:
-                C = jsla.solve_triangular(L_mm, jnp.eye(L_mm.shape[0]), lower=True)
-
-                def _var_adj_diag_nonwhite(
-                    q_r: Float[Array, " M"],
-                ) -> Float[Array, " N"]:
-                    # C_scaled[i,j] = C[i,j] * q_r[j]
-                    C_scaled = C * q_r[None, :]  # (M, M)
-                    A_scaled = C_scaled.T @ A  # (M, N)
-                    return jnp.sum(A_scaled**2, axis=0)
-
-                var_adj = jax.vmap(_var_adj_diag_nonwhite, in_axes=1, out_axes=1)(
-                    q_sqrt
-                )  # (N, R)
-
-            if is_diag_knn:
-                var = var_base[:, None] + var_adj  # (N, R)
-            else:
-                # Full K_nn: need full covariance adjustment per r
-                # Recompute with full matrices
-                if white:
-
-                    def _var_full_diag_white(
-                        q_r: Float[Array, " M"],
-                    ) -> Float[Array, "N N"]:
-                        A_scaled = q_r[:, None] * A
-                        return var_base + A_scaled.T @ A_scaled
-
-                    var = jax.vmap(_var_full_diag_white, in_axes=1, out_axes=-1)(
-                        q_sqrt
-                    )  # (N, N, R)
-                else:
-
-                    def _var_full_diag_nonwhite(
-                        q_r: Float[Array, " M"],
-                    ) -> Float[Array, "N N"]:
-                        C_scaled = C * q_r[None, :]
-                        A_scaled = C_scaled.T @ A
-                        return var_base + A_scaled.T @ A_scaled
-
-                    var = jax.vmap(_var_full_diag_nonwhite, in_axes=1, out_axes=-1)(
-                        q_sqrt
-                    )  # (N, N, R)
-        else:
-            # q_sqrt: (R, M, M) — full Cholesky factors
-            if white:
-
-                def _var_adj_full_white(
-                    L_q: Float[Array, "M M"],
-                ) -> Float[Array, " N"]:
-                    A_scaled = L_q.T @ A  # (M, N)
-                    return jnp.sum(A_scaled**2, axis=0)
-
-                def _var_full_full_white(
-                    L_q: Float[Array, "M M"],
-                ) -> Float[Array, "N N"]:
-                    A_scaled = L_q.T @ A
-                    return var_base + A_scaled.T @ A_scaled
-
-            else:
-
-                def _var_adj_full_nonwhite(
-                    L_q: Float[Array, "M M"],
-                ) -> Float[Array, " N"]:
-                    L_q_proj = jsla.solve_triangular(L_mm, L_q, lower=True)
-                    A_scaled = L_q_proj.T @ A
-                    return jnp.sum(A_scaled**2, axis=0)
-
-                def _var_full_full_nonwhite(
-                    L_q: Float[Array, "M M"],
-                ) -> Float[Array, "N N"]:
-                    L_q_proj = jsla.solve_triangular(L_mm, L_q, lower=True)
-                    A_scaled = L_q_proj.T @ A
-                    return var_base + A_scaled.T @ A_scaled
-
-            if is_diag_knn:
-                if white:
-                    var_adj = jax.vmap(_var_adj_full_white)(q_sqrt)  # (R, N)
-                else:
-                    var_adj = jax.vmap(_var_adj_full_nonwhite)(q_sqrt)  # (R, N)
-                var = var_base[None, :] + var_adj  # (R, N)
-                var = var.T  # (N, R)
-            else:
-                if white:
-                    var = jax.vmap(_var_full_full_white)(q_sqrt)  # (R, N, N)
-                else:
-                    var = jax.vmap(_var_full_full_nonwhite)(q_sqrt)  # (R, N, N)
-                # Transpose from (R, N, N) to (N, N, R)
-                var = rearrange(var, "R N1 N2 -> N1 N2 R")
-    else:
-        # No variational posterior — just prior conditional
-        if is_diag_knn:
-            var = repeat(var_base, "N -> N R", R=R)
-        else:
-            var = repeat(var_base, "N1 N2 -> N1 N2 R", R=R)
-
-    if is_diag_knn:
-        # K_nn - diag(Q_nn) can round below zero (gh-363).
-        var = jnp.maximum(var, 0.0)
-    if single_output:
-        return mean[:, 0], var[..., 0]
-    return mean, var
+    del solver
+    warn_deprecated(
+        "base_conditional(K_mm, K_mn, ...) is deprecated and will be removed in "
+        "the next minor release; use sparse_conditional(K_zz, K_xz, K_xx, q_mu, "
+        "...) with K_xz = K_mn.T (shape (N, M))."
+    )
+    return sparse_conditional(
+        K_mm, rearrange(K_mn, "m n -> n m"), K_nn, f, q_sqrt=q_sqrt, white=white
+    )
 
 
 def _check_shapes(
-    K_mm: Float[Array, "M M"],
+    M: int,
     f: Float[Array, "M R"] | Float[Array, " M"],
     q_sqrt: Array | None,
 ) -> tuple[Float[Array, "M R"], Array | None]:
     """Validate ``f`` / ``q_sqrt`` and promote the single-output layouts."""
-    M = K_mm.shape[0]
     if f.ndim == 1:
-        f = f[:, None]
+        f = rearrange(f, "m -> m 1")
         if q_sqrt is not None and q_sqrt.shape == (M,):
-            q_sqrt = q_sqrt[:, None]
+            q_sqrt = rearrange(q_sqrt, "m -> m 1")
         elif q_sqrt is not None and q_sqrt.shape == (M, M):
-            q_sqrt = q_sqrt[None]
+            q_sqrt = rearrange(q_sqrt, "m k -> 1 m k")
     if f.ndim != 2 or f.shape[0] != M:
         raise ValueError(f"f must have shape (M, R) or (M,) with M={M}, got {f.shape}.")
     R = f.shape[1]

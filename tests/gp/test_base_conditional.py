@@ -9,9 +9,15 @@ import jax.scipy.linalg as jsla
 import lineax as lx
 import pytest
 
-from gaussx._gp._base_conditional import base_conditional
+from gaussx._einx import rearrange
+from gaussx._gp._base_conditional import sparse_conditional
 from gaussx._gp._svgp import whitened_svgp_predict
 from gaussx._testing import random_pd_matrix, tree_allclose
+
+
+def _bc(K_mm, K_mn, K_nn, f, **kwargs):
+    """The ``(M, N)`` cross-covariance form, via `sparse_conditional` (gh-353)."""
+    return sparse_conditional(K_mm, rearrange(K_mn, "m n -> n m"), K_nn, f, **kwargs)
 
 
 def _valid_diag_model(M, N, seed):
@@ -39,7 +45,7 @@ class TestPriorConditional:
         K_mn = jr.normal(getkey(), (M, N))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
         f = jr.normal(getkey(), (M, R))
-        mean, var = base_conditional(K_mm, K_mn, K_nn_diag, f)
+        mean, var = _bc(K_mm, K_mn, K_nn_diag, f)
         assert mean.shape == (N, R)
         assert var.shape == (N, R)
 
@@ -51,7 +57,7 @@ class TestPriorConditional:
         f = jr.normal(getkey(), (M, R))
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
 
-        mean, _ = base_conditional(K_mm, K_mn, K_nn_diag, f)
+        mean, _ = _bc(K_mm, K_mn, K_nn_diag, f)
         expected = K_mn.T @ jnp.linalg.solve(K_mm, f)
         assert tree_allclose(mean, expected, rtol=1e-4)
 
@@ -66,7 +72,7 @@ class TestPriorConditional:
         K_nn_diag = jnp.diag(joint[M:, M:])
         f = jr.normal(jr.key(1), (M, 1))
 
-        _, var = base_conditional(K_mm, K_mn, K_nn_diag, f)
+        _, var = _bc(K_mm, K_mn, K_nn_diag, f)
 
         # Expected: K_nn_diag - diag(K_nm K_mm^{-1} K_mn)
         A = jnp.linalg.solve(K_mm, K_mn)  # (M, N)
@@ -83,7 +89,7 @@ class TestPriorConditional:
         K_nn = random_pd_matrix(getkey(), N)
         f = jr.normal(getkey(), (M, 1))
 
-        _, var = base_conditional(K_mm, K_mn, K_nn, f)
+        _, var = _bc(K_mm, K_mn, K_nn, f)
         assert var.shape == (N, N, 1)
 
         A = jnp.linalg.solve(K_mm, K_mn)
@@ -105,7 +111,7 @@ class TestWhitened:
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
         f = jr.normal(getkey(), (M, R))
 
-        mean, _ = base_conditional(K_mm, K_mn, K_nn_diag, f, white=True)
+        mean, _ = _bc(K_mm, K_mn, K_nn_diag, f, white=True)
         L = jnp.linalg.cholesky(K_mm)
         A = jsla.solve_triangular(L, K_mn, lower=True)
         expected = A.T @ f
@@ -124,12 +130,12 @@ class TestVariational:
         f = jr.normal(jr.key(20), (M, R))
         q_diag = jnp.abs(jr.normal(jr.key(21), (M, R))) + 0.1
 
-        mean, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
+        mean, var = _bc(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
         assert mean.shape == (N, R)
         assert var.shape == (N, R)
 
         # Verify variance is adjusted from prior conditional
-        _, var_prior = base_conditional(K_mm, K_mn, K_nn_diag, f)
+        _, var_prior = _bc(K_mm, K_mn, K_nn_diag, f)
         # Variational variance should differ from prior (unless q_sqrt=0)
         assert not jnp.allclose(var, var_prior)
 
@@ -147,7 +153,7 @@ class TestVariational:
             q_sqrt_list.append(L)
         q_sqrt = jnp.stack(q_sqrt_list, axis=0)  # (R, M, M)
 
-        mean, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_sqrt)
+        mean, var = _bc(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_sqrt)
         assert mean.shape == (N, R)
         assert var.shape == (N, R)
 
@@ -166,7 +172,7 @@ class TestVariational:
             q_sqrt_list.append(L)
         q_sqrt = jnp.stack(q_sqrt_list, axis=0)
 
-        mean, var = base_conditional(K_mm, K_mn, K_nn, f, q_sqrt=q_sqrt)
+        mean, var = _bc(K_mm, K_mn, K_nn, f, q_sqrt=q_sqrt)
         assert mean.shape == (N, R)
         assert var.shape == (N, N, R)
 
@@ -177,7 +183,7 @@ class TestVariational:
         f = jr.normal(jr.key(30), (M, R))
         q_diag = jnp.abs(jr.normal(jr.key(31), (M, R))) + 0.1
 
-        _, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
+        _, var = _bc(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
 
         Kmm_inv = jnp.linalg.inv(K_mm)
         q_cov = jnp.diag(q_diag[:, 0] ** 2)
@@ -193,7 +199,7 @@ class TestVariational:
         f = jr.normal(jr.key(40), (M, R))
         q_diag = jnp.abs(jr.normal(jr.key(41), (M, R))) + 0.1
 
-        _, var = base_conditional(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
+        _, var = _bc(K_mm, K_mn, K_nn_diag, f, q_sqrt=q_diag)
 
         Kmm_inv = jnp.linalg.inv(K_mm)
         q_cov = jnp.diag(q_diag[:, 0] ** 2)
@@ -216,7 +222,7 @@ class TestGradient:
         K_nn_diag = jnp.abs(jr.normal(getkey(), (N,))) + 0.1
 
         def loss(f):
-            mean, var = base_conditional(K_mm, K_mn, K_nn_diag, f)
+            mean, var = _bc(K_mm, K_mn, K_nn_diag, f)
             return jnp.sum(mean**2) + jnp.sum(var)
 
         f = jr.normal(getkey(), (M, 1))
@@ -255,9 +261,9 @@ def test_single_output_f_matches_two_d(white, q):
         "full": 0.1 * jnp.eye(8)[None],
     }[q]
     for knn in (K_nn, jnp.diag(K_nn)):
-        mean, var = base_conditional(K_mm, K_mn, knn, u, q_sqrt=q_1d, white=white)
-        mean2, var2 = base_conditional(
-            K_mm, K_mn, knn, u[:, None], q_sqrt=q_2d, white=white
+        mean, var = _bc(K_mm, K_mn, knn, u, q_sqrt=q_1d, white=white)
+        mean2, var2 = _bc(
+            K_mm, K_mn, knn, rearrange(u, "m -> m 1"), q_sqrt=q_2d, white=white
         )
         assert mean.shape == (50,)
         assert jnp.array_equal(mean, mean2[:, 0])
@@ -277,13 +283,13 @@ def test_shape_validation(f_shape, q_shape, match):
     K_mm, K_mn, K_nn = _ill_conditioned_float32()
     q_sqrt = None if q_shape is None else jnp.ones(q_shape)
     with pytest.raises(ValueError, match=match):
-        base_conditional(K_mm, K_mn, K_nn, jnp.zeros(f_shape), q_sqrt=q_sqrt)
+        _bc(K_mm, K_mn, K_nn, jnp.zeros(f_shape), q_sqrt=q_sqrt)
 
 
 def test_diagonal_variance_clipped_like_whitened_svgp_predict():
     K_mm, K_mn, K_nn = _ill_conditioned_float32()
     u = jnp.zeros(8, dtype=jnp.float32)
-    _, var_bc = base_conditional(K_mm, K_mn, K_nn, u, white=True)
+    _, var_bc = _bc(K_mm, K_mn, K_nn, u, white=True)
     _, var_sv = whitened_svgp_predict(
         lx.MatrixLinearOperator(K_mm, lx.positive_semidefinite_tag),
         K_mn.T,
@@ -299,9 +305,84 @@ def test_diagonal_variance_clipped_like_whitened_svgp_predict():
 def test_full_covariance_is_not_clipped():
     K_mm, K_mn, K_nn = _ill_conditioned_float32()
     u = jnp.zeros((8, 1), dtype=jnp.float32)
-    _, var = base_conditional(K_mm, K_mn, jnp.diag(K_nn), u, white=True)
+    _, var = _bc(K_mm, K_mn, jnp.diag(K_nn), u, white=True)
     L = jnp.linalg.cholesky(K_mm)
     A = jsla.solve_triangular(L, K_mn, lower=True)
     assert jnp.allclose(var[..., 0], jnp.diag(K_nn) - A.T @ A, atol=1e-6)
     # The same round-off the diagonal branch clips is left in place here.
     assert jnp.min(jnp.diagonal(var[..., 0])) < 0.0
+
+
+# ---------------------------------------------------------------------------
+# gh-353: sparse_conditional convention, base_conditional deprecation
+# ---------------------------------------------------------------------------
+
+
+def _q_layouts(M, R):
+    k1, k2 = jr.split(jr.key(7))
+    q_full = jnp.tril(jr.normal(k1, (R, M, M)), -1) + jnp.eye(M)
+    q_diag = jnp.abs(jr.normal(k2, (M, R))) + 0.1
+    return {"none": None, "diag": q_diag, "full": q_full}
+
+
+@pytest.mark.parametrize("q", ["none", "diag", "full"])
+@pytest.mark.parametrize("white", [False, True])
+@pytest.mark.parametrize("full_cov", [False, True])
+def test_base_conditional_is_deprecated_alias(q, white, full_cov):
+    from gaussx import base_conditional
+
+    M, N, R = 4, 6, 2
+    joint = random_pd_matrix(jr.key(0), M + N)
+    K_mm, K_mn, K_nn = joint[:M, :M], joint[:M, M:], joint[M:, M:]
+    K_nn = K_nn if full_cov else jnp.diag(K_nn)
+    f = jr.normal(jr.key(1), (M, R))
+    q_sqrt = _q_layouts(M, R)[q]
+    with pytest.warns(DeprecationWarning, match="sparse_conditional"):
+        old = base_conditional(K_mm, K_mn, K_nn, f, q_sqrt=q_sqrt, white=white)
+    new = sparse_conditional(
+        K_mm, rearrange(K_mn, "m n -> n m"), K_nn, f, q_sqrt=q_sqrt, white=white
+    )
+    assert jnp.array_equal(old[0], new[0])
+    assert jnp.array_equal(old[1], new[1])
+
+
+def _count_cholesky(fn, *args, shape):
+    lines = [
+        ln for ln in str(jax.make_jaxpr(fn)(*args)).splitlines() if "= cholesky" in ln
+    ]
+    return sum(f"[{shape},{shape}]" in ln for ln in lines)
+
+
+class TestStructuredInducingCovariance:
+    """A Kronecker K_zz (M = 16 = 4 x 4) is factorised per factor."""
+
+    @staticmethod
+    def _model():
+        from gaussx._testing import random_kronecker_pd
+
+        K_zz = random_kronecker_pd(jr.key(0), (4, 4), jitter=1.0)
+        K_xz = 0.3 * jr.normal(jr.key(1), (5, 16))
+        K_xx = jnp.ones(5) * 4.0
+        q_mu = jr.normal(jr.key(2), (16, 2))
+        q_sqrt = _q_layouts(16, 2)["full"]
+        return K_zz, K_xz, K_xx, q_mu, q_sqrt
+
+    @pytest.mark.parametrize("white", [False, True])
+    def test_matches_dense_and_no_16x16_cholesky(self, white):
+        K_zz, K_xz, K_xx, q_mu, q_sqrt = self._model()
+
+        def run(K):
+            return sparse_conditional(K, K_xz, K_xx, q_mu, q_sqrt=q_sqrt, white=white)
+
+        structured, dense = run(K_zz), run(K_zz.as_matrix())
+        assert tree_allclose(structured, dense, rtol=1e-10, atol=1e-10)
+        assert (
+            _count_cholesky(
+                lambda q: sparse_conditional(
+                    K_zz, K_xz, K_xx, q, q_sqrt=q_sqrt, white=white
+                ),
+                q_mu,
+                shape=16,
+            )
+            == 0
+        )

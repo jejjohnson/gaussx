@@ -75,6 +75,7 @@ from gaussx._gp import (
     predict_mean as predict_mean,
     predict_variance as predict_variance,
     rts_interpolate as rts_interpolate,
+    sparse_conditional as sparse_conditional,
     svgp_variance_adjustment as svgp_variance_adjustment,
     unwhiten as unwhiten,
     unwhiten_covariance as unwhiten_covariance,
