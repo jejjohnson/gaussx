@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
@@ -124,3 +126,36 @@ def test_filter_jit_solve(getkey):
 
     expected = jnp.linalg.solve(mat, v)
     assert tree_allclose(f(op, v), expected, rtol=1e-4)
+
+
+def test_solve_and_logdet_costs_solve_plus_logdet():
+    # gh-396: solve_and_logdet is documented as solve then logdet, with no
+    # shared matvecs, so it applies the operator to exactly as many columns
+    # as the two separately (pinned data: an RBF Gram plus noise).
+    n = 40
+    x = jnp.linspace(0.0, 8.0, n)
+    K = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2) + 0.1 * jnp.eye(n)
+    columns = [0]
+
+    def mv(v):
+        jax.debug.callback(
+            lambda v: columns.__setitem__(0, columns[0] + v.size // n), v
+        )
+        return K @ v
+
+    op = lx.FunctionLinearOperator(
+        mv, jax.ShapeDtypeStruct((n,), K.dtype), lx.positive_semidefinite_tag
+    )
+    y = jr.normal(jr.key(0), (n,), dtype=K.dtype)
+    bbmm = BBMMSolver(lanczos_iter=10, num_probes=4)
+
+    def count(f):
+        columns[0] = 0
+        jax.block_until_ready(f())
+        jax.effects_barrier()
+        return columns[0]
+
+    solve = count(lambda: bbmm.solve(op, y))
+    logdet = count(lambda: bbmm.logdet(op))
+    assert solve > 0 and logdet > 0
+    assert count(lambda: bbmm.solve_and_logdet(op, y)) == solve + logdet
