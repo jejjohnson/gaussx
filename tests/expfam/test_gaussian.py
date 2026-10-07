@@ -227,3 +227,13 @@ def test_fisher_info_is_the_precision_not_the_natural_hessian():
 
     assert jnp.allclose(fisher_info(q).as_matrix(), jnp.linalg.inv(S), rtol=1e-10)
     assert jnp.allclose(jax.hessian(A)(q.eta1), S, rtol=1e-10)
+
+
+@pytest.mark.parametrize("shape", [(4,), (2, 4), (2, 3, 4)])
+def test_sufficient_stats_any_batch_rank(shape):
+    """gh-347: *batch in the annotation means any number of batch axes."""
+    x = jr.normal(jr.key(0), shape)
+    t1, t2 = sufficient_stats(x)
+    assert jnp.array_equal(t1, x)
+    assert t2.shape == (*shape, shape[-1])
+    assert jnp.allclose(t2, x[..., :, None] * x[..., None, :])
