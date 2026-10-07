@@ -20,7 +20,7 @@ from gaussx import (
 
 # Private helpers whose own behaviour these tests check.
 from gaussx._primitives._sqrt_matmul import _ellipj, _ellipk, _shift_operator
-from gaussx._testing import random_pd_operator
+from gaussx._testing import random_pd_operator, random_spd_block_tridiag
 
 
 def _dense_power(operator: lx.AbstractLinearOperator, power: float):
@@ -474,3 +474,94 @@ def test_rejects_non_positive_quadrature_count() -> None:
     operator = random_pd_operator(jr.key(21), 5)
     with pytest.raises(ValueError, match="num_quadrature"):
         gaussx.sqrt_inv_matmul(operator, jnp.ones((5, 1)), num_quadrature=0)
+
+
+# ---------------------------------------------------------------------------
+# KroneckerSum / BlockTriDiag keep structure through the shift (gh-337)
+# ---------------------------------------------------------------------------
+
+
+def _kronecker_sum():
+    return gaussx.KroneckerSum(
+        random_pd_operator(jr.key(0), 3, jitter=3.0),
+        random_pd_operator(jr.key(1), 4, jitter=4.0),
+    )
+
+
+def _block_tridiag():
+    return random_spd_block_tridiag(jr.key(2), 4, 2)
+
+
+def test_shift_operator_keeps_structure():
+    assert (
+        type(_shift_operator(_kronecker_sum(), jnp.asarray(1.0))) is gaussx.KroneckerSum
+    )
+    shifted = _shift_operator(_block_tridiag(), jnp.asarray(1.0))
+    assert type(shifted) is gaussx.BlockTriDiag
+    assert jnp.allclose(
+        shifted.as_matrix(),
+        _block_tridiag().as_matrix() + jnp.eye(8),
+    )
+
+
+_STRUCTURED = [
+    pytest.param(gaussx.KroneckerSum, _kronecker_sum, id="kronecker_sum"),
+    pytest.param(gaussx.BlockTriDiag, _block_tridiag, id="block_tridiag"),
+]
+
+
+def _forbid_as_matrix(monkeypatch, cls):
+    def _forbidden(self):
+        raise AssertionError(f"{cls.__name__}.as_matrix called")
+
+    monkeypatch.setattr(cls, "as_matrix", _forbidden)
+
+
+@pytest.mark.parametrize(("cls", "build"), _STRUCTURED)
+def test_sqrt_inv_matmul_structured_no_materialisation(monkeypatch, cls, build):
+    """Few nodes: this checks the dispatch, the slow test below the accuracy."""
+    op = build()
+    rhs = jr.normal(jr.key(3), (op.in_size(), 2))
+    expected = _dense_power(op, -0.5) @ rhs
+    _forbid_as_matrix(monkeypatch, cls)
+    result = gaussx.sqrt_inv_matmul(
+        op, rhs, spectral_bounds=(0.05, 200.0), num_quadrature=8
+    )
+    monkeypatch.undo()
+    # 8 quadrature nodes over this spectral range: ~1e-3 relative error.
+    assert jnp.allclose(result, expected, rtol=1e-2, atol=1e-2)
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="1e-10 agreement with a dense eigh reference")
+@pytest.mark.parametrize(
+    ("cls", "build"),
+    [
+        pytest.param(gaussx.KroneckerSum, _kronecker_sum, id="kronecker_sum"),
+        pytest.param(gaussx.BlockTriDiag, _block_tridiag, id="block_tridiag"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("fn", "power"),
+    [
+        pytest.param(gaussx.sqrt_inv_matmul, -0.5, id="inv_sqrt"),
+        pytest.param(gaussx.sqrt_matmul, 0.5, id="sqrt"),
+    ],
+)
+def test_sqrt_matmul_structured_no_materialisation(monkeypatch, cls, build, fn, power):
+    op = build()
+    eigenvalues = jnp.linalg.eigvalsh(op.as_matrix())
+    bounds = (float(eigenvalues[0]) * 0.9, float(eigenvalues[-1]) * 1.1)
+    rhs = jr.normal(jr.key(3), (op.in_size(), 2))
+    expected = _dense_power(op, power) @ rhs
+    _forbid_as_matrix(monkeypatch, cls)
+    result = fn(op, rhs, spectral_bounds=bounds, num_quadrature=40)
+    monkeypatch.undo()
+    assert jnp.allclose(result, expected, rtol=1e-10, atol=1e-10)
+
+
+def test_block_tridiag_plus_foreign_operator_is_a_lineax_sum():
+    op = _block_tridiag()
+    total = op + 0.1 * lx.IdentityLinearOperator(op.in_structure())
+    assert isinstance(total, lx.AddLinearOperator)
+    assert jnp.allclose(total.as_matrix(), op.as_matrix() + 0.1 * jnp.eye(8))
