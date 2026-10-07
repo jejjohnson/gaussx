@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import re
+
 import equinox as eqx
+import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 
-from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
-from gaussx._primitives import logdet
+from gaussx._operators import BlockDiag, Kronecker, KroneckerSum, LowRankUpdate
+from gaussx._primitives import logdet, solve
 from gaussx._testing import dense_logdet, tree_allclose
 
 
@@ -63,3 +66,45 @@ def test_logdet_filter_jit(getkey):
         return logdet(op)
 
     assert tree_allclose(f(op), dense_logdet(op))
+
+
+def _kronecker_sum_factors(key, *tags):
+    ka, kb = jr.split(key)
+    A = jr.normal(ka, (3, 3)) + 3 * jnp.eye(3)
+    B = jr.normal(kb, (4, 4)) + 4 * jnp.eye(4)
+    if tags:
+        A, B = A + A.T, B + B.T
+    return lx.MatrixLinearOperator(A, tags), lx.MatrixLinearOperator(B, tags)
+
+
+def test_logdet_kronecker_sum_untagged_nonsymmetric(getkey):
+    """``eigh`` reads one triangle, so untagged factors take ``eigvals`` (gh-308)."""
+    op = KroneckerSum(*_kronecker_sum_factors(getkey()))
+    assert tree_allclose(logdet(op), dense_logdet(op))
+    # logdet and solve agree on the operator they are given.
+    v = jnp.arange(12.0)
+    assert tree_allclose(solve(op, v), jnp.linalg.solve(op.as_matrix(), v))
+
+
+def test_logdet_kronecker_sum_symmetric_keeps_eigh(getkey):
+    op = KroneckerSum(*_kronecker_sum_factors(getkey(), lx.symmetric_tag))
+    assert tree_allclose(logdet(op), dense_logdet(op))
+    jaxpr = str(jax.make_jaxpr(logdet)(op))
+    assert re.search(r"\beigh\[", jaxpr)
+    assert not re.search(r"\beig\[", jaxpr)
+
+
+def test_logdet_kronecker_sum_mixed_factors_per_factor(getkey, monkeypatch):
+    """A diagonal factor keeps its O(n) path next to a non-symmetric one."""
+    D = lx.DiagonalLinearOperator(jnp.arange(1.0, 5.0))
+    B = lx.MatrixLinearOperator(jr.normal(getkey(), (3, 3)) + 3 * jnp.eye(3))
+    op = KroneckerSum(D, B)
+    expected = dense_logdet(op)
+
+    def _forbidden(self):
+        raise AssertionError("DiagonalLinearOperator.as_matrix called")
+
+    monkeypatch.setattr(lx.DiagonalLinearOperator, "as_matrix", _forbidden)
+    result = logdet(op)
+    monkeypatch.undo()
+    assert tree_allclose(result, expected)
