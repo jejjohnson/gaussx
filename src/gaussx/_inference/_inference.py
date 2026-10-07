@@ -156,10 +156,13 @@ def cavity_distribution(
 
     Note:
         Both forms use the ``nat2 = +Λ`` (positive precision) convention,
-        matching `gaussx.newton_update` and `gaussx.damped_natural_update`.
-        This differs from `gaussx.mean_cov_to_natural` /
-        `gaussx.natural_to_mean_cov`, which use the exponential-family
-        convention ``η₂ = −Λ/2``.
+        matching `gaussx.newton_update`. This differs from
+        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov` and the
+        default of `gaussx.blr_diag_update` / `gaussx.blr_full_update`, which
+        use the exponential-family convention ``η₂ = −Λ/2``; convert with
+        ``nat2 = −2 η₂``, or call the BLR updates with
+        ``convention="precision"``. `gaussx.damped_natural_update` is
+        convention-agnostic.
 
     Args:
         post_mean: Posterior mean, shape ``(N,)``.
@@ -241,10 +244,13 @@ def newton_update(
 
     Note:
         Both forms use the ``nat2 = +Λ`` (positive precision) convention,
-        matching `gaussx.cavity_distribution` and
-        `gaussx.damped_natural_update`. This differs from
-        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov`, which
-        use the exponential-family convention ``η₂ = −Λ/2``.
+        matching `gaussx.cavity_distribution`. This differs from
+        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov` and the
+        default of `gaussx.blr_diag_update` / `gaussx.blr_full_update`, which
+        use the exponential-family convention ``η₂ = −Λ/2``; convert with
+        ``nat2 = −2 η₂``, or call the BLR updates with
+        ``convention="precision"``. `gaussx.damped_natural_update` is
+        convention-agnostic.
 
     Args:
         mean: Current mean, shape ``(N,)`` or ``(D,)``.
