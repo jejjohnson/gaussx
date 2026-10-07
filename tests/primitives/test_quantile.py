@@ -155,8 +155,10 @@ class TestMixtureQuantile:
 
         s, h = 1.3, 1e-6
         fd = (q95(s + h) - q95(s - h)) / (2 * h)
-        # Central-difference error ~h^2 f''' + eps / h ~ 1e-10 relative.
-        np.testing.assert_allclose(jax.grad(q95)(s), fd, rtol=1e-7)
+        # Central-difference error: h^2 f''' is negligible, but each root
+        # is only known to ~ulp(x) ~ 4e-16, giving ~4e-10 / |g| ~ 5e-8
+        # relative on this small derivative (|g| ~ 0.009).
+        np.testing.assert_allclose(jax.grad(q95)(s), fd, rtol=1e-6)
 
     def test_unbracketed_level_returns_closest_endpoint(self):
         x = gaussx.mixture_quantile(norm.cdf, jnp.array([0.5, 0.999]), -1.0, 1.0)
@@ -260,3 +262,62 @@ class TestGaussianApprox:
             means, stds, jnp.array([0.5, norm.cdf(1.0)])
         )
         np.testing.assert_allclose(x[0], [mu, mu + np.sqrt(var)], rtol=1e-5)
+
+
+class TestReviewEdgeCases:
+    def test_aux_belongs_to_the_returned_root(self):
+        sol = optx.root_find(
+            lambda x, _: (x**3 - 2.0, x),
+            gaussx.Chandrupatla(rtol=_eps(), atol=0.0),
+            jnp.array(1.0),
+            options=dict(lower=0.0, upper=2.0),
+            has_aux=True,
+        )
+        assert sol.aux == sol.value
+
+    @pytest.mark.parametrize(
+        ("lower", "upper"), [(10.0, -10.0), (jnp.nan, 10.0)], ids=["reversed", "nan"]
+    )
+    def test_throw_rejects_reversed_or_nan_brackets(self, lower, upper):
+        with pytest.raises(Exception, match="not bracketed"):
+            gaussx.mixture_quantile(norm.cdf, 0.5, lower, upper, throw=True)
+
+    def test_narrow_bracket_honours_atol(self):
+        """A bracket narrower than 2 atol used to stop at an endpoint."""
+
+        def cdf(x):
+            return jnp.clip(jnp.where(x < 0, 0.5 + 0.01 * x, 0.5 + x), 0.0, 1.0)
+
+        x = gaussx.mixture_quantile(cdf, 0.5, -0.14, 0.01, rtol=0.0, atol=0.1)
+        assert abs(float(x)) <= 0.1
+
+    @pytest.mark.x64_only(reason="needs a float64 iterate with a float32 residual")
+    def test_bracket_keeps_the_iterate_dtype(self):
+        sol = optx.root_find(
+            lambda x, _: (x - 1.0 / 3.0).astype(jnp.float32),
+            gaussx.Chandrupatla(rtol=0.0, atol=1e-12),
+            jnp.array(0.5, jnp.float64),
+            options=dict(lower=0.0, upper=1.0),
+        )
+        assert sol.value.dtype == jnp.float64
+        # float32 rounding of the bracket would cap the error at ~3e-8.
+        assert abs(float(sol.value) - 1.0 / 3.0) < 1e-7
+
+    @pytest.mark.x64_only(reason="1e308 is a float64 bracket")
+    def test_wide_finite_bracket_does_not_overflow(self):
+        def cdf(x):
+            # A Cauchy CDF with scale 1e300 (x / 1e308 would compile to a
+            # multiply by a subnormal reciprocal that XLA flushes to zero).
+            return 0.5 + jnp.arctan(x / 1e300) / jnp.pi
+
+        x = gaussx.mixture_quantile(cdf, 0.5, -1e308, 1e308, atol=1.0)
+        assert jnp.isfinite(x) and abs(float(x)) <= 1.0
+
+    def test_gaussian_approx_promotes_low_precision_inputs(self):
+        x = gaussx.mixture_quantile_gaussian_approx(
+            jnp.array([[300.0]], jnp.float16),
+            jnp.array([[300.0]], jnp.float16),
+            jnp.array([0.5], jnp.float32),
+        )
+        assert jnp.isfinite(x).all()
+        np.testing.assert_allclose(x, [[300.0]], rtol=1e-3)

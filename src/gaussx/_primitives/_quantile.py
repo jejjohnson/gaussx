@@ -85,8 +85,10 @@ def mixture_quantile(
         rtol: Relative tolerance on the quantile (default solver only).
         atol: Absolute tolerance on the quantile (default solver only).
         max_steps: Maximum number of solver iterations.
-        throw: If ``True``, raise when a level is not bracketed or the
-            solver does not converge. If ``False``, an unbracketed level
+        throw: If ``True``, raise when a level is not bracketed
+            (``cdf_fn(lower) <= q <= cdf_fn(upper)`` fails, including a NaN
+            endpoint value or a reversed bracket) or the solver does not
+            converge. If ``False``, an unbracketed level
             returns the bracket endpoint whose CDF is closer to $q$ (its
             gradient is then meaningless), and a non-converged one the
             best estimate so far.
@@ -108,7 +110,7 @@ def mixture_quantile(
         >>> cdf = lambda x: 0.5 * (norm.cdf(x + 1.0) + norm.cdf(x - 1.0))
         >>> x = gaussx.mixture_quantile(cdf, jnp.array([0.5, 0.975]), -10.0, 10.0)
         >>> [round(float(v), 3) for v in x]
-        [0.0, 2.751]
+        [0.0, 2.646]
     """
     q = jnp.asarray(q)
     dtype = jnp.result_type(q, lower, upper, float)
@@ -123,17 +125,19 @@ def mixture_quantile(
         return cdf_fn(x) - level
 
     if throw:
+        # Directed checks: they also reject NaN endpoint values and a
+        # reversed bracket, which a sign-product test would let through.
         g_lo, g_hi = fn(lower, q), fn(upper, q)
         lower = eqx.error_if(
             lower,
-            jnp.any(jnp.sign(g_lo) * jnp.sign(g_hi) > 0),
+            ~jnp.all((g_lo <= 0) & (g_hi >= 0)),
             "mixture_quantile: some levels q are not bracketed, i.e. "
             "cdf_fn(lower) <= q <= cdf_fn(upper) fails.",
         )
     sol = optx.root_find(
         fn,
         solver,
-        0.5 * (lower + upper),
+        0.5 * lower + 0.5 * upper,  # no overflow for wide finite brackets
         args=jnp.broadcast_to(q, shape),
         options=dict(lower=lower, upper=upper),
         max_steps=max_steps,
@@ -191,9 +195,10 @@ def mixture_quantile_gaussian_approx(
         >>> [round(float(v), 4) for v in x[0]]
         [0.0, 2.0]
     """
-    means = jnp.asarray(means)
-    stds = jnp.asarray(stds)
-    q = jnp.atleast_1d(jnp.asarray(q, jnp.result_type(means, stds, float)))
+    dtype = jnp.result_type(means, stds, q, float)
+    means = jnp.asarray(means, dtype)
+    stds = jnp.asarray(stds, dtype)
+    q = jnp.atleast_1d(jnp.asarray(q, dtype))
     mu = reduce(means, "... e -> ...", "mean")
     dev = einx.subtract("... e, ... -> ... e", means, mu)
     sigma = jnp.sqrt(reduce(stds**2 + dev**2, "... e -> ...", "mean"))
