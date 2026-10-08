@@ -1,66 +1,18 @@
 # gaussx
 
-> Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.
+<!-- The shared sections below are included from README.md (gh-399); edit them there. -->
 
-Built on [lineax](https://github.com/patrick-kidger/lineax), [equinox](https://github.com/patrick-kidger/equinox), and [matfree](https://github.com/pnkraemer/matfree).
+--8<-- "README.md:intro"
 
 **New here?** Start with the [Vision](vision.md) to understand why gaussx exists, then read the [Architecture](architecture.md) to see how it's organized.
 
-## Installation
+--8<-- "README.md:install"
 
-```bash
-pip install gaussx
-```
+--8<-- "README.md:quickstart"
 
-Or with `uv`:
+--8<-- "README.md:inside"
 
-```bash
-uv add gaussx
-```
-
-## Quickstart
-
-```python
-import jax.numpy as jnp
-import lineax as lx
-import gaussx
-
-# Structured operators
-A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
-B = lx.DiagonalLinearOperator(jnp.array([3.0, 4.0]))
-K = gaussx.Kronecker(A, B)
-
-# Primitives exploit structure automatically
-v = jnp.ones(4)
-x = gaussx.solve(K, v)  # per-factor solve
-ld = gaussx.logdet(K)  # n2*logdet(A) + n1*logdet(B)
-L = gaussx.cholesky(K)  # Kronecker(chol(A), chol(B))
-t = gaussx.trace(K)  # trace(A) * trace(B)
-```
-
-## API Notes
-
-Several of the newer public APIs have explicit requirements that are worth calling out up front:
-
-- `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` when you want predictive variances.
-- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `gaussx.MarkovGaussian`. The older stacked layout (`Q[0] == P_0`) still works with a `DeprecationWarning` until 0.5.0.
-
-```python
-import jax.numpy as jnp
-import lineax as lx
-import gaussx
-
-mean, var = gaussx.kronecker_posterior_predictive(
-    [Kx, Ky],
-    y,
-    noise_var=1e-2,
-    grid_shape=(nx, ny),
-    K_cross_factors=[Kx_star, Ky_star],
-    K_test_diag_factors=[jnp.ones(nx_star), jnp.ones(ny_star)],
-)
-
-theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0)
-```
+--8<-- "README.md:api-notes"
 
 ## Examples
 
@@ -74,6 +26,8 @@ theta_1, theta_2 = gaussx.ssm_to_naturals(A, Q, mu_0, P_0)
 - [Structured GP](notebooks/structured_gp.ipynb) — Kronecker and low-rank comparison
 - [Solver Comparison](notebooks/solver_comparison.ipynb) — DenseSolver vs CGSolver
 - [Differentiating Through Solve](notebooks/differentiating_solve.ipynb) — jax.grad through gaussx primitives
+
+The full list is in the Examples section of the navigation.
 
 ## Links
 
