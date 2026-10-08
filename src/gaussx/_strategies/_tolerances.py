@@ -14,13 +14,20 @@ zero iterate converged for any right-hand side smaller than it (e.g.
 ``|r_i| <= atol + rtol |b_i|``, so an entry with ``b_i ≈ 0`` must reach
 ``atol`` itself, and a fixed ``1e-5`` sits at float32's rounding floor for a
 right-hand side of order one: whether CG converges then depends on the CPU's
-instruction set (gh-639). `resolve_atol` therefore scales a low-precision
-default with the right-hand side, ``max(atol₆₄, sqrt(eps) ‖b‖_∞)``. It stays
-``atol₆₄`` for a small ``b``, and it can never accept the zero iterate,
-because the largest entry of ``b`` exceeds ``sqrt(eps) ‖b‖_∞``.
+instruction set (gh-639). So below float64, with the default ``atol``, the CG
+strategies solve the rescaled system ``A y = b / s`` with ``s = max|b_i|``
+and ``atol = sqrt(eps)``, and return ``s y`` (`rhs_scaling`). The effective
+absolute tolerance is ``sqrt(eps) max|b_i|``: relative to ``b``, so the zero
+iterate is never accepted for a nonzero ``b`` however small. The solver's own
+tolerances stay constants, so no tangent reaches the lineax solver and its
+implicit derivative solves use the same fixed ``atol``. ``s`` carries no
+gradient (it only changes the iteration count); a zero or non-finite ``b``
+uses ``s = 1``, the unscaled solve.
 """
 
 from __future__ import annotations
+
+import math
 
 import jax
 import jax.numpy as jnp
@@ -81,30 +88,32 @@ def resolve_tolerance(
     return max(float64_default, _LOW_PRECISION_TOLERANCE.get(width, 1e-2))
 
 
-def resolve_atol(
+def rhs_scaling(
     value: float | None,
     dtype: DTypeLike,
     float64_default: float,
     vector: jax.Array,
-) -> float | jax.Array:
-    """*value* if set, else the default absolute tolerance for *dtype*.
+) -> tuple[float, jax.Array | None]:
+    """The absolute tolerance, and the right-hand-side scale to solve with.
 
     Args:
         value: An absolute tolerance the user set, or ``None`` for the default.
         dtype: The dtype the solve runs in.
-        float64_default: The strategy's float64 default, also the floor in
-            lower precisions.
-        vector: The right-hand side ``b``. Below float64 the default is
-            ``max(float64_default, sqrt(eps) * max|b_i|)`` (gh-639).
+        float64_default: The strategy's float64 default.
+        vector: The right-hand side ``b``.
 
     Returns:
-        The absolute tolerance to use: a float, or a scalar array when it
-        depends on *vector*.
+        ``(atol, None)`` when *value* is set or the solve runs in float64:
+        solve ``A x = b`` with that ``atol``. Otherwise
+        ``(sqrt(eps), s)`` with ``s = max|b_i|`` (gradient stopped; ``1``
+        for a zero or non-finite ``b``): solve ``A y = b / s`` and return
+        ``s y`` (gh-639).
     """
     if value is not None:
-        return value
-    if jnp.finfo(dtype).bits >= 64:
-        return float64_default
-    scale = max(jnp.max(jnp.abs(leaf)) for leaf in jax.tree.leaves(vector))
-    floor = jnp.sqrt(jnp.finfo(dtype).eps).astype(dtype)
-    return jnp.maximum(jnp.asarray(float64_default, dtype), floor * scale.astype(dtype))
+        return value, None
+    leaves = jax.tree.leaves(vector)
+    if jnp.finfo(dtype).bits >= 64 or any(leaf.size == 0 for leaf in leaves):
+        return float64_default, None
+    scale = jax.lax.stop_gradient(max(jnp.max(jnp.abs(leaf)) for leaf in leaves))
+    scale = jnp.where(jnp.isfinite(scale) & (scale > 0), scale, jnp.ones_like(scale))
+    return math.sqrt(float(jnp.finfo(dtype).eps)), scale
