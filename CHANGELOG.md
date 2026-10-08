@@ -1,5 +1,41 @@
 # Changelog
 
+## [0.6.5](https://github.com/jejjohnson/gaussx/compare/v0.6.4...v0.6.5) (2026-10-08)
+
+
+### Features
+
+* **api:** adopt and document naming conventions, renaming with deprecated aliases ([#617](https://github.com/jejjohnson/gaussx/issues/617)) ([e97145c](https://github.com/jejjohnson/gaussx/commit/e97145c85ac46f4954d11442d4e7dde66f1c88ad))
+* **api:** export is_eigen_reducible, add a top-level __all__, check doc page placement ([#616](https://github.com/jejjohnson/gaussx/issues/616)) ([4242879](https://github.com/jejjohnson/gaussx/commit/4242879bd420d7a3aee129f98b617a0f349c2ae2))
+* **distributions:** shared AbstractMultivariateNormal base for both MVN classes ([#613](https://github.com/jejjohnson/gaussx/issues/613)) ([37bc8c2](https://github.com/jejjohnson/gaussx/commit/37bc8c28f8a657254e50c0b1bf12bb77103e1499))
+* **inference:** add dense_innovation to ensemble_kalman_gain ([#608](https://github.com/jejjohnson/gaussx/issues/608)) ([caf9c94](https://github.com/jejjohnson/gaussx/commit/caf9c9434fb7373d25bf8b0ddc6dd9c052bf7042))
+* **inference:** document natural-parameter conventions and add blr convention="precision" ([#611](https://github.com/jejjohnson/gaussx/issues/611)) ([66cdb3c](https://github.com/jejjohnson/gaussx/commit/66cdb3c735dbf93356ae5eb9c45bd9b8e01d5330))
+* **linalg:** add diag_inv(method="xdiag") (G16) ([#628](https://github.com/jejjohnson/gaussx/issues/628)) ([9fb9c1e](https://github.com/jejjohnson/gaussx/commit/9fb9c1e6c6818c40604d2e4439f3b8073181166d))
+* **operators:** finish the gh-136 rename with SumOfKroneckersSqrt and sum_of_kroneckers_sample ([#610](https://github.com/jejjohnson/gaussx/issues/610)) ([2397c4b](https://github.com/jejjohnson/gaussx/commit/2397c4be2f93e4811e81e4955faf49437b783f1d))
+* **operators:** orthonormal fast path for LowRankUpdate on a scaled identity ([#606](https://github.com/jejjohnson/gaussx/issues/606)) ([475f169](https://github.com/jejjohnson/gaussx/commit/475f1692efe00fef3b83b43ddffae090d3d222d3))
+* **primitives:** add Hutch++ to trace (G17) ([#629](https://github.com/jejjohnson/gaussx/issues/629)) ([e2e8fec](https://github.com/jejjohnson/gaussx/commit/e2e8fec7a1ca8e18820de796336438ee7e492f7b))
+* **primitives:** add mixture_quantile and a Chandrupatla root finder ([#627](https://github.com/jejjohnson/gaussx/issues/627)) ([82b7b8f](https://github.com/jejjohnson/gaussx/commit/82b7b8f97c45b58b942871611e74015675970d11))
+* **randomized:** add column_id and cur (G17) ([#632](https://github.com/jejjohnson/gaussx/issues/632)) ([651c9b1](https://github.com/jejjohnson/gaussx/commit/651c9b1ccb9291f1dffd0ed1c3e832c72c3bd96a)), closes [#486](https://github.com/jejjohnson/gaussx/issues/486) [#511](https://github.com/jejjohnson/gaussx/issues/511)
+* **ssm:** add a square-root parallel Kalman filter ([#630](https://github.com/jejjohnson/gaussx/issues/630)) ([4cb317d](https://github.com/jejjohnson/gaussx/commit/4cb317d19c4715b1911c3acccbb6c65127b0cf49))
+* **ssm:** add SDE linearization and drift path-KL helpers ([#623](https://github.com/jejjohnson/gaussx/issues/623)) ([e41dc42](https://github.com/jejjohnson/gaussx/commit/e41dc42c1ae35903f25aee454f0622f81f79d453))
+* **ssm:** differentiate dare through an optimistix implicit adjoint ([#624](https://github.com/jejjohnson/gaussx/issues/624)) ([d0a7db0](https://github.com/jejjohnson/gaussx/commit/d0a7db0e4430d04ae51b11fbba4adbfa32279d96))
+* **strategies:** add NystromLogdet (G17) ([#631](https://github.com/jejjohnson/gaussx/issues/631)) ([52abe44](https://github.com/jejjohnson/gaussx/commit/52abe4482546175da711ac74f8d8ef5f6d1e0b6b))
+* **strategies:** add SketchAndPrecondLSMR and sketch_and_solve (G15) ([#625](https://github.com/jejjohnson/gaussx/issues/625)) ([f91cbff](https://github.com/jejjohnson/gaussx/commit/f91cbff74bd51f86702a7b27169d45b984baff9e))
+
+
+### Bug Fixes
+
+* **deps:** make the dense pseudo-inverse references robust to numpy 2.5 ([#600](https://github.com/jejjohnson/gaussx/issues/600)) ([fc3f05e](https://github.com/jejjohnson/gaussx/commit/fc3f05ef7c2f2b8da9b7e48bb4d50eab041ea152))
+* **inference:** keep obs_noise structured in etkf_transform and take one eigh ([#607](https://github.com/jejjohnson/gaussx/issues/607)) ([051e843](https://github.com/jejjohnson/gaussx/commit/051e8439408d822fb968108fafe71b90dd80f5bc))
+* **inference:** small-fixes checklist from the v0.2.0 review ([#612](https://github.com/jejjohnson/gaussx/issues/612)) ([041fafe](https://github.com/jejjohnson/gaussx/commit/041fafea83c66d720489b1528bde03734a60086f))
+* land the review fixes for [#639](https://github.com/jejjohnson/gaussx/issues/639), [#623](https://github.com/jejjohnson/gaussx/issues/623) and [#627](https://github.com/jejjohnson/gaussx/issues/627) (CG atol rescaling, Taylor KL, quantile edge cases) ([#646](https://github.com/jejjohnson/gaussx/issues/646)) ([16837bf](https://github.com/jejjohnson/gaussx/commit/16837bfa3f5eb0a88ea296a9c500cdfe41f9ea04))
+* **operators:** inherit symmetric/PSD tags in InterpolatedOperator ([#601](https://github.com/jejjohnson/gaussx/issues/601)) ([9b3917a](https://github.com/jejjohnson/gaussx/commit/9b3917af1ca4f827c7121e28dc20e6333f194186))
+
+
+### Performance Improvements
+
+* **sketching:** trace hadamard_transform's butterfly once ([#622](https://github.com/jejjohnson/gaussx/issues/622)) ([735e63d](https://github.com/jejjohnson/gaussx/commit/735e63d11d7b202d34aa210817b9dffe20998eff)), closes [#620](https://github.com/jejjohnson/gaussx/issues/620)
+
 ## [0.6.4](https://github.com/jejjohnson/gaussx/compare/v0.6.3...v0.6.4) (2026-10-07)
 
 
