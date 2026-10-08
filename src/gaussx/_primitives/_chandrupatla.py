@@ -136,9 +136,15 @@ class Chandrupatla(optx.AbstractRootFinder):
         # Scherer's initialisation: b = lower, a = c = upper.
         a, b, c = upper, lower, upper
         fa, fb, fc = f_upper, f_lower, f_upper
-        x_best = jnp.where(jnp.abs(fa) < jnp.abs(fb), a, b)
-        f_best = jnp.where(jnp.abs(fa) < jnp.abs(fb), fa, fb)
-        bracketed = jnp.sign(fa) * jnp.sign(fb) <= 0
+        # NaN-aware: a finite residual always beats a NaN one.
+        a_better = (jnp.abs(fa) < jnp.abs(fb)) | jnp.isnan(fb)
+        x_best = jnp.where(a_better, a, b)
+        f_best = jnp.where(a_better, fa, fb)
+        # An infinite endpoint makes the convex-combination step NaN, so it
+        # counts as unbracketed (finite brackets only).
+        bracketed = (
+            (jnp.sign(fa) * jnp.sign(fb) <= 0) & jnp.isfinite(a) & jnp.isfinite(b)
+        )
         tol = self.rtol * jnp.abs(x_best) + self.atol
         done = (~bracketed) | (f_best == 0) | (jnp.abs(b - a) < tol)
         return _ChandrupatlaState(
@@ -177,7 +183,7 @@ class Chandrupatla(optx.AbstractRootFinder):
         fb = jnp.where(same, s.fb, s.fa)
         a, fa = x_t, f_t
 
-        a_better = jnp.abs(fa) < jnp.abs(fb)
+        a_better = (jnp.abs(fa) < jnp.abs(fb)) | jnp.isnan(fb)
         x_best = jnp.where(a_better, a, b)
         f_best = jnp.where(a_better, fa, fb)
         tol = self.rtol * jnp.abs(x_best) + self.atol

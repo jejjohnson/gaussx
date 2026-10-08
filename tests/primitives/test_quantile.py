@@ -1,6 +1,7 @@
 """Tests for `mixture_quantile`, `Chandrupatla` and the Gaussian fast path."""
 
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -321,3 +322,33 @@ class TestReviewEdgeCases:
         )
         assert jnp.isfinite(x).all()
         np.testing.assert_allclose(x, [[300.0]], rtol=1e-3)
+
+
+def test_nan_endpoint_residual_prefers_the_finite_endpoint():
+    # gh-121 review: with throw=False and a NaN CDF at lower only, the
+    # unbracketed level returns the finite endpoint, not the NaN one.
+    def cdf(x):
+        return jnp.where(x < -5.0, jnp.nan, norm.cdf(x))
+
+    x = gaussx.mixture_quantile(cdf, jnp.array([0.5]), -10.0, -6.0, throw=False)
+    assert jnp.all(x == -6.0)
+
+
+@pytest.mark.parametrize(("lower", "upper"), [(-jnp.inf, 10.0), (-10.0, jnp.inf)])
+def test_infinite_brackets_are_rejected(lower, upper):
+    with pytest.raises(eqx.EquinoxRuntimeError, match="finite"):
+        gaussx.mixture_quantile(norm.cdf, jnp.array([0.5]), lower, upper, throw=True)
+    x = gaussx.mixture_quantile(norm.cdf, jnp.array([0.5]), lower, upper, throw=False)
+    assert jnp.all((x == lower) | (x == upper))
+
+
+def test_gaussian_approx_scale_does_not_overflow():
+    # gh-121 review: stds**2 overflows float32 at 1e30; the rescaled norm
+    # keeps the single-component quantiles exact.
+    x = gaussx.mixture_quantile_gaussian_approx(
+        jnp.array([[0.0]], dtype=jnp.float32),
+        jnp.array([[1e30]], dtype=jnp.float32),
+        jnp.array([0.5, 0.8413447], dtype=jnp.float32),
+    )
+    assert jnp.all(jnp.isfinite(x))
+    assert jnp.allclose(x[0], jnp.array([0.0, 1e30]), rtol=1e-5)
