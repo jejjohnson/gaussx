@@ -1,5 +1,6 @@
 """GaussX primitives -- Layer 0 pure functions with structural dispatch."""
 
+from gaussx._primitives._chandrupatla import Chandrupatla
 from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky
 from gaussx._primitives._diag import diag
 from gaussx._primitives._eig import eig, eigh_generalized, eigvals
@@ -7,6 +8,10 @@ from gaussx._primitives._frobenius import frobenius_norm
 from gaussx._primitives._inv import InverseOperator, inv
 from gaussx._primitives._inv_quad_logdet import inv_quad_logdet
 from gaussx._primitives._logdet import cholesky_logdet, logdet, pseudo_logdet
+from gaussx._primitives._quantile import (
+    mixture_quantile,
+    mixture_quantile_gaussian_approx,
+)
 from gaussx._primitives._root import (
     RootDecomposition,
     root_decomposition,
@@ -30,6 +35,7 @@ from gaussx._primitives._trace import trace, trace_and_diag
 
 
 __all__ = [
+    "Chandrupatla",
     "DenseFallbackWarning",
     "InverseOperator",
     "RootDecomposition",
@@ -47,6 +53,8 @@ __all__ = [
     "inv",
     "inv_quad_logdet",
     "logdet",
+    "mixture_quantile",
+    "mixture_quantile_gaussian_approx",
     "pseudo_logdet",
     "root_decomposition",
     "root_inv_decomposition",
