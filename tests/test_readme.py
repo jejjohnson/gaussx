@@ -15,6 +15,7 @@ import pytest
 
 import gaussx
 from gaussx._deprecation import RENAMED
+from gaussx._testing import default_tolerances
 
 
 README = Path(__file__).resolve().parents[1] / "README.md"
@@ -105,3 +106,15 @@ def test_quickstart_runs():
     block = re.search(r"```python\n(.*?)```", _section("quickstart"), re.DOTALL)
     assert block is not None
     exec(compile(block.group(1), "README.md:quickstart", "exec"), {})
+
+
+@pytest.mark.slow
+def test_gp_example_runs():
+    """The GP example runs, and its exact and Kronecker likelihoods agree."""
+    block = re.search(r"```python\n(.*?)```", _section("gp-example"), re.DOTALL)
+    assert block is not None
+    ns: dict = {}
+    exec(compile(block.group(1), "README.md:gp-example", "exec"), ns)
+    rtol, _ = default_tolerances(ns["mll_exact"])
+    assert abs(ns["mll_grid"] - ns["mll_exact"]) <= 1e2 * rtol * abs(ns["mll_exact"])
+    assert ns["elbo"] <= ns["mll_exact"]
