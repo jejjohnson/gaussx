@@ -57,6 +57,14 @@ def collapsed_elbo(
 
     Returns:
         Scalar ELBO value.
+
+    See Also:
+        `variational_elbo_gaussian`: The uncollapsed (SVGP; Hensman et al.,
+        2013) bound, which keeps ``q(u)`` explicit.
+
+    References:
+        Titsias, M. (2009). Variational learning of inducing variables in
+        sparse Gaussian processes. *AISTATS*.
     """
     if solver is not None:
         warn_deprecated(

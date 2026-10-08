@@ -17,9 +17,12 @@ def variational_elbo_gaussian(
     noise_var: float,
     kl: Float[Array, ""],
 ) -> Float[Array, ""]:
-    """Titsias collapsed ELBO for Gaussian likelihoods.
+    """Uncollapsed (SVGP) ELBO for a Gaussian likelihood.
 
-    Computes:
+    The stochastic-variational bound of Hensman et al. (2013): the
+    variational distribution ``q(u)`` is kept explicit, so the caller
+    supplies its marginals ``f_loc``, ``f_var`` and the ``KL(q(u) || p(u))``
+    term. Computes:
 
         ELBO = E_q[log p(y|f)] - KL(q||p)
 
@@ -39,6 +42,17 @@ def variational_elbo_gaussian(
 
     Returns:
         Scalar ELBO value.
+
+    See Also:
+        `collapsed_elbo`: The Titsias (2009) collapsed bound, with the
+        optimal ``q(u)`` integrated out analytically.
+
+    References:
+        Hensman, J., Fusi, N. and Lawrence, N. D. (2013). Gaussian
+        processes for big data. *UAI*.
+
+        Titsias, M. (2009). Variational learning of inducing variables in
+        sparse Gaussian processes. *AISTATS*.
     """
     N = y.shape[-1]
     residual = y - f_loc
