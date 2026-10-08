@@ -71,9 +71,9 @@ def kalman_filter(
     predicts, then updates, so ``observations[0]`` is ``y₁`` (predict
     first, as in `gaussx.LGSSM`).
 
-    This is a covariance-form filter; gaussx has no square-root
-    (PSD-by-construction) filter yet, sequential or parallel (see #454).
-    `gaussx.parallel_kalman_filter` with ``psd_project=True`` projects its
+    This is a covariance-form filter. For covariances that are PSD by
+    construction use `gaussx.parallel_kalman_filter` with
+    ``square_root=True`` (gh-454); ``psd_project=True`` projects its
     outputs onto the PSD cone instead.
 
     **Time-invariant inputs** (single ``(N, N)`` / ``(M, N)`` etc.) are

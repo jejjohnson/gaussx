@@ -12,8 +12,9 @@ work is strictly larger than `gaussx.kalman_filter`'s ``O(T)``
 The element math is the covariance-form combinators from §III.A / §III.B
 of the paper. ``psd_project=True`` projects the returned covariances onto
 the PSD cone -- a safety net for ill-conditioned float32 chains, not a
-square-root filter: the scan itself still runs in covariance form. A
-factor-propagating combinator is tracked in #454.
+square-root filter: the scan itself still runs in covariance form.
+``square_root=True`` runs the factor-propagating combinator of Yaghoobi
+et al. (2022) instead (`gaussx._ssm._parallel_kalman_factor`, gh-454).
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._symmetrize import symmetrize as _sym
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState, kalman_filter
+from gaussx._ssm._parallel_kalman_factor import parallel_kalman_filter_factor
 from gaussx._ssm._utils import (
     _masked_obs_inputs,
     _materialise,
@@ -185,6 +187,7 @@ def parallel_kalman_filter(
     woodbury_innovation: bool = False,
     form: str = "covariance",
     psd_project: bool = False,
+    square_root: bool = False,
 ) -> FilterState:
     """Parallel Kalman filter via `jax.lax.associative_scan`.
 
@@ -234,12 +237,19 @@ def parallel_kalman_filter(
             guarantees PSD outputs, which float32 chains with very small
             observation noise can otherwise lose (the covariance form can
             return an indefinite covariance and a NaN log-likelihood
-            there). Gradients are those of the unprojected path. gaussx has
-            no square-root (PSD-by-construction) filter yet, sequential or
-            parallel; see #454.
+            there). Gradients are those of the unprojected path. For
+            covariances that are PSD by construction use ``square_root``.
+        square_root: Run the factor-propagating square-root filter of
+            Yaghoobi, Corenflos, Hassan & Särkkä (2022, §III): covariances
+            are PSD by construction and stay accurate in float32. See
+            `gaussx._ssm._parallel_kalman_factor` for the method. Supports
+            both mask ranks; not combinable with ``psd_project`` or
+            ``woodbury_innovation``.
 
     Raises:
-        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
+        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
+            ``square_root`` is combined with ``psd_project`` or
+            ``woodbury_innovation``.
 
     Returns:
         `FilterState` with filtered / predicted means and covs
@@ -261,6 +271,22 @@ def parallel_kalman_filter(
         psd_project = True
     elif form != "covariance":
         raise ValueError("form must be 'covariance' or 'sqrt'.")
+    if square_root:
+        if psd_project or woodbury_innovation:
+            raise ValueError(
+                "square_root=True cannot be combined with psd_project=True "
+                "(or form='sqrt') or woodbury_innovation=True."
+            )
+        return parallel_kalman_filter_factor(
+            transition,
+            obs_model,
+            process_noise,
+            obs_noise,
+            observations,
+            init_mean,
+            init_cov,
+            mask=mask,
+        )
     if psd_project:
         # lazy import, cycle: _ssm._parallel_kalman_sqrt -> _ssm._parallel_kalman
         from gaussx._ssm._parallel_kalman_sqrt import parallel_kalman_filter_sqrt

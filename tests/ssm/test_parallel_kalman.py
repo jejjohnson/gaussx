@@ -16,11 +16,12 @@ import lineax as lx
 import pytest
 
 from gaussx import DenseSolver, FilterState, kalman_filter, rts_smoother
+from gaussx._einx import rearrange
 from gaussx._ssm._parallel_kalman import (
     parallel_kalman_filter,
     parallel_rts_smoother,
 )
-from gaussx._testing import tree_allclose
+from gaussx._testing import default_tolerances, tree_allclose
 
 
 def _make_model(getkey, N=2, M=2):
@@ -507,3 +508,217 @@ def test_psd_project_keeps_a_float32_chain_finite():
     assert jnp.isfinite(projected.log_likelihood)
     eigs = jnp.linalg.eigvalsh(projected.filtered_covs.astype(jnp.float64))
     assert jnp.min(eigs) > -1e-9
+
+
+# ---------------------------------------------------------------------------
+# gh-454: square-root (factor-propagating) parallel filter
+# ---------------------------------------------------------------------------
+
+_FIELDS = (
+    "filtered_means",
+    "filtered_covs",
+    "predicted_means",
+    "predicted_covs",
+    "log_likelihood",
+)
+
+
+# As in _TV_CASES, the unmasked case is slow: the masked ones run the same
+# path with the mask handling on top.
+@pytest.mark.parametrize(
+    "mask_name", [pytest.param("none", marks=pytest.mark.slow), "steps", "channels"]
+)
+@pytest.mark.x64_only(reason="parity tolerance below float32 round-off")
+def test_square_root_parity_with_covariance_form(mask_name):
+    """T = 9, N = 3, M = 2, jr.key(0): every output matches both the
+    covariance-form parallel filter and the sequential filter.
+
+    The input factors carry a 4 n eps diagonal shift (12 eps relative),
+    so 1e-12 still holds with room to spare.
+    """
+    args, masks = _random_tv_model()
+    mask = masks[mask_name]
+    sq = parallel_kalman_filter(*args, mask=mask, square_root=True)
+    cov = parallel_kalman_filter(*args, mask=mask)
+    seq = kalman_filter(*args, mask=mask)
+    for field in _FIELDS:
+        for ref in (cov, seq):
+            assert jnp.allclose(
+                getattr(sq, field), getattr(ref, field), rtol=1e-12, atol=1e-12
+            ), field
+    # The smoother consumes the square-root filter's output unchanged.
+    A = args[0]
+    m_seq, P_seq = rts_smoother(seq, A)
+    m_sq, P_sq = parallel_rts_smoother(sq, A)
+    assert jnp.allclose(m_sq, m_seq, rtol=1e-12, atol=1e-12)
+    assert jnp.allclose(P_sq, P_seq, rtol=1e-12, atol=1e-12)
+
+
+def test_square_root_matches_covariance_form_in_default_precision():
+    """Float32-lane parity on a well-conditioned model."""
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    dtype = jnp.result_type(float)
+    args = [x.astype(dtype) for x in (A, H, Q, R, y, m0, P0)]
+    sq = parallel_kalman_filter(*args, square_root=True)
+    cov = parallel_kalman_filter(*args)
+    rtol, atol = default_tolerances(sq.filtered_covs)
+    for field in _FIELDS:
+        assert getattr(sq, field).dtype == dtype
+        # Two different float orderings of the same recursion; the slack
+        # over default_tolerances covers 9 steps of accumulated rounding.
+        assert jnp.allclose(
+            getattr(sq, field), getattr(cov, field), rtol=10 * rtol, atol=10 * atol
+        ), field
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="gradient parity to 1e-6 needs float64")
+def test_square_root_gradient_matches_sequential():
+    """jax.grad of the LL w.r.t. every model input matches kalman_filter.
+
+    M = 2 < N = 3, so the information factors Z are rank deficient; the
+    Gram-tangent rule keeps their derivative finite and exact.
+    """
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+
+    def ll(fn, A, H, Q, R, m0):
+        return fn(A, H, Q, R, y, m0, P0).log_likelihood
+
+    sq = jax.jit(
+        jax.grad(
+            lambda *a: ll(lambda *b: parallel_kalman_filter(*b, square_root=True), *a),
+            argnums=(0, 1, 2, 3, 4),
+        )
+    )(A, H, Q, R, m0)
+    seq = jax.jit(jax.grad(lambda *a: ll(kalman_filter, *a), argnums=(0, 1, 2, 3, 4)))(
+        A, H, Q, R, m0
+    )
+    for g_sq, g_seq in zip(sq, seq, strict=True):
+        assert jnp.all(jnp.isfinite(g_sq))
+        assert jnp.allclose(g_sq, g_seq, rtol=1e-6, atol=1e-9)
+
+
+def test_square_root_scan_has_no_eigendecomposition():
+    """The compiled filter is QR-only: no eigh anywhere (gh-454)."""
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    jaxpr = str(
+        jax.make_jaxpr(
+            lambda *a: parallel_kalman_filter(*a, square_root=True).log_likelihood
+        )(A, H, Q, R, y, m0, P0)
+    )
+    assert "eigh" not in jaxpr
+    assert "qr" in jaxpr or "householder" in jaxpr
+
+
+@pytest.mark.x64_only(reason="compares against a float64 sequential reference")
+def test_square_root_accepts_zero_process_noise_at_step_zero():
+    """A0 = I, Q0 = 0 observes the prior directly (documented trick)."""
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    A = A.at[0].set(jnp.eye(3))
+    Q = Q.at[0].set(jnp.zeros((3, 3)))
+    sq = parallel_kalman_filter(A, H, Q, R, y, m0, P0, square_root=True)
+    seq = kalman_filter(A, H, Q, R, y, m0, P0)
+    assert jnp.allclose(sq.log_likelihood, seq.log_likelihood, rtol=1e-10)
+    assert jnp.allclose(sq.filtered_covs, seq.filtered_covs, rtol=1e-8, atol=1e-12)
+
+
+@pytest.mark.parametrize(
+    "kwargs", [{"psd_project": True}, {"woodbury_innovation": True}]
+)
+def test_square_root_rejects_incompatible_options(kwargs):
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    with pytest.raises(ValueError, match="square_root=True cannot be combined"):
+        parallel_kalman_filter(A, H, Q, R, y, m0, P0, square_root=True, **kwargs)
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="builds the model and reference in float64")
+def test_square_root_float32_chain_is_psd_and_accurate():
+    """gh-454 acceptance: Matérn-5/2, dt = 1e-4, R = 1e-10, T = 1000.
+
+    Model built in float64, filter run in float32. The covariance form
+    returns a NaN log-likelihood here and psd_project=True has a 7.9e-4
+    relative error; the square-root filter must stay finite, return PSD
+    covariances, and be no less accurate than the projection.
+    """
+    from gaussx import MaternSDE
+
+    T = 1000
+    kern = MaternSDE(variance=jnp.array(1.0), lengthscale=jnp.array(0.5), order=2)
+    A, Q = kern.discretise(jnp.array(1e-4))
+    P0 = kern.sde_params().P_inf
+    H = jnp.array([[1.0, 0.0, 0.0]])
+    t = jnp.arange(T) * 1e-4
+    y = rearrange(jnp.sin(6.0 * t) + 0.1 * jr.normal(jr.key(0), (T,)), "t -> t 1")
+    args = (A, H, Q, 1e-10 * jnp.eye(1), y, jnp.zeros(3), P0)
+    ref = kalman_filter(*args).log_likelihood
+    args32 = [x.astype(jnp.float32) for x in args]
+
+    sq = parallel_kalman_filter(*args32, square_root=True)
+    proj = parallel_kalman_filter(*args32, psd_project=True)
+    assert jnp.isfinite(sq.log_likelihood)
+    for covs in (sq.filtered_covs, sq.predicted_covs):
+        assert jnp.min(jnp.linalg.eigvalsh(covs.astype(jnp.float64))) > -1e-12
+    err_sq = jnp.abs(sq.log_likelihood - ref) / jnp.abs(ref)
+    err_proj = jnp.abs(proj.log_likelihood - ref) / jnp.abs(ref)
+    assert err_sq <= err_proj
+
+
+@pytest.mark.slow
+def test_square_root_more_observations_than_states():
+    """M = 3 > N = 2 compresses the information factor Z by QR."""
+    k = jr.split(jr.key(1), 3)
+    A, Q = 0.9 * jnp.eye(2), 0.2 * jnp.eye(2)
+    H = jr.normal(k[0], (3, 2))
+    R = 0.5 * jnp.eye(3)
+    y = jr.normal(k[1], (5, 3))
+    args = (A, H, Q, R, y, jnp.zeros(2), jnp.eye(2))
+    sq = jax.jit(lambda *a: parallel_kalman_filter(*a, square_root=True))(*args)
+    cov = jax.jit(parallel_kalman_filter)(*args)
+    rtol, atol = default_tolerances(sq.filtered_covs)
+    for field in _FIELDS:
+        assert jnp.allclose(
+            getattr(sq, field), getattr(cov, field), rtol=10 * rtol, atol=10 * atol
+        ), field
+
+
+def test_square_root_empty_window():
+    A, H, Q, R, x0, P0 = _make_model(None)
+    state = parallel_kalman_filter(
+        A, H, Q, R, jnp.zeros((0, 2)), x0, P0, square_root=True
+    )
+    assert state.filtered_covs.shape == (0, 2, 2)
+    assert state.log_likelihood == 0.0
+
+
+@pytest.mark.x64_only(reason="mask invariance checked at float64 round-off")
+def test_square_root_masked_channels_leave_no_dummy_variance_term():
+    """Masked channels' unit blocks are factored without the rounding shift.
+
+    Masking a channel equals deleting it: the log-likelihood of a
+    (T, M) mask with channel 1 off matches the M = 1 model exactly.
+    """
+    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
+    R = R.at[:, 0, 1].set(0.0).at[:, 1, 0].set(0.0)
+    mask = jnp.zeros(y.shape, dtype=bool).at[:, 0].set(True)
+    masked = parallel_kalman_filter(A, H, Q, R, y, m0, P0, mask=mask, square_root=True)
+    deleted = parallel_kalman_filter(
+        A, H[:, :1], Q, R[:, :1, :1], y[:, :1], m0, P0, square_root=True
+    )
+    assert jnp.allclose(masked.log_likelihood, deleted.log_likelihood, rtol=1e-13)
+    # The shift itself is below that tolerance in float64, so pin it: the
+    # dummy unit block factors to exactly 1.
+    from gaussx._ssm._parallel_kalman_factor import _input_factor
+
+    L = _input_factor(jnp.diag(jnp.array([0.3, 1.0])), jnp.array([True, False]))
+    assert L[1, 1] == 1.0
+    assert L[0, 0] > jnp.sqrt(0.3)
+
+
+def test_square_root_mixed_precision_prior():
+    """A float32 prior with float64 data is factored in float32 (and promoted)."""
+    (A, H, Q, R, y, m0, _P0), _ = _random_tv_model()
+    state = parallel_kalman_filter(
+        A, H, Q, R, y, m0, jnp.zeros((3, 3), jnp.float32), square_root=True
+    )
+    assert jnp.isfinite(state.log_likelihood)
