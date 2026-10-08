@@ -143,7 +143,7 @@ class IntegratedWienerSDE(SDEKernel):
         F = jnp.eye(d, k=1, dtype=dtype)
         L = jnp.zeros((d, 1), dtype=dtype).at[d - 1, 0].set(1.0)
         H = jnp.zeros((1, d), dtype=dtype).at[0, 0].set(1.0)
-        Q_c = jnp.reshape(self.diffusion, (1, 1)).astype(dtype)
+        Q_c = jnp.full((1, 1), self.diffusion, dtype=dtype)
         return SDEParams(F=F, L=L, H=H, Q_c=Q_c, P_inf=None)
 
     def initial_covariance(self) -> Float[Array, "d d"]:

@@ -28,6 +28,7 @@ from gaussx import (
     scaled_operator,
     tikhonov_augment,
 )
+from gaussx._einx import einsum
 from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._testing import empirical_moments, key_sequence, random_pd_matrix
@@ -585,8 +586,8 @@ def test_discrepancy_step_size_matches_the_paper_formula(getkey):
     obs_noise = lx.MatrixLinearOperator(noise, lx.positive_semidefinite_tag)
 
     residuals = observation[None, :] - obs_particles
-    misfit = 0.5 * jnp.einsum(
-        "jm,mn,jn->j", residuals, jnp.linalg.inv(noise), residuals
+    misfit = 0.5 * einsum(
+        residuals, jnp.linalg.inv(noise), residuals, "j m, m n, j n -> j"
     )
     expected = jnp.minimum(
         jnp.maximum(
