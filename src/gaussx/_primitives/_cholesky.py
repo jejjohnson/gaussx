@@ -76,6 +76,21 @@ def cholesky(
     Raises:
         ValueError: If ``operator`` is a concretely negative multiple of a
             non-NSD operator, such as ``-A``.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> psd = lx.positive_semidefinite_tag
+        >>> A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 2.0]]), psd)
+        >>> B = lx.MatrixLinearOperator(jnp.array([[3.0, 0.5], [0.5, 1.0]]), psd)
+        >>> K = gaussx.Kronecker(A, B)
+        >>> L = gaussx.cholesky(K)  # Kronecker(chol(A), chol(B))
+        >>> type(L).__name__
+        'Kronecker'
+        >>> bool(jnp.allclose((L @ L.T).as_matrix(), K.as_matrix(), atol=1e-5))
+        True
     """
     if isinstance(operator, lx.IdentityLinearOperator):
         return operator

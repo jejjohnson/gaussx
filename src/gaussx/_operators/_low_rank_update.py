@@ -52,6 +52,22 @@ class LowRankUpdate(lx.AbstractLinearOperator):
     - ``positive_semidefinite_tag`` additionally when the base is PSD and
       *d* is omitted (all ones). A caller-supplied *d* can have any sign,
       so pass ``tags=lx.positive_semidefinite_tag`` to claim PSD.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> base = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0]))
+        >>> U = jnp.array([[1.0], [0.0], [1.0]])
+        >>> K = gaussx.LowRankUpdate(base, U)  # base + U Uᵀ
+        >>> K.rank
+        1
+        >>> dense = K.as_matrix()
+        >>> b = jnp.ones(3)
+        >>> x = gaussx.solve(K, b)  # Woodbury: one 1 x 1 solve, no 3 x 3 factorisation
+        >>> bool(jnp.allclose(dense @ x, b, atol=1e-5))
+        True
     """
 
     base: lx.AbstractLinearOperator

@@ -81,6 +81,23 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
         kron1: First Kronecker product ``A_1 \otimes B_1``.
         kron2: Second Kronecker product ``A_2 \otimes B_2``.
         *krons: Additional two-factor Kronecker products.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> psd = lx.positive_semidefinite_tag
+        >>> A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 2.0]]), psd)
+        >>> B = lx.MatrixLinearOperator(jnp.array([[3.0, 0.5], [0.5, 1.0]]), psd)
+        >>> I2 = lx.IdentityLinearOperator(A.in_structure())
+        >>> K = gaussx.SumOfKroneckers(gaussx.Kronecker(A, B), gaussx.Kronecker(I2, I2))
+        >>> dense = jnp.kron(A.as_matrix(), B.as_matrix()) + jnp.eye(4)
+        >>> bool(jnp.allclose(K.as_matrix(), dense))
+        True
+        >>> sign, expected = jnp.linalg.slogdet(dense)
+        >>> bool(jnp.allclose(gaussx.logdet(K), expected, atol=1e-5))  # per factor
+        True
     """
 
     operators: tuple[Kronecker, ...]

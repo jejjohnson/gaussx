@@ -24,6 +24,22 @@ class Kronecker(lx.AbstractLinearOperator):
 
     Args:
         *operators: Two or more ``lineax.AbstractLinearOperator`` instances.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> psd = lx.positive_semidefinite_tag
+        >>> A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 2.0]]), psd)
+        >>> B = lx.MatrixLinearOperator(jnp.array([[3.0, 0.5], [0.5, 1.0]]), psd)
+        >>> K = gaussx.Kronecker(A, B)  # 4 x 4, stored as two 2 x 2 factors
+        >>> K.in_size()
+        4
+        >>> bool(jnp.allclose(K.as_matrix(), jnp.kron(A.as_matrix(), B.as_matrix())))
+        True
+        >>> type(gaussx.cholesky(K)).__name__  # primitives keep the structure
+        'Kronecker'
     """
 
     operators: tuple[lx.AbstractLinearOperator, ...]

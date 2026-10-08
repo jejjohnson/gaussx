@@ -83,6 +83,18 @@ def solve(
     Raises:
         TypeError: If *solver* is neither a lineax solver nor a gaussx
             strategy.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
+        >>> K = gaussx.Kronecker(A, B)  # diag(4, 5, 8, 10)
+        >>> x = gaussx.solve(K, jnp.ones(4))  # one solve per factor
+        >>> [round(float(v), 4) for v in x]
+        [0.25, 0.2, 0.125, 0.1]
     """
     if solver is not None and not isinstance(solver, lx.AbstractLinearSolver):
         from gaussx._strategies._base import AbstractSolveStrategy

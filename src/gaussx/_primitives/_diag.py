@@ -56,6 +56,17 @@ def diag(
 
     Returns:
         1D array of diagonal entries (exact or estimated).
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
+        >>> K = gaussx.Kronecker(A, B)  # diag(4, 5, 8, 10)
+        >>> [float(v) for v in gaussx.diag(K)]  # diag(A) ⊗ diag(B)
+        [4.0, 5.0, 8.0, 10.0]
     """
 
     # Every recursive call forwards the estimator options, so a wrapped or

@@ -26,6 +26,23 @@ class KroneckerSum(lx.AbstractLinearOperator):
     Args:
         A: First operator, shape ``(n_a, n_a)``.
         B: Second operator, shape ``(n_b, n_b)``.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> psd = lx.positive_semidefinite_tag
+        >>> A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 2.0]]), psd)
+        >>> B = lx.MatrixLinearOperator(jnp.array([[3.0, 0.5], [0.5, 1.0]]), psd)
+        >>> S = gaussx.KroneckerSum(A, B)  # A ⊗ I + I ⊗ B
+        >>> I2 = jnp.eye(2)
+        >>> dense = jnp.kron(A.as_matrix(), I2) + jnp.kron(I2, B.as_matrix())
+        >>> bool(jnp.allclose(S.as_matrix(), dense))
+        True
+        >>> sign, expected = jnp.linalg.slogdet(dense)
+        >>> bool(jnp.allclose(gaussx.logdet(S), expected, atol=1e-5))  # λ_i + μ_j
+        True
     """
 
     A: lx.AbstractLinearOperator

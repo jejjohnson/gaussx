@@ -158,7 +158,8 @@ NO_X64_TESTS := tests/primitives \
 	tests/ssm/test_parallel_kalman.py \
 	tests/ssm/test_infinite_horizon_kalman.py \
 	tests/ssm/test_sde_kernels.py \
-	tests/test_dtype_preservation.py
+	tests/test_dtype_preservation.py \
+	tests/test_doctests.py
 
 test-no-x64: ## 🔢 Run the float32 lane: fast tests with x64 off (matches PR CI)
 	@printf "$(YELLOW)>>> Running fast tests with x64 off...$(RESET)\n"

@@ -36,4 +36,4 @@ applyTo: "src/**/*.py,tests/**/*.py,docs/notebooks/**/*.py"
 - Function/method docstrings for all public APIs (Google style)
 - Inline comments explaining *why*, not *what*
 - Scientific algorithms should include Unicode equations in docstrings (e.g. `# σ² = Σ(xᵢ − μ)² / N`)
-- Public classes and functions should include 2–3 example use cases in docstrings
+- New public classes and functions include at least one runnable `>>>` example (doctested by `tests/test_doctests.py`; see CODE_REVIEW.md)

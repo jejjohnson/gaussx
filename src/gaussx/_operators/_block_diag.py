@@ -31,6 +31,21 @@ class BlockDiag(lx.AbstractLinearOperator):
     Args:
         *operators: One or more ``lineax.AbstractLinearOperator`` instances
             forming the diagonal blocks.
+
+    Examples:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> psd = lx.positive_semidefinite_tag
+        >>> A = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 2.0]]), psd)
+        >>> B = lx.MatrixLinearOperator(jnp.array([[3.0, 0.5], [0.5, 1.0]]), psd)
+        >>> D = gaussx.BlockDiag(A, B)  # diag(A, B), 4 x 4
+        >>> D.as_matrix().shape
+        (4, 4)
+        >>> logdet_blocks = gaussx.logdet(A) + gaussx.logdet(B)
+        >>> bool(jnp.allclose(gaussx.logdet(D), logdet_blocks))
+        True
     """
 
     operators: tuple[lx.AbstractLinearOperator, ...]

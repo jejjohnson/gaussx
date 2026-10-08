@@ -102,6 +102,15 @@ def trace(
         >>> est = gx.trace(A, stochastic=True, num_probes=30, algorithm="hutchpp")
         >>> bool(jnp.abs(est - jnp.sum(lam)) / jnp.sum(lam) < 0.05)
         True
+
+        Structured operators take an exact fast path:
+
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
+        >>> K = gaussx.Kronecker(A, B)  # diag(4, 5, 8, 10)
+        >>> float(gaussx.trace(K))  # trace(A) · trace(B)
+        27.0
     """
 
     # Every recursive call forwards the estimator options, so a wrapped or
