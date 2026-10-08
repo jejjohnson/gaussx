@@ -74,10 +74,15 @@ def mixture_quantile(
 
     Args:
         cdf_fn: Elementwise CDF, mapping an array to an array of the same
-            shape.
+            shape. It must be strictly increasing where it crosses ``q``: on
+            a flat segment at level ``q`` the solver returns some point of
+            the segment, not the generalized inverse
+            ``inf{x : F(x) >= q}``. Gaussian-mixture CDFs always qualify.
         q: Quantile levels in $[0, 1]$.
-        lower: Lower bracket, with ``cdf_fn(lower) <= q``.
-        upper: Upper bracket, with ``cdf_fn(upper) >= q``.
+        lower: Finite lower bracket, with ``cdf_fn(lower) <= q``.
+        upper: Finite upper bracket, with ``cdf_fn(upper) >= q``. Infinite
+            brackets are rejected; for a Gaussian mixture, means ± 40
+            standard deviations bracket every level.
         solver: An optimistix root finder that takes
             ``options=dict(lower=..., upper=...)``. Defaults to
             ``Chandrupatla(rtol=rtol, atol=atol)``. `optimistix.Bisection`
@@ -87,7 +92,8 @@ def mixture_quantile(
         max_steps: Maximum number of solver iterations.
         throw: If ``True``, raise when a level is not bracketed
             (``cdf_fn(lower) <= q <= cdf_fn(upper)`` fails, including a NaN
-            endpoint value or a reversed bracket) or the solver does not
+            endpoint value, an infinite endpoint or a reversed bracket) or
+            the solver does not
             converge. If ``False``, an unbracketed level
             returns the bracket endpoint whose CDF is closer to $q$ (its
             gradient is then meaningless), and a non-converged one the
@@ -130,9 +136,12 @@ def mixture_quantile(
         g_lo, g_hi = fn(lower, q), fn(upper, q)
         lower = eqx.error_if(
             lower,
-            ~jnp.all((g_lo <= 0) & (g_hi >= 0)),
-            "mixture_quantile: some levels q are not bracketed, i.e. "
-            "cdf_fn(lower) <= q <= cdf_fn(upper) fails.",
+            ~jnp.all(
+                (g_lo <= 0) & (g_hi >= 0) & jnp.isfinite(lower) & jnp.isfinite(upper)
+            ),
+            "mixture_quantile: some levels q are not bracketed by finite "
+            "endpoints, i.e. cdf_fn(lower) <= q <= cdf_fn(upper) fails or a "
+            "bracket is infinite.",
         )
     sol = optx.root_find(
         fn,
@@ -201,7 +210,15 @@ def mixture_quantile_gaussian_approx(
     q = jnp.atleast_1d(jnp.asarray(q, dtype))
     mu = reduce(means, "... e -> ...", "mean")
     dev = einx.subtract("... e, ... -> ... e", means, mu)
-    sigma = jnp.sqrt(reduce(stds**2 + dev**2, "... e -> ...", "mean"))
+    # Rescaled norm: stds**2 would overflow for stds near sqrt(max float).
+    big = jnp.maximum(
+        reduce(jnp.abs(stds), "... e -> ...", "max"),
+        reduce(jnp.abs(dev), "... e -> ...", "max"),
+    )
+    big = jnp.where(big > 0, big, jnp.ones_like(big))
+    s_r = einx.divide("... e, ... -> ... e", stds, big)
+    d_r = einx.divide("... e, ... -> ... e", dev, big)
+    sigma = big * jnp.sqrt(reduce(s_r**2 + d_r**2, "... e -> ...", "mean"))
     z = jax.scipy.special.ndtri(q)
     return einx.add(
         "..., ... q -> ... q", mu, einx.multiply("..., q -> ... q", sigma, z)

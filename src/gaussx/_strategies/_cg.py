@@ -12,8 +12,8 @@ from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
     operator_dtype,
-    resolve_atol,
     resolve_tolerance,
+    rhs_scaling,
 )
 
 
@@ -35,8 +35,8 @@ class CGSolver(AbstractSolverStrategy):
         rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
             ``1e-3`` in float32.
         atol: Absolute tolerance for CG. ``None``: ``1e-5`` in float64; in
-            float32 ``max(1e-5, sqrt(eps) * max|b_i|)``, so it scales with the
-            right-hand side (gh-639).
+            float32, ``sqrt(eps) * max|b_i|``, relative to the right-hand
+            side (the solve runs on ``b / max|b_i|``; gh-639).
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
@@ -75,10 +75,11 @@ class CGSolver(AbstractSolverStrategy):
             Solution ``x``, shape ``(n,)``.
         """
         dtype = operator_dtype(operator, vector)
+        atol, scale = rhs_scaling(self.atol, dtype, 1e-5, vector)
+        rhs = vector if scale is None else vector / scale
         solver = lx.CG(
             rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
-            # lineax annotates atol as float; a traced scalar works (gh-639).
-            atol=resolve_atol(self.atol, dtype, 1e-5, vector),  # ty: ignore[invalid-argument-type]
+            atol=atol,
             max_steps=self.max_steps,
         )
         options: dict[str, lx.AbstractLinearOperator] = {}
@@ -94,9 +95,10 @@ class CGSolver(AbstractSolverStrategy):
                 options["preconditioner"] = eqx.combine(
                     jax.lax.stop_gradient(dynamic), static
                 )
-        return lx.linear_solve(
-            operator, vector, solver, options=options, throw=self.throw
+        x = lx.linear_solve(
+            operator, rhs, solver, options=options, throw=self.throw
         ).value
+        return x if scale is None else x * scale
 
     def logdet(
         self,

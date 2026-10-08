@@ -229,17 +229,18 @@ class TestLinearizeSDE:
             )
 
 
-def test_kl_rejects_first_order_taylor():
-    """Taylor order 1 sees the residual only at the mean, where it is 0."""
+@pytest.mark.parametrize("order", [1, 2])
+def test_kl_rejects_taylor(order):
+    """Order 1 sees the residual only at the mean; order 2 can go negative."""
     m, S = jnp.zeros((2, 1)), jnp.full((2, 1, 1), 0.5)
 
     def drift(x):
         return x - x**3
 
     lin = gaussx.linearize_sde(drift, jnp.eye(1), m, S)
-    with pytest.raises(ValueError, match="first-order TaylorIntegrator"):
+    with pytest.raises(ValueError, match="TaylorIntegrator"):
         gaussx.sde_kl_divergence(
-            drift, lin, m, S, dt=0.1, integrator=gaussx.TaylorIntegrator()
+            drift, lin, m, S, dt=0.1, integrator=gaussx.TaylorIntegrator(order=order)
         )
 
 

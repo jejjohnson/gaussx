@@ -13,8 +13,8 @@ from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
     operator_dtype,
-    resolve_atol,
     resolve_tolerance,
+    rhs_scaling,
 )
 
 
@@ -49,7 +49,8 @@ class BBMMSolver(AbstractSolverStrategy):
         rtol: Relative tolerance for CG. ``None``: ``1e-4`` in float64,
             ``1e-3`` in float32 (gh-327).
         atol: Absolute tolerance for CG. ``None``: ``1e-4`` in float64; in
-            float32 ``max(1e-4, sqrt(eps) * max|b_i|)`` (gh-639).
+            float32, ``sqrt(eps) * max|b_i|``, relative to the right-hand
+            side (the solve runs on ``b / max|b_i|``; gh-639).
         max_steps: Maximum CG iterations.
         lanczos_order: Lanczos iterations for SLQ.
         num_probes: Number of probe vectors for Hutchinson.
@@ -143,13 +144,15 @@ class BBMMSolver(AbstractSolverStrategy):
             The solution x.
         """
         dtype = operator_dtype(operator, vector)
+        atol, scale = rhs_scaling(self.atol, dtype, 1e-4, vector)
+        rhs = vector if scale is None else vector / scale
         solver = lx.CG(
             rtol=resolve_tolerance(self.rtol, dtype, 1e-4),
-            # lineax annotates atol as float; a traced scalar works (gh-639).
-            atol=resolve_atol(self.atol, dtype, 1e-4, vector),  # ty: ignore[invalid-argument-type]
+            atol=atol,
             max_steps=self.max_steps,
         )
-        return lx.linear_solve(operator, vector, solver, throw=self.throw).value
+        x = lx.linear_solve(operator, rhs, solver, throw=self.throw).value
+        return x if scale is None else x * scale
 
     def logdet(
         self,

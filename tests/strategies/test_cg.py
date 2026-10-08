@@ -181,22 +181,62 @@ def test_float32_default_keeps_a_small_absolute_tolerance(cls):
 
 
 @pytest.mark.parametrize(
-    ("dtype", "b_max", "expected"),
+    ("b", "scale"),
     [
-        (jnp.float64, 3.0, 1e-5),  # float64 keeps the constant
-        (jnp.float32, 1e-4, 1e-5),  # small b: the float64 floor
-        (jnp.float32, 3.0, 3.0 * float(jnp.sqrt(jnp.finfo(jnp.float32).eps))),
+        ([3.0, -1.5, 0.0], 3.0),
+        ([1e-6, 0.0], 1e-6),  # tiny b: still relative, never the zero iterate
+        ([0.0, 0.0], 1.0),  # zero b: the unscaled solve
+        ([jnp.inf, 1.0], 1.0),  # non-finite b: the unscaled solve, as before
+        ([jnp.nan, 1.0], 1.0),
     ],
 )
-def test_default_atol_scales_with_the_right_hand_side(dtype, b_max, expected):
-    from gaussx._strategies._tolerances import resolve_atol
+def test_float32_default_atol_rescales_the_right_hand_side(b, scale):
+    from gaussx._strategies._tolerances import rhs_scaling
 
-    b = jnp.array([b_max, -0.5 * b_max, 0.0], dtype=dtype)
-    atol = resolve_atol(None, dtype, 1e-5, b)
-    assert jnp.allclose(atol, expected, rtol=1e-6)
-    assert resolve_atol(2e-7, dtype, 1e-5, b) == 2e-7
-    # The zero iterate (r = b) never passes lineax's entrywise check.
-    assert b_max > atol + 1e-3 * b_max
+    b32 = jnp.array(b, dtype=jnp.float32)
+    atol, s = rhs_scaling(None, jnp.float32, 1e-5, b32)
+    assert atol == pytest.approx(float(jnp.sqrt(jnp.finfo(jnp.float32).eps)))
+    assert float(s) == pytest.approx(scale)
+    # float64 and an explicit atol keep the unscaled solve and their constant.
+    assert rhs_scaling(None, jnp.float64, 1e-5, b32.astype(jnp.float64)) == (
+        1e-5,
+        None,
+    )
+    assert rhs_scaling(2e-7, jnp.float32, 1e-5, b32) == (2e-7, None)
+
+
+_FLOAT32_DEFAULTS = [CGSolver(), PreconditionedCGSolver(preconditioner_rank=2)]
+
+
+@pytest.mark.parametrize("strategy", _FLOAT32_DEFAULTS, ids=["cg", "pcg"])
+def test_float32_default_solves_a_tiny_right_hand_side(strategy):
+    # gh-639: max|b| = 1e-6 is below the old 1e-5 floor, which accepted the
+    # zero iterate; the rescaled solve is relative to b.
+    A, _ = _float32_system(1, n=20)
+    b = 1e-6 * jr.normal(jr.key(2), (20,), dtype=jnp.float32)
+    x = strategy.solve(lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag), b)
+    assert jnp.linalg.norm(A @ x - b) / jnp.linalg.norm(b) <= 1e-3
+
+
+@pytest.mark.parametrize("strategy", _FLOAT32_DEFAULTS, ids=["cg", "pcg"])
+def test_float32_default_gradients_match_the_dense_solve(strategy):
+    # gh-639 review: no tangent may reach the lineax solver (the scale is
+    # stop-gradient), and the adjoint solve must not inherit a tolerance
+    # scaled from a large primal b (max|b| = 1e6 here).
+    A, b = _float32_system(1, n=20)
+    b = 1e6 * b
+
+    def loss(c, v):
+        op = lx.MatrixLinearOperator(c * A, lx.positive_semidefinite_tag)
+        return jnp.sum(strategy.solve(op, v)) / 1e6
+
+    def dense(c, v):
+        return jnp.sum(jnp.linalg.solve(c * A, v)) / 1e6
+
+    one = jnp.float32(1.0)
+    got = jax.grad(loss, argnums=(0, 1))(one, b)
+    want = jax.grad(dense, argnums=(0, 1))(one, b)
+    assert tree_allclose(got, want, rtol=1e-2)
 
 
 @pytest.mark.slow
