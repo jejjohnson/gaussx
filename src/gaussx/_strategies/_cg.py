@@ -10,7 +10,11 @@ from jaxtyping import Array, Float
 from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._slq_logdet import SLQLogdet
-from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
+from gaussx._strategies._tolerances import (
+    operator_dtype,
+    resolve_atol,
+    resolve_tolerance,
+)
 
 
 class CGSolver(AbstractSolverStrategy):
@@ -30,8 +34,9 @@ class CGSolver(AbstractSolverStrategy):
     Attributes:
         rtol: Relative tolerance for CG. ``None``: ``1e-5`` in float64,
             ``1e-3`` in float32.
-        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in every dtype
-            (only the relative tolerance is relaxed for float32).
+        atol: Absolute tolerance for CG. ``None``: ``1e-5`` in float64; in
+            float32 ``max(1e-5, sqrt(eps) * max|b_i|)``, so it scales with the
+            right-hand side (gh-639).
         max_steps: Maximum CG iterations.
         num_probes: Number of probe vectors for stochastic logdet.
         lanczos_order: Order of the Lanczos decomposition for SLQ.
@@ -72,7 +77,8 @@ class CGSolver(AbstractSolverStrategy):
         dtype = operator_dtype(operator, vector)
         solver = lx.CG(
             rtol=resolve_tolerance(self.rtol, dtype, 1e-5),
-            atol=1e-5 if self.atol is None else self.atol,
+            # lineax annotates atol as float; a traced scalar works (gh-639).
+            atol=resolve_atol(self.atol, dtype, 1e-5, vector),  # ty: ignore[invalid-argument-type]
             max_steps=self.max_steps,
         )
         options: dict[str, lx.AbstractLinearOperator] = {}
