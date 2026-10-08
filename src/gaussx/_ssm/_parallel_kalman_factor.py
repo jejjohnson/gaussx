@@ -9,6 +9,13 @@ formed inside the scan and every returned covariance is a Gram matrix
 $UU^\top$, PSD by construction. This is the filter behind
 ``parallel_kalman_filter(..., square_root=True)`` (gh-454).
 
+``Q``, ``R`` and the initial covariance are factored once, outside the
+scan, by a Cholesky of their correlation matrix after a ``4 n ε`` diagonal
+shift (`_input_factor`), so each component is perturbed relative to its own
+scale and a covariance that is singular or indefinite only by rounding
+still factors. The factors are the differentiated path: there is no
+projection and no ``stop_gradient``.
+
 Pseudocode:
 
     L_Q, L_R, N0 = chol-factors of Q_t, R_t, P0        (once, outside the scan)

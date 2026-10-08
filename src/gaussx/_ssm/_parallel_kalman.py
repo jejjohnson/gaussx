@@ -30,6 +30,7 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._linalg._symmetrize import symmetrize as _sym
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState, kalman_filter
+from gaussx._ssm._parallel_kalman_factor import parallel_kalman_filter_factor
 from gaussx._ssm._utils import (
     _masked_obs_inputs,
     _materialise,
@@ -238,20 +239,12 @@ def parallel_kalman_filter(
             return an indefinite covariance and a NaN log-likelihood
             there). Gradients are those of the unprojected path. For
             covariances that are PSD by construction use ``square_root``.
-        square_root: Run the square-root (factor-propagating) filter of
-            Yaghoobi, Corenflos, Hassan & Särkkä (2022, §III). The scan
-            carries ``(A, b, U, η, Z)`` with ``C = U Uᵀ`` and ``J = Z Zᵀ``;
-            every element and every combination is built from QR
-            decompositions (``tria``) of stacked factors, so no covariance
-            is formed inside the scan and the returned covariances are Gram
-            matrices ``U Uᵀ``, PSD by construction. ``Q``, ``R`` and
-            ``init_cov`` are factored once by Cholesky after adding
-            ``4 n ε max diag`` to their diagonals (``ε`` the dtype's
-            epsilon), the size of their own rounding error, so a covariance
-            that is singular or indefinite only by rounding still factors.
-            The factors are the differentiated path; there is no projection
-            and no ``stop_gradient``. Supports both mask ranks. Not
-            combinable with ``psd_project`` or ``woodbury_innovation``.
+        square_root: Run the factor-propagating square-root filter of
+            Yaghoobi, Corenflos, Hassan & Särkkä (2022, §III): covariances
+            are PSD by construction and stay accurate in float32. See
+            `gaussx._ssm._parallel_kalman_factor` for the method. Supports
+            both mask ranks; not combinable with ``psd_project`` or
+            ``woodbury_innovation``.
 
     Raises:
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
@@ -284,10 +277,6 @@ def parallel_kalman_filter(
                 "square_root=True cannot be combined with psd_project=True "
                 "(or form='sqrt') or woodbury_innovation=True."
             )
-        from gaussx._ssm._parallel_kalman_factor import (
-            parallel_kalman_filter_factor,
-        )
-
         return parallel_kalman_filter_factor(
             transition,
             obs_model,
