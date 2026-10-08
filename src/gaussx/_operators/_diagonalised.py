@@ -543,6 +543,14 @@ def as_diagonalized(operator: lx.AbstractLinearOperator) -> DiagonalizedOperator
     applies ``V_A`` along the leading axis of the ``(n_A, n_B)`` field and
     ``V_B`` along the trailing one, and the eigenvalues are all pairwise sums
     ``λ^A_i + λ^B_j``.
+
+    Args:
+        operator: The operator to express in a transform basis.
+
+    Returns:
+        The equivalent `DiagonalizedOperator`, or ``None`` when ``operator``
+        is neither a `DiagonalizedOperator` nor a `gaussx.KroneckerSum` of
+        diagonalisable factors.
     """
     from gaussx._operators._kronecker_sum import KroneckerSum
 
