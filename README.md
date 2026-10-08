@@ -1,31 +1,48 @@
-# gaussx
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+    <img alt="gaussx" src="docs/assets/logo-light.svg" width="340">
+  </picture>
+</p>
 
-[![Tests](https://github.com/jejjohnson/gaussx/actions/workflows/ci.yml/badge.svg)](https://github.com/jejjohnson/gaussx/actions/workflows/ci.yml)
-[![Lint](https://github.com/jejjohnson/gaussx/actions/workflows/lint.yml/badge.svg)](https://github.com/jejjohnson/gaussx/actions/workflows/lint.yml)
-[![Type Check](https://github.com/jejjohnson/gaussx/actions/workflows/typecheck.yml/badge.svg)](https://github.com/jejjohnson/gaussx/actions/workflows/typecheck.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+<p align="center">
+  <a href="https://github.com/jejjohnson/gaussx/actions/workflows/ci.yml"><img alt="Tests" src="https://github.com/jejjohnson/gaussx/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://github.com/jejjohnson/gaussx/actions/workflows/typecheck.yml"><img alt="Type Check" src="https://github.com/jejjohnson/gaussx/actions/workflows/typecheck.yml/badge.svg"></a>
+  <img alt="Python 3.12+" src="https://img.shields.io/badge/python-3.12%2B-blue">
+  <a href="https://opensource.org/licenses/MIT"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-yellow.svg"></a>
+</p>
+
+<p align="center">
+  <a href="https://jejjohnson.github.io/gaussx/"><b>Docs</b></a> ·
+  <a href="https://jejjohnson.github.io/gaussx/api/"><b>API</b></a> ·
+  <a href="https://jejjohnson.github.io/gaussx/architecture/"><b>Architecture</b></a> ·
+  <a href="https://jejjohnson.github.io/gaussx/notebooks/basics/"><b>Examples</b></a>
+</p>
 
 <!-- --8<-- [start:intro] -->
 **Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.**
 
-Built on top of [lineax](https://github.com/patrick-kidger/lineax), [equinox](https://github.com/patrick-kidger/equinox), and [matfree](https://github.com/pnkraemer/matfree).
+Write `gaussx.solve(K, v)` once. gaussx looks at what `K` is — Kronecker, block-diagonal, low-rank, FFT-diagonalisable, sparse, or a wrapper around one of those — and takes the fast path, under `jit`, `grad` and `vmap`. Gaussians, Kalman filters and GP recipes are built on the same primitives, so they inherit that structure for free.
+
+Built on [lineax](https://github.com/patrick-kidger/lineax), [equinox](https://github.com/patrick-kidger/equinox), and [matfree](https://github.com/pnkraemer/matfree).
 <!-- --8<-- [end:intro] -->
 
 <!-- --8<-- [start:install] -->
 ## Installation
 
-```bash
-pip install gaussx
-```
-
-Or with `uv`:
+gaussx is not on PyPI yet; install it from GitHub:
 
 ```bash
-uv add gaussx
+pip install "gaussx @ git+https://github.com/jejjohnson/gaussx.git"
 ```
 
+or with `uv`:
+
+```bash
+uv add "gaussx @ git+https://github.com/jejjohnson/gaussx.git"
+```
+
+Add the `numpyro` extra (`gaussx[numpyro] @ git+...`) for the NumPyro-compatible distributions.
 <!-- --8<-- [end:install] -->
 
 <!-- --8<-- [start:quickstart] -->
@@ -34,138 +51,201 @@ uv add gaussx
 ```python
 import jax.numpy as jnp
 import lineax as lx
+import numpyro.distributions as dist
+from jaxtyping import Array, Float
 
 import gaussx
 
-# Structured operators with structural dispatch
-A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0]))
-B = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))
-K = gaussx.Kronecker(A, B)
+Op = lx.AbstractLinearOperator
+Dist = dist.Distribution
 
-v = jnp.ones(6)
-x = gaussx.solve(K, v)  # Per-factor solve (efficient)
-ld = gaussx.logdet(K)  # n_B * logdet(A) + n_A * logdet(B)
-L = gaussx.cholesky(K)  # Kronecker(chol(A), chol(B))
+# K = A ⊗ B, a (6, 6) covariance that is never materialised.
+A: Op = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0]))  # (3, 3)
+B: Op = lx.DiagonalLinearOperator(jnp.array([4.0, 5.0]))  # (2, 2)
+K: gaussx.Kronecker = gaussx.Kronecker(A, B)  # (6, 6)
 
-# Distributions with pluggable solver strategies
-mvn = gaussx.MultivariateNormal(
-    loc=jnp.zeros(6),
-    cov_operator=K,
+v: Float[Array, " 6"] = jnp.ones(6)  # (6,)
+# Per-factor solves: O(3³ + 2³) instead of O(6³).
+x: Float[Array, " 6"] = gaussx.solve(K, v)  # (6,)
+ld: Float[Array, ""] = gaussx.logdet(K)  # (): n_B · logdet(A) + n_A · logdet(B)
+L: gaussx.Kronecker = gaussx.cholesky(K)  # (6, 6): Kronecker(chol(A), chol(B))
+
+# A Gaussian over K, with a pluggable solver strategy.
+mvn: Dist = gaussx.MultivariateNormal(
+    loc=jnp.zeros(6),  # (6,)
+    cov_operator=K,  # (6, 6)
     solver=gaussx.DenseSolver(),
 )
-log_p = mvn.log_prob(v)
+log_p: Float[Array, ""] = mvn.log_prob(v)  # ()
 ```
 <!-- --8<-- [end:quickstart] -->
+
+<!-- --8<-- [start:gp-example] -->
+## Example: one Gaussian process, five ways
+
+A GP marginal likelihood is `gaussian_log_prob(0, K_y, y)` whatever `K_y` is. Change the operator and the same call runs a dense Cholesky, a Kronecker eigendecomposition, a Woodbury solve, or an iterative BBMM solve.
+
+```python
+import einx
+import jax
+import jax.numpy as jnp
+import jax.random as jr
+import lineax as lx
+from jaxtyping import Array, Float
+
+import gaussx
+
+Op = lx.AbstractLinearOperator
+Scalar = Float[Array, ""]
+PSD = lx.positive_semidefinite_tag
+
+# Shapes: N = 20 × 20 = 400 grid points, M = 8 × 8 = 64 inducing points,
+#         T = 10 × 10 = 100 test points, n = 20 points per grid axis
+# k(x, x') = k(x₁, x₁') k(x₂, x₂'),  k(a, b) = exp(−(a − b)² / 2ℓ²),  ℓ = 0.2
+
+
+def rbf(a: Float[Array, " n"], b: Float[Array, " m"]) -> Float[Array, "n m"]:
+    return jnp.exp(-0.5 * einx.subtract("n, m -> n m", a, b) ** 2 / 0.2**2)
+
+
+g: Float[Array, " n"] = jnp.linspace(0, 1, 20)  # (n,) grid axis
+z: Float[Array, " 8"] = jnp.linspace(0, 1, 8)  # (8,) inducing axis
+s: Float[Array, " 10"] = jnp.linspace(0, 1, 10)  # (10,) test axis
+jitter: float = 1e-6  # keeps the Gram matrices numerically PD
+K1: Float[Array, "n n"] = rbf(g, g) + jitter * jnp.eye(20)  # (n,) → (n, n)
+
+# y = f(x) + ε,  f(x) = sin 6x₁ · cos 4x₂,  ε ~ 𝒩(0, σ²),  σ² = 0.01
+f: Float[Array, " N"] = einx.multiply(  # (n,), (n,) → (N,)
+    "a, b -> (a b)", jnp.sin(6 * g), jnp.cos(4 * g)
+)
+y: Float[Array, " N"] = f + 0.1 * jr.normal(jr.key(0), f.shape)  # (N,)
+noise: float = 0.01  # σ²
+zeros: Float[Array, " N"] = jnp.zeros(400)  # (N,) prior mean
+
+# 1. Exact: K_y = K + σ²I, a dense Cholesky, O(N³)
+K_y: Op = lx.MatrixLinearOperator(jnp.kron(K1, K1) + noise * jnp.eye(400), PSD)
+# log p(y) = log 𝒩(y; 0, K_y)
+mll_exact: Scalar = gaussx.gaussian_log_prob(zeros, K_y, y)  # (N,) → ()
+
+# 2. Grid: K_y = K₁ ⊗ K₁ + σ² I ⊗ I, per-factor eigh, O(n³); equals mll_exact
+K1_op: Op = lx.MatrixLinearOperator(K1, PSD)  # (n, n)
+I_op: Op = lx.MatrixLinearOperator(jnp.eye(20), PSD)  # (n, n)
+noise_op: Op = lx.MatrixLinearOperator(noise * jnp.eye(20), PSD)  # (n, n)
+K_grid: Op = gaussx.SumOfKroneckers(
+    gaussx.Kronecker(K1_op, K1_op),  # (N, N)
+    gaussx.Kronecker(noise_op, I_op),  # (N, N)
+)
+mll_grid: Scalar = gaussx.gaussian_log_prob(zeros, K_grid, y)  # (N,) → ()
+
+# 3. Inducing points: K_y ≈ Q + σ²I,  Q = K_xz K_zz⁻¹ K_zx = U Uᵀ, Woodbury O(N M²)
+K_xz: Float[Array, "N M"] = jnp.kron(rbf(g, z), rbf(g, z))  # (N, M)
+# (M, M), jittered
+K_zz: Float[Array, "M M"] = jnp.kron(rbf(z, z), rbf(z, z)) + jitter * jnp.eye(64)
+L_zz: Float[Array, "M M"] = jnp.linalg.cholesky(K_zz)  # (M, M)
+U: Float[Array, "N M"] = einx.id(  # U = K_xz L_zz⁻ᵀ
+    "m n -> n m",
+    jax.scipy.linalg.solve_triangular(L_zz, einx.id("n m -> m n", K_xz), lower=True),
+)
+K_dtc: Op = gaussx.low_rank_plus_identity(U, scale=noise, psd=True)  # (N, N), rank M
+mll_dtc: Scalar = gaussx.gaussian_log_prob(zeros, K_dtc, y)  # (N,) → ()
+# Titsias' bound: log 𝒩(y; 0, Q + σ²I) − tr(K − Q) / 2σ²  ≤  mll_exact
+elbo: Scalar = gaussx.collapsed_elbo(y, jnp.ones(400), K_xz, K_zz, noise)  # ()
+
+# 4. Same K_y, iterative numerics: CG solves + stochastic Lanczos logdet (BBMM)
+mll_bbmm: Scalar = gaussx.gaussian_log_prob(  # ≈ mll_exact, up to SLQ's MC error
+    zeros, K_y, y, solver=gaussx.BBMMSolver(), key=jr.key(1)
+)
+
+# 5. Prediction: α = K_y⁻¹ y once;  μ* = K_*x α,  σ²* = k_** − k_*ᵀ K_y⁻¹ k_*
+K_sx: Float[Array, "T N"] = jnp.kron(rbf(s, g), rbf(s, g))  # (T, N)
+cache: gaussx.PredictionCache = gaussx.build_prediction_cache(K_grid, y)  # α, (N,)
+mu: Float[Array, " T"] = gaussx.predict_mean(cache, K_sx)  # (T, N) → (T,)
+var: Float[Array, " T"] = gaussx.predict_variance(cache, K_sx, jnp.ones(100))  # (T,)
+
+# LOVE: a rank-k Lanczos cache of K_y⁻¹, then O(N k) per test point
+love: gaussx.LOVECache = gaussx.love_cache(K_y, lanczos_order=100)  # k = 100
+var_love: Float[Array, " T"] = 1.0 - jax.vmap(  # (T, N) → (T,)
+    lambda k_s: gaussx.love_variance(love, k_s)
+)(K_sx)
+```
+
+Every path runs under `jax.jit` and differentiates with `jax.grad`: the Kronecker path's gradient with respect to the lengthscale matches the dense one.
+<!-- --8<-- [end:gp-example] -->
+
+## What structure buys you
+
+Every primitive dispatches on the operator it is given. A dense matrix costs $O(n^3)$ to solve or factor; these do not:
+
+| Operator | Represents | `solve` | `logdet` |
+|---|---|---|---|
+| `Kronecker` | $A_1 \otimes \cdots \otimes A_k$, $N = \prod_i n_i$ | $O(\sum_i n_i^3 + N \sum_i n_i)$, per factor | $O(\sum_i n_i^3)$, scaled sum |
+| `KroneckerSum` | $A \oplus B = A \otimes I + I \otimes B$ | joint eigenbasis, $O(n_A^3 + n_B^3 + N(n_A + n_B))$ | $\sum_{ij} \log(\lambda_i + \mu_j)$ |
+| `SumOfKroneckers` | $A_1 \otimes B_1 + A_2 \otimes B_2$ | whiten + per-factor `eigh` | eigenvalue sum |
+| `BlockDiag` | $\mathrm{diag}(A_1, \ldots, A_k)$ | $O(\sum_i b_i^3)$, per block | $O(\sum_i b_i^3)$, per block |
+| `BlockTriDiag` | symmetric block-tridiagonal, $T$ blocks of $d$ | $O(T d^3)$, block Cholesky | $O(T d^3)$ |
+| `LowRankUpdate` | $D + U C V^\top$, rank $k$ | $O(n k^2 + k^3)$, Woodbury | $O(n k^2 + k^3)$, determinant lemma |
+| `DiagonalizedOperator` | $V^{-1} \mathrm{diag}(\lambda) V$ (FFT, DCT, `circulant`) | $O(n \log n)$, transform pair | $O(n)$, $\sum \log \lvert\lambda\rvert$ |
+| `SparseOperator` | sparse matrix on a static pattern | sparse Cholesky, or CG when large and PSD | sparse Cholesky, or an SLQ estimate |
+| `MaskedOperator` | rows / columns of a base operator | capacitance solve | dense |
+| `Toeplitz`, `InterpolatedOperator` | stationary kernels on grids, KISS-GP | $O(n \log n)$ matvecs for CG | SLQ via a strategy |
+| `c * A`, `-A`, `A @ B`, tagged `A` | wrappers | unwrap and recurse | unwrap and recurse |
+
+Everything else falls back to an exact dense solve, or to the iterative strategy you pass (`CGSolver`, `BBMMSolver`, …), and paths that densify a structured operator warn. The [architecture page](https://jejjohnson.github.io/gaussx/architecture/) has the full operator × primitive table.
+
+## Architecture
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.svg">
+    <img alt="The gaussx layers: recipes, distributions, strategies, operators and primitives, built on JAX, lineax, equinox and matfree" src="docs/assets/architecture-light.svg" width="100%">
+  </picture>
+</p>
+
+Each layer only uses the ones beneath it, so you can enter wherever your problem lives. The [architecture page](https://jejjohnson.github.io/gaussx/architecture/) has the dispatch tables.
+
+## Where it is used
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ecosystem-dark.svg">
+    <img alt="Packages in the GeoML and GeoModels stacks that build on gaussx" src="docs/assets/ecosystem-light.svg" width="100%">
+  </picture>
+</p>
+
+gaussx is the shared linear-algebra layer of the GeoML stack ([kernellib](https://github.com/jejjohnson/kernellib), [filterax](https://github.com/jejjohnson/filterax), [vardax](https://github.com/jejjohnson/vardax), [pyrox](https://github.com/jejjohnson/pyrox), [optax_bayes](https://github.com/jejjohnson/optax_bayes)) and of the GeoModels stack ([spectraldiffx](https://github.com/jejjohnson/spectraldiffx), [finitevolX](https://github.com/jejjohnson/finitevolX), [plumax](https://github.com/jejjohnson/plumax), [somax](https://github.com/jejjohnson/somax)).
 
 <!-- --8<-- [start:inside] -->
 ## What's Inside
 
-gaussx is a layered stack: each layer builds on the ones beneath it, so
-you can enter wherever your problem lives. The
-[architecture page](https://jejjohnson.github.io/gaussx/architecture/) explains
-the layers and the dispatch; each heading below links to its API reference.
+Each heading links to its API reference; these are the highlights, not the full list.
 
 ### Layer 0 -- [Primitives](https://jejjohnson.github.io/gaussx/api/primitives/) and [linear-algebra utilities](https://jejjohnson.github.io/gaussx/api/linalg/)
 
-Pure functions with `isinstance`-based structural dispatch. Each primitive automatically exploits the structure of its input operator (Kronecker, block-diagonal, low-rank, etc.).
-
-`solve` | `logdet` | `cholesky` | `diag` | `trace` | `sqrt` | `inv` | `eig` | `eigvals` | `svd` | `root_decomposition` | `root_inv_decomposition`
-
-**Utilities**: `woodbury_solve` | `schur_complement` | `safe_cholesky` | `symmetrize` | `tridiagonal_solve` | `discrete_lyapunov_solve` | `cov_transform`
+Pure functions with `isinstance` dispatch on the operator's structure: `solve` · `logdet` · `cholesky` · `diag` · `trace` · `sqrt` · `inv` · `eig` · `svd` · `root_decomposition`, plus `woodbury_solve`, `schur_complement`, `safe_cholesky` and `tridiagonal_solve`.
 
 ### Layer 1 -- [Operators](https://jejjohnson.github.io/gaussx/api/operators/)
 
-Extend `lineax.AbstractLinearOperator` with structured matrices. All are immutable `equinox.Module` pytrees, safe under `jit` / `grad` / `vmap`:
+lineax operators, immutable equinox pytrees safe under `jit` / `grad` / `vmap`: `Kronecker` · `KroneckerSum` · `SumOfKroneckers` · `BlockDiag` · `BlockTriDiag` · `LowRankUpdate` · `DiagonalizedOperator` · `Toeplitz` · `InterpolatedOperator` · `MaskedOperator` · `SparseOperator`, and lazy algebra with `sum_operator`, `scaled_operator` and `product_operator`.
 
-| Operator | Description |
-|----------|-------------|
-| `Kronecker` | Kronecker product A_1 &otimes; ... &otimes; A_k |
-| `KroneckerSum` | Kronecker sum A &oplus; B = A &otimes; I + I &otimes; B |
-| `SumOfKroneckers` | Sum of Kronecker products &Sigma;_k A_k &otimes; B_k (**not** the same as `KroneckerSum`) |
-| `BlockDiag` | Block diagonal diag(A_1, ..., A_k) |
-| `BlockTriDiag` | Block tridiagonal (lower/upper variants) |
-| `LowRankUpdate` | A + UDV^T (pass `orthonormal=True` for SVD / Nystrom factors) |
-| `DiagonalizedOperator` | V^-1 diag(&lambda;) V for a fast transform pair (FFT, DCT, ...); `circulant` builds the periodic case |
-| `Toeplitz` | Symmetric Toeplitz, O(n log n) matvec via FFT |
-| `InterpolatedOperator` | Grid-interpolated (KISS-GP style) |
-| `MaskedOperator` | Row/column sub-selection of a base operator |
-| `SparseOperator` | Sparse matrix on a static `SparsityPattern`, with sparse Cholesky ([sparse](https://jejjohnson.github.io/gaussx/api/sparse/), [GMRF precisions](https://jejjohnson.github.io/gaussx/api/gmrf/)) |
-| `sum_operator`, `scaled_operator`, `product_operator` | Lazy algebra |
+### Layer 1.5 -- [Solver strategies & preconditioners](https://jejjohnson.github.io/gaussx/api/solvers/)
 
-### Layer 1.5 -- [Solver Strategies & Preconditioners](https://jejjohnson.github.io/gaussx/api/solvers/)
+How to solve, decoupled from what: `DenseSolver` · `AutoSolver` · `CGSolver` · `PreconditionedCGSolver` · `MINRESSolver` · `BBMMSolver` with `SLQLogdet`, preconditioned by `JacobiPreconditioner`, `NystromPreconditioner` or `PartialCholeskyPreconditioner`. `linear_solve` is the front door.
 
-Pluggable solve + logdet algorithms that decouple numerics from distributions. `linear_solve` is the high-level front door; `solver=None` anywhere means structural dispatch:
+### Layer 2 -- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/api/distributions/)
 
-**Solvers**: `DenseSolver` | `AutoSolver` | `CGSolver` | `PreconditionedCGSolver` | `MINRESSolver` | `LSMRSolver` | `BBMMSolver` | `ComposedSolver`
-
-**Logdets**: `DenseLogdet` | `SLQLogdet` | `IndefiniteSLQLogdet`
-
-**Preconditioners**: `JacobiPreconditioner` | `NystromPreconditioner` | `PartialCholeskyPreconditioner` | `OperatorPreconditioner` (bring your own M^-1)
-
-### Layer 2 -- [Distributions, Sugar & Exponential Family](https://jejjohnson.github.io/gaussx/api/distributions/)
-
-**Distributions**: `MultivariateNormal`, `MultivariateNormalPrecision` (NumPyro-compatible), `MarkovGaussian`, `LGSSM`
-
-**Sugar** (compound operations built from primitives): `gaussian_log_prob` | `gaussian_entropy` | `gaussian_kl` | `quadratic_form` | `conditional` | `joseph_update` | `project`
-
-**Exponential family**: `GaussianExpFam` with conversions between natural and expectation parameters, sufficient statistics, log partition, Fisher information, and KL divergence.
+`MultivariateNormal` and `MultivariateNormalPrecision` (NumPyro-compatible), `MarkovGaussian`, `LGSSM`, the sugar built on them (`gaussian_log_prob`, `gaussian_kl`, `conditional`, `joseph_update`), and `GaussianExpFam` for natural / expectation parameters.
 
 ### Layer 3 -- Recipes
 
-Domain workflows that combine the layers below.
-
-#### [Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/)
-
-| Recipe | Functions |
-|--------|-----------|
-| GP conditioning | `sparse_conditional`, `predict_mean`, `predict_variance`, `build_prediction_cache` |
-| Variational bounds | `variational_elbo_gaussian`, `variational_elbo_mc`, `collapsed_elbo`, `gauss_kl`, `whitened_svgp_predict` |
-| Kronecker GP | `kronecker_mll`, `kronecker_posterior_predictive` |
-| LOVE / LOO | `love_cache`, `love_variance`, `leave_one_out_cv` |
-| Pathwise sampling | `matheron_update` |
-| Multi-output (OILMM) | `oilmm_project`, `oilmm_back_project` |
-| Interpolation | `conditional_interpolate` |
-
-#### [State-space models](https://jejjohnson.github.io/gaussx/api/ssm/)
-
-| Recipe | Functions |
-|--------|-----------|
-| Kalman filter | `kalman_filter`, `kalman_gain`, `rts_smoother` |
-| Parallel Kalman | `parallel_kalman_filter`, `parallel_rts_smoother` |
-| Steady-state Kalman | `infinite_horizon_filter`, `infinite_horizon_smoother`, `dare` |
-| SSM natural params | `ssm_to_naturals`, `naturals_to_ssm`, `ssm_to_expectations`, `expectations_to_ssm` |
-| Gaussian sites (CVI) | `GaussianSites`, `cvi_update_sites`, `sites_to_precision` |
-| SpInGP | `spingp_log_likelihood`, `spingp_posterior` |
-| SDE kernels | `MaternSDE`, `PeriodicSDE`, `QuasiPeriodicSDE`, `CosineSDE`, `ConstantSDE`, `IntegratedWienerSDE`, `SumSDE`, `ProductSDE` |
-
-#### [Quadrature & uncertainty propagation](https://jejjohnson.github.io/gaussx/api/quadrature/)
-
-| Recipe | Functions |
-|--------|-----------|
-| Integrators | `GaussHermiteIntegrator`, `TaylorIntegrator`, `UnscentedIntegrator`, `MonteCarloIntegrator`, `sigma_points`, `cubature_points`, `gauss_hermite_points` |
-| Likelihoods | `GaussianLikelihood`, `HeteroscedasticGaussianLikelihood`, `BernoulliLikelihood`, `PoissonLikelihood`, `SoftmaxLikelihood`, `StudentTLikelihood` |
-| State estimation and EP | `AssumedDensityFilter`, `ep_tilted_moments` |
-| Uncertain-input GP prediction | `uncertain_gp_predict`, `uncertain_svgp_predict`, `uncertain_vgp_predict`, `uncertain_bgplvm_predict` |
-
-#### [Inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/)
-
-| Recipe | Functions |
-|--------|-----------|
-| Bayesian linear regression | `blr_full_update`, `blr_diag_update`, `ggn_diagonal`, `hutchinson_hessian_diag` |
-| Natural gradients | `damped_natural_update`, `gauss_newton_precision`, `riemannian_psd_correction` |
-| Ensemble (EnKF) | `ensemble_covariance`, `ensemble_cross_covariance`, `ensemble_kalman_gain`, `etkf_transform` |
-| Localization / inflation | `gaspari_cohn`, `localized_kalman_gain`, `inflate_rtpp`, `inflate_rtps` |
+- **[Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/)**: `sparse_conditional`, `collapsed_elbo`, `kronecker_mll`, `love_cache`, `matheron_update`, `oilmm_project`
+- **[State-space models](https://jejjohnson.github.io/gaussx/api/ssm/)**: `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `dare`, `sde_kl_divergence`, SDE kernels such as `MaternSDE`
+- **[Quadrature & uncertainty propagation](https://jejjohnson.github.io/gaussx/api/quadrature/)**: `UnscentedIntegrator`, `GaussHermiteIntegrator`, `ep_tilted_moments`, `uncertain_gp_predict`
+- **[Inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/)**: `blr_full_update`, `damped_natural_update`, `ensemble_kalman_gain`, `etkf_transform`, `laplace_mode`
 
 ### Outside the stack
 
-[Sketching](https://jejjohnson.github.io/gaussx/api/sketching/) (`GaussianSketch`, `SRHTSketch`, `hadamard_transform`, ...) and [randomized linear algebra](https://jejjohnson.github.io/gaussx/api/randomized/) (`randomized_svd`, `randomized_nystrom`, `rp_cholesky`, ...) are standalone tools that produce operators and factors for the layers above.
+[Sketching](https://jejjohnson.github.io/gaussx/api/sketching/) (`SRHTSketch`, `hadamard_transform`) and [randomized linear algebra](https://jejjohnson.github.io/gaussx/api/randomized/) (`randomized_svd`, `randomized_nystrom`, `rp_cholesky`) produce operators and factors for the layers above.
 <!-- --8<-- [end:inside] -->
-
-## Documentation
-
-- **[API Reference](https://jejjohnson.github.io/gaussx/api/)** — organised by layer; every public symbol is documented
-- **[Architecture](https://jejjohnson.github.io/gaussx/architecture/)** — the layered stack, dispatch flow, and per-primitive fast-path coverage
-- **[Vision](https://jejjohnson.github.io/gaussx/vision/)** — why gaussx exists and what it deliberately is not
 
 <!-- --8<-- [start:api-notes] -->
 ## API Notes

@@ -10,6 +10,8 @@
 
 --8<-- "README.md:quickstart"
 
+--8<-- "README.md:gp-example"
+
 --8<-- "README.md:inside"
 
 --8<-- "README.md:api-notes"
