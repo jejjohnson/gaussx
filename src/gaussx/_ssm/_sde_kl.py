@@ -218,10 +218,12 @@ def sde_kl_divergence(
 
     Each expectation is the integrator's weighted sum over its points of
     the whitened residual's squared norm, so for a rule with non-negative
-    mean weights the result is non-negative by construction. A
-    first-order `gaussx.TaylorIntegrator` is rejected: it evaluates the
-    residual at the mean only, where the drift of `linearize_sde` makes it
-    vanish, so it would report a zero KL for every drift. For the optimal
+    mean weights the result is non-negative by construction.
+    `gaussx.TaylorIntegrator` is rejected at every order: order 1 sees the
+    residual only at the mean, where the drift of `linearize_sde` makes it
+    vanish (a zero KL for every drift), and order 2 adds a Hessian term
+    that can make the expectation of a square negative (drift ``x²`` at
+    ``m = 0, S = 1`` gives ``E[(x² − 1)²] ≈ −1``). For the optimal
     drift and a linear $f$ the residual vanishes everywhere and the KL is
     zero.
 
@@ -248,7 +250,7 @@ def sde_kl_divergence(
 
     Raises:
         ValueError: If the path and ``linear_drift`` shapes disagree, or
-            ``integrator`` is a first-order `gaussx.TaylorIntegrator`.
+            ``integrator`` is a `gaussx.TaylorIntegrator`.
         EquinoxRuntimeError: If any step size is negative (also under
             ``jit``).
 
@@ -275,11 +277,13 @@ def sde_kl_divergence(
         )
     Q = _broadcast_diffusion(linear_drift.Q, T, d)
     integrator = _default_integrator(integrator)
-    if isinstance(integrator, TaylorIntegrator) and integrator.order < 2:
+    if isinstance(integrator, TaylorIntegrator):
         raise ValueError(
-            "sde_kl_divergence needs the residual's spread, not its value at "
-            "the mean: a first-order TaylorIntegrator returns zero for every "
-            "drift. Use a point-based rule or TaylorIntegrator(order=2)."
+            "sde_kl_divergence needs a rule that keeps the expectation of a "
+            "squared residual non-negative: TaylorIntegrator returns zero for "
+            "every drift at order 1 and can go negative at order 2. Use a "
+            "point-based rule with non-negative weights (the default "
+            "UnscentedIntegrator(alpha=1.0), cubature or Gauss-Hermite)."
         )
 
     def one(m, S, A, b, Q_t):
