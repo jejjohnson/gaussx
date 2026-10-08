@@ -37,6 +37,7 @@ def schur_complement(
 
     # Solve K_ZZ w_j = k_xz_j for each row of K_XZ
     # W^T = vmap(solve(K_ZZ, ·))(K_XZ)  =>  (N, M)
+    # lazy import, cycle: _linalg._linalg -> _linalg._schur
     from gaussx._linalg._linalg import solve_rows
 
     W_T = solve_rows(K_ZZ, K_XZ)  # (N, M)

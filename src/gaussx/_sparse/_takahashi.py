@@ -32,6 +32,8 @@ def takahashi(
         ``Z`` on ``L``'s CSC pattern, shape ``(nnz_L,)``.
     """
     if sym.banded:
+        # lazy import, cycle: _linalg._selected_inverse -> _primitives._cholesky ->
+        #   _sparse._factor -> _sparse._takahashi
         from gaussx._linalg._selected_inverse import _block_takahashi
 
         sigma = _block_takahashi(LowerBlockTriDiag(*to_blocks(sym, L)))

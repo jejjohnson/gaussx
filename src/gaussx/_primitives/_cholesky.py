@@ -18,6 +18,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
 from gaussx._primitives._scale import scaled_root
+from gaussx._sparse._factor import sparse_cholesky
 
 
 if TYPE_CHECKING:
@@ -182,7 +183,6 @@ def _cholesky_sum_kronecker(operator: SumOfKroneckers) -> lx.MatrixLinearOperato
 
 def _cholesky_sparse(operator: SparseOperator) -> SparseCholeskyFactor:
     """Sparse Cholesky on the cached symbolic analysis (RCM, JAX backend)."""
-    from gaussx._sparse._factor import sparse_cholesky
 
     return sparse_cholesky(operator)
 

@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._deprecation import warn_deprecated
 from gaussx._operators._block_diag import _to_frozenset
+from gaussx._tags import low_rank_tag
 
 
 class LowRankUpdate(lx.AbstractLinearOperator):
@@ -118,7 +119,6 @@ class LowRankUpdate(lx.AbstractLinearOperator):
         self.V = V
         self.orthonormal = orthonormal
         self.symmetric_factors = symmetric_factors and m == n
-        from gaussx._tags import low_rank_tag
 
         inferred_tags = _infer_tags(
             base,

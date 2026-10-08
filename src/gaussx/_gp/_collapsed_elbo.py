@@ -12,6 +12,7 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -88,7 +89,6 @@ def collapsed_elbo(
     ).as_matrix()
 
     # log|Q_ff + σ²I| = N log σ² + log|B|
-    from gaussx._primitives._logdet import cholesky_logdet
 
     log_det = N * jnp.log(noise_var) + cholesky_logdet(L_B)
 

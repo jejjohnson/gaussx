@@ -136,6 +136,7 @@ def moment_transform(
             Raised at trace time, so it costs nothing per step.
     """
     if integrator is None:
+        # lazy import, cycle: _quadrature._unscented -> _quadrature._integrator
         from gaussx._quadrature._unscented import UnscentedIntegrator
 
         # alpha=1.0, not UnscentedIntegrator's own 1e-3: that spread

@@ -3,7 +3,8 @@
 gaussx is organised as a **layered stack** on top of
 [lineax](https://github.com/patrick-kidger/lineax) and
 [matfree](https://github.com/pnkraemer/matfree). Each layer is usable on its
-own, and each layer only depends on the ones beneath it. You can enter wherever
+own, and each layer builds on the ones beneath it (with one exception, the
+dispatch core, described under [Import structure](#import-structure)). You can enter wherever
 your problem lives: grab a single primitive, build a structured operator, swap a
 solver strategy, or call a finished recipe.
 
@@ -506,6 +507,24 @@ src/gaussx/
 Layer 3 lives in *named* subpackages (`_gp/`, `_ssm/`, …) rather than a single
 `_recipes/` directory --- the families grew large enough to deserve their own
 namespaces, and each maps one-to-one onto an API reference page.
+
+
+### Import structure
+
+Layers 3 and 2 import only from below. Layers 0, 1 and 1.5 form one
+**dispatch core** instead: the primitives `isinstance`-dispatch on the
+operator classes (Layer 0 imports Layer 1), some operators call primitives
+for their own factorisations (`SumOfKroneckers` → `cholesky` / `sqrt` /
+`solve`, `MaskedOperator` → `solve`), and the primitives fall back to
+strategy objects (`AutoSolver`, `CGSolver`, `SLQLogdet`) that themselves
+call `solve` / `logdet`. `_sparse` joins the cycle through the sparse
+Cholesky path.
+
+gaussx imports its own modules at module scope except on the edges that
+close one of these cycles. Each such import sits inside the function that
+needs it, with a `# lazy import, cycle: ...` comment naming the module chain
+that imports back, and `tests/test_lazy_imports.py` keeps the list of those
+edges explicit, so a new one has to be added deliberately.
 
 ---
 

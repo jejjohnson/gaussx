@@ -10,6 +10,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
+from gaussx._tags import kronecker_sum_tag
 
 
 _NEGATIVE_EIGENVALUE_TOLERANCE_FACTOR = 100
@@ -78,7 +79,6 @@ class KroneckerSum(lx.AbstractLinearOperator):
         self._in_size = n_a * n_b
         self._out_size = n_a * n_b
         self._dtype = _resolve_dtype(A, B)
-        from gaussx._tags import kronecker_sum_tag
 
         self.tags = _to_frozenset(tags) | {kronecker_sum_tag}
 

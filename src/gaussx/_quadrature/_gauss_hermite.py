@@ -9,8 +9,10 @@ import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
+from gaussx._primitives._sqrt import sqrt
 from gaussx._quadrature._assembly import assemble_propagation_result
 from gaussx._quadrature._integrator import AbstractIntegrator
+from gaussx._quadrature._quadrature import gauss_hermite_points
 from gaussx._quadrature._types import GaussianState, PropagationResult
 
 
@@ -74,8 +76,6 @@ class GaussHermiteIntegrator(AbstractIntegrator):
             uses a single weight set, so ``w_m`` and ``w_c`` are the same
             array, normalised to sum to one.
         """
-        from gaussx._primitives._sqrt import sqrt
-        from gaussx._quadrature._quadrature import gauss_hermite_points
 
         mu = state.mean
         N = mu.shape[0]

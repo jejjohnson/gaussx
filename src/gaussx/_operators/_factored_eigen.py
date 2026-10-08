@@ -124,6 +124,7 @@ def factored_eigen(operator: lx.AbstractLinearOperator) -> FactoredEigen | None:
         The factorisation, or ``None`` for a non-symmetric operator with no
         known eigenbasis.
     """
+    # lazy import, cycle: _operators._spectral_function -> _operators._factored_eigen
     from gaussx._operators._spectral_function import SpectralFunction
 
     if isinstance(operator, lx.TaggedLinearOperator) and isinstance(

@@ -11,7 +11,13 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum, rearrange
+from gaussx._linalg._linalg import trace_product
 from gaussx._primitives._cholesky import cholesky
+from gaussx._quadrature._expectations import (
+    _points_and_weights_or_none,
+    mean_expectation,
+)
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._types import GaussianState
 
@@ -53,11 +59,6 @@ def kernel_expectations(
     Returns:
         Tuple ``(Psi_0, Psi_1, Psi_2)``.
     """
-    from gaussx._einx import einsum, rearrange
-    from gaussx._quadrature._expectations import (
-        _points_and_weights_or_none,
-        mean_expectation,
-    )
 
     def k_row(x: Float[Array, " D"]) -> Float[Array, " N_train"]:
         return jax.vmap(lambda xi: kernel_fn(x, xi))(X_train)
@@ -121,7 +122,6 @@ def uncertain_gp_predict(
     Returns:
         Tuple ``(mean, variance)`` — scalar predictive moments.
     """
-    from gaussx._linalg._linalg import trace_product
 
     Psi_0, Psi_1, Psi_2 = kernel_expectations(kernel_fn, state, X_train, integrator)
 
@@ -170,7 +170,6 @@ def uncertain_svgp_predict(
     Returns:
         Tuple ``(mean, variance)`` — scalar predictive moments.
     """
-    from gaussx._linalg._linalg import trace_product
 
     Psi_0, Psi_1, Psi_2 = kernel_expectations(kernel_fn, state, Z, integrator)
 
@@ -217,7 +216,6 @@ def uncertain_vgp_predict(
     Returns:
         Tuple ``(mean, variance)`` — scalar predictive moments.
     """
-    from gaussx._linalg._linalg import trace_product
 
     Psi_0, Psi_1, Psi_2 = kernel_expectations(kernel_fn, state, X_train, integrator)
 
@@ -266,7 +264,6 @@ def uncertain_bgplvm_predict(
     Returns:
         Tuple ``(mean, variance)`` — predictive moments each of shape ``(D_out,)``.
     """
-    from gaussx._linalg._linalg import trace_product
 
     Psi_0, Psi_1, Psi_2 = kernel_expectations(kernel_fn, state, X_train, integrator)
 

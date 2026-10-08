@@ -60,7 +60,7 @@ log_p = mvn.log_prob(v)
 <!-- --8<-- [start:inside] -->
 ## What's Inside
 
-gaussx is a layered stack: each layer only depends on the ones beneath it, so
+gaussx is a layered stack: each layer builds on the ones beneath it, so
 you can enter wherever your problem lives. The
 [architecture page](https://jejjohnson.github.io/gaussx/architecture/) explains
 the layers and the dispatch; each heading below links to its API reference.

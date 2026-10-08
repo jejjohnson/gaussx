@@ -8,7 +8,10 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._preconditioners import AbstractPreconditioner
+from gaussx._primitives._logdet import _has_structural_logdet
 from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._cg import CGSolver
+from gaussx._strategies._dense import DenseSolver
 
 
 class AutoSolver(AbstractSolverStrategy):
@@ -81,9 +84,6 @@ class AutoSolver(AbstractSolverStrategy):
         self, operator: lx.AbstractLinearOperator
     ) -> AbstractSolverStrategy:
         """Select the best solver strategy for the given operator."""
-        from gaussx._primitives._logdet import _has_structural_logdet
-        from gaussx._strategies._cg import CGSolver
-        from gaussx._strategies._dense import DenseSolver
 
         # Exact structural solve + logdet (gh-321). A sum of Kronecker
         # products only counts when the exact two-term reduction applies;

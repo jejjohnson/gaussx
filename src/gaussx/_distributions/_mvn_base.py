@@ -101,6 +101,7 @@ class AbstractMultivariateNormal(dist.Distribution):
         Returns:
             The KL divergence, with the broadcast batch shape.
         """
+        # lazy import, cycle: _distributions._numpyro_kl -> _distributions._mvn_base
         from gaussx._distributions._numpyro_kl import closed_form_kl
 
         return closed_form_kl(self, other)

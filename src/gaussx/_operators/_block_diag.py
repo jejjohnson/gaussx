@@ -10,6 +10,8 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._tags import block_diagonal_tag
+
 
 def _resolve_dtype(*operators: lx.AbstractLinearOperator) -> str:
     """Infer a common dtype string from the sub-operators' output structures."""
@@ -65,7 +67,6 @@ class BlockDiag(lx.AbstractLinearOperator):
         self._in_size = sum(op.in_size() for op in operators)
         self._out_size = sum(op.out_size() for op in operators)
         self._dtype = _resolve_dtype(*operators)
-        from gaussx._tags import block_diagonal_tag
 
         self.tags = _to_frozenset(tags) | {block_diagonal_tag}
 

@@ -32,7 +32,8 @@ from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     _sum_of_kroneckers_eigen,
 )
-from gaussx._primitives._cholesky import warn_dense_fallback
+from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
+from gaussx._primitives._solve import _low_rank_capacitance
 
 
 if TYPE_CHECKING:
@@ -187,7 +188,10 @@ def _logdet_sparse(operator: SparseOperator) -> Float[Array, ""]:
     The SLQ estimate uses the strategy's default fixed key. The exact sparse
     Cholesky path is the `SparseCholeskySolver` strategy, passed explicitly.
     """
+    # lazy import, cycle: _strategies._auto -> _primitives._logdet
     from gaussx._strategies._auto import AutoSolver
+
+    # lazy import, cycle: _strategies._slq_logdet -> _primitives._logdet
     from gaussx._strategies._slq_logdet import SLQLogdet
 
     if operator.in_size() > AutoSolver().size_threshold and (
@@ -227,7 +231,6 @@ def _logdet_low_rank(operator: LowRankUpdate) -> Float[Array, ""]:
     where K = I + D V^T L^{-1} U is the k x k capacitance scaled by D, so
     a zero weight needs no log(0) (gh-307).
     """
-    from gaussx._primitives._solve import _low_rank_capacitance
 
     ld_base = logdet(operator.base)
     _, K = _low_rank_capacitance(operator, solver=None)
@@ -303,7 +306,6 @@ def _logdet_diagonalised(operator: DiagonalizedOperator) -> Float[Array, ""]:
 
 def _logdet_block_tridiag(operator: BlockTriDiag) -> Float[Array, ""]:
     """logdet via banded Cholesky: logdet(A) = 2 * logdet(L)."""
-    from gaussx._primitives._cholesky import cholesky
 
     L = cholesky(operator)
     return 2.0 * logdet(L)
@@ -575,6 +577,8 @@ def _pseudo_logdet_laplacian_sparse(
     operator: SparseOperator, strategy: AbstractLogdetStrategy | None
 ) -> Float[Array, ""]:
     """Matrix-tree theorem: ``Σ_c log n_c + log|minor|`` by one sparse Cholesky."""
+    # lazy import, cycle: _strategies._sparse_cholesky -> _strategies ->
+    #   _strategies._auto -> _primitives._logdet
     from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
     if operator.pattern.shape[0] != operator.pattern.shape[1]:

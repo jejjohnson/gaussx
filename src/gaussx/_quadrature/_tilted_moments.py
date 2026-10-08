@@ -8,6 +8,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._moment_match import _tilted_weights
 from gaussx._quadrature._types import GaussianState
@@ -84,8 +85,6 @@ def ep_tilted_moments(
         NotImplementedError: If ``integrator`` is not point-based.
     """
     if integrator is None:
-        from gaussx._quadrature._gauss_hermite import GaussHermiteIntegrator
-
         integrator = GaussHermiteIntegrator(order=20 if order is None else order)
     elif order is not None:
         msg = "Pass either `integrator` or `order` (Gauss-Hermite), not both."

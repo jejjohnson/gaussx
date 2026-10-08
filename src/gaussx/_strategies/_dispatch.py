@@ -6,7 +6,10 @@ import jax
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._primitives._logdet import logdet
+from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolveStrategy
+from gaussx._strategies._lineax import as_solve_strategy
 
 
 def dispatch_solve(
@@ -29,12 +32,10 @@ def dispatch_solve(
     Raises:
         TypeError: If *solver* is neither kind.
     """
-    from gaussx._strategies._lineax import as_solve_strategy
 
     solver = as_solve_strategy(solver)
     if solver is not None:
         return solver.solve(operator, vector)
-    from gaussx._primitives._solve import solve
 
     return solve(operator, vector)
 
@@ -58,6 +59,5 @@ def dispatch_logdet(
     """
     if solver is not None:
         return solver.logdet(operator, key=key)
-    from gaussx._primitives._logdet import logdet
 
     return logdet(operator)

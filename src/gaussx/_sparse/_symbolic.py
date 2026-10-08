@@ -267,6 +267,7 @@ def _ordering(pattern: SparsityPattern, ordering: Ordering) -> np.ndarray:
         return np.asarray(
             reverse_cuthill_mckee(_symmetric_graph(pattern), symmetric_mode=True)
         )
+    # lazy import, cycle: _sparse._cholmod -> _sparse._symbolic
     from gaussx._sparse._cholmod import cholmod_amd_ordering
 
     return cholmod_amd_ordering(pattern)
@@ -343,6 +344,7 @@ def _symbolic_cached(
     pattern: SparsityPattern, ordering: Ordering, backend: Backend
 ) -> SymbolicCholesky:
     if backend == "cholmod":
+        # lazy import, cycle: _sparse._cholmod -> _sparse._symbolic
         from gaussx._sparse._cholmod import require_cholmod
 
         require_cholmod()

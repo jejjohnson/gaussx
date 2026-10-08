@@ -11,6 +11,7 @@ import lineax as lx
 import matfree.stochtrace
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange, reduce
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._block_tridiag import (
     BlockTriDiag,
@@ -139,7 +140,6 @@ def _diag_block_tridiag(
     operator: BlockTriDiag | LowerBlockTriDiag | UpperBlockTriDiag,
 ) -> Float[Array, " n"]:
     """Extract block-diagonal entries of a block-(tri/bi)diagonal operator."""
-    from gaussx._einx import rearrange
 
     # diagonal blocks contain the diagonal entries
     block_diags = jax.vmap(jnp.diag)(operator.diagonal)  # (N, d)
@@ -150,7 +150,6 @@ def _diag_low_rank(
     operator: LowRankUpdate, base_diag: Float[Array, " n"]
 ) -> Float[Array, " n"]:
     """diag(L + U diag(d) V^T) = diag(L) + sum_k U[:, k] d[k] V[:, k]."""
-    from gaussx._einx import reduce
 
     if operator.rank == 0:
         # einx rejects a zero-length axis.
@@ -246,8 +245,6 @@ def matrix_free_diag(
     if isinstance(operator, BlockDiag):
         return jnp.concatenate([recurse(op) for op in operator.operators])
     if isinstance(operator, LowRankUpdate):
-        from gaussx._einx import reduce
-
         update = reduce(operator.U * operator.d * operator.V, "n k -> n", "sum")
         return recurse(operator.base) + update
     if isinstance(operator, _CHEAP_DIAGONAL):
