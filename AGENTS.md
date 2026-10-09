@@ -254,6 +254,13 @@ agent can read and follow them):
 | Write a squash commit message | `squash-commit` |
 | Open or link GitHub issues | `create-gh-issue`, `link-gh-issues` (templates in `.github/ISSUE_TEMPLATE/`) |
 
+Downstream users get gaussx's guidance through the Claude Code plugin in
+`plugins/gaussx/` (published by `.claude-plugin/marketplace.json`) and
+`docs/llms.txt`; see `docs/agents.md`. When the public API or the headline
+usage changes, update `plugins/gaussx/skills/structured-gaussian-linalg/`
+too: `tests/test_plugin_skill.py` (slow tier) runs its worked example, and
+checks that every `gaussx.X` it and the plugin reviewer name still exists.
+
 ## Working in the repo
 
 Always run Python tools through `uv run` (never the system Python); `git`,

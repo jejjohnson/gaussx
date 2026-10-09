@@ -59,6 +59,7 @@ nav:
   - Home: index.md
   - Vision: vision.md
   - Architecture: architecture.md
+  - Building with Agents: agents.md
   - Design:
       - Unified Solvers: design/unified-solvers.md
   - Examples:
