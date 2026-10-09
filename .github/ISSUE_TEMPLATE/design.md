@@ -2,7 +2,7 @@
 name: Design / ADR
 about: Resolve an open design question — an API shape, a contract, a dispatch rule, a dependency.
 title: "[Design] <question>"
-labels: ["type:design"]
+labels: []
 ---
 
 ## Problem / Question

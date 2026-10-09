@@ -13,7 +13,7 @@ applyTo: "src/**/*.py,tests/**/*.py,docs/notebooks/**/*.py"
 - `pathlib.Path` over `os.path`
 - f-strings for string formatting
 - `equinox.Module` for data containers (operators, states, results): a dataclass is not a pytree; plain `dataclasses` only for host-side, never-traced records
-- `Enum` for fixed sets of constants
+- `Enum` or `Literal` for fixed sets of constants
 - Context managers (`with` statements) for resource handling
 - Specific exception types (never bare `except:`)
 - Proper exception chaining (`raise ... from ...`)

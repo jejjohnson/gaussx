@@ -29,9 +29,13 @@ layers ([`docs/architecture.md`](docs/architecture.md) has the long form):
 | 3 · Recipes | `_gp/`, `_ssm/`, `_quadrature/`, `_inference/` | GP conditioning, ELBOs, LOVE; SDE kernels, Kalman / RTS (sequential, parallel, infinite-horizon); quadrature and moment matching; BLR, natural gradients, ensemble Kalman |
 | Outside the stack | `_sketching/`, `_randomized/` | Subspace embeddings, randomized SVD / eigh / Nyström, RP-Cholesky |
 
-Layers 2 and 3 import only from below. Layers 0, 1 and 1.5 form one
-dispatch core with import cycles; an in-function import is allowed only on
-an edge that closes one of them (see "What enforces them").
+Recipes build on the layers below them (one exception: `_distributions`
+uses the Kalman and pairwise-marginal routines in `_ssm` for `LGSSM` and
+`MarkovGaussian`). Layers 0, 1 and 1.5 form one dispatch core with import
+cycles. Import gaussx modules at module scope; an in-function import is
+allowed only on an import-cycle edge listed in `ALLOWED_LAZY_IMPORTS`
+(`tests/test_lazy_imports.py`), with a `# lazy import, cycle: …` comment
+(lazy `__getattr__` hooks are exempt).
 
 ## What gaussx is built on
 
@@ -115,8 +119,11 @@ that enforces it.
   `is_tridiagonal`, `is_lower_triangular`, `is_upper_triangular`,
   `has_unit_diagonal`), the matching gaussx `is_*` predicate for its
   structure tag (`gaussx._tags`), and the structure functions via
-  `register_lineax_structure_functions` (gh-410), all in
-  `_operators/__init__.py`. A missing registration surfaces as
+  `register_lineax_structure_functions` (gh-410); most operators register
+  in `_operators/__init__.py` (adding a class to `_ALL_TRIDIAG_DEFAULTS`
+  there also registers its structure functions), a few in their own module
+  (`ToeplitzCholesky`, `SparseOperator`, `SpectralFunction`). A missing
+  registration surfaces as
   `NotImplementedError` deep inside a lineax solver.
 - **Dispatch, don't densify.** A fast path is an `isinstance` branch in the
   primitive (`_primitives/_solve.py`, `_logdet.py`, …), before the dense
@@ -191,7 +198,9 @@ that enforces it.
 - **Name it by the rules** in [`docs/api/index.md`](docs/api/index.md#naming):
   US spelling, CamelCase only for classes, `*Result` / `*State` / `*Cache` /
   `*Decomposition` / `*Params` containers, `solve_<rhs-shape>` vs
-  `<structure>_solve`, KL(first ‖ second) (`tests/test_naming.py`).
+  `<structure>_solve`, KL(first ‖ second). `tests/test_naming.py` checks
+  only the mechanical parts (CamelCase is a class, US spelling); the rest is
+  for review.
 - **Deprecate, don't break.** Renames and removals follow the
   [deprecation policy](docs/api/index.md#deprecation-policy): a
   `GaussxDeprecationWarning` naming the replacement and the removal version
@@ -213,15 +222,15 @@ Read the test's docstring before changing what it checks.
 |---|---|
 | `tests/operators/test_conformance.py` (+ `_zoo.py`) | Every operator × every primitive vs a dense reference; promised fast paths never densify |
 | `tests/operators/test_lineax_interop.py` | Every operator works with lineax's own solvers and predicates |
-| `tests/strategies/test_strategy_contract.py` | grad / vmap / float32 / `max_steps` for every strategy; preconditioner efficacy |
+| `tests/strategies/test_strategy_contract.py` | grad / vmap / float32 / `max_steps` for every strategy; preconditioner efficacy (all but a few representative cases are `slow`) |
 | `tests/test_docs_dispatch_table.py` | The dispatch table in `docs/architecture.md` matches the `isinstance` chains |
 | `tests/test_docs_api_coverage.py` | `__all__` ↔ `dir(gaussx)` ↔ `docs/api/*.md`, each name on its layer's page |
 | `tests/test_capabilities.py` | `docs/capabilities.md` is current; no gaussx name shadows a lineax / optimistix one |
 | `tests/test_docstring_signatures.py`, `tests/test_doctests.py`, `tests/test_docstrings.py` | Docstrings match signatures; examples run in both lanes; no Sphinx / RST markup |
-| `tests/test_naming.py`, `tests/test_deprecations.py` | Naming rules; every deprecation names a removal version and is removed on time |
+| `tests/test_naming.py`, `tests/test_deprecations.py` | CamelCase-is-a-class and US spelling; every deprecation names a removal version and is removed on time |
 | `tests/test_dtype_preservation.py` | float32 stays float32 under x64 |
 | `tests/test_einx_convention.py` + ruff `TID251` | The einx convention |
-| `tests/test_lazy_imports.py` | In-function imports only on dispatch-core cycle edges, each with a `# lazy import, cycle: …` comment |
+| `tests/test_lazy_imports.py` | In-function imports only on the import-cycle edges in `ALLOWED_LAZY_IMPORTS`, each with a `# lazy import, cycle: …` comment |
 | `tests/test_code_size.py` | Functions ≤ 150 lines, modules ≤ 800 (listed exceptions may only shrink) |
 | `tests/test_makefile.py`, `tests/test_readme.py`, `tests/test_notebooks_in_sync.py` | Every Make target is `.PHONY`; README examples run; notebook `.py` / `.ipynb` pairs agree |
 
@@ -277,9 +286,10 @@ Run one test with `uv run pytest tests/operators/test_kronecker.py::test_name -v
 CI on every PR runs the fast tier (`-m "not slow and not integration"`, with
 coverage gated by `fail_under` in `pyproject.toml`, a ratchet that is never
 lowered to make a PR pass) on Python 3.12 and 3.13, plus the float32 lane.
-The "Extended Tests" workflow (`tests-extended.yml`) runs the slow and
-integration tiers weekly, on PRs labelled `run-slow` (add it to PRs that
-touch the SSM filters, distributions or numpyro paths) and on demand. The
+The "Extended Tests" workflow (`tests-extended.yml`) runs the entire suite
+weekly on 3.12 and 3.13, the heavy lane (slow + integration) on PRs labelled
+`run-slow` (add it to PRs that touch the SSM filters, distributions,
+numpyro paths or a strategy's contract cases), and either on demand. The
 weekly "Latest Dependencies" workflow re-resolves at the newest versions and
 at the declared floors; a failure opens a `ci-failure` issue.
 

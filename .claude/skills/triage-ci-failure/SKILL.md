@@ -12,7 +12,7 @@ go red, through `.github/actions/report-scheduled-failure`:
 |---|---|---|
 | `latest-deps.yml`, `resolution: highest` | Fast lane at the newest jax, jaxlib, equinox, lineax, matfree, jaxtyping, einx, numpyro | An upstream release changed behaviour or removed an API |
 | `latest-deps.yml`, `resolution: lowest-direct` | Fast lane at the `>=` floors in `pyproject.toml` | gaussx started using something newer than its floor |
-| `tests-extended.yml` (weekly, full suite) | Slow + integration tiers | A slow test regressed, a tolerance tuned on one draw, a timeout |
+| `tests-extended.yml` (weekly) | The entire suite, on 3.12 and 3.13 | A slow test regressed, a tolerance tuned on one draw, a timeout |
 
 ## 1. Read the run
 
@@ -27,15 +27,17 @@ cp uv.lock /tmp/uv.lock.bak
 uv lock --upgrade --resolution highest          # or lowest-direct
 uv sync --group dev
 uv run pytest -n auto -m "not slow and not integration" <failing test ids>
-cp /tmp/uv.lock.bak uv.lock && uv sync --group dev   # restore
+cp /tmp/uv.lock.bak uv.lock && uv sync --all-groups   # restore
 ```
 
 For an extended-tests failure, `uv run pytest -v <test id>` at the locked
 versions; for a test that takes `getkey`, rerun with the seed it printed
 (`EQX_GETKEY_SEED=<n>`) and sweep a few others.
 
-If several packages moved, bisect: pin all but one back
-(`uv lock --upgrade-package <pkg>`) until one upgrade reproduces it.
+If several packages moved, bisect: start from the committed lock and upgrade
+one package at a time (`uv lock --upgrade-package <pkg>`) until one upgrade
+reproduces it. Use the job's Python: latest-deps runs `highest` on 3.13 and
+`lowest-direct` on 3.12 (`uv sync --python 3.13 ...`).
 
 ## 3. Classify and fix
 

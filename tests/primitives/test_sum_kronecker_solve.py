@@ -7,7 +7,7 @@ answer.
 
 Keys are pinned rather than drawn from ``getkey``: the assertions are about
 the factorization identity, not about sampling, so a fixed model makes the
-1e-10 tolerances mean something (see CLAUDE.md).
+1e-10 tolerances mean something (see AGENTS.md).
 """
 
 from __future__ import annotations
