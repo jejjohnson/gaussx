@@ -90,6 +90,7 @@ nav:
       - GP with Uncertain Inputs: notebooks/uncertain_gp_inputs.ipynb
   - API Reference:
       - Overview: api/index.md
+      - Capability Index: capabilities.md
       - Primitives: api/primitives.md
       - Operators & Tags: api/operators.md
       - Sparse Operators: api/sparse.md

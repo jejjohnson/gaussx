@@ -1,99 +1,28 @@
 # Copilot Instructions
 
-## Project Overview
+Read [`AGENTS.md`](../AGENTS.md) at the repository root first: it is the
+single source of truth for every coding agent working here (the layer map,
+what gaussx is built on, "reuse before you write", the three contracts, the
+tests that enforce them, commands, the pre-commit checklist, git and PR
+rules).
 
-- **Python**: 3.12+
-- **Package Manager**: uv
-- **Layout**: `src/` layout (`src/gaussx/`)
-- **Testing**: pytest
-- **Docs**: MkDocs + Material + mkdocstrings + mkdocs-jupyter
+The essentials, in case you only read this file:
 
-## Build & Test Commands
-
-```bash
-make install     # Install all dependencies (uv sync --all-groups) + pre-commit hooks
-make test        # Full suite in parallel (uv run pytest -v -n auto)
-make test-fast   # Fast tests only (skips slow + integration; matches PR CI)
-make test-no-x64 # Float32 lane: fast tests with x64 off (matches PR CI)
-make test-slow   # Only the slow + integration tests
-make test-cov    # Full suite with a coverage report
-make lint        # Lint code (ruff check)
-make format      # Format code (ruff format + ruff check --fix)
-make typecheck   # Type check (ty check)
-make precommit   # Run pre-commit on all files
-make docs-serve  # Serve docs locally
-```
-
-## Before Every Commit — Mandatory Checklist
-
-**All four checks must pass before any commit.** CI runs them on the entire repo (`ruff check .`), not just `src/gaussx/`, so always run the commands below from the repo root.
-
-```bash
-# 1. Tests — zero failures required
-uv run pytest -v
-
-# 2. Lint — run on the ENTIRE repo (includes tests/ and docs/notebooks/*.py)
-uv run --group lint ruff check .
-
-# 3. Format check — run on the ENTIRE repo
-uv run --group lint ruff format --check .
-
-# 4. Type check — on the package only
-uv run --group typecheck ty check src/gaussx
-```
-
-> **Common pitfall**: Running `ruff check src/gaussx/` instead of `ruff check .` misses import-sorting errors in `tests/` and `docs/notebooks/*.py`. The CI workflow runs `ruff check .`. Always use `.` (repo root), not a subdirectory.
-
-## Key Directories
-
-| Path | Purpose |
-|------|---------|
-| `src/gaussx/` | Main package source code |
-| `tests/` | Test suite |
-| `docs/` | Documentation (MkDocs) |
-| `docs/notebooks/` | Example notebooks (jupytext `.py` + executed `.ipynb`) |
-| `notebooks/` | Jupyter notebooks |
-
-## Behavioral Guidelines
-
-### Do Not Nitpick
-- Ignore style issues that linters/formatters catch (formatting, import order, quote style)
-- Don't suggest changes to code you weren't asked to modify
-- Match existing patterns even if you'd do it differently
-
-### Always Propose Tests
-When implementing features or fixing bugs:
-1. Write a test that verifies the expected behavior
-2. Implement the change
-3. Verify the test passes
-
-### Never Suggest Without a Proposal
-Bad: "You should add validation here"
-Good: "Add validation here. Proposed implementation:"
-```python
-if value < 0:
-    raise ValueError("Value must be non-negative")
-```
-
-### Simplicity First
-- No abstractions for single-use code
-- No speculative features beyond what was asked
-- If 200 lines could be 50, propose the simpler version
-
-### Surgical Changes
-- Only modify lines directly related to the request
-- Don't refactor adjacent code
-- Don't add docstrings/comments to code you didn't change
-- Remove only imports/functions that YOUR changes made unused
-
-## Plans
-
-Plans and design documents go in `.plans/` (gitignored, never committed). Track work via GitHub issues, not committed plan files.
-
-## PR Review Comments
-
-When addressing PR review comments, always resolve each review thread after fixing it via the GitHub GraphQL API (`resolveReviewThread` mutation). Do not leave addressed comments unresolved. See the "Pull Request Review Comments" section in `AGENTS.md` for the exact GraphQL queries and workflow.
-
-## Code Review
-
-For all code review tasks, follow the guidance in `/CODE_REVIEW.md`.
+- One package, `src/gaussx/`: private subpackages by layer (`_primitives`,
+  `_operators`, `_strategies`, `_distributions`, `_gp`, `_ssm`, …), public
+  API in `gaussx.__all__`. Search [`docs/capabilities.md`](../docs/capabilities.md)
+  before writing a helper.
+- Keep the three contracts in `AGENTS.md`:
+  - **operators** are `lineax.AbstractLinearOperator`s with their lineax and
+    gaussx predicates registered, an `isinstance` fast path per primitive
+    that never densifies, a row in the dispatch table and a case in the
+    conformance zoo;
+  - **solver strategies** keep grad / vmap / float32 / `max_steps` behaviour;
+  - **JAX numerics**: pure functions, explicit PRNG keys, the input dtype
+    preserved, no Python control flow on traced values, `eqx.Module` (never
+    dataclasses), and the einx convention.
+- Before committing, from the repo root: `make test-fast`, `make test-no-x64`,
+  `uv run --group lint ruff check .`, `uv run --group lint ruff format --check .`,
+  `make typecheck`; `make capabilities` after a public API change.
+- Path-scoped standards live in `.github/instructions/`; code review follows
+  [`CODE_REVIEW.md`](../CODE_REVIEW.md).
