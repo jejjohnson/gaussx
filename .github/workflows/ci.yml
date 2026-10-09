@@ -16,7 +16,7 @@ concurrency:
 
 env:
   # List the slowest tests in every log, so a test that outgrows the fast
-  # lane (unmarked tests stay under ~1 s; see CLAUDE.md) is visible in review.
+  # lane (unmarked tests stay under ~1 s; see AGENTS.md) is visible in review.
   PYTEST_ADDOPTS: --durations=15
 
 jobs:
