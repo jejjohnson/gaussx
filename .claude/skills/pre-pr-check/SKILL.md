@@ -70,11 +70,12 @@ A notebook `.py` edit needs its `.ipynb` re-executed (`add-notebook` skill).
 
 ```bash
 uv build
-tar tzf dist/*.tar.gz | grep -E '\.ipynb$|/\.github/|/\.claude/|/uv\.lock$|/CLAUDE\.md$|/AGENTS\.md$' && echo "sdist ships tooling"
+tar tzf dist/*.tar.gz | grep -E '\.ipynb$|/\.github/|/\.claude/|/uv\.lock$|/CLAUDE\.md$|/AGENTS\.md$|/\.env\.example$' && echo "sdist ships tooling"
 ```
 
 The sdist is an allow-list (`[tool.hatch.build.targets.sdist]`); CI fails if
-it ships notebooks or agent files, lacks `py.typed`, or exceeds 1 MB.
+it ships notebooks or agent files or exceeds 1 MB, and if the wheel lacks
+`gaussx/py.typed`.
 
 ## Before pushing
 

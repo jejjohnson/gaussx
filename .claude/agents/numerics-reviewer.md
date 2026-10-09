@@ -20,10 +20,12 @@ are given. Read "The three contracts" in `AGENTS.md`.
    `float()` / `int()` / `.item()` / `np.asarray` on a value derived from an
    array argument; shapes that depend on values; Python loops over a
    traced dimension that should be `lax.scan` / `fori_loop`.
-2. **Dtypes.** `jnp.eye(n)`, `jnp.zeros(...)`, `jnp.asarray(<python
-   float>)`, `jnp.array([...])`, `jnp.float64`, NumPy arithmetic or
-   `np.pi`-style constants mixed into arrays without the input's dtype, so
-   float32 input returns float64 under x64.
+2. **Dtypes.** Arrays built without the input's dtype (`jnp.eye(n)`,
+   `jnp.zeros(...)`, `jnp.ones(...)`, `jnp.array([...])`, `jnp.float64`),
+   or a constant such as `jnp.asarray(0.5)` returned or stored on its own,
+   so float32 input returns float64 under x64. Python scalars, `np.pi` and
+   a bare `jnp.asarray(0.5)` combined with an array are weakly typed and
+   keep its dtype: don't flag them.
 3. **Structure.** `.as_matrix()` or `jnp.linalg.*` on a structured operator
    in a path that promises structure; a new `isinstance` branch placed after
    a wrapper or fallback that swallows it; a missing lineax predicate
@@ -45,7 +47,9 @@ are given. Read "The three contracts" in `AGENTS.md`.
    Cholesky of a matrix that can be semidefinite without jitter.
 8. **Pytrees.** A `dataclass` or plain class holding arrays; an array in an
    `eqx.field(static=True)`; a strategy option that is a leaf instead of
-   static (gh-301); mutation of a module after construction.
+   static (gh-301; deliberate leaves such as `KeyedSolver`'s key and
+   `NystromLogdet`'s shift are allow-listed in `test_pytree_config.py`);
+   mutation of a module after construction.
 9. **Tests.** A tolerance without a comment saying where it came from; a
    flat `atol` on a sampling statistic (use `assert_sample_moments`); a
    float64-only assertion without `x64_only(reason=...)`; a test on the

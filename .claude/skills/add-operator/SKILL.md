@@ -47,22 +47,30 @@ about eight places, and the fast-lane tests fail on each one you miss.
   `_ALL_TRIDIAG_DEFAULTS` / `_TRI_DEFAULTS` unless it is genuinely
   triangular or element-tridiagonal). Derive properties from children or
   tags (`lx.positive_semidefinite_tag in operator.tags`).
-- `register_lineax_structure_functions(YourClass)`, so lineax's own solvers
-  can `linearise` / `materialise` / `diagonal` / `conj` it (gh-410).
+- The structure functions, so lineax's own solvers can `linearise` /
+  `materialise` / `diagonal` / `conj` it (gh-410): adding the class to
+  `_ALL_TRIDIAG_DEFAULTS` registers them; a class outside that tuple calls
+  `register_lineax_structure_functions(YourClass)` itself. (A few operators,
+  such as `ToeplitzCholesky`, `SparseOperator` and `SpectralFunction`,
+  register in their own module; follow whichever pattern avoids an import
+  cycle.)
 - A new structure tag goes in `gaussx/_tags.py` (a `_Tag` singleton with an
   attribute docstring, plus an `is_*` singledispatch predicate registered
   for the class).
 
 ## 4. Fast paths
 
-For each primitive that can exploit the structure (`solve`, `logdet`,
-`cholesky`, `diag`, `trace`, `sqrt`, `inv`, and optionally `eig`, `svd`,
-`frobenius_norm`, `submatrix`), follow the `add-dispatch-path` skill: an
-`isinstance` branch before the dense fallback, never calling `as_matrix()`
-on the structured operator, plus its cell in the dispatch table in
-`docs/architecture.md`. Every class a primitive branches on needs a row
-(`tests/test_docs_dispatch_table.py`); cells with no branch say **dense**
-(or **lazy** for `inv`).
+For each primitive that can exploit the structure, follow the
+`add-dispatch-path` skill: an `isinstance` branch before the dense fallback,
+never calling `as_matrix()` on the structured operator.
+
+- The seven table primitives (`solve`, `logdet`, `cholesky`, `diag`,
+  `trace`, `sqrt`, `inv`) also get their cell in the dispatch table in
+  `docs/architecture.md`: every class they branch on needs a row
+  (`tests/test_docs_dispatch_table.py`), and cells with no branch say
+  **dense** (or **lazy** for `inv`).
+- `eig` / `eigvals`, `svd`, `frobenius_norm` and `submatrix` can have fast
+  paths too, but have no table column.
 
 ## 5. Export and document
 
@@ -86,12 +94,15 @@ on the structured operator, plus its cell in the dispatch table in
   in `tests/operators/test_conformance.py` with `structured=` naming the
   primitives you promise never densify and `spy=YourClass`. A primitive
   that is known wrong gets `xfail={"<primitive>": "gh-NNN"}` (strict), with
-  an issue.
+  an issue. The valid keys for `prims=`, `structured=` and `xfail=` are the
+  conformance primitives: `solve`, `logdet`, `diag`, `trace`, `inv`,
+  `cholesky`, `sqrt`, `eigvals`, `frobenius_norm`, `submatrix`.
 - `tests/operators/test_lineax_interop.py` fails until every exported
   operator class has a `ZOO` builder, then runs lineax's own structure
   functions and solvers on it.
-- If the module belongs in the float32 lane, add its test file to
-  `NO_X64_TESTS` in the Makefile.
+- `tests/operators` is in the float32 lane as a whole (`NO_X64_TESTS` in
+  the Makefile), so your new test file runs with x64 off too: float64-only
+  assertions need `x64_only(reason=...)`.
 
 ## 7. Verify
 

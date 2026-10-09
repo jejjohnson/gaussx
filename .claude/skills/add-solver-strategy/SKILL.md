@@ -30,7 +30,9 @@ Read contract 2 ("Solver strategies") in `AGENTS.md`. A strategy changes
   (both), from `_strategies/_base.py`. It is an `eqx.Module`, and **every
   scalar option** (tolerances, step counts, probe counts, thresholds, seeds,
   sampler names) is `eqx.field(static=True)`, so `jax.jit` can take the
-  strategy, or a distribution holding it, as an argument (gh-301). Use the
+  strategy, or a distribution holding it, as an argument (gh-301). The
+  exceptions are deliberate leaves, such as `KeyedSolver`'s key (gh-384)
+  and `NystromLogdet`'s shift (gh-486). Use the
   canonical option names the other strategies use (`rtol`, `atol`,
   `max_steps`, …; gh-405).
 - Tolerances default to `None` and resolve per dtype with
@@ -66,15 +68,22 @@ Read contract 2 ("Solver strategies") in `AGENTS.md`. A strategy changes
 - **The contract suite** (`tests/strategies/test_strategy_contract.py`): add
   a factory to `STRATEGIES` (iterative ones join `ITERATIVE` automatically,
   so the `max_steps` test covers them). grad vs dense, vmap over rhs and the
-  float32 defaults then run for it. A known failure is
+  float32 defaults then run for it, but `_cases` marks every strategy
+  outside each test's short `fast` tuple as `slow`, so the new cases do
+  **not** run in `make test-fast` or PR CI: run
+  `uv run pytest tests/strategies/test_strategy_contract.py -k <name>` and
+  add the `run-slow` label to the PR. A known failure is
   `xfail(strict=True)` in the matching `_*_XFAIL` dict, naming its issue.
 - A preconditioner joins `test_preconditioner_halves_cg_steps_below_full_rank`
   (`_preconditioned_system`): at rank `k < n` it must at least halve the CG
   steps.
-- `tests/strategies/test_pytree_config.py` checks the options are static
-  treedef data and `test_option_names.py` the canonical names and their
-  deprecated aliases; register the new strategy there as their docstrings
-  describe.
+- `tests/strategies/test_pytree_config.py` finds exported strategies
+  automatically and checks their options are static treedef data; add a
+  `_default` entry only if the class cannot be built with no arguments
+  (or a `_LEAF_CARRYING` entry for a deliberate leaf).
+  `test_option_names.py` uses hard-coded parametrize lists for the canonical
+  option names and their deprecated aliases; add the new strategy to them
+  if it takes those options.
 
 ## 5. Verify
 

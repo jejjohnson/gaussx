@@ -25,4 +25,6 @@ labels: ["epic", "type:epic-theme"]
 
 ## Relationships
 - Parent: #
+- Blocked by: #
+- Blocks: #
 - Related: #

@@ -28,8 +28,8 @@ deprecations for the current one).
 
 | What changes | How |
 |---|---|
-| A public function or class name | Rename it, export the new name, and add `"old": "new"` to `RENAMED` in `_deprecation.py`; `gaussx.__getattr__` returns the *same* object with a warning, so `isinstance` keeps working |
-| A class that must stay distinct (e.g. a subclass with its own behaviour) | A thin subclass whose `__init__` calls `warn_deprecated(...)` (see `SumKronecker` in `_operators/_sum_kronecker.py`) |
+| A public function or class name | Rename it, export the new name, remove the old name from the imports and `__all__` in `src/gaussx/__init__.py`, and add `"old": "new"` to `RENAMED` in `_deprecation.py`; `gaussx.__getattr__` returns the *same* object with a warning, so `isinstance` keeps working |
+| A class that must stay distinct (e.g. a subclass with its own behaviour), or a wrapper with a different signature | A thin subclass whose `__init__` calls `warn_deprecated(...)` (see `SumKronecker` in `_operators/_sum_kronecker.py`) |
 | A keyword argument | `@renamed_kwargs(old="new")` on the function |
 | An option value or behaviour | `warn_deprecated("... is deprecated and will be removed in gaussx X.Y.0; use ...")` at the point of use |
 
@@ -39,11 +39,13 @@ gh-332).
 
 ## 3. Docs and index
 
-- The new name goes into its page's `members:` list; the old one moves to
-  the page's "Deprecated aliases" block (create it at the end of the page if
-  missing), with a docstring summary starting "Deprecated".
-- Rows in the "Naming" table of `docs/api/index.md` record renames that
-  follow a naming rule.
+- The new name goes into its page's `members:` list.
+- A `RENAMED` alias is not exported, so it leaves the docs entirely (listing
+  it fails `test_no_documented_symbol_is_stale` and the strict build);
+  record the rename as a row in the "Naming" table of `docs/api/index.md`.
+- An exported deprecated subclass or wrapper moves to the page's
+  "Deprecated aliases" block (create it at the end of the page if missing),
+  with a docstring summary starting "Deprecated".
 - `make capabilities`.
 
 ## 4. Tests

@@ -42,11 +42,12 @@ and fill every section that applies:
 ## 4. Labels
 
 List the repo's labels first (`gh label list`); apply only ones that exist.
-The repo uses one `type:*` (`type:feature`, `type:chore`, `type:research`,
-`type:epic-theme`, or the `bug` label), one or more `area:*` (e.g.
-`area:operators`, `area:sugar`, `area:maintenance`, `area:research`), a
-`wave:*` and a `priority:*` (`p1` high, `p2` normal), plus `epic` on
-epics. `ci-failure` is reserved for the scheduled-workflow reporter, and
+The repo uses one `type:*` (`type:feature`, `type:chore`, `type:docs`,
+`type:research`, `type:epic-theme`, `type:epic-wave`, or the `bug` label;
+there is no design label, so a `[Design]` issue takes the `area:*` labels
+only), one or more `area:*` (e.g. `area:operators`, `area:sugar`,
+`area:maintenance`, `area:research`), a `wave:*` (`wave:1`–`wave:3`) and a
+`priority:*` (`p1` high, `p2` normal), plus `epic` on epics. `ci-failure` is reserved for the scheduled-workflow reporter, and
 `run-slow` is a PR label.
 
 ## 5. Create it

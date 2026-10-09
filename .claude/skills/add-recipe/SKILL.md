@@ -19,8 +19,10 @@ gaussx exists to exploit.
   adding a sibling. If it belongs in a downstream package (a model, a
   training loop, a numpyro model), it does not belong here.
 - Pick its subpackage by layer: `_distributions` / `_expfam` (Layer 2),
-  `_gp`, `_ssm`, `_quadrature`, `_inference` (Layer 3). Layers 2 and 3
-  import only from below.
+  `_gp`, `_ssm`, `_quadrature`, `_inference` (Layer 3). Build on the layers
+  below (the one exception: `_distributions` uses `_ssm`'s Kalman and
+  pairwise-marginal routines); a new import cycle needs an
+  `ALLOWED_LAZY_IMPORTS` entry and a good reason.
 
 ## 2. Write it
 
@@ -65,8 +67,8 @@ may deserve a notebook (the `add-notebook` skill).
 - `jit`, `grad` (where it is on a gradient path) and `vmap` over a batch.
 - Sampling behaviour bounded by `assert_sample_moments`, not a flat `atol`.
 - float32: build inputs with `gaussx._testing` defaults; add the test file
-  to `NO_X64_TESTS` when the routine should hold in float32; float64-only
-  cases take `x64_only(reason=...)`.
+  to `NO_X64_TESTS` (Makefile; it lists test paths) when the routine should
+  hold in float32; float64-only cases take `x64_only(reason=...)`.
 - Tier: SSM filters, numpyro paths and long scans are often `slow`; add the
   `run-slow` label to the PR when you touch them.
 

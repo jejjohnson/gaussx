@@ -5,7 +5,8 @@ description: Add or change a structural fast path in a gaussx primitive (solve, 
 
 # Add a fast path to a primitive
 
-The primitives in `src/gaussx/_primitives/_<primitive>.py` are one readable
+The primitives in `src/gaussx/_primitives/` (`_solve.py`, `_logdet.py`, …;
+`eig` / `eigvals` live in `_eig.py`, `frobenius_norm` in `_frobenius.py`) are one readable
 chain of `isinstance` checks ending in a dense (or lineax-solver) fallback.
 No registry, no plugin system: a fast path is one more branch.
 

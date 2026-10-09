@@ -32,7 +32,7 @@ this is the workflow.
 ## 3. Execute and commit both files
 
 ```bash
-uv run jupytext --to notebook --execute docs/notebooks/<name>.py -o docs/notebooks/<name>.ipynb
+uv run --group docs jupytext --to notebook --execute docs/notebooks/<name>.py -o docs/notebooks/<name>.ipynb
 ```
 
 Commit the `.py` **and** the executed `.ipynb`.
