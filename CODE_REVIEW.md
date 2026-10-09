@@ -39,7 +39,8 @@ git --no-pager diff --no-prefix --unified=100000 --minimal "$BASE_BRANCH"...HEAD
 ## Review Checklist
 
 Skip anything ruff, ty or the fast-lane tests already enforce (formatting,
-import order, the einx bans, naming, docstring/signature agreement); review
+import order, the einx bans, CamelCase and spelling, docstring/signature
+agreement); review
 what they cannot see.
 
 ### 1. Reuse
@@ -85,9 +86,12 @@ what they cannot see.
 - **Traceability:** no Python `if` / `while` / `bool()` / `float()` /
   `.item()` on traced values; `lax.cond` / `scan` / `while_loop` /
   `jnp.where` instead. Shapes and structure are static.
-- **Dtypes:** float32 in, float32 out with x64 on. Watch Python-float
-  constants promoted through `jnp.asarray(1.0)`, `jnp.float64`, `np.`
-  arithmetic on arrays, and `jnp.eye(n)` without `dtype=`.
+- **Dtypes:** float32 in, float32 out with x64 on. Watch arrays built
+  without the input's dtype (`jnp.eye(n)`, `jnp.zeros(...)`,
+  `jnp.array([...])`, `jnp.float64`), and a constant such as
+  `jnp.asarray(0.5)` returned or stored on its own. Python scalars and a
+  bare `jnp.asarray(0.5)` combined with an array are weakly typed and keep
+  its dtype.
 - **Randomness:** an explicit `key` argument, split before each use, never
   reused for two draws.
 - **Gradients:** the routine differentiates through `jit` / `vmap`; a
@@ -142,8 +146,9 @@ what they cannot see.
 - New behaviour is tested against a dense reference, a hand-computed value
   or a published one, for both a structured and a plain dense input.
 - Inputs come from `gaussx._testing` in the active default float; float64-only
-  tests carry `x64_only(reason=...)`; the touched module is in
-  `NO_X64_TESTS` when it should run in the float32 lane.
+  tests carry `x64_only(reason=...)`; the test file is covered by
+  `NO_X64_TESTS` (Makefile; `tests/operators`, `tests/primitives` and
+  `tests/linalg` are listed whole) when it should run in the float32 lane.
 - Tier markers are right: unmarked under ~1 s with a warm compilation
   cache, `slow` above ~1.5 s, `integration` for end-to-end numpyro fits.
 - `jit` / `grad` / `vmap` are exercised for code on the gradient path.
@@ -206,11 +211,11 @@ d = jnp.where(d <= 0, d + jitter, d)
 ```python
 # ❌ float64 under x64 even for float32 input
 eye = jnp.eye(n)
-scale = jnp.asarray(0.5)
+jitter = jnp.zeros(n) + 1e-6
 
 # ✅ Follows the input
 eye = jnp.eye(n, dtype=A.dtype)
-scale = jnp.asarray(0.5, dtype=A.dtype)
+jitter = jnp.full(n, 1e-6, dtype=A.dtype)
 ```
 
 ### Pytrees, not dataclasses

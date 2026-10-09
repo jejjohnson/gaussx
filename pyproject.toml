@@ -95,7 +95,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "TID251"]
 ignore = ["E402", "E721", "E731", "E741", "F722"]
 allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺"]
 
-# The einx convention (CLAUDE.md, gh-404): contractions, permutations and
+# The einx convention (AGENTS.md, gh-404): contractions, permutations and
 # reshapes go through gaussx._einx, so the jnp spellings are banned outright.
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "jax.numpy.einsum".msg = "use gaussx._einx.einsum"
@@ -114,7 +114,7 @@ python-version = "3.12"
 testpaths = ["tests"]
 # Hard per-test ceiling so a hang (e.g. an iterative solver that never
 # converges) fails in minutes, not at the runner's 6-hour limit. This is not
-# the tiering line (unmarked tests stay under ~1 s, see CLAUDE.md); it leaves
+# the tiering line (unmarked tests stay under ~1 s, see AGENTS.md); it leaves
 # room for cold-cache compiles of the slow lane on a loaded runner. Raise it
 # for one test with @pytest.mark.timeout(...).
 timeout = 120

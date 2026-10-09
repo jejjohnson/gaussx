@@ -1,4 +1,4 @@
-"""Ratchet for the einx convention (CLAUDE.md, gh-404).
+"""Ratchet for the einx convention (AGENTS.md, gh-404).
 
 ruff's ``TID251`` bans ``jnp.einsum`` / ``jnp.transpose`` / ``jnp.moveaxis`` /
 ``jnp.reshape`` outright. The other constructs the convention replaces with
@@ -82,5 +82,5 @@ def test_no_new_non_einx_array_ops(tree):
     assert not over, (
         f"{tree} adds non-einx array operations (count, ceiling): {over}. Use "
         "the gaussx._einx wrappers (rearrange / reduce / repeat / einsum) or "
-        "einx.add / subtract / multiply / divide instead; see CLAUDE.md."
+        "einx.add / subtract / multiply / divide instead; see AGENTS.md."
     )
