@@ -1,0 +1,11 @@
+{
+  "name": "gaussx",
+  "description": "Write structured linear algebra and Gaussian code in JAX on gaussx — Kronecker / block / low-rank / banded / sparse operators, structure-aware solve / logdet / Cholesky, Gaussian distributions, GP, Kalman and quadrature recipes — instead of re-implementing them with dense jnp.linalg.",
+  "author": {
+    "name": "jejjohnson"
+  },
+  "homepage": "https://jejjohnson.github.io/gaussx/agents/",
+  "repository": "https://github.com/jejjohnson/gaussx",
+  "license": "MIT",
+  "keywords": ["jax", "linear-algebra", "gaussian-processes", "kalman-filter", "covariance", "lineax", "equinox"]
+}

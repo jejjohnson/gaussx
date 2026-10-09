@@ -1,0 +1,14 @@
+{
+  "name": "gaussx",
+  "owner": {
+    "name": "jejjohnson"
+  },
+  "description": "Claude Code plugins for structured linear algebra and Gaussian modelling in JAX with gaussx.",
+  "plugins": [
+    {
+      "name": "gaussx",
+      "source": "./plugins/gaussx",
+      "description": "Use gaussx's structured operators, structure-aware primitives, Gaussian distributions and GP / Kalman / quadrature recipes instead of hand-rolled dense jnp.linalg code: a skill that maps the usual code to gaussx, and a reuse reviewer."
+    }
+  ]
+}
