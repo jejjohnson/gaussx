@@ -24,5 +24,9 @@ The essentials, in case you only read this file:
 - Before committing, from the repo root: `make test-fast`, `make test-no-x64`,
   `uv run --group lint ruff check .`, `uv run --group lint ruff format --check .`,
   `make typecheck`; `make capabilities` after a public API change.
+- Step-by-step recipes (add an operator, a fast path, a strategy, a recipe;
+  deprecate; pre-PR check; review) are plain Markdown in
+  `.claude/skills/<name>/SKILL.md`; the "Recipes" table in `AGENTS.md` lists
+  them. Follow the matching one.
 - Path-scoped standards live in `.github/instructions/`; code review follows
   [`CODE_REVIEW.md`](../CODE_REVIEW.md).

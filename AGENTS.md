@@ -225,6 +225,26 @@ Read the test's docstring before changing what it checks.
 | `tests/test_code_size.py` | Functions ≤ 150 lines, modules ≤ 800 (listed exceptions may only shrink) |
 | `tests/test_makefile.py`, `tests/test_readme.py`, `tests/test_notebooks_in_sync.py` | Every Make target is `.PHONY`; README examples run; notebook `.py` / `.ipynb` pairs agree |
 
+## Recipes
+
+Step-by-step recipes for the common jobs live as plain Markdown in
+`.claude/skills/<name>/SKILL.md` (Claude Code loads them automatically; any
+agent can read and follow them):
+
+| Job | Recipe |
+|---|---|
+| Add a structured operator (Layer 1) | `add-operator` |
+| Add or fix a fast path in a primitive | `add-dispatch-path` |
+| Add a solver strategy or preconditioner (Layer 1.5) | `add-solver-strategy` |
+| Add a distribution, GP, SSM, quadrature or inference routine (Layers 2–3) | `add-recipe` |
+| Rename, deprecate or remove a public name | `deprecate-or-rename` |
+| Add or update an example notebook | `add-notebook` |
+| Verify before a PR | `pre-pr-check` |
+| Review a change | `gaussx-review` (+ the read-only `.claude/agents/reuse-reviewer.md` and `numerics-reviewer.md`) |
+| Triage a red scheduled run (`ci-failure` issue) | `triage-ci-failure` |
+| Write a squash commit message | `squash-commit` |
+| Open or link GitHub issues | `create-gh-issue`, `link-gh-issues` (templates in `.github/ISSUE_TEMPLATE/`) |
+
 ## Working in the repo
 
 Always run Python tools through `uv run` (never the system Python); `git`,
