@@ -1,0 +1,8149 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Structured linear algebra, Gaussian distributions, and exponential family primitives for JAX.">
+      
+      
+        <meta name="author" content="J. Emmanuel Johnson">
+      
+      
+      
+        <link rel="prev" href="../api/">
+      
+      
+        <link rel="next" href="../api/primitives/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Capability Index - gaussx</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#capability-index" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="gaussx" class="md-header__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            gaussx
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Capability Index
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../vision/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Vision
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../architecture/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Architecture
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../agents/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Building with Agents
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../design/unified-solvers/" class="md-tabs__link">
+          
+  
+  
+  Design
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../notebooks/basics/" class="md-tabs__link">
+          
+  
+  
+  Examples
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../api/" class="md-tabs__link">
+          
+  
+  
+  API Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../CHANGELOG/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="gaussx" class="md-nav__button md-logo" aria-label="gaussx" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    gaussx
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jejjohnson/gaussx" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    jejjohnson/gaussx
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vision
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building with Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/unified-solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Unified Solvers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Examples
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/operator_zoo/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Zoo
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/woodbury_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Woodbury Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kronecker_eigen/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kronecker Eigendecomposition
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kernel_regression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kernel Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/gp_2d_grid/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP on a 2D Grid
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/sparse_variational_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Variational GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/structured_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Structured GP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/solver_comparison/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/differentiating_solve/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differentiating Through Solve
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/sugar_ops/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sugar Operations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/exponential_family/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/kalman_filter/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/solver_strategies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solver Strategies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/bayesian_updates/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Updates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/uncertainty_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Uncertainty Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/numpyro_gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: GP Regression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/numpyro_precision/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    NumPyro: Precision BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/conditional_distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conditional Distributions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/parallel_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Parallel Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/expectation_propagation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Expectation Propagation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/ensemble_kalman/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ensemble Kalman Filter
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/natural_gradient_vi/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Natural Gradient VI
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/love_crossval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LOVE Cross-Validation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/whitened_svgp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Whitened SVGP & BLR
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notebooks/uncertain_gp_inputs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GP with Uncertain Inputs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Index
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Capability Index
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primitives
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Primitives">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#solve-logdet-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solve, logdet &amp; Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pseudo-determinant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pseudo-determinant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trace-diagonal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace &amp; diagonal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inverse-square-root-spectral-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inverse, square root &amp; spectral decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generalised-eigenproblems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generalised eigenproblems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-free-square-root-products" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix-free square-root products
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#joint-inverse-quadratic-and-log-determinant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Joint inverse-quadratic and log-determinant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#root-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Root decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantiles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#support-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Support types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operators-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operators &amp; Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Operators &amp; Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structured-products-sums" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured products &amp; sums
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#low-rank-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-rank updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#banded-toeplitz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Banded &amp; Toeplitz
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fast-diagonalisable-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast-diagonalisable operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interpolated-masked-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpolated &amp; masked operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lazy-algebra-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy algebra &amp; sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structural-tags-predicates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structural tags &amp; predicates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparse-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Operators
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sparse Operators">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sparse-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gmrf-precision-builders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GMRF Precision Builders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solvers-preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solvers &amp; Preconditioners
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solvers &amp; Preconditioners">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-front-door" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The front door
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#abstract-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract interfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#direct-iterative-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct &amp; iterative solvers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sketch-and-precondition-least-squares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketch-and-precondition least squares
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logdet-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logdet strategies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linear-algebra-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linear-Algebra Utilities
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Linear-Algebra Utilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robust-factorization-hygiene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Robust factorization &amp; hygiene
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-identities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix identities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#marginal-variances-selected-inverses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Marginal variances &amp; selected inverses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-rhs-batched-solves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix-RHS &amp; batched solves
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-diagonalization-shifted-kronecker-sum-solves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix diagonalization &amp; shifted Kronecker-sum solves
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stable-distances-lyapunov" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable distances &amp; Lyapunov
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sketching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sketching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#abstract-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract interface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sketches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fast-transforms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast transforms
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#randomized-linear-algebra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomized Linear Algebra
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Randomized Linear Algebra">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#range-finder-qb-svd-and-eigh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Range finder, QB, SVD and eigh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#randomized-nystrom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomized Nyström
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#randomly-pivoted-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomly pivoted Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interpolative-and-cur-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpolative and CUR decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributions-exponential-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributions &amp; Exponential Family
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributions &amp; Exponential Family">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multivariate-normal-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multivariate normal distributions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gaussian-markov-random-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian Markov random fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sequential-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequential distributions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gaussian-sugar-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian sugar ops
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structured-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exponential-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exponential family
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gaussian-processes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian Processes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gaussian Processes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conditioning-prediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditioning &amp; prediction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pathwise-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pathwise sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whitening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whitening
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variational-bounds-kl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variational bounds &amp; KL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-validation-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-validation &amp; diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-output-projections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-output projections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quadrature-moment-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quadrature &amp; Moment Matching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quadrature &amp; Moment Matching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#state-integrators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State &amp; integrators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quadrature-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quadrature rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#likelihoods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Likelihoods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expectations-ep-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expectations &amp; EP moments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#moment-matching-linearisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moment matching &amp; linearisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hyperparameter-designs-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hyperparameter designs (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kernel-expectations-uncertain-input-gps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel expectations &amp; uncertain-input GPs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-space-models-kalman" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State-Space Models &amp; Kalman
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="State-Space Models &amp; Kalman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sde-kernels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SDE kernels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nonlinear-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nonlinear filters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kalman-filtering-smoothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kalman filtering &amp; smoothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spingp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SpInGP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision-form-chains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precision-form chains
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sites-natural-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sites &amp; natural parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variational-sde-linearisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variational SDE linearisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bayesian-inference-ensembles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bayesian Inference &amp; Ensembles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bayesian Inference &amp; Ensembles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bayesian-learning-rule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bayesian learning rule
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#newton-natural-gradient-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Newton &amp; natural-gradient updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision-form-laplace-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precision-form Laplace (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#low-rank-vb-mean-correction-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-rank VB mean correction (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensemble-covariances-gain-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ensemble covariances, gain &amp; analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensemble-kalman-inversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ensemble Kalman inversion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#localization-inflation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Localization &amp; inflation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distances
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-lineax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: lineax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-matfree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: matfree
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Upstream: matfree">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matfreedecomp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.decomp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreeeig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.eig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreefunm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.funm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreelow_rank" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.low_rank
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreelstsq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.lstsq
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreestochtrace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.stochtrace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreebounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-optimistix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: optimistix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-private-toolkits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared private toolkits
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/primitives/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Primitives
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/operators/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operators & Tags
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sparse/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sparse Operators
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gmrf/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    GMRF Precision Builders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/solvers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Solvers & Preconditioners
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/linalg/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Linear-Algebra Utilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sketching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sketching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/randomized/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Randomized Linear Algebra
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/distributions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Distributions & Exponential Family
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/gp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Gaussian Processes
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/quadrature/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quadrature & Moment Matching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/ssm/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    State-Space Models & Kalman
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/inference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Bayesian Inference & Ensembles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../CHANGELOG/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#primitives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Primitives
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Primitives">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#solve-logdet-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solve, logdet &amp; Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pseudo-determinant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pseudo-determinant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trace-diagonal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trace &amp; diagonal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#inverse-square-root-spectral-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Inverse, square root &amp; spectral decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#generalised-eigenproblems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generalised eigenproblems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-free-square-root-products" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix-free square-root products
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#joint-inverse-quadratic-and-log-determinant" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Joint inverse-quadratic and log-determinant
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#root-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Root decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quantiles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quantiles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#support-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Support types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#operators-tags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Operators &amp; Tags
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Operators &amp; Tags">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structured-products-sums" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured products &amp; sums
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#low-rank-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-rank updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#banded-toeplitz" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Banded &amp; Toeplitz
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fast-diagonalisable-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast-diagonalisable operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interpolated-masked-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpolated &amp; masked operators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#lazy-algebra-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Lazy algebra &amp; sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structural-tags-predicates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structural tags &amp; predicates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sparse-operators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Operators
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sparse Operators">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sparse-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sparse Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gmrf-precision-builders" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GMRF Precision Builders
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#solvers-preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Solvers &amp; Preconditioners
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Solvers &amp; Preconditioners">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-front-door" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The front door
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#abstract-interfaces" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract interfaces
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#direct-iterative-solvers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct &amp; iterative solvers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sketch-and-precondition-least-squares" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketch-and-precondition least squares
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logdet-strategies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logdet strategies
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#preconditioners" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Preconditioners
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linear-algebra-utilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linear-Algebra Utilities
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Linear-Algebra Utilities">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#robust-factorization-hygiene" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Robust factorization &amp; hygiene
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-identities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix identities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#marginal-variances-selected-inverses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Marginal variances &amp; selected inverses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-rhs-batched-solves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix-RHS &amp; batched solves
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matrix-diagonalization-shifted-kronecker-sum-solves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Matrix diagonalization &amp; shifted Kronecker-sum solves
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stable-distances-lyapunov" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stable distances &amp; Lyapunov
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sketching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sketching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#abstract-interface" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Abstract interface
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sketches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sketches
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#fast-transforms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Fast transforms
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#randomized-linear-algebra" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomized Linear Algebra
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Randomized Linear Algebra">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#range-finder-qb-svd-and-eigh" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Range finder, QB, SVD and eigh
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#randomized-nystrom" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomized Nyström
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#randomly-pivoted-cholesky" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Randomly pivoted Cholesky
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#interpolative-and-cur-decompositions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpolative and CUR decompositions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#distributions-exponential-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distributions &amp; Exponential Family
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Distributions &amp; Exponential Family">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#multivariate-normal-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multivariate normal distributions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gaussian-markov-random-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian Markov random fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sequential-distributions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequential distributions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gaussian-sugar-ops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian sugar ops
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#structured-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structured sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#exponential-family" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Exponential family
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gaussian-processes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian Processes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Gaussian Processes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conditioning-prediction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conditioning &amp; prediction
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pathwise-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pathwise sampling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#whitening" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Whitening
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variational-bounds-kl" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variational bounds &amp; KL
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cross-validation-diagnostics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-validation &amp; diagnostics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-output-projections" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-output projections
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deprecated-aliases_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deprecated aliases
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quadrature-moment-matching" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quadrature &amp; Moment Matching
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quadrature &amp; Moment Matching">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#state-integrators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State &amp; integrators
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#quadrature-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quadrature rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#likelihoods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Likelihoods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expectations-ep-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expectations &amp; EP moments
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#moment-matching-linearisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Moment matching &amp; linearisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#hyperparameter-designs-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hyperparameter designs (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kernel-expectations-uncertain-input-gps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kernel expectations &amp; uncertain-input GPs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#state-space-models-kalman" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        State-Space Models &amp; Kalman
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="State-Space Models &amp; Kalman">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sde-kernels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SDE kernels
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nonlinear-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nonlinear filters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#kalman-filtering-smoothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Kalman filtering &amp; smoothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#spingp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SpInGP
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision-form-chains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precision-form chains
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sites-natural-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sites &amp; natural parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#variational-sde-linearisation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variational SDE linearisation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#process-noise" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Process noise
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bayesian-inference-ensembles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bayesian Inference &amp; Ensembles
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bayesian Inference &amp; Ensembles">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bayesian-learning-rule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bayesian learning rule
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#newton-natural-gradient-updates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Newton &amp; natural-gradient updates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#precision-form-laplace-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Precision-form Laplace (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#low-rank-vb-mean-correction-inla" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low-rank VB mean correction (INLA)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensemble-covariances-gain-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ensemble covariances, gain &amp; analysis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ensemble-kalman-inversion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Ensemble Kalman inversion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#localization-inflation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Localization &amp; inflation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#distances" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Distances
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-lineax" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: lineax
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-matfree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: matfree
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Upstream: matfree">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#matfreedecomp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.decomp
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreeeig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.eig
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreefunm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.funm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreelow_rank" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.low_rank
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreelstsq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.lstsq
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreestochtrace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.stochtrace
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#matfreebounds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        matfree.bounds
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#upstream-optimistix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upstream: optimistix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#shared-private-toolkits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Shared private toolkits
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="capability-index">Capability index<a class="headerlink" href="#capability-index" title="Permanent link">&para;</a></h1>
+<!-- Generated by scripts/capabilities.py — do not edit by hand. -->
+
+<p>Every public name in gaussx (366 of them), grouped as the API
+reference groups it, with the first line of its docstring; then the
+public API of the libraries gaussx builds on, and the private toolkits
+gaussx's own modules share. Search this page before writing a helper:
+if what you need is here, compose it; if it is almost here, extend it
+where it lives. Regenerate with <code>make capabilities</code> after changing a
+public API (<code>tests/test_capabilities.py</code> checks it is current).</p>
+<h2 id="primitives"><a href="../api/primitives/">Primitives</a><a class="headerlink" href="#primitives" title="Permanent link">&para;</a></h2>
+<h3 id="solve-logdet-cholesky">Solve, logdet &amp; Cholesky<a class="headerlink" href="#solve-logdet-cholesky" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>solve</code></td>
+<td>function</td>
+<td>Solve <code>A x = b</code> with structural dispatch.</td>
+</tr>
+<tr>
+<td><code>logdet</code></td>
+<td>function</td>
+<td>Compute log |det(A)| with structural dispatch.</td>
+</tr>
+<tr>
+<td><code>cholesky</code></td>
+<td>function</td>
+<td>Compute Cholesky factor L such that A = L L^T.</td>
+</tr>
+<tr>
+<td><code>cholesky_logdet</code></td>
+<td>function</td>
+<td>Compute log|A| from Cholesky factor L where A = L Lᵀ.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pseudo-determinant">Pseudo-determinant<a class="headerlink" href="#pseudo-determinant" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>pseudo_logdet</code></td>
+<td>function</td>
+<td>Log pseudo-determinant: the log of the product of the non-zero eigenvalues.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="trace-diagonal">Trace &amp; diagonal<a class="headerlink" href="#trace-diagonal" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>trace</code></td>
+<td>function</td>
+<td>Compute the trace of an operator.</td>
+</tr>
+<tr>
+<td><code>diag</code></td>
+<td>function</td>
+<td>Extract the diagonal of an operator as a 1D array.</td>
+</tr>
+<tr>
+<td><code>trace_and_diag</code></td>
+<td>function</td>
+<td>Jointly estimate the trace and diagonal from one probe pass.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="inverse-square-root-spectral-decompositions">Inverse, square root &amp; spectral decompositions<a class="headerlink" href="#inverse-square-root-spectral-decompositions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>inv</code></td>
+<td>function</td>
+<td>Return a lazy inverse operator A^{-1}.</td>
+</tr>
+<tr>
+<td><code>sqrt</code></td>
+<td>function</td>
+<td>Compute matrix square root S such that S @ S = A.</td>
+</tr>
+<tr>
+<td><code>eig</code></td>
+<td>function</td>
+<td>Compute eigenvalues and eigenvectors.</td>
+</tr>
+<tr>
+<td><code>eigvals</code></td>
+<td>function</td>
+<td>Compute eigenvalues only.</td>
+</tr>
+<tr>
+<td><code>svd</code></td>
+<td>function</td>
+<td>Compute the singular value decomposition <code>A = U diag(s) V^T</code>.</td>
+</tr>
+<tr>
+<td><code>frobenius_norm</code></td>
+<td>function</td>
+<td>Compute the Frobenius norm <code>\|\|A\|\|_F</code> with structural dispatch.</td>
+</tr>
+<tr>
+<td><code>submatrix</code></td>
+<td>function</td>
+<td>Extract <code>A[row_idx, col_idx]</code> without forming the full matrix.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="generalised-eigenproblems">Generalised eigenproblems<a class="headerlink" href="#generalised-eigenproblems" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eigh_generalized</code></td>
+<td>function</td>
+<td>Solve <span class="arithmatex">\(A v = \lambda B v\)</span> for symmetric <span class="arithmatex">\(A\)</span> and symmetric PSD <span class="arithmatex">\(B\)</span>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matrix-free-square-root-products">Matrix-free square-root products<a class="headerlink" href="#matrix-free-square-root-products" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sqrt_matmul</code></td>
+<td>function</td>
+<td>Compute <span class="arithmatex">\(A^{1/2} b\)</span> via contour-integral quadrature.</td>
+</tr>
+<tr>
+<td><code>sqrt_inv_matmul</code></td>
+<td>function</td>
+<td>Compute <span class="arithmatex">\(A^{-1/2} b\)</span> via contour-integral quadrature.</td>
+</tr>
+<tr>
+<td><code>estimate_spectral_bounds</code></td>
+<td>function</td>
+<td>Estimate <span class="arithmatex">\((\lambda_{\min}, \lambda_{\max})\)</span> of a symmetric operator.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="joint-inverse-quadratic-and-log-determinant">Joint inverse-quadratic and log-determinant<a class="headerlink" href="#joint-inverse-quadratic-and-log-determinant" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>inv_quad_logdet</code></td>
+<td>function</td>
+<td>Joint inverse-quadratic and log-determinant via shared BBMM CG.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="root-decompositions">Root decompositions<a class="headerlink" href="#root-decompositions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>root_decomposition</code></td>
+<td>function</td>
+<td>Compute a tall factor <code>R</code> such that <code>R Rᵀ ≈ A</code>.</td>
+</tr>
+<tr>
+<td><code>root_inv_decomposition</code></td>
+<td>function</td>
+<td>Compute a tall factor <code>R⁻</code> such that <code>R⁻ (R⁻)ᵀ ≈ A⁻¹</code>.</td>
+</tr>
+<tr>
+<td><code>RootDecomposition</code></td>
+<td>class</td>
+<td>Tall factor <code>R</code> with <code>R Rᵀ ≈ A</code> semantics.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="quantiles">Quantiles<a class="headerlink" href="#quantiles" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mixture_quantile</code></td>
+<td>function</td>
+<td>Invert a CDF at one or more quantile levels by bracketed root finding.</td>
+</tr>
+<tr>
+<td><code>mixture_quantile_gaussian_approx</code></td>
+<td>function</td>
+<td>Quantiles of the Gaussian matched to an ensemble's first two moments.</td>
+</tr>
+<tr>
+<td><code>Chandrupatla</code></td>
+<td>class</td>
+<td>Chandrupatla's hybrid inverse-quadratic / bisection root finder.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="support-types">Support types<a class="headerlink" href="#support-types" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DenseFallbackWarning</code></td>
+<td>class</td>
+<td>Warning emitted when a structured primitive materialises an operator.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="operators-tags"><a href="../api/operators/">Operators &amp; Tags</a><a class="headerlink" href="#operators-tags" title="Permanent link">&para;</a></h2>
+<h3 id="structured-products-sums">Structured products &amp; sums<a class="headerlink" href="#structured-products-sums" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Kronecker</code></td>
+<td>class</td>
+<td>Kronecker product operator <code>A₁ ⊗ A₂ ⊗ … ⊗ Aₖ</code>.</td>
+</tr>
+<tr>
+<td><code>BlockDiag</code></td>
+<td>class</td>
+<td>Block diagonal operator <code>diag(A₁, A₂, …, Aₖ)</code>.</td>
+</tr>
+<tr>
+<td><code>KroneckerSum</code></td>
+<td>class</td>
+<td>Kronecker sum <code>A \oplus B = A \otimes I_b + I_a \otimes B</code>.</td>
+</tr>
+<tr>
+<td><code>KroneckerSumSqrt</code></td>
+<td>class</td>
+<td>Symmetric square root of <code>A \oplus B</code> via per-factor eigenvectors.</td>
+</tr>
+<tr>
+<td><code>SumOfKroneckers</code></td>
+<td>class</td>
+<td>Sum of Kronecker products <code>Σ_k A_k \otimes B_k</code>.</td>
+</tr>
+<tr>
+<td><code>SumOfKroneckersSqrt</code></td>
+<td>class</td>
+<td>Lazy Lanczos square-root operator for <code>SumOfKroneckers</code> covariances.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="low-rank-updates">Low-rank updates<a class="headerlink" href="#low-rank-updates" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LowRankUpdate</code></td>
+<td>class</td>
+<td>Low-rank update operator <code>L + U diag(d) Vᵀ</code>.</td>
+</tr>
+<tr>
+<td><code>low_rank_plus_diag</code></td>
+<td>function</td>
+<td>Construct <code>diag(diag) + U diag(d) Vᵀ</code>.</td>
+</tr>
+<tr>
+<td><code>low_rank_plus_identity</code></td>
+<td>function</td>
+<td>Construct <code>scale * I + U diag(d) Vᵀ</code>.</td>
+</tr>
+<tr>
+<td><code>svd_low_rank_plus_diag</code></td>
+<td>function</td>
+<td>Construct <code>diag(diag) + U diag(S) Vᵀ</code> from a truncated SVD.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="banded-toeplitz">Banded &amp; Toeplitz<a class="headerlink" href="#banded-toeplitz" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BlockTriDiag</code></td>
+<td>class</td>
+<td>Block-tridiagonal operator with a symmetric off-diagonal band.</td>
+</tr>
+<tr>
+<td><code>LowerBlockTriDiag</code></td>
+<td>class</td>
+<td>Lower triangular block-bidiagonal Cholesky factor.</td>
+</tr>
+<tr>
+<td><code>UpperBlockTriDiag</code></td>
+<td>class</td>
+<td>Upper triangular block-bidiagonal (transpose of LowerBlockTriDiag).</td>
+</tr>
+<tr>
+<td><code>Toeplitz</code></td>
+<td>class</td>
+<td>Symmetric Toeplitz matrix from its first column.</td>
+</tr>
+<tr>
+<td><code>ToeplitzCholesky</code></td>
+<td>class</td>
+<td>Circulant-embedding sample factor for a symmetric positive Toeplitz matrix.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="fast-diagonalisable-operators">Fast-diagonalisable operators<a class="headerlink" href="#fast-diagonalisable-operators" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DiagonalizedOperator</code></td>
+<td>class</td>
+<td>Linear operator <code>A x = V⁻¹(Λ ⊙ V x)</code> given by a transform pair.</td>
+</tr>
+<tr>
+<td><code>circulant</code></td>
+<td>function</td>
+<td>(Block-)circulant operator from its first column.</td>
+</tr>
+<tr>
+<td><code>circulant_from_symbol</code></td>
+<td>function</td>
+<td>(Block-)circulant operator from its DFT symbol.</td>
+</tr>
+<tr>
+<td><code>as_diagonalized</code></td>
+<td>function</td>
+<td>Express <code>operator</code> as one <code>DiagonalizedOperator</code>, if possible.</td>
+</tr>
+<tr>
+<td><code>SpectralFunction</code></td>
+<td>class</td>
+<td><code>f(B)</code> for a symmetric <code>B</code> with a factored eigenbasis.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="interpolated-masked-operators">Interpolated &amp; masked operators<a class="headerlink" href="#interpolated-masked-operators" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>InterpolatedOperator</code></td>
+<td>class</td>
+<td>Structured Kernel Interpolation: <code>K \approx W K_{uu} W^T</code>.</td>
+</tr>
+<tr>
+<td><code>MaskedOperator</code></td>
+<td>class</td>
+<td>Row/column-masked view of a base operator.</td>
+</tr>
+<tr>
+<td><code>grid_coupling_indices</code></td>
+<td>function</td>
+<td>Flat indices of masked-out grid cells adjacent to the masked-in region.</td>
+</tr>
+<tr>
+<td><code>create_grid</code></td>
+<td>function</td>
+<td>Create a regular grid from per-dimension sizes and bounds.</td>
+</tr>
+<tr>
+<td><code>grid_data</code></td>
+<td>function</td>
+<td>Expand a grid to the full Cartesian product of grid points.</td>
+</tr>
+<tr>
+<td><code>cubic_interpolation_weights</code></td>
+<td>function</td>
+<td>Compute cubic interpolation indices and weights for SKI.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="lazy-algebra-sampling">Lazy algebra &amp; sampling<a class="headerlink" href="#lazy-algebra-sampling" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sum_operator</code></td>
+<td>function</td>
+<td>Lazy sum <code>(A + B + …) v = A v + B v + …</code>.</td>
+</tr>
+<tr>
+<td><code>scaled_operator</code></td>
+<td>function</td>
+<td>Lazy scalar multiply <code>(c A) v = c (A v)</code>.</td>
+</tr>
+<tr>
+<td><code>product_operator</code></td>
+<td>function</td>
+<td>Lazy matmul <code>(A B) v = A (B v)</code>.</td>
+</tr>
+<tr>
+<td><code>kronecker_sum_sample</code></td>
+<td>function</td>
+<td>Sample from <code>𝒩(0, A ⊕ B)</code> using per-factor eigendecompositions.</td>
+</tr>
+<tr>
+<td><code>sum_of_kroneckers_sample</code></td>
+<td>function</td>
+<td>Sample from <code>𝒩(0, op)</code> with matrix-free Lanczos square roots.</td>
+</tr>
+<tr>
+<td><code>toeplitz_sample</code></td>
+<td>function</td>
+<td>Sample from <code>𝒩(0, Toeplitz(column))</code> via FFT circulant embedding.</td>
+</tr>
+<tr>
+<td><code>CapacitanceSolver</code></td>
+<td>class</td>
+<td>Solve a base system subject to homogeneous point constraints.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="structural-tags-predicates">Structural tags &amp; predicates<a class="headerlink" href="#structural-tags-predicates" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>is_kronecker</code></td>
+<td>function</td>
+<td>Check whether <em>operator</em> carries the Kronecker tag.</td>
+</tr>
+<tr>
+<td><code>is_kronecker_sum</code></td>
+<td>function</td>
+<td>Check whether <em>operator</em> carries the Kronecker sum tag.</td>
+</tr>
+<tr>
+<td><code>is_block_diagonal</code></td>
+<td>function</td>
+<td>Check whether <em>operator</em> carries the block-diagonal tag.</td>
+</tr>
+<tr>
+<td><code>is_block_tridiagonal</code></td>
+<td>function</td>
+<td>Check whether <em>operator</em> carries the block-tridiagonal tag.</td>
+</tr>
+<tr>
+<td><code>is_low_rank</code></td>
+<td>function</td>
+<td>Check whether <em>operator</em> carries the low-rank tag.</td>
+</tr>
+<tr>
+<td><code>is_eigen_reducible</code></td>
+<td>function</td>
+<td>Whether a sum of Kronecker products has the exact two-term reduction.</td>
+</tr>
+<tr>
+<td><code>is_diagonal</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>is_symmetric</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>is_positive_semidefinite</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>is_negative_semidefinite</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>is_lower_triangular</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>is_upper_triangular</code></td>
+<td>function</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>kronecker_tag</code></td>
+<td>constant</td>
+<td>Operator is a Kronecker product.</td>
+</tr>
+<tr>
+<td><code>kronecker_sum_tag</code></td>
+<td>constant</td>
+<td>Operator is a Kronecker sum A (+) B = A (x) I_b + I_a (x) B.</td>
+</tr>
+<tr>
+<td><code>block_diagonal_tag</code></td>
+<td>constant</td>
+<td>Operator is block diagonal.</td>
+</tr>
+<tr>
+<td><code>block_tridiagonal_tag</code></td>
+<td>constant</td>
+<td>Operator is block tridiagonal.</td>
+</tr>
+<tr>
+<td><code>low_rank_tag</code></td>
+<td>constant</td>
+<td>Operator has low-rank structure (e.g. L + U D V^T).</td>
+</tr>
+<tr>
+<td><code>diagonal_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>symmetric_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>positive_semidefinite_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>negative_semidefinite_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>lower_triangular_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>upper_triangular_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>tridiagonal_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+<tr>
+<td><code>unit_diagonal_tag</code></td>
+<td>constant</td>
+<td>Re-exported from <code>lineax</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="deprecated-aliases">Deprecated aliases<a class="headerlink" href="#deprecated-aliases" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SumKronecker</code></td>
+<td>class</td>
+<td>Deprecated alias for <code>SumOfKroneckers</code>.</td>
+</tr>
+<tr>
+<td><code>SumKroneckerSqrt</code></td>
+<td>class</td>
+<td>Deprecated alias for <code>SumOfKroneckersSqrt</code> (gh-297).</td>
+</tr>
+<tr>
+<td><code>sumkronecker_sample</code></td>
+<td>function</td>
+<td>Deprecated alias for <code>sum_of_kroneckers_sample</code> (gh-297).</td>
+</tr>
+<tr>
+<td><code>SVDLowRankUpdate</code></td>
+<td>class</td>
+<td>Deprecated subclass of <code>LowRankUpdate</code> with <code>orthonormal=True</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sparse-operators"><a href="../api/sparse/">Sparse Operators</a><a class="headerlink" href="#sparse-operators" title="Permanent link">&para;</a></h2>
+<h3 id="sparse-cholesky">Sparse Cholesky<a class="headerlink" href="#sparse-cholesky" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SparseOperator</code></td>
+<td>class</td>
+<td>Sparse matrix with a static <code>SparsityPattern</code> and traced values.</td>
+</tr>
+<tr>
+<td><code>SparsityPattern</code></td>
+<td>class</td>
+<td>Static, hashable sparsity pattern of a <code>(m, n)</code> matrix.</td>
+</tr>
+<tr>
+<td><code>symbolic_cholesky</code></td>
+<td>function</td>
+<td>Symbolic analysis of a sparse Cholesky factorisation (host, cached).</td>
+</tr>
+<tr>
+<td><code>SymbolicCholesky</code></td>
+<td>class</td>
+<td>Symbolic Cholesky factor of a symmetric sparsity pattern.</td>
+</tr>
+<tr>
+<td><code>sparse_cholesky</code></td>
+<td>function</td>
+<td>Sparse Cholesky factorisation of a symmetric positive-definite operator.</td>
+</tr>
+<tr>
+<td><code>SparseCholeskyFactor</code></td>
+<td>class</td>
+<td>Sparse Cholesky factor <code>P Q Pᵀ = L Lᵀ</code> on a static symbolic pattern.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="gmrf-precision-builders"><a href="../api/gmrf/">GMRF Precision Builders</a><a class="headerlink" href="#gmrf-precision-builders" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>iid_precision</code></td>
+<td>function</td>
+<td>Precision <code>τ I</code> of <code>n</code> independent effects with variance <code>1/τ</code>.</td>
+</tr>
+<tr>
+<td><code>rw1_structure</code></td>
+<td>function</td>
+<td>Structure matrix <code>R = D₁ᵀ W D₁</code> of a first-order random walk.</td>
+</tr>
+<tr>
+<td><code>rw2_structure</code></td>
+<td>function</td>
+<td>Structure matrix <code>R = D₂ᵀ D₂</code> of a second-order random walk.</td>
+</tr>
+<tr>
+<td><code>ar1_precision</code></td>
+<td>function</td>
+<td>Precision of a stationary AR(1) process with marginal precision <code>τ</code>.</td>
+</tr>
+<tr>
+<td><code>besag_structure</code></td>
+<td>function</td>
+<td>Validate a graph Laplacian as a Besag (ICAR) structure matrix.</td>
+</tr>
+<tr>
+<td><code>generalized_variance_scale</code></td>
+<td>function</td>
+<td>Generalized variance of an intrinsic GMRF (Sørbye &amp; Rue, 2014).</td>
+</tr>
+<tr>
+<td><code>bym2_precision</code></td>
+<td>function</td>
+<td>Joint precision of the BYM2 pair <code>(b, u*)</code> (Riebler et al., 2016).</td>
+</tr>
+<tr>
+<td><code>spde_precision</code></td>
+<td>function</td>
+<td>SPDE precision <code>Q_α = τ² K (C̃⁻¹K)^{α−1}</code> with <code>K = κ²C̃ + G</code>.</td>
+</tr>
+<tr>
+<td><code>spde_precision_grid</code></td>
+<td>function</td>
+<td>SPDE precision on a regular grid: a function of a Kronecker sum.</td>
+</tr>
+<tr>
+<td><code>matern_spde_params</code></td>
+<td>function</td>
+<td>SPDE parameters <code>(κ, τ, α)</code> of a Matérn field.</td>
+</tr>
+<tr>
+<td><code>fem_matrices</code></td>
+<td>function</td>
+<td>Lumped mass <code>C̃</code> and stiffness <code>G</code> of P1 elements on a triangle mesh.</td>
+</tr>
+<tr>
+<td><code>fem_projector</code></td>
+<td>function</td>
+<td>Observation matrix <code>A</code> of P1 interpolation: <code>(A w)_k = Σ_i ψ_i(s_k) w_i</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="solvers-preconditioners"><a href="../api/solvers/">Solvers &amp; Preconditioners</a><a class="headerlink" href="#solvers-preconditioners" title="Permanent link">&para;</a></h2>
+<h3 id="the-front-door">The front door<a class="headerlink" href="#the-front-door" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>linear_solve</code></td>
+<td>function</td>
+<td>Solve <code>A x = b</code> through the unified front door.</td>
+</tr>
+<tr>
+<td><code>as_linear_operator</code></td>
+<td>function</td>
+<td>Wrap a raw <code>matvec</code> callable as a tagged lineax operator.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="abstract-interfaces">Abstract interfaces<a class="headerlink" href="#abstract-interfaces" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractSolveStrategy</code></td>
+<td>class</td>
+<td>Protocol for linear solve strategies.</td>
+</tr>
+<tr>
+<td><code>AbstractLogdetStrategy</code></td>
+<td>class</td>
+<td>Protocol for log-determinant strategies.</td>
+</tr>
+<tr>
+<td><code>AbstractSolverStrategy</code></td>
+<td>class</td>
+<td>Protocol for solver strategies that pair solve + logdet.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="direct-iterative-solvers">Direct &amp; iterative solvers<a class="headerlink" href="#direct-iterative-solvers" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DenseSolver</code></td>
+<td>class</td>
+<td>Dense solver strategy using gaussx structural dispatch.</td>
+</tr>
+<tr>
+<td><code>AutoSolver</code></td>
+<td>class</td>
+<td>Automatic solver selection based on operator type and size.</td>
+</tr>
+<tr>
+<td><code>CGSolver</code></td>
+<td>class</td>
+<td>Iterative CG solver with stochastic log-determinant.</td>
+</tr>
+<tr>
+<td><code>PreconditionedCGSolver</code></td>
+<td>class</td>
+<td>CG solver with pivoted partial Cholesky preconditioner.</td>
+</tr>
+<tr>
+<td><code>MINRESSolver</code></td>
+<td>class</td>
+<td>MINRES solver for symmetric (possibly indefinite) systems.</td>
+</tr>
+<tr>
+<td><code>LSMRSolver</code></td>
+<td>class</td>
+<td>LSMR iterative least-squares solver (Fong &amp; Saunders 2011).</td>
+</tr>
+<tr>
+<td><code>BBMMSolver</code></td>
+<td>class</td>
+<td>CG solve and SLQ logdet with BBMM's defaults (Gardner et al. 2018).</td>
+</tr>
+<tr>
+<td><code>ComposedSolver</code></td>
+<td>class</td>
+<td>Mix-and-match solve and logdet from different strategies.</td>
+</tr>
+<tr>
+<td><code>KeyedSolver</code></td>
+<td>class</td>
+<td>Bind a PRNG key to a strategy's stochastic log-determinant (gh-384).</td>
+</tr>
+<tr>
+<td><code>LineaxSolver</code></td>
+<td>class</td>
+<td>A lineax solver as a gaussx solve strategy.</td>
+</tr>
+<tr>
+<td><code>SparseCholeskySolver</code></td>
+<td>class</td>
+<td>Exact <code>solve</code> / <code>logdet</code> / <code>diag_inv</code> through a sparse Cholesky factor.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sketch-and-precondition-least-squares">Sketch-and-precondition least squares<a class="headerlink" href="#sketch-and-precondition-least-squares" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SketchAndPrecondLSMR</code></td>
+<td>class</td>
+<td>Sketch-and-precondition LSMR for tall least squares (Rokhlin &amp; Tygert, 2008).</td>
+</tr>
+<tr>
+<td><code>sketch_and_solve</code></td>
+<td>function</td>
+<td>Approximate least squares from a sketch.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="logdet-strategies">Logdet strategies<a class="headerlink" href="#logdet-strategies" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DenseLogdet</code></td>
+<td>class</td>
+<td>Dense log-determinant via gaussx structural dispatch.</td>
+</tr>
+<tr>
+<td><code>SLQLogdet</code></td>
+<td>class</td>
+<td>Stochastic log-determinant via Lanczos quadrature (SLQ).</td>
+</tr>
+<tr>
+<td><code>IndefiniteSLQLogdet</code></td>
+<td>class</td>
+<td>Stochastic <code>log\|det(A)\|</code> for symmetric (possibly indefinite) operators.</td>
+</tr>
+<tr>
+<td><code>NystromLogdet</code></td>
+<td>class</td>
+<td>Nyström-preconditioned log-determinant of <span class="arithmatex">\(A + \mu I\)</span> (Wenger et al., 2022).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="preconditioners">Preconditioners<a class="headerlink" href="#preconditioners" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractPreconditioner</code></td>
+<td>class</td>
+<td>Protocol for preconditioners producing an approximate inverse.</td>
+</tr>
+<tr>
+<td><code>JacobiPreconditioner</code></td>
+<td>class</td>
+<td>Diagonal preconditioner <code>M^{-1} = diag(1 / \|diag(A)\|)</code>.</td>
+</tr>
+<tr>
+<td><code>OperatorPreconditioner</code></td>
+<td>class</td>
+<td>Use an externally supplied approximate inverse as a preconditioner.</td>
+</tr>
+<tr>
+<td><code>NystromPreconditioner</code></td>
+<td>class</td>
+<td>Randomized Nyström preconditioner for <code>A + μ I</code>.</td>
+</tr>
+<tr>
+<td><code>PartialCholeskyPreconditioner</code></td>
+<td>class</td>
+<td>Preconditioner from a pivoted partial Cholesky factor.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="linear-algebra-utilities"><a href="../api/linalg/">Linear-Algebra Utilities</a><a class="headerlink" href="#linear-algebra-utilities" title="Permanent link">&para;</a></h2>
+<h3 id="robust-factorization-hygiene">Robust factorization &amp; hygiene<a class="headerlink" href="#robust-factorization-hygiene" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>safe_cholesky</code></td>
+<td>function</td>
+<td>Cholesky decomposition with adaptive jitter for near-singular matrices.</td>
+</tr>
+<tr>
+<td><code>symmetrize</code></td>
+<td>function</td>
+<td>Symmetrize the trailing two axes: <code>0.5 * (X + X^T)</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matrix-identities">Matrix identities<a class="headerlink" href="#matrix-identities" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>woodbury_solve</code></td>
+<td>function</td>
+<td>Standalone Woodbury identity solve: <code>(L + U diag(D) U^T)^{-1} b</code>.</td>
+</tr>
+<tr>
+<td><code>schur_complement</code></td>
+<td>function</td>
+<td>Schur complement: <code>K_XX - K_XZ @ K_ZZ^{-1} @ K_ZX</code>.</td>
+</tr>
+<tr>
+<td><code>conditional_variance</code></td>
+<td>function</td>
+<td>Predictive variance: Schur complement diagonal plus optional variational correction.</td>
+</tr>
+<tr>
+<td><code>diag_conditional_variance</code></td>
+<td>function</td>
+<td>Diagonal of Schur complement: <code>diag(K_XX - A K_ZX)</code>.</td>
+</tr>
+<tr>
+<td><code>cov_transform</code></td>
+<td>function</td>
+<td>Covariance propagation through a linear map: <code>J @ Sigma @ J^T</code>.</td>
+</tr>
+<tr>
+<td><code>sandwich</code></td>
+<td>function</td>
+<td>Return <code>A @ P @ A.T</code> exploiting compatible operator structure.</td>
+</tr>
+<tr>
+<td><code>trace_product</code></td>
+<td>function</td>
+<td>Trace of a matrix product: <code>tr(A @ B)</code> with structural dispatch.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="marginal-variances-selected-inverses">Marginal variances &amp; selected inverses<a class="headerlink" href="#marginal-variances-selected-inverses" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>diag_inv</code></td>
+<td>function</td>
+<td>Compute the diagonal of the inverse of a linear operator.</td>
+</tr>
+<tr>
+<td><code>selected_inverse</code></td>
+<td>function</td>
+<td>The band of <code>Σ = Q⁻¹</code> for a symmetric positive-definite <code>BlockTriDiag</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matrix-rhs-batched-solves">Matrix-RHS &amp; batched solves<a class="headerlink" href="#matrix-rhs-batched-solves" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>solve_matrix</code></td>
+<td>function</td>
+<td>Solve <code>A X = B</code> with a single factorization on the matrix RHS.</td>
+</tr>
+<tr>
+<td><code>solve_columns</code></td>
+<td>function</td>
+<td>Solve A X = B column-by-column via vmap.</td>
+</tr>
+<tr>
+<td><code>solve_rows</code></td>
+<td>function</td>
+<td>Solve A x = bᵢ for each row bᵢ of a matrix via vmap.</td>
+</tr>
+<tr>
+<td><code>tridiagonal_solve</code></td>
+<td>function</td>
+<td>Solve a tridiagonal system <code>A x = d</code>.</td>
+</tr>
+<tr>
+<td><code>tridiagonal_solve_batched</code></td>
+<td>function</td>
+<td>Solve independent tridiagonal systems over leading batch dimensions.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matrix-diagonalization-shifted-kronecker-sum-solves">Matrix diagonalization &amp; shifted Kronecker-sum solves<a class="headerlink" href="#matrix-diagonalization-shifted-kronecker-sum-solves" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EigenDecomposition</code></td>
+<td>class</td>
+<td>Precomputed eigendecomposition <code>A = V diag(λ) V⁻¹</code> of a square matrix.</td>
+</tr>
+<tr>
+<td><code>kronecker_sum_solve</code></td>
+<td>function</td>
+<td>Solve a shifted Kronecker-sum system in tensor (unvectorized) form.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="stable-distances-lyapunov">Stable distances &amp; Lyapunov<a class="headerlink" href="#stable-distances-lyapunov" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>stable_squared_distances</code></td>
+<td>function</td>
+<td>Squared Euclidean distances with mixed-precision stability.</td>
+</tr>
+<tr>
+<td><code>discrete_lyapunov_solve</code></td>
+<td>function</td>
+<td>Solve the discrete Lyapunov equation <code>P - G P G^T = Q</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="sketching"><a href="../api/sketching/">Sketching</a><a class="headerlink" href="#sketching" title="Permanent link">&para;</a></h2>
+<h3 id="abstract-interface">Abstract interface<a class="headerlink" href="#abstract-interface" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractSketch</code></td>
+<td>class</td>
+<td>A random sketching matrix <span class="arithmatex">\(S \in \mathbb{R}^{d \times m}\)</span>, sampled once.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sketches">Sketches<a class="headerlink" href="#sketches" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianSketch</code></td>
+<td>class</td>
+<td>Gaussian sketch: i.i.d. entries <span class="arithmatex">\(S_{ij} \sim \mathcal{N}(0, 1/d)\)</span>.</td>
+</tr>
+<tr>
+<td><code>OrthonormalSketch</code></td>
+<td>class</td>
+<td>Gaussian sketch with orthonormal rows, <span class="arithmatex">\(S S^\top = I_d\)</span>.</td>
+</tr>
+<tr>
+<td><code>SparseSignSketch</code></td>
+<td>class</td>
+<td>Sparse sign sketch (sparse Johnson-Lindenstrauss transform).</td>
+</tr>
+<tr>
+<td><code>SRHTSketch</code></td>
+<td>class</td>
+<td>Subsampled randomized Hadamard transform sketch.</td>
+</tr>
+<tr>
+<td><code>RowSamplingSketch</code></td>
+<td>class</td>
+<td>Weighted row-sampling sketch.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="fast-transforms">Fast transforms<a class="headerlink" href="#fast-transforms" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>hadamard_transform</code></td>
+<td>function</td>
+<td>Unnormalized Walsh-Hadamard transform along the last axis.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="randomized-linear-algebra"><a href="../api/randomized/">Randomized Linear Algebra</a><a class="headerlink" href="#randomized-linear-algebra" title="Permanent link">&para;</a></h2>
+<h3 id="range-finder-qb-svd-and-eigh">Range finder, QB, SVD and eigh<a class="headerlink" href="#range-finder-qb-svd-and-eigh" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>range_finder</code></td>
+<td>function</td>
+<td>Orthonormal basis <span class="arithmatex">\(Q\)</span> for the dominant range of <span class="arithmatex">\(A\)</span>.</td>
+</tr>
+<tr>
+<td><code>qb</code></td>
+<td>function</td>
+<td>Randomized QB factorisation <span class="arithmatex">\(A \approx QB\)</span> with <span class="arithmatex">\(B = Q^\top A\)</span>.</td>
+</tr>
+<tr>
+<td><code>randomized_svd</code></td>
+<td>function</td>
+<td>Truncated SVD <span class="arithmatex">\(A \approx U \operatorname{diag}(s) V^\top\)</span> by randomized QB.</td>
+</tr>
+<tr>
+<td><code>randomized_eigh</code></td>
+<td>function</td>
+<td>Partial eigendecomposition of a symmetric operator by Rayleigh-Ritz.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="randomized-nystrom">Randomized Nyström<a class="headerlink" href="#randomized-nystrom" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>randomized_nystrom</code></td>
+<td>function</td>
+<td>Randomized Nyström approximation <span class="arithmatex">\(\hat A = U\hat\Lambda U^\top\)</span> of a PSD <span class="arithmatex">\(A\)</span>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="randomly-pivoted-cholesky">Randomly pivoted Cholesky<a class="headerlink" href="#randomly-pivoted-cholesky" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>rp_cholesky</code></td>
+<td>function</td>
+<td>Randomly pivoted partial Cholesky of a PSD matrix <code>A</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="interpolative-and-cur-decompositions">Interpolative and CUR decompositions<a class="headerlink" href="#interpolative-and-cur-decompositions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>column_id</code></td>
+<td>function</td>
+<td>Randomized column interpolative decomposition (Voronin &amp; Martinsson, 2017).</td>
+</tr>
+<tr>
+<td><code>cur</code></td>
+<td>function</td>
+<td>Randomized CUR decomposition (Voronin &amp; Martinsson, 2017, §4).</td>
+</tr>
+<tr>
+<td><code>ColumnID</code></td>
+<td>class</td>
+<td>Column interpolative decomposition <span class="arithmatex">\(A \approx A_{:,J}\,X\)</span>.</td>
+</tr>
+<tr>
+<td><code>CUR</code></td>
+<td>class</td>
+<td>CUR decomposition <span class="arithmatex">\(A \approx C\,U\,R\)</span>, <span class="arithmatex">\(C = A_{:,J}\)</span>, <span class="arithmatex">\(R = A_{I,:}\)</span>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="distributions-exponential-family"><a href="../api/distributions/">Distributions &amp; Exponential Family</a><a class="headerlink" href="#distributions-exponential-family" title="Permanent link">&para;</a></h2>
+<h3 id="multivariate-normal-distributions">Multivariate normal distributions<a class="headerlink" href="#multivariate-normal-distributions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractMultivariateNormal</code></td>
+<td>class</td>
+<td>Common surface of <code>MultivariateNormal</code> and <code>MultivariateNormalPrecision</code>.</td>
+</tr>
+<tr>
+<td><code>MultivariateNormal</code></td>
+<td>class</td>
+<td>Multivariate normal parameterized by a lineax linear operator.</td>
+</tr>
+<tr>
+<td><code>MultivariateNormalPrecision</code></td>
+<td>class</td>
+<td>Multivariate normal parameterized by a precision (inverse covariance) operator.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gaussian-markov-random-fields">Gaussian Markov random fields<a class="headerlink" href="#gaussian-markov-random-fields" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianMRF</code></td>
+<td>class</td>
+<td>Gaussian Markov random field <span class="arithmatex">\(x \sim \mathcal N(\mu, Q^{-1})\)</span>.</td>
+</tr>
+<tr>
+<td><code>IntrinsicGMRF</code></td>
+<td>class</td>
+<td>Improper <span class="arithmatex">\(\mathcal N(\mu, (\tau R)^+)\)</span> on the complement of <span class="arithmatex">\(\ker R\)</span>.</td>
+</tr>
+<tr>
+<td><code>ConstrainedGMRF</code></td>
+<td>class</td>
+<td>A <code>GaussianMRF</code> conditioned on hard linear constraints <span class="arithmatex">\(A_cx = e\)</span>.</td>
+</tr>
+<tr>
+<td><code>BYM2GMRF</code></td>
+<td>class</td>
+<td>The BYM2 pair <span class="arithmatex">\((b, u^\ast)\)</span> (Riebler et al., 2016), with its exact density.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sequential-distributions">Sequential distributions<a class="headerlink" href="#sequential-distributions" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LGSSM</code></td>
+<td>class</td>
+<td>Linear-Gaussian state-space model as a density over <code>(T, M)</code>.</td>
+</tr>
+<tr>
+<td><code>MaskedLGSSM</code></td>
+<td>class</td>
+<td><code>LGSSM</code> whose <code>log_prob</code> marginalises unobserved channels exactly.</td>
+</tr>
+<tr>
+<td><code>LGSSMFactory</code></td>
+<td>class</td>
+<td>Callable <code>obs_mask -&gt; MaskedLGSSM</code>, for conditional use.</td>
+</tr>
+<tr>
+<td><code>MarkovGaussian</code></td>
+<td>class</td>
+<td>Chain-Markov Gaussian over <span class="arithmatex">\(x_{0:T-1}\)</span> as a density over <code>(T, d)</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="gaussian-sugar-ops">Gaussian sugar ops<a class="headerlink" href="#gaussian-sugar-ops" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gaussian_log_prob</code></td>
+<td>function</td>
+<td>Multivariate normal log-probability.</td>
+</tr>
+<tr>
+<td><code>gaussian_entropy</code></td>
+<td>function</td>
+<td>Entropy of a multivariate normal <code>N(mu, Sigma)</code>.</td>
+</tr>
+<tr>
+<td><code>quadratic_form</code></td>
+<td>function</td>
+<td>Compute <code>x^T A^{-1} x</code> via a single solve.</td>
+</tr>
+<tr>
+<td><code>kl_standard_normal</code></td>
+<td>function</td>
+<td>KL(first ‖ second): <code>KL(N(m, S) \|\| N(0, I))</code>.</td>
+</tr>
+<tr>
+<td><code>gaussian_kl</code></td>
+<td>function</td>
+<td>KL(first ‖ second): <code>KL(p \|\| q)</code> between two multivariate normals.</td>
+</tr>
+<tr>
+<td><code>conditional</code></td>
+<td>function</td>
+<td>Compute <code>p(x_A \| x_B = b)</code> from a joint Gaussian <code>p(x_A, x_B)</code>.</td>
+</tr>
+<tr>
+<td><code>joseph_update</code></td>
+<td>function</td>
+<td>Numerically stable Joseph-form covariance update.</td>
+</tr>
+<tr>
+<td><code>add_jitter</code></td>
+<td>function</td>
+<td>Add diagonal jitter for numerical stability: <code>A + eps * I</code>.</td>
+</tr>
+<tr>
+<td><code>project</code></td>
+<td>function</td>
+<td>Compute A_X = K_XZ @ K_ZZ^{-1} via Cholesky solve.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="structured-sampling">Structured sampling<a class="headerlink" href="#structured-sampling" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sample_mvn</code></td>
+<td>function</td>
+<td>Draw samples from <span class="arithmatex">\(\mathcal{N}(\mu, K)\)</span>, dispatching on <span class="arithmatex">\(K\)</span>'s structure.</td>
+</tr>
+<tr>
+<td><code>sample_joint_conditional</code></td>
+<td>function</td>
+<td>Joint draws of a partitioned Gaussian, and conditional draws from them.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="exponential-family">Exponential family<a class="headerlink" href="#exponential-family" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianExpFam</code></td>
+<td>class</td>
+<td>Gaussian in natural (exponential family) parameters.</td>
+</tr>
+<tr>
+<td><code>to_mean_cov</code></td>
+<td>function</td>
+<td>Convert natural parameters to the mean and covariance.</td>
+</tr>
+<tr>
+<td><code>mean_cov_to_natural</code></td>
+<td>function</td>
+<td>Convert mean/covariance to natural parameters (operator form).</td>
+</tr>
+<tr>
+<td><code>natural_to_mean_cov</code></td>
+<td>function</td>
+<td>Convert natural parameters to mean/covariance (operator form).</td>
+</tr>
+<tr>
+<td><code>mean_chol_to_natural</code></td>
+<td>function</td>
+<td>Convert mean/variance (Cholesky) to natural parameters.</td>
+</tr>
+<tr>
+<td><code>natural_to_mean_chol</code></td>
+<td>function</td>
+<td>Convert natural parameters to mean/variance (Cholesky).</td>
+</tr>
+<tr>
+<td><code>mean_chol_to_expectation</code></td>
+<td>function</td>
+<td>Convert mean/variance (Cholesky) to expectation parameters.</td>
+</tr>
+<tr>
+<td><code>expectation_to_mean_chol</code></td>
+<td>function</td>
+<td>Convert expectation parameters to mean/variance (Cholesky).</td>
+</tr>
+<tr>
+<td><code>expectation_to_natural</code></td>
+<td>function</td>
+<td>Convert expectation parameters to natural parameters.</td>
+</tr>
+<tr>
+<td><code>natural_to_expectation</code></td>
+<td>function</td>
+<td>Convert natural parameters to expectation parameters.</td>
+</tr>
+<tr>
+<td><code>log_partition</code></td>
+<td>function</td>
+<td>Log-partition function <code>A(eta)</code>.</td>
+</tr>
+<tr>
+<td><code>fisher_info</code></td>
+<td>function</td>
+<td>Fisher information with respect to the mean, <span class="arithmatex">\(F_\mu = \Sigma^{-1}\)</span>.</td>
+</tr>
+<tr>
+<td><code>sufficient_stats</code></td>
+<td>function</td>
+<td>Compute sufficient statistics <code>T(x) = [x, x x^T]</code>.</td>
+</tr>
+<tr>
+<td><code>kl_divergence</code></td>
+<td>function</td>
+<td>KL(first ‖ second): <code>KL(q \|\| p)</code> via the Bregman form on natural parameters.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="deprecated-aliases_1">Deprecated aliases<a class="headerlink" href="#deprecated-aliases_1" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>to_natural</code></td>
+<td>function</td>
+<td>Deprecated alias of <code>gaussx.mean_cov_to_natural</code>.</td>
+</tr>
+<tr>
+<td><code>to_expectation</code></td>
+<td>function</td>
+<td>Deprecated alias of <code>to_mean_cov</code>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="gaussian-processes"><a href="../api/gp/">Gaussian Processes</a><a class="headerlink" href="#gaussian-processes" title="Permanent link">&para;</a></h2>
+<h3 id="conditioning-prediction">Conditioning &amp; prediction<a class="headerlink" href="#conditioning-prediction" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sparse_conditional</code></td>
+<td>function</td>
+<td>Sparse-GP conditional <code>q(f_x) = \int p(f_x \| u) q(u) du</code>.</td>
+</tr>
+<tr>
+<td><code>build_prediction_cache</code></td>
+<td>function</td>
+<td>Solve <code>K_y alpha = y</code> and cache the result.</td>
+</tr>
+<tr>
+<td><code>PredictionCache</code></td>
+<td>class</td>
+<td>Cached training solve (and factor) for amortized predictions.</td>
+</tr>
+<tr>
+<td><code>predict_mean</code></td>
+<td>function</td>
+<td>Predictive mean: <code>mu* = K_*f @ alpha</code>.</td>
+</tr>
+<tr>
+<td><code>predict_variance</code></td>
+<td>function</td>
+<td>Predictive variance <code>sigma^2_* = k_** - diag(K_*f K_y^{-1} K_f*)</code>.</td>
+</tr>
+<tr>
+<td><code>conditional_interpolate</code></td>
+<td>function</td>
+<td>Two-filter fusion at <code>t</code> from a filtered state and a backward message.</td>
+</tr>
+<tr>
+<td><code>rts_interpolate</code></td>
+<td>function</td>
+<td>Smoothed marginal at an unobserved <code>t</code> from filtered and smoothed states.</td>
+</tr>
+<tr>
+<td><code>kronecker_posterior_predictive</code></td>
+<td>function</td>
+<td>Posterior mean and variance for a Kronecker GP at test points.</td>
+</tr>
+<tr>
+<td><code>kronecker_mll</code></td>
+<td>function</td>
+<td>Exact marginal log-likelihood for a Kronecker-structured GP.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="pathwise-sampling">Pathwise sampling<a class="headerlink" href="#pathwise-sampling" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>matheron_update</code></td>
+<td>function</td>
+<td>Posterior samples via Matheron's-rule correction.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="whitening">Whitening<a class="headerlink" href="#whitening" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>unwhiten</code></td>
+<td>function</td>
+<td>Unwhiten variational mean: <code>m = L @ m_tilde</code>.</td>
+</tr>
+<tr>
+<td><code>unwhiten_covariance</code></td>
+<td>function</td>
+<td>Unwhiten variational covariance: S = L S̃ Lᵀ.</td>
+</tr>
+<tr>
+<td><code>whiten_covariance</code></td>
+<td>function</td>
+<td>Unwhiten variational covariance: S = L S̃ Lᵀ.</td>
+</tr>
+<tr>
+<td><code>whitened_svgp_predict</code></td>
+<td>function</td>
+<td>Whitened SVGP prediction: mean and variance at test points.</td>
+</tr>
+<tr>
+<td><code>svgp_variance_adjustment</code></td>
+<td>function</td>
+<td>Compute the SVGP variance adjustment operator.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="variational-bounds-kl">Variational bounds &amp; KL<a class="headerlink" href="#variational-bounds-kl" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>variational_elbo_gaussian</code></td>
+<td>function</td>
+<td>Uncollapsed (SVGP) ELBO for a Gaussian likelihood.</td>
+</tr>
+<tr>
+<td><code>variational_elbo_mc</code></td>
+<td>function</td>
+<td>Monte Carlo ELBO for non-conjugate likelihoods.</td>
+</tr>
+<tr>
+<td><code>collapsed_elbo</code></td>
+<td>function</td>
+<td>Collapsed ELBO (Titsias bound) for sparse GP regression.</td>
+</tr>
+<tr>
+<td><code>gauss_kl</code></td>
+<td>function</td>
+<td>KL(first ‖ second): <code>KL[q(u) \|\| p(u)]</code> with <code>p(u) = N(0, K)</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cross-validation-diagnostics">Cross-validation &amp; diagnostics<a class="headerlink" href="#cross-validation-diagnostics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>love_cache</code></td>
+<td>function</td>
+<td>Precompute a Lanczos approximation of <code>K^{-1}</code> for fast variance.</td>
+</tr>
+<tr>
+<td><code>love_variance</code></td>
+<td>function</td>
+<td>Approximate <code>k_*^\top K^{-1} k_*</code> from a LOVE cache.</td>
+</tr>
+<tr>
+<td><code>love_residual</code></td>
+<td>function</td>
+<td>Relative solve residual of a LOVE cache for one cross-covariance.</td>
+</tr>
+<tr>
+<td><code>love_variance_error_bound</code></td>
+<td>function</td>
+<td>Upper bound on the variance over-estimate of a LOVE cache.</td>
+</tr>
+<tr>
+<td><code>LOVECache</code></td>
+<td>class</td>
+<td>Cached rank-<code>k</code> Lanczos approximation of <code>K^{-1}</code>.</td>
+</tr>
+<tr>
+<td><code>leave_one_out_cv</code></td>
+<td>function</td>
+<td>LOO-CV via the bordered-system identity.</td>
+</tr>
+<tr>
+<td><code>LOOResult</code></td>
+<td>class</td>
+<td>Result of leave-one-out cross-validation.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="multi-output-projections">Multi-output projections<a class="headerlink" href="#multi-output-projections" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>oilmm_project</code></td>
+<td>function</td>
+<td>Project multi-output data to independent latent GPs via OILMM.</td>
+</tr>
+<tr>
+<td><code>oilmm_back_project</code></td>
+<td>function</td>
+<td>Back-project latent GP predictions to the observation space.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="deprecated-aliases_2">Deprecated aliases<a class="headerlink" href="#deprecated-aliases_2" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>base_conditional</code></td>
+<td>function</td>
+<td>Deprecated: use <code>sparse_conditional</code> (note <code>K_xz = K_mn.T</code>).</td>
+</tr>
+</tbody>
+</table>
+<h2 id="quadrature-moment-matching"><a href="../api/quadrature/">Quadrature &amp; Moment Matching</a><a class="headerlink" href="#quadrature-moment-matching" title="Permanent link">&para;</a></h2>
+<h3 id="state-integrators">State &amp; integrators<a class="headerlink" href="#state-integrators" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianState</code></td>
+<td>class</td>
+<td>Gaussian distribution as (mean, covariance operator) pair.</td>
+</tr>
+<tr>
+<td><code>PropagationResult</code></td>
+<td>class</td>
+<td>Output of uncertainty propagation through a nonlinear function.</td>
+</tr>
+<tr>
+<td><code>AbstractIntegrator</code></td>
+<td>class</td>
+<td>Protocol for Gaussian integral approximation.</td>
+</tr>
+<tr>
+<td><code>moment_transform</code></td>
+<td>function</td>
+<td>Moment triple of <code>(x, fn(x))</code> for <code>x</code> Gaussian.</td>
+</tr>
+<tr>
+<td><code>GaussHermiteIntegrator</code></td>
+<td>class</td>
+<td>Gauss-Hermite quadrature integrator.</td>
+</tr>
+<tr>
+<td><code>UnscentedIntegrator</code></td>
+<td>class</td>
+<td>Unscented transform: deterministic sigma points.</td>
+</tr>
+<tr>
+<td><code>CubatureIntegrator</code></td>
+<td>class</td>
+<td>Third-order spherical-radial cubature.</td>
+</tr>
+<tr>
+<td><code>FifthOrderCubatureIntegrator</code></td>
+<td>class</td>
+<td>Fifth-order fully symmetric cubature (McNamee &amp; Stenger).</td>
+</tr>
+<tr>
+<td><code>TaylorIntegrator</code></td>
+<td>class</td>
+<td>1st or 2nd order Taylor expansion for uncertainty propagation.</td>
+</tr>
+<tr>
+<td><code>MonteCarloIntegrator</code></td>
+<td>class</td>
+<td>Monte Carlo moment matching: sample, propagate, compute moments.</td>
+</tr>
+<tr>
+<td><code>AssumedDensityFilter</code></td>
+<td>class</td>
+<td>KL-optimal Gaussian projection via moment matching.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="quadrature-rules">Quadrature rules<a class="headerlink" href="#quadrature-rules" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gauss_hermite_points</code></td>
+<td>function</td>
+<td>Gauss-Hermite quadrature points and weights.</td>
+</tr>
+<tr>
+<td><code>cubature_points</code></td>
+<td>function</td>
+<td>Spherical-radial cubature points and weights.</td>
+</tr>
+<tr>
+<td><code>fifth_order_cubature_points</code></td>
+<td>function</td>
+<td>Fifth-order fully symmetric cubature points and weights.</td>
+</tr>
+<tr>
+<td><code>sigma_points</code></td>
+<td>function</td>
+<td>Unscented transform sigma points and weights.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="likelihoods">Likelihoods<a class="headerlink" href="#likelihoods" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractLikelihood</code></td>
+<td>class</td>
+<td>Base class for likelihood functions with optional analytical ELL.</td>
+</tr>
+<tr>
+<td><code>GaussianLikelihood</code></td>
+<td>class</td>
+<td>Gaussian likelihood <code>log N(y \| f, noise_var * I)</code>.</td>
+</tr>
+<tr>
+<td><code>HeteroscedasticGaussianLikelihood</code></td>
+<td>class</td>
+<td>Heteroscedastic Gaussian likelihood with input-dependent noise.</td>
+</tr>
+<tr>
+<td><code>BernoulliLikelihood</code></td>
+<td>class</td>
+<td>Bernoulli likelihood with logit link.</td>
+</tr>
+<tr>
+<td><code>BinomialLikelihood</code></td>
+<td>class</td>
+<td>Binomial likelihood with logit link.</td>
+</tr>
+<tr>
+<td><code>PoissonLikelihood</code></td>
+<td>class</td>
+<td>Poisson likelihood with log link.</td>
+</tr>
+<tr>
+<td><code>NegativeBinomialLikelihood</code></td>
+<td>class</td>
+<td>Negative-binomial likelihood with log link (NB2, a gamma-Poisson mixture).</td>
+</tr>
+<tr>
+<td><code>SoftmaxLikelihood</code></td>
+<td>class</td>
+<td>Softmax (categorical) likelihood for multi-class classification.</td>
+</tr>
+<tr>
+<td><code>StudentTLikelihood</code></td>
+<td>class</td>
+<td>Student-t likelihood for robust regression.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="expectations-ep-moments">Expectations &amp; EP moments<a class="headerlink" href="#expectations-ep-moments" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>elbo</code></td>
+<td>function</td>
+<td>Evidence lower bound (ELBO).</td>
+</tr>
+<tr>
+<td><code>expected_log_likelihood</code></td>
+<td>function</td>
+<td>Unified expected log-likelihood with analytical dispatch.</td>
+</tr>
+<tr>
+<td><code>log_likelihood_expectation</code></td>
+<td>function</td>
+<td>Compute <code>E[log p(y_{obs} \| f(x))]</code> where <code>x ~ N(mu, Sigma)</code>.</td>
+</tr>
+<tr>
+<td><code>mean_expectation</code></td>
+<td>function</td>
+<td>Compute <code>E[f(x)]</code> where <code>x ~ N(mu, Sigma)</code>.</td>
+</tr>
+<tr>
+<td><code>gradient_expectation</code></td>
+<td>function</td>
+<td>Compute <code>E[nabla f(x)]</code> via Stein's lemma.</td>
+</tr>
+<tr>
+<td><code>cost_expectation</code></td>
+<td>function</td>
+<td>Compute <code>E[Cost(f(x), target)]</code> where <code>x ~ N(mu, Sigma)</code>.</td>
+</tr>
+<tr>
+<td><code>ep_tilted_moments</code></td>
+<td>function</td>
+<td>Moments of the scalar EP tilted distribution, elementwise over a batch.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="moment-matching-linearisation">Moment matching &amp; linearisation<a class="headerlink" href="#moment-matching-linearisation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>moment_match</code></td>
+<td>function</td>
+<td>EP moment matching: tilted log-normaliser and its first two derivatives.</td>
+</tr>
+<tr>
+<td><code>MomentMatchResult</code></td>
+<td>class</td>
+<td>Tilted log-normaliser and its derivatives w.r.t. the cavity mean.</td>
+</tr>
+<tr>
+<td><code>statistical_linear_regression</code></td>
+<td>function</td>
+<td>Moment-match a nonlinear conditional to a linear-Gaussian surrogate.</td>
+</tr>
+<tr>
+<td><code>SLRResult</code></td>
+<td>class</td>
+<td>Linear-Gaussian surrogate produced by statistical linear regression.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="hyperparameter-designs-inla">Hyperparameter designs (INLA)<a class="headerlink" href="#hyperparameter-designs-inla" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>theta_design</code></td>
+<td>function</td>
+<td>Integration points and log-weights over hyperparameters <span class="arithmatex">\(\theta\)</span>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="kernel-expectations-uncertain-input-gps">Kernel expectations &amp; uncertain-input GPs<a class="headerlink" href="#kernel-expectations-uncertain-input-gps" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>kernel_expectations</code></td>
+<td>function</td>
+<td>Compute kernel expectations Psi_0, Psi_1, Psi_2 for uncertain inputs.</td>
+</tr>
+<tr>
+<td><code>compute_psi_statistics</code></td>
+<td>function</td>
+<td>Compute Ψ statistics, dispatching to analytical or numerical.</td>
+</tr>
+<tr>
+<td><code>AnalyticalPsiStatistics</code></td>
+<td>class</td>
+<td>Protocol for kernels with closed-form Ψ statistics.</td>
+</tr>
+<tr>
+<td><code>uncertain_gp_predict</code></td>
+<td>function</td>
+<td>Predictive mean and variance for GP with uncertain inputs.</td>
+</tr>
+<tr>
+<td><code>uncertain_gp_predict_mc</code></td>
+<td>function</td>
+<td>Monte Carlo GP prediction with uncertain inputs.</td>
+</tr>
+<tr>
+<td><code>uncertain_svgp_predict</code></td>
+<td>function</td>
+<td>Predictive mean and variance for SVGP with uncertain inputs.</td>
+</tr>
+<tr>
+<td><code>uncertain_vgp_predict</code></td>
+<td>function</td>
+<td>Predictive mean and variance for dense VGP with uncertain inputs.</td>
+</tr>
+<tr>
+<td><code>uncertain_bgplvm_predict</code></td>
+<td>function</td>
+<td>Multi-output uncertain GP prediction for BGPLVM.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="state-space-models-kalman"><a href="../api/ssm/">State-Space Models &amp; Kalman</a><a class="headerlink" href="#state-space-models-kalman" title="Permanent link">&para;</a></h2>
+<h3 id="sde-kernels">SDE kernels<a class="headerlink" href="#sde-kernels" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SDEKernel</code></td>
+<td>class</td>
+<td>Abstract base class for state-space kernel representations.</td>
+</tr>
+<tr>
+<td><code>SDEParams</code></td>
+<td>class</td>
+<td>Continuous-time SDE parameters for a linear SDE.</td>
+</tr>
+<tr>
+<td><code>ConstantSDE</code></td>
+<td>class</td>
+<td>State-space representation of a constant kernel.</td>
+</tr>
+<tr>
+<td><code>MaternSDE</code></td>
+<td>class</td>
+<td>State-space representation of the Matern kernel.</td>
+</tr>
+<tr>
+<td><code>PeriodicSDE</code></td>
+<td>class</td>
+<td>State-space representation of the periodic (MacKay) kernel.</td>
+</tr>
+<tr>
+<td><code>QuasiPeriodicSDE</code></td>
+<td>class</td>
+<td>Quasi-periodic kernel: product of Matern and Periodic SDE.</td>
+</tr>
+<tr>
+<td><code>CosineSDE</code></td>
+<td>class</td>
+<td>State-space representation of the cosine kernel.</td>
+</tr>
+<tr>
+<td><code>IntegratedWienerSDE</code></td>
+<td>class</td>
+<td>State-space representation of an integrated Wiener process.</td>
+</tr>
+<tr>
+<td><code>ProductSDE</code></td>
+<td>class</td>
+<td>Product of two SDE kernels via Kronecker composition.</td>
+</tr>
+<tr>
+<td><code>SumSDE</code></td>
+<td>class</td>
+<td>Sum of SDE kernels via block-diagonal composition.</td>
+</tr>
+<tr>
+<td><code>sde_autocovariance</code></td>
+<td>function</td>
+<td>Compute the stationary autocovariance of an SDE kernel.</td>
+</tr>
+<tr>
+<td><code>discretize_mfd</code></td>
+<td>function</td>
+<td>Discretise a linear SDE by matrix-fraction decomposition.</td>
+</tr>
+<tr>
+<td><code>discretize_mfd_sequence</code></td>
+<td>function</td>
+<td>Vectorised <code>gaussx.discretize_mfd</code> over a vector of time steps.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="nonlinear-filters">Nonlinear filters<a class="headerlink" href="#nonlinear-filters" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>nonlinear_kalman_filter</code></td>
+<td>function</td>
+<td>Moment-matched nonlinear Kalman filter.</td>
+</tr>
+<tr>
+<td><code>nonlinear_rts_smoother</code></td>
+<td>function</td>
+<td>Moment-matched nonlinear Rauch-Tung-Striebel smoother.</td>
+</tr>
+<tr>
+<td><code>nonlinear_kalman_predict</code></td>
+<td>function</td>
+<td>One moment-matched predict step.</td>
+</tr>
+<tr>
+<td><code>nonlinear_kalman_update</code></td>
+<td>function</td>
+<td>One moment-matched update step.</td>
+</tr>
+<tr>
+<td><code>nonlinear_rts_step</code></td>
+<td>function</td>
+<td>One moment-matched RTS backward step.</td>
+</tr>
+<tr>
+<td><code>masked_moment_inputs</code></td>
+<td>function</td>
+<td>Make masked observation channels inert in a moment-matched update.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="kalman-filtering-smoothing">Kalman filtering &amp; smoothing<a class="headerlink" href="#kalman-filtering-smoothing" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>EmissionModel</code></td>
+<td>class</td>
+<td>Observation (emission) model wrapping a linear observation matrix.</td>
+</tr>
+<tr>
+<td><code>FilterState</code></td>
+<td>class</td>
+<td>Output of <code>kalman_filter</code>.</td>
+</tr>
+<tr>
+<td><code>kalman_filter</code></td>
+<td>function</td>
+<td>Kalman filter forward pass via <code>jax.lax.scan</code>.</td>
+</tr>
+<tr>
+<td><code>rts_smoother</code></td>
+<td>function</td>
+<td>Rauch-Tung-Striebel backward smoother.</td>
+</tr>
+<tr>
+<td><code>kalman_gain</code></td>
+<td>function</td>
+<td>Compute Kalman gain <code>K = P @ H^T @ (H @ P @ H^T + R)^{-1}</code>.</td>
+</tr>
+<tr>
+<td><code>parallel_kalman_filter</code></td>
+<td>function</td>
+<td>Parallel Kalman filter via <code>jax.lax.associative_scan</code>.</td>
+</tr>
+<tr>
+<td><code>parallel_rts_smoother</code></td>
+<td>function</td>
+<td>Parallel RTS smoother via reverse <code>jax.lax.associative_scan</code>.</td>
+</tr>
+<tr>
+<td><code>meanfield_kalman_filter</code></td>
+<td>function</td>
+<td>Mean-field Kalman filter over <code>L = D // block_size</code> state blocks.</td>
+</tr>
+<tr>
+<td><code>meanfield_rts_smoother</code></td>
+<td>function</td>
+<td>Mean-field RTS smoother over <code>L = D // block_size</code> state blocks.</td>
+</tr>
+<tr>
+<td><code>infinite_horizon_filter</code></td>
+<td>function</td>
+<td>Infinite-horizon Kalman filter with fixed steady-state gain.</td>
+</tr>
+<tr>
+<td><code>infinite_horizon_smoother</code></td>
+<td>function</td>
+<td>Infinite-horizon RTS smoother with fixed steady-state gain.</td>
+</tr>
+<tr>
+<td><code>dare</code></td>
+<td>function</td>
+<td>Steady-state Kalman filter covariance and gain (the filtering DARE).</td>
+</tr>
+<tr>
+<td><code>DAREResult</code></td>
+<td>class</td>
+<td>Result of DARE solver.</td>
+</tr>
+<tr>
+<td><code>pairwise_marginals</code></td>
+<td>function</td>
+<td>Joint p(x_k, x_{k+1}) for each consecutive pair.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="spingp">SpInGP<a class="headerlink" href="#spingp" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>spingp_log_likelihood</code></td>
+<td>function</td>
+<td>Log marginal likelihood via sparse inverse GP formulation.</td>
+</tr>
+<tr>
+<td><code>spingp_posterior</code></td>
+<td>function</td>
+<td>Posterior mean and precision via SpInGP.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="precision-form-chains">Precision-form chains<a class="headerlink" href="#precision-form-chains" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UDLDecomposition</code></td>
+<td>class</td>
+<td>Banded factorisation <span class="arithmatex">\(\Lambda = U \tilde{D} U^{\top}\)</span> of a <code>BlockTriDiag</code>.</td>
+</tr>
+<tr>
+<td><code>udl_decomposition</code></td>
+<td>function</td>
+<td>Factorise a symmetric block-tridiagonal precision as <span class="arithmatex">\(U \tilde{D} U^{\top}\)</span>.</td>
+</tr>
+<tr>
+<td><code>udl_to_ssm_params</code></td>
+<td>function</td>
+<td>Read the equivalent Gauss-Markov chain off a <code>UDLDecomposition</code>.</td>
+</tr>
+<tr>
+<td><code>udl_from_ssm_params</code></td>
+<td>function</td>
+<td>Build the <code>UDLDecomposition</code> of a Gauss-Markov chain's precision.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="sites-natural-parameters">Sites &amp; natural parameters<a class="headerlink" href="#sites-natural-parameters" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GaussianSites</code></td>
+<td>class</td>
+<td>Time-varying Gaussian likelihood sites in natural parameterization.</td>
+</tr>
+<tr>
+<td><code>cvi_update_sites</code></td>
+<td>function</td>
+<td>Natural gradient update for CVI sites.</td>
+</tr>
+<tr>
+<td><code>sites_to_precision</code></td>
+<td>function</td>
+<td>Convert Gaussian sites to a block-tridiagonal precision.</td>
+</tr>
+<tr>
+<td><code>cavity_from_marginal</code></td>
+<td>function</td>
+<td>Compute cavity distribution by removing a site from the marginal.</td>
+</tr>
+<tr>
+<td><code>site_natural_from_tilted</code></td>
+<td>function</td>
+<td>Compute site natural parameters from tilted and cavity moments.</td>
+</tr>
+<tr>
+<td><code>site_mean_var_from_natural</code></td>
+<td>function</td>
+<td>Convert per-site natural parameters to mean/variance.</td>
+</tr>
+<tr>
+<td><code>expectations_to_ssm</code></td>
+<td>function</td>
+<td>Convert expectation parameters back to SSM marginals.</td>
+</tr>
+<tr>
+<td><code>naturals_to_ssm</code></td>
+<td>function</td>
+<td>Convert natural parameters back to SSM parameters.</td>
+</tr>
+<tr>
+<td><code>ssm_to_expectations</code></td>
+<td>function</td>
+<td>Convert SSM marginals to expectation parameters.</td>
+</tr>
+<tr>
+<td><code>ssm_to_naturals</code></td>
+<td>function</td>
+<td>Convert SSM parameters to natural parameters.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="variational-sde-linearisation">Variational SDE linearisation<a class="headerlink" href="#variational-sde-linearisation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LinearizedSDE</code></td>
+<td>class</td>
+<td>Linear surrogate <span class="arithmatex">\(dx = (A_t x + b_t)\,dt + Q_t^{1/2}\,dW\)</span> of an SDE.</td>
+</tr>
+<tr>
+<td><code>linearize_sde</code></td>
+<td>function</td>
+<td>Optimal linear drift of a nonlinear SDE along a Gaussian path.</td>
+</tr>
+<tr>
+<td><code>sde_kl_divergence</code></td>
+<td>function</td>
+<td>Drift path-KL between a linear and a nonlinear SDE along a Gaussian path.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="process-noise">Process noise<a class="headerlink" href="#process-noise" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>process_noise_covariance</code></td>
+<td>function</td>
+<td>Compute process noise from stationary covariance.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="bayesian-inference-ensembles"><a href="../api/inference/">Bayesian Inference &amp; Ensembles</a><a class="headerlink" href="#bayesian-inference-ensembles" title="Permanent link">&para;</a></h2>
+<h3 id="bayesian-learning-rule">Bayesian learning rule<a class="headerlink" href="#bayesian-learning-rule" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>blr_full_update</code></td>
+<td>function</td>
+<td>Full-rank natural parameter BLR update step.</td>
+</tr>
+<tr>
+<td><code>blr_diag_update</code></td>
+<td>function</td>
+<td>Diagonal natural parameter BLR update step.</td>
+</tr>
+<tr>
+<td><code>log_marginal_likelihood</code></td>
+<td>function</td>
+<td>GP log marginal likelihood.</td>
+</tr>
+<tr>
+<td><code>gaussian_expected_log_lik</code></td>
+<td>function</td>
+<td>Expected log-likelihood <code>E_q[log N(y \| f, R)]</code>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="newton-natural-gradient-updates">Newton &amp; natural-gradient updates<a class="headerlink" href="#newton-natural-gradient-updates" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>newton_update</code></td>
+<td>function</td>
+<td>Convert a Newton step to natural pseudo-likelihood parameters.</td>
+</tr>
+<tr>
+<td><code>damped_natural_update</code></td>
+<td>function</td>
+<td>Damped update in natural parameter space.</td>
+</tr>
+<tr>
+<td><code>gauss_newton_precision</code></td>
+<td>function</td>
+<td>Gauss-Newton precision matrix <code>J^T J</code>, optionally plus a prior.</td>
+</tr>
+<tr>
+<td><code>ggn_diagonal</code></td>
+<td>function</td>
+<td>Generalized Gauss-Newton diagonal approximation.</td>
+</tr>
+<tr>
+<td><code>hutchinson_hessian_diag</code></td>
+<td>function</td>
+<td>Stochastic Hessian diagonal via Hutchinson with Rademacher probes.</td>
+</tr>
+<tr>
+<td><code>riemannian_psd_correction</code></td>
+<td>function</td>
+<td>Riemannian gradient correction for PSD precision updates.</td>
+</tr>
+<tr>
+<td><code>cavity_distribution</code></td>
+<td>function</td>
+<td>Compute EP cavity distribution by removing a site.</td>
+</tr>
+<tr>
+<td><code>trace_correction</code></td>
+<td>function</td>
+<td>Trace term in Titsias collapsed ELBO.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="precision-form-laplace-inla">Precision-form Laplace (INLA)<a class="headerlink" href="#precision-form-laplace-inla" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>laplace_mode</code></td>
+<td>function</td>
+<td>Mode, Hessian and log-marginal of the Laplace approximation, in precision form.</td>
+</tr>
+<tr>
+<td><code>LaplaceResult</code></td>
+<td>class</td>
+<td>The Gaussian approximation <span class="arithmatex">\(\mathcal N(\hat x, H^{-1})\)</span> at the mode.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="low-rank-vb-mean-correction-inla">Low-rank VB mean correction (INLA)<a class="headerlink" href="#low-rank-vb-mean-correction-inla" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vb_mean_correction</code></td>
+<td>function</td>
+<td>Low-rank VB correction of the Laplace mean (Van Niekerk &amp; Rue, 2024).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ensemble-covariances-gain-analysis">Ensemble covariances, gain &amp; analysis<a class="headerlink" href="#ensemble-covariances-gain-analysis" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ensemble_covariance</code></td>
+<td>function</td>
+<td>Empirical covariance from an ensemble as a low-rank operator.</td>
+</tr>
+<tr>
+<td><code>ensemble_cross_covariance</code></td>
+<td>function</td>
+<td>Cross-covariance between two ensemble sets.</td>
+</tr>
+<tr>
+<td><code>ensemble_kalman_gain</code></td>
+<td>function</td>
+<td>Kalman gain from an ensemble and its image in observation space.</td>
+</tr>
+<tr>
+<td><code>enkf_analysis</code></td>
+<td>function</td>
+<td>Stochastic (perturbed-observation) ensemble Kalman analysis step.</td>
+</tr>
+<tr>
+<td><code>etkf_transform</code></td>
+<td>function</td>
+<td>Ensemble Transform Kalman Filter (ETKF) analysis weights.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="ensemble-kalman-inversion">Ensemble Kalman inversion<a class="headerlink" href="#ensemble-kalman-inversion" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eki_step</code></td>
+<td>function</td>
+<td>One ensemble Kalman inversion (EKI) update.</td>
+</tr>
+<tr>
+<td><code>tikhonov_augment</code></td>
+<td>function</td>
+<td>Observation augmentation for Tikhonov-regularised EKI (TEKI).</td>
+</tr>
+<tr>
+<td><code>discrepancy_step_size</code></td>
+<td>function</td>
+<td>Adaptive EKI tempering step: the data misfit controller.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="localization-inflation">Localization &amp; inflation<a class="headerlink" href="#localization-inflation" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>localization_matrix</code></td>
+<td>function</td>
+<td>Pairwise Gaspari-Cohn taper <code>rho(dist(a_i, b_j); c)</code>.</td>
+</tr>
+<tr>
+<td><code>localized_kalman_gain</code></td>
+<td>function</td>
+<td>Ensemble Kalman gain with Hadamard (Schur-product) localization.</td>
+</tr>
+<tr>
+<td><code>gaspari_cohn</code></td>
+<td>function</td>
+<td>Gaspari-Cohn (1999) fifth-order compactly-supported taper.</td>
+</tr>
+<tr>
+<td><code>inflate_multiplicative</code></td>
+<td>function</td>
+<td>Multiplicative ensemble inflation about the mean.</td>
+</tr>
+<tr>
+<td><code>inflate_rtpp</code></td>
+<td>function</td>
+<td>Relaxation to prior perturbations (RTPP; Zhang et al. 2004).</td>
+</tr>
+<tr>
+<td><code>inflate_rtps</code></td>
+<td>function</td>
+<td>Relaxation to prior spread (RTPS; Whitaker &amp; Hamill 2012).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="distances">Distances<a class="headerlink" href="#distances" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>euclidean_distance</code></td>
+<td>function</td>
+<td>Pairwise Euclidean distances <code>\|\|a_i - b_j\|\|</code>.</td>
+</tr>
+<tr>
+<td><code>haversine_distance</code></td>
+<td>function</td>
+<td>Pairwise great-circle (haversine) distances on a sphere.</td>
+</tr>
+</tbody>
+</table>
+<!-- upstream -->
+
+<p>Listed at lineax 0.1.1, matfree 0.6.2, optimistix 0.1.0.</p>
+<h2 id="upstream-lineax">Upstream: <code>lineax</code><a class="headerlink" href="#upstream-lineax" title="Permanent link">&para;</a></h2>
+<p>The operator protocol, tags and solvers every gaussx operator extends. Use these before wrapping or re-implementing an operator or solver.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractLinearOperator</code></td>
+<td>class</td>
+<td>Abstract base class for all linear operators.</td>
+</tr>
+<tr>
+<td><code>AbstractLinearSolver</code></td>
+<td>class</td>
+<td>Abstract base class for all linear solvers.</td>
+</tr>
+<tr>
+<td><code>AddLinearOperator</code></td>
+<td>class</td>
+<td>A linear operator formed by adding two other linear operators together.</td>
+</tr>
+<tr>
+<td><code>AutoLinearSolver</code></td>
+<td>class</td>
+<td>Automatically determines a good linear solver based on the structure of the operator.</td>
+</tr>
+<tr>
+<td><code>BiCGStab</code></td>
+<td>class</td>
+<td>Biconjugate gradient stabilised method for linear systems.</td>
+</tr>
+<tr>
+<td><code>CG</code></td>
+<td>class</td>
+<td>Conjugate gradient solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>Cholesky</code></td>
+<td>class</td>
+<td>Cholesky solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>ComposedLinearOperator</code></td>
+<td>class</td>
+<td>A linear operator formed by composing (matrix-multiplying) two other linear operators together.</td>
+</tr>
+<tr>
+<td><code>Diagonal</code></td>
+<td>class</td>
+<td>Diagonal solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>DiagonalLinearOperator</code></td>
+<td>class</td>
+<td>A diagonal linear operator, e.g. for a diagonal matrix.</td>
+</tr>
+<tr>
+<td><code>DivLinearOperator</code></td>
+<td>class</td>
+<td>A linear operator formed by dividing a linear operator by a scalar.</td>
+</tr>
+<tr>
+<td><code>FunctionLinearOperator</code></td>
+<td>class</td>
+<td>Wraps a <em>linear</em> function <code>fn: X -&gt; Y</code> into a linear operator. (So that <code>self.mv(x)</code> is defined by <code>self.mv(x) == fn(x)</code>.)</td>
+</tr>
+<tr>
+<td><code>GMRES</code></td>
+<td>class</td>
+<td>GMRES solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>IdentityLinearOperator</code></td>
+<td>class</td>
+<td>Represents the identity transformation <code>X -&gt; X</code>, where each <code>x in X</code> is some PyTree of floating-point JAX arrays.</td>
+</tr>
+<tr>
+<td><code>JacobianLinearOperator</code></td>
+<td>class</td>
+<td>Given a function <code>fn: X -&gt; Y</code>, and a point <code>x in X</code>, then this defines the linear operator (also a function <code>X -&gt; Y</code>) given by the Jacobian <code>(d(fn)/dx)(x)</code>.</td>
+</tr>
+<tr>
+<td><code>LSMR</code></td>
+<td>class</td>
+<td>LSMR solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>LU</code></td>
+<td>class</td>
+<td>LU solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>MatrixLinearOperator</code></td>
+<td>class</td>
+<td>Wraps a 2-dimensional JAX array into a linear operator.</td>
+</tr>
+<tr>
+<td><code>MulLinearOperator</code></td>
+<td>class</td>
+<td>A linear operator formed by multiplying a linear operator by a scalar.</td>
+</tr>
+<tr>
+<td><code>NegLinearOperator</code></td>
+<td>class</td>
+<td>A linear operator formed by computing the negative of a linear operator.</td>
+</tr>
+<tr>
+<td><code>Normal</code></td>
+<td>class</td>
+<td>Wrapper for an inner solver of positive (semi)definite systems.</td>
+</tr>
+<tr>
+<td><code>NormalCG</code></td>
+<td>function</td>
+<td>Deprecated helper function.</td>
+</tr>
+<tr>
+<td><code>PyTreeLinearOperator</code></td>
+<td>class</td>
+<td>Represents a PyTree of floating-point JAX arrays as a linear operator.</td>
+</tr>
+<tr>
+<td><code>QR</code></td>
+<td>class</td>
+<td>QR solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>RESULTS</code></td>
+<td>class</td>
+<td>An <a href="https://docs.kidger.site/equinox/api/enumerations/">enumeration</a>, with the following entries:</td>
+</tr>
+<tr>
+<td><code>SVD</code></td>
+<td>class</td>
+<td>SVD solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>Solution</code></td>
+<td>class</td>
+<td>The solution to a linear solve.</td>
+</tr>
+<tr>
+<td><code>TaggedLinearOperator</code></td>
+<td>class</td>
+<td>Wraps another linear operator and specifies that it has certain tags, e.g. representing symmetry.</td>
+</tr>
+<tr>
+<td><code>TangentLinearOperator</code></td>
+<td>class</td>
+<td>Internal to lineax.</td>
+</tr>
+<tr>
+<td><code>Triangular</code></td>
+<td>class</td>
+<td>Triangular solver for linear systems.</td>
+</tr>
+<tr>
+<td><code>Tridiagonal</code></td>
+<td>class</td>
+<td>Tridiagonal solver for linear systems, uses the LAPACK/cusparse implementation of Gaussian elimination with partial pivotting (which increases stability). .</td>
+</tr>
+<tr>
+<td><code>TridiagonalLinearOperator</code></td>
+<td>class</td>
+<td>As <code>lineax.MatrixLinearOperator</code>, but for specifically a tridiagonal matrix.</td>
+</tr>
+<tr>
+<td><code>conj</code></td>
+<td>function</td>
+<td>Elementwise conjugate of a linear operator.</td>
+</tr>
+<tr>
+<td><code>diagonal</code></td>
+<td>function</td>
+<td>Extracts the diagonal from a linear operator, and returns a vector.</td>
+</tr>
+<tr>
+<td><code>diagonal_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>has_unit_diagonal</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as having unit diagonal.</td>
+</tr>
+<tr>
+<td><code>invert</code></td>
+<td>function</td>
+<td>Returns a <code>lineax.FunctionLinearOperator</code> representing the (pseudo)inverse of <code>operator</code>.</td>
+</tr>
+<tr>
+<td><code>is_diagonal</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as diagonal.</td>
+</tr>
+<tr>
+<td><code>is_lower_triangular</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as lower triangular.</td>
+</tr>
+<tr>
+<td><code>is_negative_semidefinite</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as negative semidefinite.</td>
+</tr>
+<tr>
+<td><code>is_positive_semidefinite</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as positive semidefinite.</td>
+</tr>
+<tr>
+<td><code>is_symmetric</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as symmetric.</td>
+</tr>
+<tr>
+<td><code>is_tridiagonal</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as tridiagonal.</td>
+</tr>
+<tr>
+<td><code>is_upper_triangular</code></td>
+<td>function</td>
+<td>Returns whether an operator is marked as upper triangular.</td>
+</tr>
+<tr>
+<td><code>linear_solve</code></td>
+<td>function</td>
+<td>Solves a linear system.</td>
+</tr>
+<tr>
+<td><code>linearise</code></td>
+<td>function</td>
+<td>Linearises a linear operator.</td>
+</tr>
+<tr>
+<td><code>lower_triangular_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>materialise</code></td>
+<td>function</td>
+<td>Materialises a linear operator.</td>
+</tr>
+<tr>
+<td><code>negative_semidefinite_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>positive_semidefinite_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>symmetric_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>transpose_tags</code></td>
+<td>function</td>
+<td>Lineax uses "tags" to declare that a particular linear operator exhibits some property, e.g. symmetry.</td>
+</tr>
+<tr>
+<td><code>transpose_tags_rules</code></td>
+<td>constant</td>
+<td>Re-exported from <code>builtins</code>.</td>
+</tr>
+<tr>
+<td><code>tridiagonal</code></td>
+<td>function</td>
+<td>Extracts the diagonal, lower diagonal, and upper diagonal, from a linear operator.</td>
+</tr>
+<tr>
+<td><code>tridiagonal_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>unit_diagonal_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+<tr>
+<td><code>upper_triangular_tag</code></td>
+<td>constant</td>
+<td>Structural / property tag for operators.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="upstream-matfree">Upstream: <code>matfree</code><a class="headerlink" href="#upstream-matfree" title="Permanent link">&para;</a></h2>
+<p>Matrix-free Krylov decompositions, matrix functions and stochastic trace / diagonal estimators. Never hand-roll Lanczos, Arnoldi or Hutchinson.</p>
+<h3 id="matfreedecomp"><code>matfree.decomp</code><a class="headerlink" href="#matfreedecomp" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>bidiag</code></td>
+<td>function</td>
+<td>Construct an implementation of <strong>bidiagonalisation</strong> via the Golub-Kahan algorithm.</td>
+</tr>
+<tr>
+<td><code>hessenberg</code></td>
+<td>function</td>
+<td>Construct a <strong>Hessenberg-factorisation</strong> via the Arnoldi iteration.</td>
+</tr>
+<tr>
+<td><code>tridiag_sym</code></td>
+<td>function</td>
+<td>Construct an implementation of <strong>tridiagonalisation</strong>.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreeeig"><code>matfree.eig</code><a class="headerlink" href="#matfreeeig" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>eig_partial</code></td>
+<td>function</td>
+<td>Compute a partial eigendecomposition of an arbitrary square matrix via Hessenberg factorisation.</td>
+</tr>
+<tr>
+<td><code>eigh_partial</code></td>
+<td>function</td>
+<td>Compute a partial eigendecomposition <span class="arithmatex">\(A \approx V \Lambda V^\top\)</span> for symmetric/Hermitian matrices.</td>
+</tr>
+<tr>
+<td><code>svd_partial</code></td>
+<td>function</td>
+<td>Compute a partial SVD <span class="arithmatex">\(A \approx U \Sigma V^\top\)</span> via bidiagonalisation.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreefunm"><code>matfree.funm</code><a class="headerlink" href="#matfreefunm" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>dense_funm_pade_exp</code></td>
+<td>function</td>
+<td>Implement dense matrix-exponentials using a Pade approximation.</td>
+</tr>
+<tr>
+<td><code>dense_funm_product_svd</code></td>
+<td>function</td>
+<td>Implement dense matrix-functions of a product of matrices via SVDs.</td>
+</tr>
+<tr>
+<td><code>dense_funm_schur</code></td>
+<td>function</td>
+<td>Implement dense matrix-functions via symmetric Schur decompositions.</td>
+</tr>
+<tr>
+<td><code>dense_funm_sym_eigh</code></td>
+<td>function</td>
+<td>Implement dense matrix-functions via symmetric eigendecompositions.</td>
+</tr>
+<tr>
+<td><code>funm_arnoldi</code></td>
+<td>function</td>
+<td>Implement a matrix-function-vector product via the Arnoldi iteration.</td>
+</tr>
+<tr>
+<td><code>funm_chebyshev</code></td>
+<td>function</td>
+<td>Compute a matrix-function-vector product via Chebyshev's algorithm.</td>
+</tr>
+<tr>
+<td><code>funm_lanczos_sym</code></td>
+<td>function</td>
+<td>Implement a matrix-function-vector product via Lanczos' tridiagonalisation.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_funm_product</code></td>
+<td>function</td>
+<td>Construct the integrand for matrix-function-trace estimation.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_funm_product_logdet</code></td>
+<td>function</td>
+<td>Construct the integrand for the log-determinant of a matrix-product.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_funm_product_schatten_norm</code></td>
+<td>function</td>
+<td>Construct the integrand for the <span class="arithmatex">\(p\)</span>-th power of the Schatten-p norm.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_funm_sym</code></td>
+<td>function</td>
+<td>Construct the integrand for matrix-function-trace estimation.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_funm_sym_logdet</code></td>
+<td>function</td>
+<td>Construct the integrand for the log-determinant.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreelow_rank"><code>matfree.low_rank</code><a class="headerlink" href="#matfreelow_rank" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>cholesky_partial</code></td>
+<td>function</td>
+<td>Compute a partial Cholesky factorisation.</td>
+</tr>
+<tr>
+<td><code>cholesky_partial_pivot</code></td>
+<td>function</td>
+<td>Compute a partial Cholesky factorisation with pivoting.</td>
+</tr>
+<tr>
+<td><code>preconditioner</code></td>
+<td>function</td>
+<td>Turn a low-rank approximation into a preconditioner.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreelstsq"><code>matfree.lstsq</code><a class="headerlink" href="#matfreelstsq" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>lsmr</code></td>
+<td>function</td>
+<td>Construct a matrix-free implementation of LSMR.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreestochtrace"><code>matfree.stochtrace</code><a class="headerlink" href="#matfreestochtrace" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>estimator_leave_one_out</code></td>
+<td>function</td>
+<td>Construct a leave-one-out stochastic estimator.</td>
+</tr>
+<tr>
+<td><code>estimator_leave_one_out_mean_and_sem</code></td>
+<td>function</td>
+<td>Construct a LOO estimator that returns mean and standard error.</td>
+</tr>
+<tr>
+<td><code>estimator_monte_carlo</code></td>
+<td>function</td>
+<td>Construct a stochastic trace-/diagonal-estimator.</td>
+</tr>
+<tr>
+<td><code>estimator_monte_carlo_mean_and_sem</code></td>
+<td>function</td>
+<td>Construct a stochastic estimator that returns mean and standard error.</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xdiag</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating the diagonal using the XDiag algorithm (Epperly et al. 2024).</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xnysdiag</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating the diagonal of a positive semi-definite operator using the XNysDiag algorithm (Epperly et al. 2025).</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xnystrace</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating the trace of a positive semi-definite operator using the XNysTrace algorithm (Epperly et al. 2024).</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xrownorms_squared</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating squared row norms using the XRowNorm algorithm (Epperly, 2025).</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xsymrownorms_squared</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating squared row norms of a normal operator using the XSymRowNorm algorithm (Epperly, 2025).</td>
+</tr>
+<tr>
+<td><code>leave_one_out_xtrace</code></td>
+<td>function</td>
+<td>Construct an integrand for estimating the trace using the XTrace algorithm (Epperly et al. 2024).</td>
+</tr>
+<tr>
+<td><code>monte_carlo_diagonal</code></td>
+<td>function</td>
+<td>Construct the integrand for estimating the diagonal.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_frobeniusnorm_squared</code></td>
+<td>function</td>
+<td>Construct the integrand for estimating the squared Frobenius norm.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_rownorms_squared</code></td>
+<td>function</td>
+<td>Construct the integrand for estimating the squared row norms.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_trace</code></td>
+<td>function</td>
+<td>Construct the integrand for estimating the trace.</td>
+</tr>
+<tr>
+<td><code>monte_carlo_trace_and_diagonal</code></td>
+<td>function</td>
+<td>Construct the integrand for estimating the trace and diagonal jointly.</td>
+</tr>
+<tr>
+<td><code>nystrom_eigh</code></td>
+<td>function</td>
+<td>Construct a Nystrom approximation of an operator using a Hermitian eigendecomposition.</td>
+</tr>
+<tr>
+<td><code>nystrom_shifted_cholesky</code></td>
+<td>function</td>
+<td>Construct a Nystrom approximation of a shifted operator using a Cholesky decomposition.</td>
+</tr>
+<tr>
+<td><code>sampler_normal</code></td>
+<td>function</td>
+<td>Construct a function that samples from a standard-normal distribution.</td>
+</tr>
+<tr>
+<td><code>sampler_signs</code></td>
+<td>function</td>
+<td>Construct a function that samples signs uniformly.</td>
+</tr>
+<tr>
+<td><code>sampler_sphere</code></td>
+<td>function</td>
+<td>Construct a function that samples from a unit sphere scaled to have identity covariance.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="matfreebounds"><code>matfree.bounds</code><a class="headerlink" href="#matfreebounds" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>baigolub96_logdet_spd</code></td>
+<td>function</td>
+<td>Bound the log-determinant of a symmetric, positive definite matrix.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="upstream-optimistix">Upstream: <code>optimistix</code><a class="headerlink" href="#upstream-optimistix" title="Permanent link">&para;</a></h2>
+<p>Root finding, fixed points, minimisation and least squares with implicit-differentiation adjoints. Use it instead of a hand-written <code>while_loop</code> when gradients must flow through the iteration.</p>
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>Kind</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AbstractAdjoint</code></td>
+<td>class</td>
+<td>The abstract base class of all adjoints.</td>
+</tr>
+<tr>
+<td><code>AbstractBFGS</code></td>
+<td>class</td>
+<td>Abstract version of the BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>AbstractDFP</code></td>
+<td>class</td>
+<td>Abstract version of the DFP (Davidon–Fletcher–Powell) minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>AbstractDescent</code></td>
+<td>class</td>
+<td>The abstract base class for descents.</td>
+</tr>
+<tr>
+<td><code>AbstractFixedPointSolver</code></td>
+<td>class</td>
+<td>Abstract base class for all fixed point solvers.</td>
+</tr>
+<tr>
+<td><code>AbstractGaussNewton</code></td>
+<td>class</td>
+<td>Abstract base class for all Gauss-Newton type methods.</td>
+</tr>
+<tr>
+<td><code>AbstractGradientDescent</code></td>
+<td>class</td>
+<td>The gradient descent method for unconstrained minimisation.</td>
+</tr>
+<tr>
+<td><code>AbstractIterativeSolver</code></td>
+<td>class</td>
+<td>Abstract base class for all iterative solvers.</td>
+</tr>
+<tr>
+<td><code>AbstractLBFGS</code></td>
+<td>class</td>
+<td>Abstract version of the L-BFGS (limited memory Broyden–Fletcher–Goldfarb–Shanno) solver.</td>
+</tr>
+<tr>
+<td><code>AbstractLeastSquaresSolver</code></td>
+<td>class</td>
+<td>Abstract base class for all least squares solvers.</td>
+</tr>
+<tr>
+<td><code>AbstractMinimiser</code></td>
+<td>class</td>
+<td>Abstract base class for all minimisers.</td>
+</tr>
+<tr>
+<td><code>AbstractQuasiNewton</code></td>
+<td>class</td>
+<td>Abstract quasi-Newton minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>AbstractRootFinder</code></td>
+<td>class</td>
+<td>Abstract base class for all root finders.</td>
+</tr>
+<tr>
+<td><code>AbstractSearch</code></td>
+<td>class</td>
+<td>The abstract base class for all searches. (Which are our generalisation of line searches, trust regions, and learning rates.)</td>
+</tr>
+<tr>
+<td><code>BFGS</code></td>
+<td>class</td>
+<td>BFGS (Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>BacktrackingArmijo</code></td>
+<td>class</td>
+<td>Perform a backtracking Armijo line search.</td>
+</tr>
+<tr>
+<td><code>BestSoFarFixedPoint</code></td>
+<td>class</td>
+<td>Wraps another fixed-point solver, to return the best-so-far value.</td>
+</tr>
+<tr>
+<td><code>BestSoFarLeastSquares</code></td>
+<td>class</td>
+<td>Wraps another least-squares solver, to return the best-so-far value.</td>
+</tr>
+<tr>
+<td><code>BestSoFarMinimiser</code></td>
+<td>class</td>
+<td>Wraps another minimiser, to return the best-so-far value.</td>
+</tr>
+<tr>
+<td><code>BestSoFarRootFinder</code></td>
+<td>class</td>
+<td>Wraps another root-finder, to return the best-so-far value.</td>
+</tr>
+<tr>
+<td><code>Bisection</code></td>
+<td>class</td>
+<td>The bisection method of root finding.</td>
+</tr>
+<tr>
+<td><code>Chord</code></td>
+<td>class</td>
+<td>The Chord method of root finding.</td>
+</tr>
+<tr>
+<td><code>ClassicalTrustRegion</code></td>
+<td>class</td>
+<td>The classic trust-region update algorithm which uses a quadratic approximation of the objective function to predict reduction.</td>
+</tr>
+<tr>
+<td><code>DFP</code></td>
+<td>class</td>
+<td>DFP (Davidon–Fletcher–Powell) minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>DampedNewtonDescent</code></td>
+<td>class</td>
+<td>The damped Newton (Levenberg--Marquardt) descent.</td>
+</tr>
+<tr>
+<td><code>Dogleg</code></td>
+<td>class</td>
+<td>Dogleg algorithm.</td>
+</tr>
+<tr>
+<td><code>DoglegDescent</code></td>
+<td>class</td>
+<td>The Dogleg descent step, which switches between the Cauchy and the Newton descent directions.</td>
+</tr>
+<tr>
+<td><code>FixedPointIteration</code></td>
+<td>class</td>
+<td>Repeatedly calls a function in search of a fixed point.</td>
+</tr>
+<tr>
+<td><code>FunctionInfo</code></td>
+<td>class</td>
+<td>Different solvers (BFGS, Levenberg--Marquardt, ...) evaluate different quantities of the objective function.</td>
+</tr>
+<tr>
+<td><code>GaussNewton</code></td>
+<td>class</td>
+<td>Gauss-Newton algorithm, for solving nonlinear least-squares problems.</td>
+</tr>
+<tr>
+<td><code>GoldenSearch</code></td>
+<td>class</td>
+<td>Golden-section search for finding the minimum of a univariate function in a given interval.</td>
+</tr>
+<tr>
+<td><code>GradientDescent</code></td>
+<td>class</td>
+<td>Classic gradient descent with a learning rate <code>learning_rate</code>.</td>
+</tr>
+<tr>
+<td><code>ImplicitAdjoint</code></td>
+<td>class</td>
+<td>Backpropagate via the <a href="https://en.wikipedia.org/wiki/Implicit_function_theorem">implicit function theorem</a>.</td>
+</tr>
+<tr>
+<td><code>IndirectDampedNewtonDescent</code></td>
+<td>class</td>
+<td>The indirect damped Newton (Levenberg--Marquardt) trust-region descent.</td>
+</tr>
+<tr>
+<td><code>IndirectLevenbergMarquardt</code></td>
+<td>class</td>
+<td>The Levenberg--Marquardt method as a true trust-region method.</td>
+</tr>
+<tr>
+<td><code>LBFGS</code></td>
+<td>class</td>
+<td>L-BFGS (Limited-memory Broyden–Fletcher–Goldfarb–Shanno) minimisation algorithm.</td>
+</tr>
+<tr>
+<td><code>LearningRate</code></td>
+<td>class</td>
+<td>Move downhill by taking a step of the fixed size <code>learning_rate</code>.</td>
+</tr>
+<tr>
+<td><code>LevenbergMarquardt</code></td>
+<td>class</td>
+<td>The Levenberg--Marquardt method.</td>
+</tr>
+<tr>
+<td><code>LinearTrustRegion</code></td>
+<td>class</td>
+<td>The trust-region update algorithm which uses a linear approximation of the objective function to predict reduction.</td>
+</tr>
+<tr>
+<td><code>NelderMead</code></td>
+<td>class</td>
+<td>The Nelder-Mead minimisation algorithm. (Downhill simplex derivative-free method.)</td>
+</tr>
+<tr>
+<td><code>Newton</code></td>
+<td>class</td>
+<td>Newton's method for root finding.</td>
+</tr>
+<tr>
+<td><code>NewtonDescent</code></td>
+<td>class</td>
+<td>Newton descent direction.</td>
+</tr>
+<tr>
+<td><code>NonlinearCG</code></td>
+<td>class</td>
+<td>The nonlinear conjugate gradient method.</td>
+</tr>
+<tr>
+<td><code>NonlinearCGDescent</code></td>
+<td>class</td>
+<td>The nonlinear conjugate gradient step.</td>
+</tr>
+<tr>
+<td><code>OptaxMinimiser</code></td>
+<td>class</td>
+<td>A wrapper to use Optax first-order gradient-based optimisers with <code>optimistix.minimise</code>.</td>
+</tr>
+<tr>
+<td><code>RESULTS</code></td>
+<td>class</td>
+<td>An <a href="https://docs.kidger.site/equinox/api/enumerations/">enumeration</a>, with the following entries:</td>
+</tr>
+<tr>
+<td><code>RecursiveCheckpointAdjoint</code></td>
+<td>class</td>
+<td>Backpropagate by differentiating through the iterates directly.</td>
+</tr>
+<tr>
+<td><code>Solution</code></td>
+<td>class</td>
+<td>The solution to a nonlinear solve.</td>
+</tr>
+<tr>
+<td><code>SteepestDescent</code></td>
+<td>class</td>
+<td>The descent direction given by locally following the gradient.</td>
+</tr>
+<tr>
+<td><code>dai_yuan</code></td>
+<td>function</td>
+<td>The Dai--Yuan formula for β.</td>
+</tr>
+<tr>
+<td><code>fixed_point</code></td>
+<td>function</td>
+<td>Find a fixed-point of a function.</td>
+</tr>
+<tr>
+<td><code>fletcher_reeves</code></td>
+<td>function</td>
+<td>The Fletcher--Reeves formula for β.</td>
+</tr>
+<tr>
+<td><code>hestenes_stiefel</code></td>
+<td>function</td>
+<td>The Hestenes--Stiefel formula for β.</td>
+</tr>
+<tr>
+<td><code>least_squares</code></td>
+<td>function</td>
+<td>Solve a nonlinear least-squares problem.</td>
+</tr>
+<tr>
+<td><code>max_norm</code></td>
+<td>function</td>
+<td>Compute the L-infinity norm of a PyTree of arrays.</td>
+</tr>
+<tr>
+<td><code>minimise</code></td>
+<td>function</td>
+<td>Minimise a function.</td>
+</tr>
+<tr>
+<td><code>polak_ribiere</code></td>
+<td>function</td>
+<td>The Polak--Ribière formula for β.</td>
+</tr>
+<tr>
+<td><code>rms_norm</code></td>
+<td>function</td>
+<td>Compute the RMS (root-mean-squared) norm of a PyTree of arrays.</td>
+</tr>
+<tr>
+<td><code>root_find</code></td>
+<td>function</td>
+<td>Solve a root-finding problem.</td>
+</tr>
+<tr>
+<td><code>two_norm</code></td>
+<td>function</td>
+<td>Computes the L2 norm of a PyTree of arrays.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="shared-private-toolkits">Shared private toolkits<a class="headerlink" href="#shared-private-toolkits" title="Permanent link">&para;</a></h2>
+<p>Not public API: the plumbing gaussx's own modules share. Contributors
+use these instead of writing new helpers; a helper two modules need is
+added here, not inline in one caller.</p>
+<table>
+<thead>
+<tr>
+<th>Module</th>
+<th>Purpose</th>
+<th>Helpers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gaussx._einx</code></td>
+<td>Typed einx adapters for tensor reshaping and contraction.</td>
+<td><code>rearrange</code>, <code>repeat</code>, <code>reduce</code>, <code>einsum</code></td>
+</tr>
+<tr>
+<td><code>gaussx._testing</code></td>
+<td>Test utilities for gaussx.</td>
+<td><code>default_tolerances</code>, <code>tree_allclose</code>, <code>_resolve_dtype</code>, <code>key_sequence</code>, <code>random_pd_matrix</code>, <code>random_pd_operator</code>, <code>psd_operator</code>, <code>random_kronecker_pd</code>, <code>random_block_diag_pd</code>, <code>random_low_rank_update</code>, <code>random_sum_of_kroneckers_pd</code>, <code>random_spd_block_tridiag</code>, <code>empirical_moments</code>, <code>dense_solve</code>, <code>dense_logdet</code>, <code>dense_inv</code>, <code>dense_diag</code>, <code>dense_trace</code>, <code>assert_sample_moments</code></td>
+</tr>
+<tr>
+<td><code>gaussx._deprecation</code></td>
+<td>gaussx's own deprecation warning category and helper (gh-332).</td>
+<td><code>GaussxDeprecationWarning</code>, <code>renamed_attribute</code>, <code>warn_deprecated</code>, <code>renamed_kwargs</code></td>
+</tr>
+<tr>
+<td><code>gaussx._operators._utils</code></td>
+<td>Private utilities shared by operator implementations.</td>
+<td><code>lineax_diagonal</code>, <code>_square_components</code>, <code>lineax_conj</code>, <code>register_lineax_structure_functions</code>, <code>_identity</code></td>
+</tr>
+<tr>
+<td><code>gaussx._strategies._dispatch</code></td>
+<td>Dispatch helpers: route through solver strategy or fall back to primitives.</td>
+<td><code>dispatch_solve</code>, <code>dispatch_logdet</code></td>
+</tr>
+<tr>
+<td><code>gaussx._strategies._tolerances</code></td>
+<td>Dtype-aware default tolerances for the iterative strategies (gh-327).</td>
+<td><code>operator_dtype</code>, <code>resolve_tolerance</code>, <code>rhs_scaling</code></td>
+</tr>
+<tr>
+<td><code>gaussx._strategies._lineax</code></td>
+<td>Adapter from a lineax solver to a gaussx solve strategy (gh-376).</td>
+<td><code>LineaxSolver</code>, <code>as_solve_strategy</code></td>
+</tr>
+<tr>
+<td><code>gaussx._distributions._utils</code></td>
+<td>Shared helpers for batched distribution reshaping.</td>
+<td><code>_axis_names</code>, <code>_reshape_batch</code>, <code>_reshape_series</code>, <code>_reshape_samples</code>, <code>_unflatten_sample_axis</code></td>
+</tr>
+<tr>
+<td><code>gaussx._ssm._utils</code></td>
+<td>Shared internal helpers for SSM operators.</td>
+<td><code>_materialise</code>, <code>_matvec</code>, <code>_as_operator</code>, <code>_right_matmul_transpose</code>, <code>_left_matmul</code>, <code>_innovation_covariance</code>, <code>_masked_obs_inputs</code>, <code>_is_operator_input</code>, <code>_normalise_tv_inputs</code>, <code>_warn_unused_process_noise</code></td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "content.code.copy", "content.code.annotate"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../javascripts/mathjax.js"></script>
+      
+        <script src="https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js"></script>
+      
+    
+  </body>
+</html>
