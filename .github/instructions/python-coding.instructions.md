@@ -12,7 +12,7 @@ applyTo: "src/**/*.py,tests/**/*.py,docs/notebooks/**/*.py"
 - Built-in generics: `list[int]`, `dict[str, Any]` not `List[int]`, `Dict[str, Any]`
 - `pathlib.Path` over `os.path`
 - f-strings for string formatting
-- `dataclasses` or `attrs` for data containers
+- `equinox.Module` for data containers (operators, states, results): a dataclass is not a pytree; plain `dataclasses` only for host-side, never-traced records
 - `Enum` for fixed sets of constants
 - Context managers (`with` statements) for resource handling
 - Specific exception types (never bare `except:`)
@@ -21,14 +21,26 @@ applyTo: "src/**/*.py,tests/**/*.py,docs/notebooks/**/*.py"
 
 ## Package Preferences
 
+No new runtime dependency without discussion; build on what gaussx already
+depends on (see "What gaussx is built on" in `AGENTS.md`).
+
 | Purpose | Preferred Package |
 |---------|-------------------|
-| Logging | `loguru` |
-| Data containers | `dataclasses` (stdlib) or `attrs` |
-| Configuration | `hydra-core` / `omegaconf` |
+| Data containers | `equinox.Module` (pytrees); `dataclasses` only for host-side records |
+| Linear operators, tags, direct / Krylov solvers | `lineax` (and gaussx's own operators and strategies) |
+| Lanczos, SLQ, stochastic trace / diagonal | `matfree` |
+| Root finding, fixed points with implicit gradients | `optimistix` |
+| Axis-naming array ops | `einx`, through `gaussx._einx` |
+| Shape annotations | `jaxtyping` |
 | Path handling | `pathlib` (stdlib) |
-| HTTP | `httpx` |
-| Testing | `pytest` |
+| Testing | `pytest` (+ `gaussx._testing`) |
+
+## JAX
+
+Keep the three contracts in `AGENTS.md`: pure functions, explicit PRNG keys,
+the input dtype preserved, no Python control flow on traced values, runtime
+checks on traced values through `eqx.error_if`, and lineax operators with
+their predicates registered.
 
 ## Documentation
 

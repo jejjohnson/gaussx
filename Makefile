@@ -65,7 +65,7 @@ check-env-%: FORCE
 # ---------------------------------------------------------------------------
 .PHONY: help version install init lint format typecheck test test-fast \
         test-slow test-no-x64 test-cov precommit build clean docs docs-serve \
-        docs-deploy FORCE
+        docs-deploy capabilities FORCE
 
 FORCE:
 
@@ -214,3 +214,6 @@ docs-serve: ## 🌐 Serve documentation locally
 
 docs-deploy: ## 🚀 Deploy documentation to GitHub Pages
 	uv run --group docs mkdocs gh-deploy --force
+
+capabilities: ## 🗂️  Regenerate docs/capabilities.md (every public name, for reuse)
+	uv run python scripts/capabilities.py
