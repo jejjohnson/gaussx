@@ -208,11 +208,11 @@ Each layer only uses the ones beneath it, so you can enter wherever your problem
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/assets/ecosystem-dark.svg">
-    <img alt="Packages in the GeoML and GeoModels stacks that build on gaussx" src="docs/assets/ecosystem-light.svg" width="100%">
+    <img alt="Packages in the GeoML, Numerics and GeoModels layers that build on gaussx" src="docs/assets/ecosystem-light.svg" width="100%">
   </picture>
 </p>
 
-gaussx is the shared linear-algebra layer of the GeoML stack ([kernellib](https://github.com/jejjohnson/kernellib), [filterax](https://github.com/jejjohnson/filterax), [vardax](https://github.com/jejjohnson/vardax), [pyrox](https://github.com/jejjohnson/pyrox), [optax_bayes](https://github.com/jejjohnson/optax_bayes)) and of the GeoModels stack ([spectraldiffx](https://github.com/jejjohnson/spectraldiffx), [finitevolX](https://github.com/jejjohnson/finitevolX), [plumax](https://github.com/jejjohnson/plumax), [somax](https://github.com/jejjohnson/somax)).
+gaussx is the shared linear-algebra layer of the GeoML stack ([kernellib](https://github.com/jejjohnson/kernellib), [filterax](https://github.com/jejjohnson/filterax), [vardax](https://github.com/jejjohnson/vardax), [pyrox](https://github.com/jejjohnson/pyrox), [optax_bayes](https://github.com/jejjohnson/optax_bayes)), of the PDE operators beside it in Numerics ([spectraldiffx](https://github.com/jejjohnson/spectraldiffx), [finitevolX](https://github.com/jejjohnson/finitevolX)), and of the GeoModels stack above both ([plumax](https://github.com/jejjohnson/plumax), [radtrax](https://github.com/jejjohnson/radtrax), [somax](https://github.com/jejjohnson/somax)).
 
 <!-- --8<-- [start:inside] -->
 ## What's Inside
