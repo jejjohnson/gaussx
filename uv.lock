@@ -1142,11 +1142,11 @@ wheels = [
 
 [[package]]
 name = "matfree"
-version = "0.6.2"
+version = "0.6.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/97/ae/ac950986206dcd5d49b8fd7c415d5b8eff11586df99da4b4213aea341ad9/matfree-0.6.2.tar.gz", hash = "sha256:b73b4f04a0f2822c22621696c8ed3b784807c4bc55953961d1918fc3a04e49ac", size = 75589, upload-time = "2026-09-02T05:30:43.409Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/28/b5ea302f983eba5ecb6e1ddf8f827fb625972dd3445e1b3ce021ae879acb/matfree-0.6.3.tar.gz", hash = "sha256:50873d853f169e8c7f77fe1648c524ae73e0171e45b65bf6b792a438a5b624dd", size = 75826, upload-time = "2026-10-13T09:07:40.571Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/03/48458c50ff59b21e212dac2e4d2c83abe3c6855718e283eb24064675287c/matfree-0.6.2-py3-none-any.whl", hash = "sha256:41592a0188ac3cacd2ae169d146284f9f7d2e5ed94709f790130a2a97da32e92", size = 44028, upload-time = "2026-09-02T05:30:41.901Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/10/3544e312442c78a9467e4bc9ea1757727dcc535504588d31d99c6591cf27/matfree-0.6.3-py3-none-any.whl", hash = "sha256:b5768db7971ce8d3cef4b2c945ccc95593080cbf6ec041fac3cbb0d815daf0a2", size = 44073, upload-time = "2026-10-13T09:07:38.944Z" },
 ]
 
 [[package]]
