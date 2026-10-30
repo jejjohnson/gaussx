@@ -31,6 +31,8 @@ permissions:
 # Everything else gets a group of its own:
 #   - concurrency applies before the job `if:`, so adding any other label
 #     would cancel a real run for one that then skips;
+#   - an `opened` event never runs (see the job `if:`), so it must not
+#     cancel, or be cancelled by, the `labeled` run that follows it;
 #   - scheduled and dispatched runs all share `github.ref` (main), and a
 #     group keeps only one pending run, so sharing one would let a dispatch
 #     drop the pending weekly run (and its failure report) on the floor.
@@ -38,6 +40,7 @@ concurrency:
   group: >-
     tests-extended-${{
     (github.event_name == 'pull_request' &&
+     github.event.action != 'opened' &&
      !(github.event.action == 'labeled' && github.event.label.name != 'run-slow'))
     && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -45,10 +48,13 @@ concurrency:
 jobs:
   test-extended:
     # On PRs, only with the `run-slow` label; for a `labeled` event, only
-    # when that label is the one just added.
+    # when that label is the one just added. A PR opened with the label also
+    # gets a `labeled` event, so the `opened` event skips; otherwise the two
+    # runs share a group and one shows up as cancelled.
     if: >-
       github.event_name != 'pull_request' ||
       (contains(github.event.pull_request.labels.*.name, 'run-slow') &&
+       github.event.action != 'opened' &&
        (github.event.action != 'labeled' || github.event.label.name == 'run-slow'))
     runs-on: ubuntu-latest
     strategy:
