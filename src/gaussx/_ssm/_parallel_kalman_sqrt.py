@@ -23,19 +23,20 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._logdet import cholesky_logdet
-from gaussx._ssm._kalman import FilterState, _kalman_predict
+from gaussx._ssm._kalman import FilterState, _empty_filter_state, _kalman_predict
 from gaussx._ssm._parallel_kalman import (
     FilterElement,
     _bmv,
-    _empty_filter_state,
     _filter_combine,
     _first_filter_element_active,
     _first_filter_element_masked,
     _generic_filter_element_active,
+)
+from gaussx._ssm._utils import (
+    _normalise_tv_inputs,
     _smoother_element,
     _transition_stack,
 )
-from gaussx._ssm._utils import _normalise_tv_inputs
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
