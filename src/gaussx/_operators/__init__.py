@@ -1,4 +1,16 @@
-"""GaussX operators -- extensions to lineax.AbstractLinearOperator."""
+"""Structured gaussx operators A, lineax operators with their registrations.
+
+Each operator subclasses ``lineax.AbstractLinearOperator``. Importing this
+package registers the operator classes with the gaussx structure-tag
+predicates (``is_kronecker``, ``is_block_diagonal``, …), the lineax
+predicates (``is_symmetric``, ``is_diagonal``, ``is_positive_semidefinite``,
+``is_negative_semidefinite``, ``is_tridiagonal``, ``is_lower_triangular``,
+``is_upper_triangular``, ``has_unit_diagonal``) and the lineax structure
+functions (``linearise``, ``materialise``, ``diagonal``, ``conj``), so
+lineax's solvers and gaussx's dispatch can query them. A few classes
+register in their own module instead (`SparseOperator`, `SpectralFunction`,
+``ToeplitzCholesky``'s predicates).
+"""
 
 from __future__ import annotations
 
@@ -67,7 +79,7 @@ from gaussx._tags import (
 
 
 # -------------------------------------------------------------------
-# Register gaussx operators with tag query singledispatch functions
+# gaussx structure-tag predicates: each class answers its own tag query
 # -------------------------------------------------------------------
 
 
@@ -96,8 +108,8 @@ def _(operator: BlockTriDiag) -> bool:
     return True
 
 
-# Register with lineax's is_symmetric, is_diagonal, is_positive_semidefinite
-# so that lineax solvers and gaussx dispatch can query these operators.
+# lineax's is_symmetric, is_diagonal and is_positive_semidefinite, so that
+# lineax's solvers and gaussx's dispatch can query these operators.
 
 
 @lx.is_symmetric.register(BlockDiag)
@@ -192,7 +204,8 @@ def _(operator: BlockTriDiag) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# LowerBlockTriDiag / UpperBlockTriDiag tag registrations
+# LowerBlockTriDiag and UpperBlockTriDiag: block-triangular, never symmetric
+# or diagonal
 
 
 @lx.is_symmetric.register(LowerBlockTriDiag)
@@ -235,7 +248,7 @@ def _(operator: LowerBlockTriDiag) -> bool:
     return False
 
 
-# MaskedOperator tag registrations
+# MaskedOperator A = A₀[m_r, m_c]: symmetry and definiteness from its tags
 
 
 @lx.is_symmetric.register(MaskedOperator)
@@ -253,7 +266,7 @@ def _(operator: MaskedOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# Toeplitz tag registrations
+# DiagonalizedOperator and Toeplitz
 
 
 @lx.is_symmetric.register(DiagonalizedOperator)
@@ -291,12 +304,12 @@ def _(operator: Toeplitz) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# sum_operator / scaled_operator / product_operator need no registrations:
-# they are factories returning lineax-native Add/Mul/Composed operators,
-# whose tag propagation lineax provides out of the box.
+# sum_operator, scaled_operator and product_operator need no registrations:
+# they are factories returning lineax's own Add, Mul and Composed operators,
+# whose tag propagation lineax provides.
 
 
-# SumOfKroneckers tag registrations
+# SumOfKroneckers ∑_j A_j ⊗ B_j
 
 
 @lx.is_symmetric.register(SumOfKroneckers)
@@ -314,7 +327,7 @@ def _(operator: SumOfKroneckers) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# InterpolatedOperator tag registrations
+# InterpolatedOperator
 
 
 @lx.is_symmetric.register(InterpolatedOperator)
@@ -332,10 +345,10 @@ def _(operator: InterpolatedOperator) -> bool:
     return lx.positive_semidefinite_tag in operator.tags
 
 
-# is_negative_semidefinite registrations.
-# lineax 0.1.1 promoted this to a required dispatch (no default). None of the
-# gaussx operators claim NSD by construction — propagate to children where it
-# would be meaningful, otherwise return False.
+# is_negative_semidefinite: lineax 0.1.1 made it a required dispatch (no
+# default). No gaussx operator is negative semidefinite by construction, so
+# the predicate reads the children or the tags where that is meaningful and
+# is False otherwise.
 
 
 @lx.is_negative_semidefinite.register(BlockDiag)
@@ -398,11 +411,12 @@ def _(operator: InterpolatedOperator) -> bool:
     return lx.negative_semidefinite_tag in operator.tags
 
 
-# is_tridiagonal / is_lower_triangular / is_upper_triangular registrations.
-# lineax 0.1.1 made all predicates required. None of the gaussx operators
-# claim element-wise tridiagonal or triangular structure (block-tridiagonal
-# is not the same as element tridiagonal); register False uniformly except
-# where already specialised above for LowerBlockTriDiag / UpperBlockTriDiag.
+# is_tridiagonal, is_lower_triangular and is_upper_triangular: lineax 0.1.1
+# made every predicate required. No gaussx operator claims entrywise
+# tridiagonal or triangular structure (block-tridiagonal is not entrywise
+# tridiagonal), so they are False throughout, except where specialised above
+# for LowerBlockTriDiag and UpperBlockTriDiag. A class in
+# _ALL_TRIDIAG_DEFAULTS also gets the lineax structure functions below.
 
 _ALL_TRIDIAG_DEFAULTS = (
     BlockDiag,
@@ -446,12 +460,12 @@ for _cls in _TRI_DEFAULTS:
     lx.is_upper_triangular.register(_cls)(lambda _operator: False)
 
 
-# ``lineax.linearise`` / ``materialise`` / ``diagonal`` / ``conj``: lineax
+# ``lineax.linearise``, ``materialise``, ``diagonal`` and ``conj``: lineax
 # registers them only for its own classes, so every matrix-free solver
 # (``lineax.CG``, and through it `CGSolver`) and ``lineax.LSMR`` raised
-# ``NotImplementedError`` on gaussx operators — and ``AutoLinearSolver`` did
-# too whenever ``is_diagonal`` was ``True`` (a ``Kronecker``/``BlockDiag`` of
-# diagonal factors), since it then calls ``lineax.diagonal`` (gh-410).
+# ``NotImplementedError`` on gaussx operators, and ``AutoLinearSolver`` did
+# too whenever ``is_diagonal`` was ``True`` (a ``Kronecker`` or ``BlockDiag``
+# of diagonal factors), since it then calls ``lineax.diagonal`` (gh-410).
 # Registering them is what makes the iterative route usable where no
 # closed-form structural path exists, such as a `SumOfKroneckers` with three
 # or more terms. ``ToeplitzCholesky`` registers its predicates in
@@ -465,8 +479,8 @@ for _cls in (SparseOperator, SpectralFunction):
     lx.conj.register(_cls)(lineax_conj)
 
 
-# LowerBlockTriDiag / UpperBlockTriDiag: PSD/NSD defaults (block triangular,
-# not generally PSD).
+# LowerBlockTriDiag and UpperBlockTriDiag are block triangular, so not
+# positive semidefinite in general.
 
 
 @lx.is_positive_semidefinite.register(LowerBlockTriDiag)
