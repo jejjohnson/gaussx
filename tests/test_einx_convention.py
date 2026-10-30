@@ -25,7 +25,7 @@ CEILINGS = {
     "src/gaussx": {
         "method .reshape/.ravel": 32,
         "axis= keyword": 56,
-        "None-index broadcast": 85,
+        "None-index broadcast": 77,
         "jnp.swapaxes/expand_dims": 13,
     },
     "tests": {
