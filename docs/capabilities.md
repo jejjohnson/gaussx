@@ -620,7 +620,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `SDEKernel` | class | Abstract base class for state-space kernel representations. |
 | `SDEParams` | class | Continuous-time SDE parameters for a linear SDE. |
-| `ConstantSDE` | class | State-space representation of a constant kernel. |
+| `ConstantSDE` | class | State-space form of the constant kernel k(τ) = σ_k². |
 | `MaternSDE` | class | State-space representation of the Matern kernel. |
 | `PeriodicSDE` | class | State-space representation of the periodic (MacKay) kernel. |
 | `QuasiPeriodicSDE` | class | Quasi-periodic kernel: product of Matern and Periodic SDE. |
@@ -647,7 +647,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `EmissionModel` | class | Observation (emission) model wrapping a linear observation matrix. |
+| `EmissionModel` | class | Linear observation (emission) model with a dense observation operator H. |
 | `FilterState` | class | Output of ``kalman_filter``: the filtered and predicted moments of x_t. |
 | `kalman_filter` | function | Kalman filter forward pass for a linear-Gaussian state-space model. |
 | `rts_smoother` | function | Rauch-Tung-Striebel backward smoother for `kalman_filter` output. |
@@ -659,8 +659,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `infinite_horizon_filter` | function | Infinite-horizon Kalman filter with the fixed steady-state gain G_∞. |
 | `infinite_horizon_smoother` | function | Infinite-horizon RTS smoother with the fixed steady-state gain G_smooth,∞. |
 | `dare` | function | Steady-state Kalman filter covariance and gain (the filtering DARE). |
-| `DAREResult` | class | Result of DARE solver. |
-| `pairwise_marginals` | function | Joint p(x_k, x_{k+1}) for each consecutive pair. |
+| `DAREResult` | class | Output of `dare`: the steady-state covariance Σ_x,∞ and gain G_∞. |
+| `pairwise_marginals` | function | Joint Gaussian p(x_t, x_t+1) of each pair of consecutive states. |
 
 ### SpInGP
 
@@ -673,8 +673,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `UDLDecomposition` | class | Banded factorisation $\Lambda = U \tilde{D} U^{\top}$ of a `BlockTriDiag`. |
-| `udl_decomposition` | function | Factorise a symmetric block-tridiagonal precision as $U \tilde{D} U^{\top}$. |
+| `UDLDecomposition` | class | Banded factorisation Λ_x = U D Uᵀ of a block-tridiagonal precision. |
+| `udl_decomposition` | function | Factorise a symmetric block-tridiagonal precision as Λ_x = U D Uᵀ. |
 | `udl_to_ssm_params` | function | Read the equivalent Gauss-Markov chain off a `UDLDecomposition`. |
 | `udl_from_ssm_params` | function | Build the `UDLDecomposition` of a Gauss-Markov chain's precision. |
 
@@ -1013,4 +1013,4 @@ added here, not inline in one caller.
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |
 | `gaussx._distributions._utils` | Shared helpers for batched distribution reshaping. | `_axis_names`, `_reshape_batch`, `_reshape_series`, `_reshape_samples`, `_unflatten_sample_axis` |
-| `gaussx._ssm._utils` | Shared internal helpers for SSM operators. | `_materialise`, `_matvec`, `_as_operator`, `_right_matmul_transpose`, `_left_matmul`, `_innovation_covariance`, `_masked_obs_inputs`, `_is_operator_input`, `_normalise_tv_inputs`, `_warn_unused_process_noise`, `_transition_stack` |
+| `gaussx._ssm._utils` | Shared helpers for the SSM recipes. | `_materialise`, `_matvec`, `_as_operator`, `_right_matmul_transpose`, `_left_matmul`, `_innovation_covariance`, `_masked_obs_inputs`, `_is_operator_input`, `_normalise_tv_inputs`, `_warn_unused_process_noise`, `_transition_stack` |
