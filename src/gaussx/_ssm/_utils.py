@@ -1,14 +1,16 @@
-"""Shared internal helpers for SSM operators.
+"""Shared helpers for the SSM recipes.
 
-These let the Kalman family accept ``Float[Array, ...]`` *or*
-``lineax.AbstractLinearOperator`` for ``transition``, ``obs_model``,
-``process_noise``, ``obs_noise`` while keeping the structural matvec hot
-path on the operator side and dropping to dense at the (one-shot)
-sandwich sites.
+Operator-or-array inputs, the observation covariance, per-channel masking,
+time stacking and the smoothing element. They let the Kalman family take a
+dense array or a `lineax.AbstractLinearOperator` for the dynamics F, the
+observation operator H and the covariances Σ_η and Σ_ε, keeping the
+structural ``mv`` on the operator side and materialising only at the
+sandwich and addition sites.
 """
 
 from __future__ import annotations
 
+import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -24,13 +26,18 @@ from gaussx._operators._low_rank_update import LowRankUpdate
 def _materialise(
     op_or_array: Float[Array, ...] | lx.AbstractLinearOperator,
 ) -> Float[Array, ...]:
-    """Return a dense array view of an operator or pass arrays through.
+    """Dense matrix of an operator; an array passes through unchanged.
 
-    Used at sandwich / additive sites (``A P A^T``, ``H P H^T``,
-    ``+ Q``, ``+ R``) where lineax operators don't compose without one
-    side being materialised. Structural advantages are preserved on
-    *linear* operations (matvec, downstream solve / logdet through
-    ``solver=``).
+    Used at the sandwich and addition sites (F Σ Fᵀ, H Σ Hᵀ, + Σ_η, + Σ_ε),
+    where two lineax operators do not compose unless one side is dense. The
+    linear operations (``mv``, and solves and log-determinants through
+    ``solver=``) keep the operator's structure.
+
+    Args:
+        op_or_array: A lineax operator or a dense array.
+
+    Returns:
+        The dense matrix.
     """
     if isinstance(op_or_array, lx.AbstractLinearOperator):
         return op_or_array.as_matrix()
@@ -41,13 +48,22 @@ def _matvec(
     op_or_array: Float[Array, "M N"] | lx.AbstractLinearOperator,
     vector: Float[Array, " N"],
 ) -> Float[Array, " M"]:
-    """Apply ``A x`` whether ``A`` is a raw array or a lineax operator.
+    """Matrix-vector product A v for a dense array or a lineax operator.
 
-    Preserves structural matvec for ``BlockDiag`` / ``Kronecker`` /
-    ``MaskedOperator`` / etc.
+    An operator keeps its structural ``mv`` (``BlockDiag``, ``Kronecker``,
+    ``MaskedOperator``, …).
+
+    Args:
+        op_or_array: The matrix A, as an operator or a dense array.
+        vector: The vector v.
+
+    Returns:
+        The product A v.
     """
     if isinstance(op_or_array, lx.AbstractLinearOperator):
+        # A v, through the operator's structural mv
         return op_or_array.mv(vector)
+    # A v
     return op_or_array @ vector
 
 
@@ -55,7 +71,16 @@ def _as_operator(
     op_or_array: Float[Array, "M N"] | lx.AbstractLinearOperator,
     tags: object | frozenset[object] = frozenset(),
 ) -> lx.AbstractLinearOperator:
-    """Return an operator view; ``tags`` apply only when wrapping arrays."""
+    """Operator view of an array or operator; an operator passes through.
+
+    Args:
+        op_or_array: A lineax operator or a dense matrix.
+        tags: lineax tags for the wrapper; applied only when wrapping an
+            array.
+
+    Returns:
+        The operator.
+    """
     if isinstance(op_or_array, lx.AbstractLinearOperator):
         return op_or_array
     return lx.MatrixLinearOperator(op_or_array, tags)
@@ -65,67 +90,122 @@ def _right_matmul_transpose(
     matrix: Float[Array, "N N"],
     operator: lx.AbstractLinearOperator,
 ) -> Float[Array, "N M"]:
-    """Compute ``matrix @ operator.T`` via ``vmap`` over ``operator.T``."""
-    eye = jnp.eye(operator.out_size(), dtype=matrix.dtype)
-    return matrix @ jax.vmap(operator.T.mv)(eye).T
+    """Dense product Σ Bᵀ of a matrix and the transpose of an operator B.
+
+    Algorithm:
+        1. Apply Bᵀ to each basis vector of the output space of B, which
+           stacks the rows of B without ``as_matrix``.
+        2. Contract Σ with those rows.
+
+    Args:
+        matrix: Dense square matrix Σ, typically a covariance.
+        operator: The operator B.
+
+    Returns:
+        The product Σ Bᵀ.
+    """
+    identity = jnp.eye(operator.out_size(), dtype=matrix.dtype)
+    # Bᵀ e_i for each basis vector e_i: the rows of B
+    operator_rows = jax.vmap(operator.T.mv)(identity)
+    # Σ Bᵀ
+    product = einsum(matrix, operator_rows, "row col, other col -> row other")
+    return product
 
 
 def _left_matmul(
     operator: lx.AbstractLinearOperator,
     matrix: Float[Array, "N K"],
 ) -> Float[Array, "M K"]:
-    """Compute ``operator @ matrix`` columnwise via ``vmap(operator.mv)``."""
+    """Dense product B Σ of an operator B and a matrix, column by column.
+
+    Args:
+        operator: The operator B.
+        matrix: Dense matrix Σ.
+
+    Returns:
+        The product B Σ.
+    """
+    # B Σ, one structural mv per column of Σ
     return jax.vmap(operator.mv, in_axes=1, out_axes=1)(matrix)
 
 
 def _innovation_covariance(
-    H: Float[Array, "M N"] | lx.AbstractLinearOperator,
-    P: Float[Array, "N N"] | lx.AbstractLinearOperator,
-    R: Float[Array, "M M"] | lx.AbstractLinearOperator,
+    obs_operator: Float[Array, "M N"] | lx.AbstractLinearOperator,
+    state_covariance: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    obs_noise_covariance: Float[Array, "M M"] | lx.AbstractLinearOperator,
     *,
     woodbury: bool = False,
 ) -> lx.AbstractLinearOperator:
-    """Build ``S = H P Hᵀ + R`` as dense or as a low-rank update.
+    """Observation covariance Σ_y = H Σ_x Hᵀ + Σ_ε, dense or as a low-rank update.
 
-    When ``H`` is an operator, the dense path goes through
-    `gaussx.sandwich` so matched ``Kronecker`` / ``BlockDiag`` /
-    diagonal structure is preserved during construction.
+    When H is an operator, the dense path goes through `gaussx.sandwich`, so
+    matched ``Kronecker``, ``BlockDiag`` and diagonal structure survives the
+    construction.
 
-    The Woodbury branch wraps ``R`` as the base of a
-    `gaussx.LowRankUpdate`, so downstream solves and log-dets
-    require ``R`` to be invertible. If you anticipate (numerically)
-    singular ``R`` — e.g. a ``DiagonalLinearOperator`` with zeros —
-    leave ``woodbury=False`` so the full ``S = H P Hᵀ + R`` matrix is
-    factored directly.
+    The Woodbury path makes Σ_ε the base of a `gaussx.LowRankUpdate`, so
+    later solves and log-determinants need Σ_ε invertible. If Σ_ε may be
+    (numerically) singular, e.g. a ``DiagonalLinearOperator`` with zeros,
+    leave ``woodbury=False`` so the full Σ_y is factored directly.
+
+    Args:
+        obs_operator: Observation operator H, as an operator or a dense
+            array.
+        state_covariance: State covariance Σ_x, typically the predicted
+            Σ_x,t|t−1.
+        obs_noise_covariance: Observation-error covariance Σ_ε.
+        woodbury: When ``True``, return Σ_y as a `gaussx.LowRankUpdate`
+            on Σ_ε instead of a dense PSD-tagged matrix.
+
+    Returns:
+        The observation covariance Σ_y as a PSD-tagged operator.
     """
-
-    P_mat = _materialise(P)
+    state_covariance_dense = _materialise(state_covariance)
     if woodbury:
-        # Woodbury needs H as a dense matrix for the low-rank update;
-        # materialise here rather than at function top so the
-        # non-Woodbury operator path below can stay structural.
-        H_mat = _materialise(H)
+        # The low-rank factors are dense; materialise H here rather than
+        # at the top so the operator path below stays structural.
+        obs_operator_dense = _materialise(obs_operator)
         base = (
-            R
-            if isinstance(R, lx.AbstractLinearOperator)
-            else lx.MatrixLinearOperator(_materialise(R), lx.positive_semidefinite_tag)
+            obs_noise_covariance
+            if isinstance(obs_noise_covariance, lx.AbstractLinearOperator)
+            else lx.MatrixLinearOperator(
+                _materialise(obs_noise_covariance), lx.positive_semidefinite_tag
+            )
         )
-        return LowRankUpdate(base, H_mat @ P_mat, V=H_mat)
+        # H Σ_x
+        obs_projection = einsum(
+            obs_operator_dense,
+            state_covariance_dense,
+            "obs state, state col -> obs col",
+        )
+        # Σ_y = Σ_ε + (H Σ_x) Hᵀ, kept as a low-rank update
+        return LowRankUpdate(base, obs_projection, V=obs_operator_dense)
 
-    # Structural sandwich when H is an operator: preserves matched
-    # Kronecker / BlockDiag / diagonal structure without materialising H.
-    if isinstance(H, lx.AbstractLinearOperator):
-        P_op = lx.MatrixLinearOperator(P_mat, lx.positive_semidefinite_tag)
-        S = sandwich(H, P_op).as_matrix() + _materialise(R)
+    if isinstance(obs_operator, lx.AbstractLinearOperator):
+        state_covariance_op = lx.MatrixLinearOperator(
+            state_covariance_dense, lx.positive_semidefinite_tag
+        )
+        # H Σ_x Hᵀ, structure-preserving
+        propagated = sandwich(obs_operator, state_covariance_op).as_matrix()
     else:
-        S = H @ P_mat @ H.T + _materialise(R)
-    return lx.MatrixLinearOperator(S, lx.positive_semidefinite_tag)
+        # H Σ_x
+        obs_projection = einsum(
+            obs_operator,
+            state_covariance_dense,
+            "obs state, state col -> obs col",
+        )
+        # H Σ_x Hᵀ
+        propagated = einsum(
+            obs_projection, obs_operator, "obs col, other col -> obs other"
+        )
+    # Σ_y = H Σ_x Hᵀ + Σ_ε
+    obs_covariance = propagated + _materialise(obs_noise_covariance)
+    return lx.MatrixLinearOperator(obs_covariance, lx.positive_semidefinite_tag)
 
 
 def _masked_obs_inputs(
-    H: Float[Array, "M N"],
-    R: Float[Array, "M M"],
-    y: Float[Array, " M"],
+    obs_operator: Float[Array, "M N"],
+    obs_noise_covariance: Float[Array, "M M"],
+    obs: Float[Array, " M"],
     mask: Bool[Array, " M"],
 ) -> tuple[
     Float[Array, "M N"],
@@ -133,47 +213,59 @@ def _masked_obs_inputs(
     Float[Array, " M"],
     Float[Array, ""],
 ]:
-    r"""Substitute ``(H, R, y)`` so masked observation channels are inert.
+    """Rewrite (H_t, Σ_ε,t, y_t) so that masked observation channels are inert.
 
-    Marginalising channel $i$ out of the update is equivalent to keeping
-    it but making it carry no information: zero the row $H_i$, replace
-    row/column $i$ of $R$ with the unit basis vector, and zero $y_i$.
-    The innovation covariance then splits as
+        Σ_y,t = blockdiag(Σ_y,obs, I)
 
-    $$
-    S = \begin{bmatrix} S_{\mathrm{obs}} & 0 \\ 0 & I \end{bmatrix},
-    $$
+    Marginalising channel i out of the update is the same as keeping it with
+    no information: zero row i of H_t, replace row and column i of Σ_ε,t by
+    the unit basis vector, and zero y_t,i. Σ_y,t then splits into the block
+    of the observed channels and an identity block, so column i of the gain
+    G_t = Σ_x,t|t−1 H_tᵀ Σ_y,t⁻¹ vanishes and the masked channel cannot move
+    the state. The update is exactly the row-deleted one, with no branching.
 
-    so column $i$ of the gain $K = P H^\top S^{-1}$ vanishes and the
-    masked channel cannot move the state. The posterior is therefore
-    *exactly* the row-deleted filter, with no branching.
-
-    The substitution is written with `jax.numpy.where` rather than a
-    multiply so a masked ``y`` entry may be ``NaN`` (the usual encoding
-    for "not measured") without poisoning the residual.
+    The substitution is a `jax.numpy.where`, not a multiply, so a masked
+    entry of y_t may be ``NaN`` (the usual "not measured") without
+    poisoning the residual.
 
     Args:
-        H: Observation matrix, shape ``(M, N)``.
-        R: Observation noise covariance, shape ``(M, M)``.
-        y: Observation vector, shape ``(M,)``.
-        mask: Per-channel boolean mask, shape ``(M,)``. ``True`` keeps
-            the channel.
+        obs_operator: Observation operator H_t.
+        obs_noise_covariance: Observation-error covariance Σ_ε,t.
+        obs: Observation y_t.
+        mask: Per-channel mask; ``True`` keeps the channel.
 
     Returns:
-        Tuple ``(H_eff, R_eff, y_eff, n_missing)`` where ``n_missing``
-        is the float count of masked channels, used to strip the dummy
-        block's contribution from the log-likelihood.
+        Tuple ``(masked_obs_operator, masked_obs_noise_covariance,
+        masked_obs, n_missing)``, where ``n_missing`` is the number of
+        masked channels N_missing as a float, used to strip the identity
+        block's term from the log-likelihood.
     """
-    M = y.shape[-1]
-    H_eff = jnp.where(mask[:, None], H, jnp.zeros_like(H))
-    R_eff = jnp.where(mask[:, None] & mask[None, :], R, jnp.eye(M, dtype=R.dtype))
-    y_eff = jnp.where(mask, y, jnp.zeros_like(y))
-    n_missing = M - jnp.sum(mask.astype(y.dtype))
-    return H_eff, R_eff, y_eff, n_missing
+    obs_size = obs.shape[-1]
+    state_size = obs_operator.shape[-1]
+    # keep row i of H_t where channel i is observed
+    row_mask = repeat(mask, "obs -> obs state", state=state_size)
+    masked_obs_operator = jnp.where(
+        row_mask, obs_operator, jnp.zeros_like(obs_operator)
+    )
+    # keep entry (i, j) of Σ_ε,t where channels i and j are both observed
+    pair_mask = einx.logical_and("row, col -> row col", mask, mask)
+    identity = jnp.eye(obs_size, dtype=obs_noise_covariance.dtype)
+    masked_obs_noise_covariance = jnp.where(pair_mask, obs_noise_covariance, identity)
+    masked_obs = jnp.where(mask, obs, jnp.zeros_like(obs))
+    # N_missing = D_y − ∑_i mask_i
+    n_missing = obs_size - jnp.sum(mask.astype(obs.dtype))
+    return masked_obs_operator, masked_obs_noise_covariance, masked_obs, n_missing
 
 
 def _is_operator_input(value: object) -> bool:
-    """True iff *value* is a lineax operator (and so signals TI mode)."""
+    """True when ``value`` is a lineax operator, which signals the TI path.
+
+    Args:
+        value: Any model input.
+
+    Returns:
+        Whether ``value`` is a `lineax.AbstractLinearOperator`.
+    """
     return isinstance(value, lx.AbstractLinearOperator)
 
 
@@ -197,36 +289,44 @@ def _normalise_tv_inputs(
     Bool[Array, " T"] | Bool[Array, "T M"],
     bool,
 ]:
-    """Normalise the four shape-bearing args + ``mask`` for the scan body.
+    """Stack the model inputs F_t, H_t, Σ_η,t, Σ_ε,t and the mask over time.
 
-    Returns
-    -------
-    A_seq, H_seq, Q_seq, R_seq : ``(T, …)`` arrays ready to scan over.
-        When ``materialise_transition=False`` (resp. ``materialise_obs=False``
-        / ``materialise_obs_noise=False``) and the corresponding input is
-        an operator, the returned ``A_seq`` / ``H_seq`` / ``R_seq`` is an
-        empty ``(T, 0, 0)`` placeholder — the caller is expected to apply
-        the operator directly (e.g. via ``.mv`` or as the base of a
-        Woodbury innovation) rather than index into the array. This
-        avoids materialising structured operators into ``(T, …)`` dense
-        stacks.
-    mask_seq : ``(T,)`` boolean array (defaults to all-True), or ``(T, M)``
-        when a per-channel mask was supplied. The rank is passed through
-        unchanged so the caller can dispatch on ``mask_seq.ndim``.
-    is_time_invariant : True iff every shape-bearing input is either an
-        operator or a 2D array (and was broadcast to ``(T, …)`` here).
+    Time-invariant inputs (an operator or a matrix) are broadcast to a stack
+    of length T; time-varying stacks pass through.
 
-    Notes
-    -----
-    ``M`` is only needed to validate a per-channel ``(T, M)`` mask.
-    Leaving it ``None`` rejects 2D masks outright, which is how callers
-    that have no per-channel path (e.g. the PSD-projected parallel filter)
-    opt out.
+    Args:
+        transition: Dynamics F_t, one for all steps or a stack over time.
+        obs_model: Observation operator H_t, one or a stack.
+        process_noise: Model-error covariance Σ_η,t, one or a stack.
+        obs_noise: Observation-error covariance Σ_ε,t, one or a stack.
+        T: Number of steps T.
+        mask: ``None`` (every step observed), a scalar, a per-step mask of
+            shape ``(T,)`` or a per-channel mask of shape ``(T, M)``.
+        M: Observation length D_y, needed only to validate a per-channel
+            mask. ``None`` rejects per-channel masks, which is how filters
+            without a per-channel path (e.g. the PSD-projected parallel
+            filter) opt out.
+        materialise_transition: When ``False`` and ``transition`` is an
+            operator, return an empty ``(T, 0, 0)`` placeholder instead of
+            a dense stack; the caller applies the operator itself (``.mv``).
+        materialise_obs: The same for ``obs_model``.
+        materialise_obs_noise: The same for ``obs_noise``, e.g. when it is
+            the base of a Woodbury observation covariance.
 
-    Raises
-    ------
-    TypeError when operator-form inputs are mixed with 3D ``(T, …)``
-    arrays — that path is intentionally not supported.
+    Raises:
+        TypeError: If operator inputs are mixed with time-stacked arrays;
+            the operator form is supported in the time-invariant signature
+            only.
+        ValueError: If an input is neither a matrix nor a stack, or the
+            mask has the wrong shape.
+
+    Returns:
+        Tuple ``(transitions, obs_models, process_noises, obs_noises,
+        masks, is_time_invariant)``: four ``(T, …)`` stacks ready to scan
+        over (or placeholders, see above), the mask as an all-``True``
+        ``(T,)`` default or with its rank kept so the caller can dispatch
+        on ``masks.ndim``, and whether every input was an operator or a
+        matrix broadcast here.
     """
     has_operator = any(
         _is_operator_input(x) for x in (transition, obs_model, process_noise, obs_noise)
@@ -245,18 +345,18 @@ def _normalise_tv_inputs(
             "TV path."
         )
 
-    A_dense = (
+    transition_dense = (
         _materialise(transition)
         if materialise_transition or not _is_operator_input(transition)
         else None
     )
-    H_dense = (
+    obs_model_dense = (
         _materialise(obs_model)
         if materialise_obs or not _is_operator_input(obs_model)
         else None
     )
-    Q_dense = _materialise(process_noise)
-    R_dense = (
+    process_noise_dense = _materialise(process_noise)
+    obs_noise_dense = (
         _materialise(obs_noise)
         if materialise_obs_noise or not _is_operator_input(obs_noise)
         else None
@@ -280,8 +380,8 @@ def _normalise_tv_inputs(
             # Woodbury innovation, or via ``.mv``).
             return jnp.zeros((T, 0, 0), dtype=op.out_structure().dtype)
         if x.ndim == expected_ndim - 1:
-            # 2D array → broadcast to (T, …)
-            return jnp.broadcast_to(x, (T, *x.shape))
+            # one matrix for every step
+            return repeat(x, "row col -> t row col", t=T)
         if x.ndim == expected_ndim:
             return x
         raise ValueError(
@@ -289,61 +389,65 @@ def _normalise_tv_inputs(
             f"{x.ndim} (shape={x.shape})."
         )
 
-    A_seq = _broadcast_to_T(
-        A_dense,
+    transitions = _broadcast_to_T(
+        transition_dense,
         expected_ndim=3,
         op=transition if isinstance(transition, lx.AbstractLinearOperator) else None,
     )
-    H_seq = _broadcast_to_T(
-        H_dense,
+    obs_models = _broadcast_to_T(
+        obs_model_dense,
         expected_ndim=3,
         op=obs_model if isinstance(obs_model, lx.AbstractLinearOperator) else None,
     )
-    Q_seq = _broadcast_to_T(Q_dense, expected_ndim=3)
-    R_seq = _broadcast_to_T(
-        R_dense,
+    process_noises = _broadcast_to_T(process_noise_dense, expected_ndim=3)
+    obs_noises = _broadcast_to_T(
+        obs_noise_dense,
         expected_ndim=3,
         op=obs_noise if isinstance(obs_noise, lx.AbstractLinearOperator) else None,
     )
 
     if mask is None:
-        mask_seq = jnp.ones((T,), dtype=bool)
+        masks = jnp.ones((T,), dtype=bool)
     else:
-        mask_seq = jnp.asarray(mask, dtype=bool)
+        masks = jnp.asarray(mask, dtype=bool)
         # Allow scalar broadcast for ergonomic ``mask=True`` / ``mask=False``;
         # otherwise require ``(T,)`` (per-step gate) or ``(T, M)``
         # (per-channel gate) to give a clear error before the scan rather
         # than a confusing tracing failure.
-        if mask_seq.ndim == 0:
-            mask_seq = jnp.broadcast_to(mask_seq, (T,))
-        elif mask_seq.ndim == 2:
+        if masks.ndim == 0:
+            masks = repeat(masks, " -> t", t=T)
+        elif masks.ndim == 2:
             if M is None:
                 raise ValueError(
                     "mask must be a scalar or have shape "
-                    f"({T},); got shape {mask_seq.shape}. Per-channel "
+                    f"({T},); got shape {masks.shape}. Per-channel "
                     "(T, M) masks are not supported by this filter."
                 )
-            if mask_seq.shape != (T, M):
+            if masks.shape != (T, M):
                 raise ValueError(
                     f"mask must be a scalar or have shape ({T},) or "
-                    f"({T}, {M}); got shape {mask_seq.shape}."
+                    f"({T}, {M}); got shape {masks.shape}."
                 )
-        elif mask_seq.shape != (T,):
+        elif masks.shape != (T,):
             expected = f"({T},)" if M is None else f"({T},) or ({T}, {M})"
             raise ValueError(
                 f"mask must be a scalar or have shape {expected}; got shape "
-                f"{mask_seq.shape}."
+                f"{masks.shape}."
             )
 
-    return A_seq, H_seq, Q_seq, R_seq, mask_seq, not has_3d_array
+    return transitions, obs_models, process_noises, obs_noises, masks, not has_3d_array
 
 
 def _warn_unused_process_noise(function: str, process_noise: object) -> None:
     """Deprecate passing ``process_noise`` to an RTS smoother (gh-364).
 
-    The RTS recurrence never reads it -- the filter's predicted covariances
-    already include ``Q`` -- so accepting it suggests behaviour that does
-    not exist.
+    The RTS recurrence never reads Σ_η: the filter's predicted covariances
+    Σ_x,t+1|t already include it, so accepting it suggests behaviour that
+    does not exist.
+
+    Args:
+        function: Name of the smoother, for the warning message.
+        process_noise: The value passed; ``None`` does not warn.
     """
     if process_noise is not None:
         warn_deprecated(
