@@ -1,23 +1,43 @@
 """Parallel Kalman filter and RTS smoother via associative scan.
 
-Implements the Särkkä-García-Fernández (IEEE TAC 2021) parallel
-formulation of the linear-Gaussian Kalman filter and Rauch-Tung-Striebel
-smoother. The forward (filtering) and backward (smoothing) recurrences
-are recast as inclusive associative scans of per-step elements, which
-`jax.lax.associative_scan` evaluates with ``O(log T)`` depth on
-parallel hardware (GPU / TPU). On sequential hardware (CPU) the total
-work is strictly larger than `gaussx.kalman_filter`'s ``O(T)``
-``lax.scan``; the win is on accelerators with large ``T``.
+The covariance-form parallel filter and smoother of Särkkä &
+García-Fernández (IEEE TAC 2021). The forward (filtering) and backward
+(smoothing) recurrences are recast as inclusive associative scans of
+per-step elements, which `jax.lax.associative_scan` evaluates with
+``O(log T)`` depth on parallel hardware (GPU / TPU). On sequential hardware
+(CPU) the total work is strictly larger than the ``O(T)`` ``lax.scan`` of
+`gaussx.kalman_filter`; the win is on accelerators with large ``T``.
 
-The element math is the covariance-form combinators from §III.A / §III.B
-of the paper. ``psd_project=True`` projects the returned covariances onto
-the PSD cone -- a safety net for ill-conditioned float32 chains, not a
-square-root filter: the scan itself still runs in covariance form.
-``square_root=True`` runs the factor-propagating combinator of Yaghoobi
-et al. (2022) instead (`gaussx._ssm._parallel_kalman_factor`, gh-454).
+A filtering element of step t holds the conditional p(x_t ∣ x_t−1, y_t)
+and the likelihood p(y_t ∣ x_t−1) of the previous state, in information
+form:
+
+    p(x_t ∣ x_t−1, y_t) = 𝒩(x_t; F_cond,t x_t−1 + μ_cond,t, Σ_cond,t)
+    p(y_t ∣ x_t−1) ∝ exp(−½ x_t−1ᵀ Λ_lik,t x_t−1 + Λμ_lik,tᵀ x_t−1)
+
+The paper's letters map to these as A → F_cond, b → μ_cond, C → Σ_cond,
+J → Λ_lik and η → Λμ_lik; η is renamed because it is the model noise here.
+Λμ_lik,t is one symbol, the first natural parameter, since Λ_lik,t is
+singular whenever D_y < D_x. A smoothing element of step t holds
+
+    p(x_t ∣ x_t+1, y_1:t) = 𝒩(x_t; G_smooth,t x_t+1 + μ_back,t, Σ_back,t),
+
+with the paper's E → G_smooth (the RTS smoother gain), g → μ_back and
+L → Σ_back. After the scans μ_cond,t and Σ_cond,t are the filtered moments
+μ_x,t|t and Σ_x,t|t, and μ_back,t and Σ_back,t the smoothed μ_x,t|T and
+Σ_x,t|T.
+
+``psd_project=True`` projects the returned covariances onto the PSD cone,
+a safety net for ill-conditioned float32 chains, not a square-root filter:
+the scan itself still runs in covariance form
+(`gaussx._ssm._parallel_kalman_sqrt`). ``square_root=True`` runs the
+factor-propagating combinator of Yaghoobi et al. (2022) instead
+(`gaussx._ssm._parallel_kalman_factor`, gh-454).
 """
 
 from __future__ import annotations
+
+import functools
 
 import jax
 import jax.numpy as jnp
@@ -27,9 +47,10 @@ from jaxtyping import Array, Bool, Float
 
 from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
-from gaussx._linalg._symmetrize import symmetrize as _sym
+from gaussx._einx import einsum, rearrange, reduce, repeat
+from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._logdet import cholesky_logdet
-from gaussx._ssm._kalman import FilterState, kalman_filter
+from gaussx._ssm._kalman import FilterState, _kalman_predict, kalman_filter
 from gaussx._ssm._parallel_kalman_factor import parallel_kalman_filter_factor
 from gaussx._ssm._utils import (
     _masked_obs_inputs,
@@ -40,60 +61,350 @@ from gaussx._ssm._utils import (
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
+FilterElement = tuple[
+    Float[Array, "*T N N"],
+    Float[Array, "*T N"],
+    Float[Array, "*T N N"],
+    Float[Array, "*T N"],
+    Float[Array, "*T N N"],
+]
+SmootherElement = tuple[
+    Float[Array, "*T N N"], Float[Array, "*T N"], Float[Array, "*T N N"]
+]
+
+
 # ----------------------------------------------------------------
 # Filter element builders
 # ----------------------------------------------------------------
 
 
-def _first_filter_element_active(F, H, Q, R, y, m0, P0):
-    """t=0 element absorbing the initial prior (predict + update)."""
-    N = F.shape[0]
-    m_pred = F @ m0
-    P_pred = _sym(F @ P0 @ F.T + Q)
-    HPpred = H @ P_pred  # (M, N)
-    S = _sym(HPpred @ H.T + R)
-    L_S = jnp.linalg.cholesky(S)
-    K = jax.scipy.linalg.cho_solve((L_S, True), HPpred).T  # (N, M)
-    A = jnp.zeros((N, N), dtype=F.dtype)
-    b = m_pred + K @ (y - H @ m_pred)
-    C = _sym(P_pred - K @ HPpred)
-    eta = jnp.zeros(N, dtype=F.dtype)
-    J = jnp.zeros((N, N), dtype=F.dtype)
-    return A, b, C, eta, J
+def _first_filter_element_active(
+    transition_t: Float[Array, "N N"],
+    obs_operator: Float[Array, "M N"],
+    process_noise_t: Float[Array, "N N"],
+    obs_noise_covariance: Float[Array, "M M"],
+    obs_t: Float[Array, " M"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> FilterElement:
+    """First filtering element: absorb the prior on x₀, predict, then update.
 
+        F_cond,1 = 0,   μ_cond,1 = μ_x,1|1,   Σ_cond,1 = Σ_x,1|1,
+        Λμ_lik,1 = 0,   Λ_lik,1 = 0
 
-def _first_filter_element_masked(F, Q, m0, P0):
-    """t=0 predict-only element (mask=False at index 0)."""
-    N = F.shape[0]
-    A = jnp.zeros((N, N), dtype=F.dtype)
-    b = F @ m0
-    C = _sym(F @ P0 @ F.T + Q)
-    eta = jnp.zeros(N, dtype=F.dtype)
-    J = jnp.zeros((N, N), dtype=F.dtype)
-    return A, b, C, eta, J
+    Algorithm:
+        1. Predict: μ_x,1|0 = F₁ μ_x,0 and Σ_x,1|0 = F₁ Σ_x,0 F₁ᵀ + Σ_η,1.
+        2. Factor Σ_y,1 = H₁ Σ_x,1|0 H₁ᵀ + Σ_ε,1 and solve for the gain
+           G₁ = Σ_x,1|0 H₁ᵀ Σ_y,1⁻¹.
+        3. Update: μ_x,1|1 = μ_x,1|0 + G₁ r₁ and
+           Σ_x,1|1 = Σ_x,1|0 − G₁ H₁ Σ_x,1|0.
 
+    Args:
+        transition_t: Dynamics F₁.
+        obs_operator: Observation operator H₁, masked rows zeroed.
+        process_noise_t: Model-error covariance Σ_η,1.
+        obs_noise_covariance: Observation-error covariance Σ_ε,1.
+        obs_t: Observation y₁.
+        init_mean: Prior mean μ_x,0.
+        init_cov: Prior covariance Σ_x,0.
 
-def _generic_filter_element_active(F, H, Q, R, y):
-    """Generic t>=1 element: predict from x_{t-1} fixed, then update with y.
-
-    ``S = H Q H^T + R`` is factored once; the gain, innovation solve,
-    and information solve all reuse the Cholesky factor.
+    Returns:
+        The element ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)`` of step 1.
     """
-    N = F.shape[0]
-    HQ = H @ Q  # (M, N)
-    S = _sym(HQ @ H.T + R)
-    L_S = jnp.linalg.cholesky(S)
-    # K = Q H^T S^{-1} = (S^{-1} (H Q))^T
-    K = jax.scipy.linalg.cho_solve((L_S, True), HQ).T  # (N, M)
-    A = (jnp.eye(N, dtype=F.dtype) - K @ H) @ F
-    b = K @ y
-    C = _sym(Q - K @ HQ)
-    HF = H @ F  # (M, N)
-    Sinv_y = jax.scipy.linalg.cho_solve((L_S, True), y)  # (M,)
-    Sinv_HF = jax.scipy.linalg.cho_solve((L_S, True), HF)  # (M, N)
-    eta = HF.T @ Sinv_y
-    J = _sym(HF.T @ Sinv_HF)
-    return A, b, C, eta, J
+    state_size = transition_t.shape[0]
+    # μ_x,1|0 = F₁ μ_x,0
+    predicted_mean = transition_t @ init_mean
+    # F₁ Σ_x,0
+    transition_covariance = einsum(
+        transition_t, init_cov, "next prev, prev col -> next col"
+    )
+    # F₁ Σ_x,0 F₁ᵀ
+    propagated = einsum(
+        transition_covariance, transition_t, "next col, other col -> next other"
+    )
+    # Σ_x,1|0 = F₁ Σ_x,0 F₁ᵀ + Σ_η,1
+    predicted_covariance = symmetrize(propagated + process_noise_t)
+    # H₁ Σ_x,1|0 = Σ_xy,1ᵀ
+    obs_projection = einsum(
+        obs_operator, predicted_covariance, "obs state, state col -> obs col"
+    )
+    # H₁ Σ_x,1|0 H₁ᵀ
+    obs_sandwich = einsum(
+        obs_projection, obs_operator, "obs col, other col -> obs other"
+    )
+    # Σ_y,1 = H₁ Σ_x,1|0 H₁ᵀ + Σ_ε,1
+    obs_covariance = symmetrize(obs_sandwich + obs_noise_covariance)
+    # L_y,1 L_y,1ᵀ = Σ_y,1
+    obs_factor = jnp.linalg.cholesky(obs_covariance)
+    # G₁ᵀ = Σ_y,1⁻¹ H₁ Σ_x,1|0
+    gain_transpose = jax.scipy.linalg.cho_solve((obs_factor, True), obs_projection)
+    # G₁ = Σ_xy,1 Σ_y,1⁻¹
+    gain = rearrange(gain_transpose, "obs state -> state obs")
+    # F_cond,1 = 0: the prior is absorbed, nothing earlier to condition on
+    cond_transition = jnp.zeros((state_size, state_size), dtype=transition_t.dtype)
+    # H₁ μ_x,1|0
+    predicted_obs = obs_operator @ predicted_mean
+    # r₁ = y₁ − H₁ μ_x,1|0
+    residual = obs_t - predicted_obs
+    # μ_cond,1 = μ_x,1|0 + G₁ r₁
+    cond_mean = predicted_mean + gain @ residual
+    # G₁ H₁ Σ_x,1|0
+    correction = einsum(gain, obs_projection, "state obs, obs col -> state col")
+    # Σ_cond,1 = Σ_x,1|0 − G₁ H₁ Σ_x,1|0
+    cond_covariance = symmetrize(predicted_covariance - correction)
+    # Λμ_lik,1 = 0 and Λ_lik,1 = 0
+    lik_information = jnp.zeros(state_size, dtype=transition_t.dtype)
+    lik_precision = jnp.zeros((state_size, state_size), dtype=transition_t.dtype)
+    return (
+        cond_transition,
+        cond_mean,
+        cond_covariance,
+        lik_information,
+        lik_precision,
+    )
+
+
+def _first_filter_element_masked(
+    transition_t: Float[Array, "N N"],
+    process_noise_t: Float[Array, "N N"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> FilterElement:
+    """First filtering element when y₁ is masked: absorb the prior, predict.
+
+        F_cond,1 = 0,   μ_cond,1 = F₁ μ_x,0,   Σ_cond,1 = F₁ Σ_x,0 F₁ᵀ + Σ_η,1
+
+    Args:
+        transition_t: Dynamics F₁.
+        process_noise_t: Model-error covariance Σ_η,1.
+        init_mean: Prior mean μ_x,0.
+        init_cov: Prior covariance Σ_x,0.
+
+    Returns:
+        The element ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)`` of step 1.
+    """
+    state_size = transition_t.shape[0]
+    # F_cond,1 = 0
+    cond_transition = jnp.zeros((state_size, state_size), dtype=transition_t.dtype)
+    # μ_cond,1 = F₁ μ_x,0
+    cond_mean = transition_t @ init_mean
+    # F₁ Σ_x,0
+    transition_covariance = einsum(
+        transition_t, init_cov, "next prev, prev col -> next col"
+    )
+    # F₁ Σ_x,0 F₁ᵀ
+    propagated = einsum(
+        transition_covariance, transition_t, "next col, other col -> next other"
+    )
+    # Σ_cond,1 = F₁ Σ_x,0 F₁ᵀ + Σ_η,1
+    cond_covariance = symmetrize(propagated + process_noise_t)
+    # Λμ_lik,1 = 0 and Λ_lik,1 = 0
+    lik_information = jnp.zeros(state_size, dtype=transition_t.dtype)
+    lik_precision = jnp.zeros((state_size, state_size), dtype=transition_t.dtype)
+    return (
+        cond_transition,
+        cond_mean,
+        cond_covariance,
+        lik_information,
+        lik_precision,
+    )
+
+
+def _generic_filter_element_active(
+    transition_t: Float[Array, "N N"],
+    obs_operator: Float[Array, "M N"],
+    process_noise_t: Float[Array, "N N"],
+    obs_noise_covariance: Float[Array, "M M"],
+    obs_t: Float[Array, " M"],
+) -> FilterElement:
+    """Filtering element of step t ≥ 2: x_t−1 given, predict, then update.
+
+        Σ_y∣x,t = H_t Σ_η,t H_tᵀ + Σ_ε,t,   G_t = Σ_η,t H_tᵀ Σ_y∣x,t⁻¹
+        F_cond,t = (I − G_t H_t) F_t,       μ_cond,t = G_t y_t
+        Σ_cond,t = Σ_η,t − G_t H_t Σ_η,t
+        Λμ_lik,t = F_tᵀ H_tᵀ Σ_y∣x,t⁻¹ y_t,  Λ_lik,t = F_tᵀ H_tᵀ Σ_y∣x,t⁻¹ H_t F_t
+
+    Σ_y∣x,t is the covariance of y_t given x_t−1, so Σ_η,t stands in for
+    the predicted covariance. Σ_y∣x,t is factored once; the gain and both
+    information solves reuse its Cholesky factor.
+
+    Args:
+        transition_t: Dynamics F_t.
+        obs_operator: Observation operator H_t, masked rows zeroed.
+        process_noise_t: Model-error covariance Σ_η,t.
+        obs_noise_covariance: Observation-error covariance Σ_ε,t, with a
+            unit block on masked channels.
+        obs_t: Observation y_t, masked entries zeroed.
+
+    Returns:
+        The element ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)`` of step t.
+    """
+    state_size = transition_t.shape[0]
+    # H_t Σ_η,t
+    obs_projection = einsum(
+        obs_operator, process_noise_t, "obs state, state col -> obs col"
+    )
+    # H_t Σ_η,t H_tᵀ
+    obs_sandwich = einsum(
+        obs_projection, obs_operator, "obs col, other col -> obs other"
+    )
+    # Σ_y∣x,t = H_t Σ_η,t H_tᵀ + Σ_ε,t
+    obs_covariance = symmetrize(obs_sandwich + obs_noise_covariance)
+    # L_y,t L_y,tᵀ = Σ_y∣x,t
+    obs_factor = jnp.linalg.cholesky(obs_covariance)
+    # G_tᵀ = Σ_y∣x,t⁻¹ H_t Σ_η,t
+    gain_transpose = jax.scipy.linalg.cho_solve((obs_factor, True), obs_projection)
+    # G_t = Σ_η,t H_tᵀ Σ_y∣x,t⁻¹
+    gain = rearrange(gain_transpose, "obs state -> state obs")
+    # G_t H_t
+    gain_obs = einsum(gain, obs_operator, "state obs, obs col -> state col")
+    # I − G_t H_t
+    identity_minus_gain_obs = jnp.eye(state_size, dtype=transition_t.dtype) - gain_obs
+    # F_cond,t = (I − G_t H_t) F_t
+    cond_transition = einsum(
+        identity_minus_gain_obs, transition_t, "state col, col prev -> state prev"
+    )
+    # μ_cond,t = G_t y_t
+    cond_mean = gain @ obs_t
+    # G_t H_t Σ_η,t
+    correction = einsum(gain, obs_projection, "state obs, obs col -> state col")
+    # Σ_cond,t = Σ_η,t − G_t H_t Σ_η,t
+    cond_covariance = symmetrize(process_noise_t - correction)
+    # H_t F_t
+    obs_transition = einsum(
+        obs_operator, transition_t, "obs state, state prev -> obs prev"
+    )
+    # Σ_y∣x,t⁻¹ y_t
+    whitened_obs = jax.scipy.linalg.cho_solve((obs_factor, True), obs_t)
+    # Σ_y∣x,t⁻¹ H_t F_t
+    whitened_obs_transition = jax.scipy.linalg.cho_solve(
+        (obs_factor, True), obs_transition
+    )
+    # Λμ_lik,t = F_tᵀ H_tᵀ Σ_y∣x,t⁻¹ y_t
+    lik_information = einsum(obs_transition, whitened_obs, "obs prev, obs -> prev")
+    # F_tᵀ H_tᵀ Σ_y∣x,t⁻¹ H_t F_t
+    lik_precision_raw = einsum(
+        obs_transition, whitened_obs_transition, "obs row, obs col -> row col"
+    )
+    # Λ_lik,t = F_tᵀ H_tᵀ Σ_y∣x,t⁻¹ H_t F_t
+    lik_precision = symmetrize(lik_precision_raw)
+    return (
+        cond_transition,
+        cond_mean,
+        cond_covariance,
+        lik_information,
+        lik_precision,
+    )
+
+
+def _masked_filter_element(
+    transition_t: Float[Array, "N N"],
+    obs_operator: Float[Array, "M N"],
+    process_noise_t: Float[Array, "N N"],
+    obs_noise_covariance: Float[Array, "M M"],
+    obs_t: Float[Array, " M"],
+    mask_t: Bool[Array, " M"],
+) -> FilterElement:
+    """Filtering element of step t ≥ 2 with masked channels made inert.
+
+    ``vmap`` of ``lax.cond`` evaluates both branches and selects, so a
+    masked step does not branch: `_masked_obs_inputs` zeroes the rows of
+    H_t and the entries of y_t and puts a unit block in Σ_ε,t. On a fully
+    masked step that collapses the active element to the predict-only one,
+    (F_t, 0, Σ_η,t, 0, 0), and the Cholesky factors the identity, so even
+    garbage in masked inputs cannot make the gradient NaN.
+
+    Args:
+        transition_t: Dynamics F_t.
+        obs_operator: Observation operator H_t.
+        process_noise_t: Model-error covariance Σ_η,t.
+        obs_noise_covariance: Observation-error covariance Σ_ε,t.
+        obs_t: Observation y_t.
+        mask_t: Per-channel mask of y_t; ``True`` keeps a channel.
+
+    Returns:
+        The element ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)`` of step t.
+    """
+    masked_obs_operator, masked_obs_noise, masked_obs, _ = _masked_obs_inputs(
+        obs_operator, obs_noise_covariance, obs_t, mask_t
+    )
+    return _generic_filter_element_active(
+        transition_t, masked_obs_operator, process_noise_t, masked_obs_noise, masked_obs
+    )
+
+
+def _filter_elements(
+    transitions: Float[Array, "T N N"],
+    obs_operators: Float[Array, "T M N"],
+    process_noises: Float[Array, "T N N"],
+    obs_noises: Float[Array, "T M M"],
+    observations: Float[Array, "T M"],
+    channel_masks: Bool[Array, "T M"],
+    step_active: Bool[Array, " T"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> FilterElement:
+    """Stack the filtering elements of every step, the first absorbing x₀.
+
+    Algorithm:
+        1. Build the generic element of every step, masks applied.
+        2. Replace element 1 by one that absorbs 𝒩(μ_x,0, Σ_x,0). An outer
+           ``lax.cond`` skips the inactive branch here, since nothing is
+           vmapped; a partly observed step 1 takes the active branch on
+           the masked inputs.
+
+    Args:
+        transitions: Dynamics F_t, stacked over time.
+        obs_operators: Observation operators H_t, stacked over time.
+        process_noises: Model-error covariances Σ_η,t, stacked over time.
+        obs_noises: Observation-error covariances Σ_ε,t, stacked over time.
+        observations: Observations y_1:T.
+        channel_masks: Per-channel masks; ``True`` keeps a channel.
+        step_active: Whether step t observes any channel.
+        init_mean: Prior mean μ_x,0.
+        init_cov: Prior covariance Σ_x,0.
+
+    Returns:
+        The elements ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)``, stacked
+        over time.
+    """
+    elements = jax.vmap(_masked_filter_element)(
+        transitions,
+        obs_operators,
+        process_noises,
+        obs_noises,
+        observations,
+        channel_masks,
+    )
+    first_obs_operator, first_obs_noise, first_obs, _ = _masked_obs_inputs(
+        obs_operators[0], obs_noises[0], observations[0], channel_masks[0]
+    )
+    first = jax.lax.cond(
+        step_active[0],
+        lambda: _first_filter_element_active(
+            transitions[0],
+            first_obs_operator,
+            process_noises[0],
+            first_obs_noise,
+            first_obs,
+            init_mean,
+            init_cov,
+        ),
+        lambda: _first_filter_element_masked(
+            transitions[0],
+            process_noises[0],
+            init_mean,
+            init_cov,
+        ),
+    )
+    cond_transitions, cond_means, cond_covs, lik_informations, lik_precisions = elements
+    return (
+        cond_transitions.at[0].set(first[0]),
+        cond_means.at[0].set(first[1]),
+        cond_covs.at[0].set(first[2]),
+        lik_informations.at[0].set(first[3]),
+        lik_precisions.at[0].set(first[4]),
+    )
 
 
 # ----------------------------------------------------------------
@@ -114,58 +425,377 @@ def _bmv(
     return (M @ v[..., None])[..., 0]
 
 
-def _filter_combine(elem1, elem2):
-    """Combine two filtering elements (Särkkä 2021, §III.A).
+def _filter_combine(
+    earlier: FilterElement,
+    later: FilterElement,
+) -> FilterElement:
+    """Combine an earlier filtering element i with a later element j.
 
-    ``elem1`` is the earlier-time block, ``elem2`` the later-time block.
-    Operates on the trailing two axes; ``lax.associative_scan`` passes
-    batched chunks with a leading scan axis, so all matrix transposes
-    use ``swapaxes(-1, -2)`` rather than ``.T`` and matrix-vector
-    products use the explicit ``_bmv`` helper (Python ``@`` on
-    ``(..., N, N)`` and ``(..., N)`` does not broadcast a matvec).
+        F_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ F_cond,i
+        μ_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
+                    + μ_cond,j
+        Σ_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ Σ_cond,i F_cond,jᵀ + Σ_cond,j
+        Λμ_lik,ij = F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ (Λμ_lik,j − Λ_lik,j μ_cond,i)
+                    + Λμ_lik,i
+        Λ_lik,ij = F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ Λ_lik,j F_cond,i + Λ_lik,i
+
+    This is Särkkä & García-Fernández (2021, §III.A). ``lax.associative_scan``
+    passes chunks with a leading scan axis that may have length zero, so
+    the rule works on the trailing two axes with ``@``, ``swapaxes`` and
+    `_bmv`, never einx.
+
+    Args:
+        earlier: Element i, ``(F_cond, μ_cond, Σ_cond, Λμ_lik, Λ_lik)``.
+        later: Element j, in the same layout.
+
+    Returns:
+        The combined element ij.
     """
-    A1, b1, C1, eta1, J1 = elem1
-    A2, b2, C2, eta2, J2 = elem2
-    N = A1.shape[-1]
-    eye = jnp.eye(N, dtype=A1.dtype)
-    A2_T = jnp.swapaxes(A2, -1, -2)
+    (
+        cond_transition_i,
+        cond_mean_i,
+        cond_covariance_i,
+        lik_information_i,
+        lik_precision_i,
+    ) = earlier
+    (
+        cond_transition_j,
+        cond_mean_j,
+        cond_covariance_j,
+        lik_information_j,
+        lik_precision_j,
+    ) = later
+    state_size = cond_transition_i.shape[-1]
+    identity = jnp.eye(state_size, dtype=cond_transition_i.dtype)
+    # F_cond,jᵀ
+    cond_transition_j_transpose = jnp.swapaxes(cond_transition_j, -1, -2)
 
-    # temp1 = A2 @ (I + C1 J2)^{-1}
-    #       = swapaxes(solve((I + C1 J2)^T, A2^T), -1, -2)
-    I_C1J2 = eye + C1 @ J2
-    temp1 = jnp.swapaxes(jnp.linalg.solve(jnp.swapaxes(I_C1J2, -1, -2), A2_T), -1, -2)
+    # --- forward map F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ ---
+    # I + Σ_cond,i Λ_lik,j
+    forward_system = identity + cond_covariance_i @ lik_precision_j
+    # (I + Σ_cond,i Λ_lik,j)ᵀ
+    forward_system_transpose = jnp.swapaxes(forward_system, -1, -2)
+    # (I + Σ_cond,i Λ_lik,j)⁻ᵀ F_cond,jᵀ
+    forward_map_transpose = jnp.linalg.solve(
+        forward_system_transpose, cond_transition_j_transpose
+    )
+    # F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹
+    forward_map = jnp.swapaxes(forward_map_transpose, -1, -2)
 
-    A = temp1 @ A1
-    b = _bmv(temp1, b1 + _bmv(C1, eta2)) + b2
-    C = _sym(temp1 @ C1 @ A2_T + C2)
+    # F_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ F_cond,i
+    cond_transition = forward_map @ cond_transition_i
+    # Σ_cond,i Λμ_lik,j
+    information_shift = _bmv(cond_covariance_i, lik_information_j)
+    # F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
+    propagated_mean = _bmv(forward_map, cond_mean_i + information_shift)
+    # μ_cond,ij = … + μ_cond,j
+    cond_mean = propagated_mean + cond_mean_j
+    # F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ Σ_cond,i F_cond,jᵀ
+    propagated_covariance = (
+        forward_map @ cond_covariance_i @ cond_transition_j_transpose
+    )
+    # Σ_cond,ij = … + Σ_cond,j
+    cond_covariance = symmetrize(propagated_covariance + cond_covariance_j)
 
-    # temp2 = A1^T @ (I + J2 C1)^{-1}
-    I_J2C1 = eye + J2 @ C1
-    temp2 = jnp.swapaxes(jnp.linalg.solve(jnp.swapaxes(I_J2C1, -1, -2), A1), -1, -2)
+    # --- backward map F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ ---
+    # I + Λ_lik,j Σ_cond,i
+    backward_system = identity + lik_precision_j @ cond_covariance_i
+    # (I + Λ_lik,j Σ_cond,i)ᵀ
+    backward_system_transpose = jnp.swapaxes(backward_system, -1, -2)
+    # (I + Λ_lik,j Σ_cond,i)⁻ᵀ F_cond,i
+    backward_map_transpose = jnp.linalg.solve(
+        backward_system_transpose, cond_transition_i
+    )
+    # F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹
+    backward_map = jnp.swapaxes(backward_map_transpose, -1, -2)
 
-    eta = _bmv(temp2, eta2 - _bmv(J2, b1)) + eta1
-    J = _sym(temp2 @ J2 @ A1 + J1)
+    # Λ_lik,j μ_cond,i
+    precision_mean = _bmv(lik_precision_j, cond_mean_i)
+    # F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ (Λμ_lik,j − Λ_lik,j μ_cond,i)
+    propagated_information = _bmv(backward_map, lik_information_j - precision_mean)
+    # Λμ_lik,ij = … + Λμ_lik,i
+    lik_information = propagated_information + lik_information_i
+    # F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ Λ_lik,j F_cond,i
+    propagated_precision = backward_map @ lik_precision_j @ cond_transition_i
+    # Λ_lik,ij = … + Λ_lik,i
+    lik_precision = symmetrize(propagated_precision + lik_precision_i)
 
-    return A, b, C, eta, J
+    return (
+        cond_transition,
+        cond_mean,
+        cond_covariance,
+        lik_information,
+        lik_precision,
+    )
 
 
-def _smoother_combine(elem1, elem2):
-    """Combine two smoothing elements (Särkkä 2021, §III.B).
+def _smoother_combine(
+    later: SmootherElement,
+    earlier: SmootherElement,
+) -> SmootherElement:
+    """Combine a later smoothing element j with an earlier element i.
 
-    Encodes ``m_smooth_t = E_t m_smooth_{t+1} + g_t``. Used inside
+        G_smooth,ij = G_smooth,i G_smooth,j
+        μ_back,ij = G_smooth,i μ_back,j + μ_back,i
+        Σ_back,ij = G_smooth,i Σ_back,j G_smooth,iᵀ + Σ_back,i
+
+    This is Särkkä & García-Fernández (2021, §III.B). It runs inside
     ``lax.associative_scan(..., reverse=True)``, which reverses the
-    sequence, runs a forward scan, then reverses the result — so under
-    the forward-scan call ``combine(left, right)`` the left arg is the
-    accumulated *later-time* chain and the right arg is the next
-    *earlier-time* element. The combined result represents the
-    earlier→later span starting at the right element's time.
+    sequence, runs a forward scan and reverses the result, so the first
+    argument is the accumulated later-time chain and the second the next
+    earlier-time element. The result spans from the earlier element's time
+    to the end of the later chain.
+
+    Args:
+        later: Element j, ``(G_smooth, μ_back, Σ_back)``.
+        earlier: Element i, in the same layout.
+
+    Returns:
+        The combined element ij.
     """
-    E_later, g_later, L_later = elem1
-    E_earlier, g_earlier, L_earlier = elem2
-    E = E_earlier @ E_later
-    g = _bmv(E_earlier, g_later) + g_earlier
-    L = _sym(E_earlier @ L_later @ jnp.swapaxes(E_earlier, -1, -2) + L_earlier)
-    return E, g, L
+    smoother_gain_j, back_mean_j, back_covariance_j = later
+    smoother_gain_i, back_mean_i, back_covariance_i = earlier
+    # G_smooth,ij = G_smooth,i G_smooth,j
+    smoother_gain = smoother_gain_i @ smoother_gain_j
+    # G_smooth,i μ_back,j
+    propagated_mean = _bmv(smoother_gain_i, back_mean_j)
+    # μ_back,ij = G_smooth,i μ_back,j + μ_back,i
+    back_mean = propagated_mean + back_mean_i
+    # G_smooth,iᵀ
+    smoother_gain_i_transpose = jnp.swapaxes(smoother_gain_i, -1, -2)
+    # G_smooth,i Σ_back,j G_smooth,iᵀ
+    propagated_covariance = (
+        smoother_gain_i @ back_covariance_j @ smoother_gain_i_transpose
+    )
+    # Σ_back,ij = G_smooth,i Σ_back,j G_smooth,iᵀ + Σ_back,i
+    back_covariance = symmetrize(propagated_covariance + back_covariance_i)
+    return smoother_gain, back_mean, back_covariance
+
+
+# ----------------------------------------------------------------
+# Moments and likelihood from the scanned elements
+# ----------------------------------------------------------------
+
+
+def _empty_filter_state(
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> FilterState:
+    """Zero-length `FilterState` for T = 0, as `kalman_filter`'s empty scan.
+
+    Args:
+        init_mean: Prior mean μ_x,0, which sets D_x and the dtype.
+        init_cov: Prior covariance Σ_x,0.
+
+    Returns:
+        A `FilterState` with no steps and ``log_likelihood == 0``.
+    """
+    state_size = init_mean.shape[0]
+    return FilterState(
+        filtered_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
+        filtered_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
+        predicted_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
+        predicted_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
+        log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
+    )
+
+
+def _predicted_moments(
+    filtered_means: Float[Array, "T N"],
+    filtered_covs: Float[Array, "T N N"],
+    transitions: Float[Array, "T N N"],
+    process_noises: Float[Array, "T N N"],
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
+    """Predicted moments of every step, from the filtered ones of the last.
+
+        μ_x,t|t−1 = F_t μ_x,t−1|t−1
+        Σ_x,t|t−1 = F_t Σ_x,t−1|t−1 F_tᵀ + Σ_η,t
+
+    with μ_x,0|0 = μ_x,0 and Σ_x,0|0 = Σ_x,0.
+
+    Args:
+        filtered_means: Filtered means μ_x,t|t.
+        filtered_covs: Filtered covariances Σ_x,t|t.
+        transitions: Dynamics F_t, stacked over time.
+        process_noises: Model-error covariances Σ_η,t, stacked over time.
+        init_mean: Prior mean μ_x,0.
+        init_cov: Prior covariance Σ_x,0.
+
+    Returns:
+        Tuple ``(predicted_means, predicted_covs)`` holding μ_x,t|t−1 and
+        Σ_x,t|t−1.
+    """
+    # μ_x,0:T−1|0:T−1, the prior first
+    previous_means = jnp.concatenate(
+        [rearrange(init_mean, "state -> 1 state"), filtered_means[:-1]]
+    )
+    # Σ_x,0:T−1|0:T−1, the prior first
+    previous_covs = jnp.concatenate(
+        [rearrange(init_cov, "row col -> 1 row col"), filtered_covs[:-1]]
+    )
+    predict = functools.partial(_kalman_predict, transition_op=None)
+    return jax.vmap(predict)(previous_means, previous_covs, transitions, process_noises)
+
+
+def _log_likelihood_step(
+    obs_t: Float[Array, " M"],
+    predicted_mean: Float[Array, " N"],
+    predicted_covariance: Float[Array, "N N"],
+    obs_operator: Float[Array, "M N"],
+    obs_noise_covariance: Float[Array, "M M"],
+    mask_t: Bool[Array, " M"],
+    active: Bool[Array, ""],
+    *,
+    obs_size: int,
+) -> Float[Array, ""]:
+    """Log-likelihood term of one step over its observed channels.
+
+        log p(y_t ∣ y_1:t−1) = −½ (r_tᵀ Σ_y,t⁻¹ r_t + log det Σ_y,t + D_y log 2π)
+                               + ½ N_missing log 2π
+
+    Masked channels get the same substitution as the filtering elements,
+    so they cannot drive the Cholesky through an ill-conditioned Σ_ε,t or
+    make the gradient NaN.
+
+    Args:
+        obs_t: Observation y_t.
+        predicted_mean: Predicted mean μ_x,t|t−1.
+        predicted_covariance: Predicted covariance Σ_x,t|t−1.
+        obs_operator: Observation operator H_t.
+        obs_noise_covariance: Observation-error covariance Σ_ε,t.
+        mask_t: Per-channel mask of y_t; ``True`` keeps a channel.
+        active: Whether the step observes any channel; an inactive step
+            contributes 0.
+        obs_size: Observation length D_y, masked channels included.
+
+    Returns:
+        log p(y_t ∣ y_1:t−1), or 0 for an inactive step.
+    """
+    masked_obs_operator, masked_obs_noise, masked_obs, n_missing = _masked_obs_inputs(
+        obs_operator, obs_noise_covariance, obs_t, mask_t
+    )
+    # H_t μ_x,t|t−1
+    predicted_obs = masked_obs_operator @ predicted_mean
+    # r_t = y_t − H_t μ_x,t|t−1
+    residual = masked_obs - predicted_obs
+    # H_t Σ_x,t|t−1
+    obs_projection = einsum(
+        masked_obs_operator, predicted_covariance, "obs state, state col -> obs col"
+    )
+    # H_t Σ_x,t|t−1 H_tᵀ
+    obs_sandwich = einsum(
+        obs_projection, masked_obs_operator, "obs col, other col -> obs other"
+    )
+    # Σ_y,t = H_t Σ_x,t|t−1 H_tᵀ + Σ_ε,t
+    obs_covariance = symmetrize(obs_sandwich + masked_obs_noise)
+    # L_y,t L_y,tᵀ = Σ_y,t
+    obs_factor = jnp.linalg.cholesky(obs_covariance)
+    # Σ_y,t⁻¹ r_t
+    whitened_residual = jax.scipy.linalg.cho_solve((obs_factor, True), residual)
+    # r_tᵀ Σ_y,t⁻¹ r_t
+    mahalanobis = residual @ whitened_residual
+    # log det Σ_y,t
+    logdet = cholesky_logdet(obs_factor)
+    # Strip the dummy unit block's −½ log 2π per masked channel, so this is
+    # the exact marginal over the observed entries.
+    # log p(y_t ∣ y_1:t−1) = −½ (r_tᵀ Σ_y,t⁻¹ r_t + log det Σ_y,t
+    #     + D_y log 2π) + ½ N_missing log 2π
+    log_likelihood_step = (
+        -0.5 * (mahalanobis + logdet + obs_size * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
+    )
+    return jnp.where(active, log_likelihood_step, jnp.zeros_like(log_likelihood_step))
+
+
+# ----------------------------------------------------------------
+# Smoother elements
+# ----------------------------------------------------------------
+
+
+def _transition_stack(
+    transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
+    num_steps: int,
+) -> Float[Array, "T N N"]:
+    """Dense dynamics F_t stacked over time, as the smoothers consume them.
+
+    Args:
+        transition: Dynamics F_t, one for all steps or a stack over time,
+            as an array or a `lineax.AbstractLinearOperator`.
+        num_steps: Number of steps T.
+
+    Raises:
+        TypeError: If an operator-typed ``transition`` has a time axis.
+        ValueError: If ``transition`` is neither a matrix nor a stack.
+
+    Returns:
+        F_1:T, one dense matrix per step.
+    """
+    transition_dense = _materialise(transition)
+    transition_op = (
+        transition if isinstance(transition, lx.AbstractLinearOperator) else None
+    )
+    if transition_dense.ndim == 2:
+        return repeat(transition_dense, "row col -> t row col", t=num_steps)
+    if transition_dense.ndim == 3:
+        if transition_op is not None:
+            raise TypeError(
+                "Operator-typed transition cannot have a leading time axis."
+            )
+        return transition_dense
+    raise ValueError(f"transition must have ndim 2 or 3, got {transition_dense.ndim}.")
+
+
+def _smoother_element(
+    filtered_mean: Float[Array, " N"],
+    filtered_covariance: Float[Array, "N N"],
+    predicted_mean_next: Float[Array, " N"],
+    predicted_covariance_next: Float[Array, "N N"],
+    transition_next: Float[Array, "N N"],
+) -> SmootherElement:
+    """Smoothing element of step t < T: the backward conditional of x_t.
+
+        G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹
+        μ_back,t = μ_x,t|t − G_smooth,t μ_x,t+1|t
+        Σ_back,t = Σ_x,t|t − G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
+
+    Args:
+        filtered_mean: Filtered mean μ_x,t|t.
+        filtered_covariance: Filtered covariance Σ_x,t|t.
+        predicted_mean_next: Predicted mean μ_x,t+1|t.
+        predicted_covariance_next: Predicted covariance Σ_x,t+1|t.
+        transition_next: Dynamics F_t+1.
+
+    Returns:
+        The element ``(G_smooth, μ_back, Σ_back)`` of step t.
+    """
+    # Σ_x,t|t F_t+1ᵀ
+    cross_covariance = einsum(
+        filtered_covariance, transition_next, "state col, next col -> state next"
+    )
+    # F_t+1 Σ_x,t|t
+    cross_covariance_transpose = rearrange(cross_covariance, "state next -> next state")
+    # G_smooth,tᵀ = Σ_x,t+1|t⁻¹ F_t+1 Σ_x,t|t, using the symmetry of Σ_x,t+1|t
+    smoother_gain_transpose = jnp.linalg.solve(
+        predicted_covariance_next, cross_covariance_transpose
+    )
+    # G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹
+    smoother_gain = rearrange(smoother_gain_transpose, "next state -> state next")
+    # G_smooth,t μ_x,t+1|t
+    predicted_shift = smoother_gain @ predicted_mean_next
+    # μ_back,t = μ_x,t|t − G_smooth,t μ_x,t+1|t
+    back_mean = filtered_mean - predicted_shift
+    # G_smooth,t Σ_x,t+1|t
+    gain_covariance = einsum(
+        smoother_gain, predicted_covariance_next, "state next, next col -> state col"
+    )
+    # G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
+    correction = einsum(
+        gain_covariance, smoother_gain, "state col, other col -> state other"
+    )
+    # Σ_back,t = Σ_x,t|t − G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
+    back_covariance = symmetrize(filtered_covariance - correction)
+    return smoother_gain, back_mean, back_covariance
 
 
 # ----------------------------------------------------------------
@@ -191,42 +821,56 @@ def parallel_kalman_filter(
 ) -> FilterState:
     """Parallel Kalman filter via `jax.lax.associative_scan`.
 
-    Matches `gaussx.kalman_filter` to floating-point round-off for the
-    default ``solver=None`` (``solver`` is not threaded through), with
-    ``O(log T)`` parallel depth on accelerators. Same predict-first time
-    convention and generalised
-    contract (TI / TV / operator-typed inputs, optional mask, scalar
-    log-likelihood). Empty observation windows (``T == 0``) return a
+        x_t = F_t x_t−1 + η_t,    η_t ~ 𝒩(0, Σ_η,t)
+        y_t = H_t x_t + ε_t,      ε_t ~ 𝒩(0, Σ_ε,t)
+
+    the model of `gaussx.kalman_filter`, with x₀ ~ 𝒩(μ_x,0, Σ_x,0) and
+    t = 1, …, T. The result matches `gaussx.kalman_filter` to round-off for
+    the default ``solver=None``, with ``O(log T)`` parallel depth on
+    accelerators: the same predict-first time convention, the same
+    time-invariant, time-varying and operator-typed inputs, the same masks
+    and a scalar log-likelihood. An empty window (T = 0) returns a
     zero-length `FilterState` with ``log_likelihood == 0``.
 
+    Algorithm:
+        1. Build one filtering element (F_cond,t, μ_cond,t, Σ_cond,t,
+           Λμ_lik,t, Λ_lik,t) per step, the first absorbing the prior; the
+           module docstring defines them.
+        2. Run the inclusive associative scan; μ_cond,t and Σ_cond,t of the
+           result are μ_x,t|t and Σ_x,t|t.
+        3. Recover μ_x,t|t−1 and Σ_x,t|t−1 by predicting from the filtered
+           moments of the step before.
+        4. Sum log p(y_t ∣ y_1:t−1) = −½ (r_tᵀ Σ_y,t⁻¹ r_t + log det Σ_y,t
+           + D_y log 2π) over the observed steps.
+
     Args:
-        transition: State transition matrix or operator.
-        obs_model: Observation matrix or operator.
-        process_noise: Process noise covariance or operator.
-        obs_noise: Observation noise covariance or operator.
-        observations: Observed data, shape ``(T, M)``.
-        init_mean: Mean of the prior on x₀, shape ``(N,)``.
-        init_cov: Covariance of the prior on x₀, shape ``(N, N)``.
-            The filter predicts before each update, so
-            ``observations[0]`` is scored against ``A₀ x₀`` -- it
-            observes x₁, not x₀. To observe the prior directly at step 0,
-            pass a time-varying transition with ``A₀ = I`` and
-            ``Q₀ = 0``.
-        mask: Optional observation mask, dispatched on rank exactly as
-            in `gaussx.kalman_filter`. Shape ``(T,)`` gates whole
-            steps (``False`` runs predict-only and contributes 0 to the
-            log-likelihood); shape ``(T, M)`` gates individual channels
-            and yields the exact marginal log-likelihood over the
-            observed entries. Defaults to all-True. A ``(T, M)`` mask is
-            not supported with ``psd_project=True``.
+        transition: Linear dynamics F_t, one for all steps or a stack over
+            time, as an array or a `lineax.AbstractLinearOperator`.
+        obs_model: Observation operator H_t, one or a stack over time.
+        process_noise: Model-error covariance Σ_η,t, one or a stack.
+        obs_noise: Observation-error covariance Σ_ε,t, one or a stack.
+        observations: Observations y_1:T, one row per step.
+        init_mean: Prior mean μ_x,0 of the initial state x₀.
+        init_cov: Prior covariance Σ_x,0 of x₀. The filter predicts before
+            each update, so ``observations[0]`` is scored against F₁ x₀:
+            it observes x₁, not x₀. To observe the prior directly at the
+            first step, pass a time-varying transition with
+            ``transition[0] = I`` and ``process_noise[0] = 0``.
+        mask: Optional observation mask, dispatched on rank exactly as in
+            `gaussx.kalman_filter`. Shape ``(T,)`` gates whole steps
+            (``False`` runs the predict only and adds 0 to the
+            log-likelihood); shape ``(T, M)`` gates single channels and
+            gives the exact marginal log-likelihood over the observed
+            entries. Defaults to all ``True``. A ``(T, M)`` mask is not
+            supported with ``psd_project=True``.
         solver: Used only with ``woodbury_innovation=True``, which
             delegates to `gaussx.kalman_filter`. The associative-scan
             combinators use dense solves, so passing ``solver`` without
             ``woodbury_innovation`` is deprecated (it warns, and will raise
             in gaussx 0.7.0).
-        woodbury_innovation: When ``True``, delegates to
-            `gaussx.kalman_filter` with the same flag so structured
-            ``R`` uses the Woodbury innovation path.
+        woodbury_innovation: When ``True``, delegate to
+            `gaussx.kalman_filter` with the same flag, so a structured
+            Σ_ε,t takes the Woodbury innovation path.
         form: ``"covariance"``. The former ``"sqrt"`` is a deprecated
             spelling of ``psd_project=True`` (it warns, and will be removed
             in gaussx 0.7.0): it never was a square-root filter.
@@ -250,10 +894,57 @@ def parallel_kalman_filter(
         ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
             ``square_root`` is combined with ``psd_project`` or
             ``woodbury_innovation``.
+        NotImplementedError: If ``psd_project=True`` gets a ``(T, M)``
+            mask.
 
     Returns:
-        `FilterState` with filtered / predicted means and covs
-        and the total log-likelihood.
+        A `FilterState` with the filtered and predicted means and
+        covariances and the total log-likelihood.
+
+    Examples:
+        A random walk observed through its first component matches the
+        sequential filter:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> model = (jnp.eye(2), jnp.array([[1.0, 0.0]]), 0.1 * jnp.eye(2))
+        >>> obs_noise = jnp.array([[0.5]])
+        >>> observations = jnp.array([[0.1], [0.3], [0.2]])
+        >>> prior = (jnp.zeros(2), jnp.eye(2))
+        >>> state = gaussx.parallel_kalman_filter(
+        ...     *model, obs_noise, observations, *prior
+        ... )
+        >>> state.filtered_means.shape, state.log_likelihood.shape
+        ((3, 2), ())
+        >>> sequential = gaussx.kalman_filter(*model, obs_noise, observations, *prior)
+        >>> bool(jnp.allclose(state.log_likelihood, sequential.log_likelihood))
+        True
+
+        A masked step runs the predict only:
+
+        >>> mask = jnp.array([True, False, True])
+        >>> gated = gaussx.parallel_kalman_filter(
+        ...     *model, obs_noise, observations, *prior, mask=mask
+        ... )
+        >>> bool(jnp.allclose(gated.filtered_means[1], gated.predicted_means[1]))
+        True
+
+        The square-root form agrees with the covariance form:
+
+        >>> factored = gaussx.parallel_kalman_filter(
+        ...     *model, obs_noise, observations, *prior, square_root=True
+        ... )
+        >>> bool(jnp.allclose(factored.filtered_covs, state.filtered_covs, atol=1e-5))
+        True
+
+    References:
+        Särkkä, S. & García-Fernández, Á. F. (2021). Temporal parallelization
+        of Bayesian smoothers. *IEEE Transactions on Automatic Control* 66(1),
+        299-306.
+
+        Yaghoobi, F., Corenflos, A., Hassan, S. & Särkkä, S. (2022). Parallel
+        square-root statistical linear regression for inference in nonlinear
+        state space models. arXiv:2207.00426.
     """
     if solver is not None and not woodbury_innovation:
         warn_deprecated(
@@ -317,118 +1008,71 @@ def parallel_kalman_filter(
             woodbury_innovation=True,
         )
 
-    M_obs = observations.shape[-1]
-    T = observations.shape[0]
-    N = init_mean.shape[0]
+    obs_size = observations.shape[-1]
+    num_steps = observations.shape[0]
 
     # Empty observation window: match kalman_filter's empty-scan output.
-    if T == 0:
-        return FilterState(
-            filtered_means=jnp.zeros((0, N), dtype=init_mean.dtype),
-            filtered_covs=jnp.zeros((0, N, N), dtype=init_cov.dtype),
-            predicted_means=jnp.zeros((0, N), dtype=init_mean.dtype),
-            predicted_covs=jnp.zeros((0, N, N), dtype=init_cov.dtype),
-            log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
+    if num_steps == 0:
+        return _empty_filter_state(init_mean, init_cov)
+
+    transitions, obs_operators, process_noises, obs_noises, masks, _ = (
+        _normalise_tv_inputs(
+            transition,
+            obs_model,
+            process_noise,
+            obs_noise,
+            T=num_steps,
+            mask=mask,
+            M=obs_size,
         )
-
-    A_seq, H_seq, Q_seq, R_seq, mask_seq, _ = _normalise_tv_inputs(
-        transition, obs_model, process_noise, obs_noise, T=T, mask=mask, M=M_obs
     )
-    # Work per-channel throughout: a ``(T,)`` gate is the special case
-    # where every channel of a step shares one flag, so broadcasting it
+    # Work per channel throughout: a (T,) gate is the special case where
+    # every channel of a step shares one flag, so broadcasting it
     # reproduces the whole-step path exactly.
-    mask_ch = (
-        mask_seq
-        if mask_seq.ndim == 2
-        else jnp.broadcast_to(mask_seq[:, None], (T, M_obs))
+    if masks.ndim == 2:
+        channel_masks = masks
+    else:
+        channel_masks = repeat(masks, "t -> t obs", obs=obs_size)
+    step_active = reduce(channel_masks, "t obs -> t", "any")
+
+    elements = _filter_elements(
+        transitions,
+        obs_operators,
+        process_noises,
+        obs_noises,
+        observations,
+        channel_masks,
+        step_active,
+        init_mean,
+        init_cov,
     )
-    step_active = jnp.any(mask_ch, axis=-1)
-
-    # Build per-step elements. ``vmap`` of ``lax.cond`` evaluates both
-    # branches and selects, so we instead substitute mask-aware safe
-    # inputs (zeroed H rows, unit R block, zeroed y) into a single
-    # active path. For a fully-masked step those substitutions collapse
-    # the active builder to (F, 0, Q, 0, 0) — exactly the predict-only
-    # element — and the Cholesky operates on the well-conditioned
-    # identity, so even garbage in masked H / R / y can't NaN the
-    # gradient.
-    def _build_step(F, H, Q, R, y, m):
-        H_eff, R_eff, y_eff, _ = _masked_obs_inputs(H, R, y, m)
-        return _generic_filter_element_active(F, H_eff, Q, R_eff, y_eff)
-
-    elems = jax.vmap(_build_step)(A_seq, H_seq, Q_seq, R_seq, observations, mask_ch)
-
-    # Patch element 0 to absorb the initial prior. Outer ``lax.cond``
-    # genuinely skips the inactive branch (no ``vmap`` wrapping here);
-    # a partially-observed step 0 takes the active branch on the
-    # substituted inputs.
-    H_first, R_first, y_first, _ = _masked_obs_inputs(
-        H_seq[0], R_seq[0], observations[0], mask_ch[0]
+    # (F_cond,1:t, μ_x,t|t, Σ_x,t|t, Λμ_lik,1:t, Λ_lik,1:t) for every t
+    _, filtered_means, scanned_covs, _, _ = jax.lax.associative_scan(
+        _filter_combine, elements
     )
-    first = jax.lax.cond(
-        step_active[0],
-        lambda: _first_filter_element_active(
-            A_seq[0],
-            H_first,
-            Q_seq[0],
-            R_first,
-            y_first,
-            init_mean,
-            init_cov,
-        ),
-        lambda: _first_filter_element_masked(
-            A_seq[0],
-            Q_seq[0],
-            init_mean,
-            init_cov,
-        ),
-    )
-    elems = tuple(arr.at[0].set(val) for arr, val in zip(elems, first, strict=True))
+    filtered_covs = jax.vmap(symmetrize)(scanned_covs)
 
-    # ----- Associative scan -----
-    _A_out, b_out, C_out, _eta_out, _J_out = jax.lax.associative_scan(
-        _filter_combine, elems
-    )
-    filtered_means = b_out
-    filtered_covs = jax.vmap(_sym)(C_out)
-
-    # Reconstruct predicted means / covs from filtered + transition.
-    prev_means = jnp.concatenate([init_mean[None], filtered_means[:-1]], axis=0)
-    prev_covs = jnp.concatenate([init_cov[None], filtered_covs[:-1]], axis=0)
-
-    def _predict_step(F, m, P, Q):
-        return F @ m, _sym(F @ P @ F.T + Q)
-
-    predicted_means, predicted_covs = jax.vmap(_predict_step)(
-        A_seq, prev_means, prev_covs, Q_seq
+    predicted_means, predicted_covs = _predicted_moments(
+        filtered_means,
+        filtered_covs,
+        transitions,
+        process_noises,
+        init_mean,
+        init_cov,
     )
 
-    # Log-likelihood from innovations. Same safe substitution as the
-    # element builder so masked steps don't drive the Cholesky through
-    # ill-conditioned user-supplied R / NaN gradients.
-    def _ll_contrib(y, m_pred, P_pred, H, R, m, active):
-        H_eff, R_eff, y_eff, n_missing = _masked_obs_inputs(H, R, y, m)
-        v = y_eff - H_eff @ m_pred
-        S = _sym(H_eff @ P_pred @ H_eff.T + R_eff)
-        L = jnp.linalg.cholesky(S)
-        Sinv_v = jax.scipy.linalg.cho_solve((L, True), v)
-        quad = v @ Sinv_v
-        logdet = cholesky_logdet(L)
-        # Strip the dummy unit block's -0.5 * log(2 pi) per masked
-        # channel, so this is the exact marginal over observed entries.
-        contrib = -0.5 * (quad + logdet + M_obs * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
-        return jnp.where(active, contrib, jnp.zeros_like(contrib))
-
-    ll_contribs = jax.vmap(_ll_contrib)(
+    log_likelihood_step = functools.partial(_log_likelihood_step, obs_size=obs_size)
+    log_likelihood_steps = jax.vmap(log_likelihood_step)(
         observations,
         predicted_means,
         predicted_covs,
-        H_seq,
-        R_seq,
-        mask_ch,
+        obs_operators,
+        obs_noises,
+        channel_masks,
         step_active,
     )
-    log_likelihood = jnp.sum(ll_contribs)
+    # log p(y_1:T) = ∑_t log p(y_t ∣ y_1:t−1)
+    log_likelihood = jnp.sum(log_likelihood_steps)
 
     return FilterState(
         filtered_means=filtered_means,
@@ -450,30 +1094,67 @@ def parallel_rts_smoother(
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Parallel RTS smoother via reverse `jax.lax.associative_scan`.
 
-    Pairs with `parallel_kalman_filter`. Numerically equivalent to
-    `gaussx.rts_smoother` with ``O(log T)`` parallel depth.
+        μ_x,t|T = μ_x,t|t + G_smooth,t (μ_x,t+1|T − μ_x,t+1|t)
+        Σ_x,t|T = Σ_x,t|t + G_smooth,t (Σ_x,t+1|T − Σ_x,t+1|t) G_smooth,tᵀ
+
+    with G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹. Pairs with
+    `parallel_kalman_filter` and matches `gaussx.rts_smoother` to round-off,
+    with ``O(log T)`` parallel depth.
+
+    Algorithm:
+        1. Build one smoothing element (G_smooth,t, μ_back,t, Σ_back,t) per
+           step t < T, and (0, μ_x,T|T, Σ_x,T|T) for the last; the module
+           docstring defines them.
+        2. Run the reverse associative scan; μ_back,t and Σ_back,t of the
+           result are μ_x,t|T and Σ_x,t|T.
 
     Args:
         filter_state: Output of `parallel_kalman_filter` or
             `gaussx.kalman_filter`.
-        transition: State transition matrix or operator.
+        transition: Linear dynamics F_t, as a matrix, a stack over time or
+            an operator; the same one passed to the filter.
         process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
             it will be removed in gaussx 0.7.0.
-        solver: Accepted for API symmetry; not currently threaded
-            through.
+        solver: Accepted for API symmetry; not threaded through.
         form: ``"covariance"``. ``"sqrt"`` is a deprecated spelling of
             ``psd_project=True``, removed in gaussx 0.7.0.
-        psd_project: Build the per-step smoother elements from
-            PSD-projected factors and combine the factors with QR, so the
-            smoothed covariances are PSD. As in `parallel_kalman_filter`,
-            the elements come from covariance-form quantities, so this is
-            a PSD safety net rather than a square-root smoother.
+        psd_project: Build the smoothing elements from PSD-projected
+            factors and combine the factors with QR, so the smoothed
+            covariances are PSD. As in `parallel_kalman_filter`, the
+            elements come from covariance-form quantities, so this is a
+            PSD safety net rather than a square-root smoother.
 
     Raises:
-        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``.
+        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
+            ``transition`` is neither a matrix nor a stack.
+        TypeError: If an operator-typed ``transition`` has a time axis.
 
     Returns:
-        Tuple ``(smoothed_means, smoothed_covs)``.
+        Tuple ``(smoothed_means, smoothed_covs)`` holding μ_x,t|T and
+        Σ_x,t|T.
+
+    Examples:
+        Smooth a filter run; it matches the sequential smoother:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> transition = jnp.eye(2)
+        >>> model = (transition, jnp.array([[1.0, 0.0]]), 0.1 * jnp.eye(2))
+        >>> observations = jnp.array([[0.1], [0.3], [0.2]])
+        >>> state = gaussx.parallel_kalman_filter(
+        ...     *model, jnp.array([[0.5]]), observations, jnp.zeros(2), jnp.eye(2)
+        ... )
+        >>> means, covs = gaussx.parallel_rts_smoother(state, transition)
+        >>> means.shape, covs.shape
+        ((3, 2), (3, 2, 2))
+        >>> sequential_means, _ = gaussx.rts_smoother(state, transition)
+        >>> bool(jnp.allclose(means, sequential_means))
+        True
+
+        The last smoothed moments are the last filtered ones:
+
+        >>> bool(jnp.allclose(means[-1], state.filtered_means[-1]))
+        True
     """
     _warn_unused_process_noise("parallel_rts_smoother", process_noise)
     if form == "sqrt":
@@ -493,54 +1174,34 @@ def parallel_rts_smoother(
 
     del solver
 
-    f_means = filter_state.filtered_means
-    f_covs = filter_state.filtered_covs
-    p_means = filter_state.predicted_means
-    p_covs = filter_state.predicted_covs
-    T = f_means.shape[0]
-    N = f_means.shape[-1]
+    filtered_means = filter_state.filtered_means
+    filtered_covs = filter_state.filtered_covs
+    num_steps = filtered_means.shape[0]
+    state_size = filtered_means.shape[-1]
 
-    if T == 0:
+    if num_steps == 0:
         return (
-            jnp.zeros((0, N), dtype=f_means.dtype),
-            jnp.zeros((0, N, N), dtype=f_covs.dtype),
+            jnp.zeros((0, state_size), dtype=filtered_means.dtype),
+            jnp.zeros((0, state_size, state_size), dtype=filtered_covs.dtype),
         )
 
-    A_dense = _materialise(transition)
-    A_op = transition if isinstance(transition, lx.AbstractLinearOperator) else None
-    if A_dense.ndim == 2:
-        A_seq = jnp.broadcast_to(A_dense, (T, *A_dense.shape))
-    elif A_dense.ndim == 3:
-        if A_op is not None:
-            raise TypeError(
-                "Operator-typed transition cannot have a leading time axis."
-            )
-        A_seq = A_dense
-    else:
-        raise ValueError(f"transition must have ndim 2 or 3, got {A_dense.ndim}.")
-
-    def _build_inner(f_mean, f_cov, p_mean_next, p_cov_next, A_next):
-        # G = f_cov @ A_next.T @ inv(p_cov_next); p_cov_next is symmetric.
-        rhs = f_cov @ A_next.T  # (N, N)
-        G = jnp.linalg.solve(p_cov_next, rhs.T).T
-        E = G
-        g = f_mean - G @ p_mean_next
-        L = _sym(f_cov - G @ p_cov_next @ G.T)
-        return E, g, L
-
-    inner_E, inner_g, inner_L = jax.vmap(_build_inner)(
-        f_means[:-1], f_covs[:-1], p_means[1:], p_covs[1:], A_seq[1:]
+    transitions = _transition_stack(transition, num_steps)
+    inner_gains, inner_means, inner_covs = jax.vmap(_smoother_element)(
+        filtered_means[:-1],
+        filtered_covs[:-1],
+        filter_state.predicted_means[1:],
+        filter_state.predicted_covs[1:],
+        transitions[1:],
     )
-    last_E = jnp.zeros((1, N, N), dtype=f_means.dtype)
-    last_g = f_means[-1:]
-    last_L = f_covs[-1:]
+    # Last element: G_smooth,T = 0, μ_back,T = μ_x,T|T, Σ_back,T = Σ_x,T|T
+    last_gain = jnp.zeros((1, state_size, state_size), dtype=filtered_means.dtype)
+    smoother_gains = jnp.concatenate([inner_gains, last_gain])
+    back_means = jnp.concatenate([inner_means, filtered_means[-1:]])
+    back_covs = jnp.concatenate([inner_covs, filtered_covs[-1:]])
 
-    E = jnp.concatenate([inner_E, last_E], axis=0)
-    g = jnp.concatenate([inner_g, last_g], axis=0)
-    L = jnp.concatenate([inner_L, last_L], axis=0)
-
-    _E_out, smoothed_means, smoothed_covs = jax.lax.associative_scan(
-        _smoother_combine, (E, g, L), reverse=True
+    # (G_smooth,t:T, μ_x,t|T, Σ_x,t|T) for every t
+    _, smoothed_means, smoothed_covs = jax.lax.associative_scan(
+        _smoother_combine, (smoother_gains, back_means, back_covs), reverse=True
     )
-    smoothed_covs = jax.vmap(_sym)(smoothed_covs)
+    smoothed_covs = jax.vmap(symmetrize)(smoothed_covs)
     return smoothed_means, smoothed_covs
