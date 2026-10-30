@@ -1,4 +1,12 @@
-"""Masked linear operator — row/column sub-selection of a base operator."""
+"""Masked operator A = A₀[m_r, m_c]: rows and columns kept from a base A₀.
+
+A₀ ∈ ℝ^{N × N} is the base operator, and the boolean masks m_r, m_c ∈
+{0, 1}^N select the kept rows and columns, so A is N_r × N_c with N_r and
+N_c the number of kept rows and columns. A square mask m_r = m_c = m gives
+the masked system A₀[m, m] on the masked-in indices m. Its solve uses the
+capacitance method of `CapacitanceSolver`, with the masked-out indices that
+A₀ couples to m as the constrained indices b_1, …, b_N_b.
+"""
 
 from __future__ import annotations
 
@@ -19,51 +27,63 @@ from gaussx._operators._diagonalised import as_diagonalized
 
 
 class MaskedOperator(lx.AbstractLinearOperator):
-    """Row/column-masked view of a base operator.
+    """Masked view A = A₀[m_r, m_c] of a square base operator A₀.
 
-    Given a base operator A of shape ``(N, N)`` and boolean masks,
-    produces the sub-matrix ``A[row_mask][:, col_mask]``.
+        A x = (A₀ x̃)[m_r],   x̃[m_c] = x,   x̃ = 0 elsewhere
 
-    Matvec is computed without materializing the sub-matrix:
-    zero-pad input to full size, apply base matvec, then extract
-    masked rows.
+    The matvec never forms the sub-matrix: it zero-pads x to the full size
+    N, applies A₀, and gathers the kept rows.
 
     **Fast masked solves (capacitance method).** For a square mask
-    (``row_mask == col_mask == m``) whose base ``B`` has a fast solve (a
+    m_r = m_c = m whose base A₀ has a fast solve (a
     `gaussx.DiagonalizedOperator`, `gaussx.circulant`, or a Kronecker sum of
-    them), pass ``coupling_indices``: the flat indices ``C`` of the
-    masked-*out* degrees of freedom that ``B`` couples to masked-in rows
-    (``B[m, j] ≠ 0``). Then ``gaussx.solve(op, f)`` solves
-    ``B[m][:, m] x = f`` exactly by the capacitance method: it finds ``y`` on
-    the full grid with ``y[C] = 0`` and ``(B y)[i] = f[i]`` at every ``i ∉ C``
-    (point sources on ``C`` absorb the constraints), which on ``m`` is exactly
+    them), pass ``coupling_indices``: the flat indices b_1, …, b_N_b of the
+    masked-*out* degrees of freedom that A₀ couples to masked-in rows
+    ([A₀]_ij ≠ 0 for some i ∈ m). Then ``gaussx.solve(op, f)`` solves
+    A₀[m, m] x = f exactly by the capacitance method: it finds y on the full
+    grid with y_bₖ = 0 for every k and (A₀ y)_i = f_i at every other index i
+    (point sources on the b_k absorb the constraints), which on m is exactly
     the masked system because the remaining masked-out entries do not couple
-    to ``m``. The ``|C| × |C|`` capacitance factorisation is built once, here
-    in the constructor, so each solve costs two base solves.
+    to m. The N_b × N_b capacitance factorisation is built once, here in the
+    constructor, so each solve costs two base solves.
 
-    For a local stencil (e.g. a finite-difference Laplacian on a grid) ``C``
-    is the one-cell ring outside the mask — use `grid_coupling_indices`, with
-    ``periodic=True`` on axes where ``B`` wraps. Passing *all* masked-out
-    indices is always exact (for any ``B``) but costs ``O(|C|)`` base solves
-    to build.
+    For a local stencil (a finite-difference Laplacian on a grid, say) the
+    b_k are the one-cell ring outside the mask; use `grid_coupling_indices`,
+    with ``periodic=True`` on axes where A₀ wraps. Passing *all* masked-out
+    indices is always exact (for any A₀) but costs O(N_b) base solves to
+    build.
 
-    If ``B`` is singular (e.g. a periodic Poisson operator, whose solve is the
-    pseudo-inverse), its null vector must enter the capacitance system (see
-    `gaussx.CapacitanceSolver`). For a diagonalised ``B`` with a normal
+    If A₀ is singular (a periodic Poisson operator, whose solve is the
+    pseudo-inverse A₀⁺), its null vector must enter the capacitance system
+    (see `gaussx.CapacitanceSolver`). For a diagonalised A₀ with a normal
     transform and exactly one zero eigenvalue this is derived automatically;
-    otherwise pass ``null_vector`` (and ``left_null_vector`` if ``B`` is not
+    otherwise pass ``null_vector`` (and ``left_null_vector`` if A₀ is not
     symmetric).
 
+    **The capacitance is a cache of** ``base``. Gradients with respect to
+    ``base`` are exact, but replacing ``base`` in an existing operator
+    (``eqx.apply_updates`` after an optimiser step, or ``eqx.tree_at``)
+    leaves the factorisation describing the *old* base, and ``solve`` is
+    then wrong. Rebuild with `with_base`, or construct the operator inside
+    the loss from the current parameters. That also works under ``jit``,
+    except that a traced base's null vector cannot be derived: for a
+    singular base built under ``jit`` pass ``null_vector`` (and
+    ``left_null_vector``) explicitly. A traced diagonalised base with a zero
+    eigenvalue and no ``null_vector`` raises at run time rather than solving
+    the wrong system.
+
     Args:
-        base: The underlying ``(N, N)`` linear operator.
-        row_mask: Boolean mask of length N selecting output rows.
-        col_mask: Boolean mask of length N selecting input columns.
-        coupling_indices: Optional flat indices ``C`` (see above); enables the
-            capacitance solve. Requires ``row_mask == col_mask`` (concrete).
-        null_vector: Right null vector of a singular ``base``; derived
-            automatically for diagonalised bases when possible.
-        left_null_vector: Left null vector of a singular non-symmetric
-            ``base``; defaults to ``null_vector``.
+        base: The square base operator A₀, N × N.
+        row_mask: Row mask m_r ∈ {0, 1}^N, ``True`` for the kept rows.
+        col_mask: Column mask m_c ∈ {0, 1}^N, ``True`` for the kept columns.
+        tags: Extra lineax tags for A.
+        coupling_indices: Flat coupling indices b_1, …, b_N_b (see above);
+            enables the capacitance solve. Requires concrete masks with
+            m_r = m_c.
+        null_vector: Right null vector r of a singular A₀, A₀ r = 0; derived
+            automatically for a diagonalised A₀ when possible.
+        left_null_vector: Left null vector w of a singular non-symmetric A₀,
+            wᵀ A₀ = 0; defaults to ``null_vector``.
 
     Attributes:
         capacitance: The precomputed `gaussx.CapacitanceSolver` on the full
@@ -73,16 +93,44 @@ class MaskedOperator(lx.AbstractLinearOperator):
             so ``base`` stays a differentiable pytree leaf and ``solve`` is
             differentiated implicitly (not through the cached factorisation).
 
-    **The capacitance is a cache of ``base``.** Gradients with respect to
-    ``base`` are exact, but replacing ``base`` in an existing operator (e.g.
-    ``eqx.apply_updates`` after an optimiser step, or ``eqx.tree_at``) leaves
-    the factorisation describing the *old* base, and ``solve`` is then
-    wrong. Rebuild with `with_base`, or construct the operator inside the
-    loss from the current parameters. That also works under ``jit``, except
-    that a traced base's null vector cannot be derived: for a singular base
-    built under ``jit`` pass ``null_vector`` (and ``left_null_vector``)
-    explicitly. A traced diagonalised base with a zero eigenvalue and no
-    ``null_vector`` raises at run time rather than solving the wrong system.
+    Raises:
+        ValueError: If A₀ is not square, a mask is not of length N,
+            ``coupling_indices`` is given with traced or unequal masks, or a
+            singular A₀'s null vector cannot be derived.
+
+    Examples:
+        Keep rows {0, 2} and columns {1, 2} of a 3 × 3 matrix:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> matrix = jnp.array([[0.0, 1.0, 2.0], [3.0, 4.0, 5.0], [6.0, 7.0, 8.0]])
+        >>> A0 = lx.MatrixLinearOperator(matrix)
+        >>> rows = jnp.array([True, False, True])
+        >>> cols = jnp.array([False, True, True])
+        >>> A = gaussx.MaskedOperator(A0, rows, cols)
+        >>> A.as_matrix().tolist()
+        [[1.0, 2.0], [7.0, 8.0]]
+        >>> A.mv(jnp.array([1.0, -1.0])).tolist()
+        [-1.0, -1.0]
+
+        A masked periodic Laplacian solved by the capacitance method:
+
+        >>> stencil = jnp.array([2.5, -1.0, 0.0, 0.0, 0.0, -1.0])
+        >>> mask = jnp.array([False, True, True, True, False, False])
+        >>> coupling = gaussx.grid_coupling_indices(mask, periodic=True)
+        >>> coupling.tolist()
+        [0, 4]
+        >>> masked = gaussx.MaskedOperator(
+        ...     gaussx.circulant(stencil, symmetric=True),
+        ...     mask,
+        ...     mask,
+        ...     coupling_indices=coupling,
+        ... )
+        >>> f = jnp.ones(3)
+        >>> x = gaussx.solve(masked, f)
+        >>> bool(jnp.allclose(masked.mv(x), f, atol=1e-5))
+        True
     """
 
     base: lx.AbstractLinearOperator
@@ -122,7 +170,9 @@ class MaskedOperator(lx.AbstractLinearOperator):
         # Counted with NumPy so constant masks also work inside ``jit``
         # (``jnp.sum`` would be staged); traced masks cannot give a static
         # size and raise.
+        # N_c = ∑_j [m_c]_j
         self._in_size = int(np.sum(np.asarray(col_mask)))
+        # N_r = ∑_i [m_r]_i
         self._out_size = int(np.sum(np.asarray(row_mask)))
         struct = base.out_structure()
         leaves = jax.tree.leaves(struct)
@@ -140,21 +190,39 @@ class MaskedOperator(lx.AbstractLinearOperator):
             )
 
     def mv(self, vector: Float[Array, " m"]) -> Float[Array, " k"]:
-        # Scatter input into full-size vector at col_mask positions
+        """Apply A to a vector through the base, without forming A.
+
+            A x = (A₀ x̃)[m_r],   x̃[m_c] = x,   x̃ = 0 elsewhere
+
+        Args:
+            vector: Input x on the kept columns, of length N_c.
+
+        Returns:
+            A x on the kept rows, of length N_r.
+        """
         n = self.base.in_size()
+        # kept column indices; a static size, so an empty mask gives none
         col_indices = jnp.where(self.col_mask, size=self._in_size)[0]
-        full_v = jnp.zeros(n, dtype=vector.dtype).at[col_indices].set(vector)
-        # Apply base operator
-        full_out = self.base.mv(full_v)
-        # Gather output at row_mask positions
+        # x̃ ∈ ℝ^N, x̃[m_c] = x and zero elsewhere
+        padded_vector = jnp.zeros(n, dtype=vector.dtype).at[col_indices].set(vector)
+        # A₀ x̃
+        full_output = self.base.mv(padded_vector)
+        # kept row indices
         row_indices = jnp.where(self.row_mask, size=self._out_size)[0]
-        return full_out[row_indices]
+        # A x = (A₀ x̃)[m_r]
+        return full_output[row_indices]
 
     def as_matrix(self) -> Float[Array, "k m"]:
-        full = self.base.as_matrix()
+        """Dense A = A₀[m_r, m_c], N_r × N_c.
+
+        Returns:
+            The materialised sub-matrix of the dense base.
+        """
+        full_matrix = self.base.as_matrix()
         row_indices = jnp.where(self.row_mask, size=self._out_size)[0]
         col_indices = jnp.where(self.col_mask, size=self._in_size)[0]
-        return full[jnp.ix_(row_indices, col_indices)]
+        # A₀[m_r, m_c]
+        return full_matrix[jnp.ix_(row_indices, col_indices)]
 
     def with_base(
         self,
@@ -165,22 +233,38 @@ class MaskedOperator(lx.AbstractLinearOperator):
     ) -> MaskedOperator:
         """The same masked view of a new base, with its capacitance rebuilt.
 
-        Use this after updating ``base`` (e.g. an optimiser step): the
+            A = A₀′[m_r, m_c]
+
+        Use this after updating the base (an optimiser step, say): the
         capacitance factorisation is a cache of the base and does not follow
-        leaf updates. Costs the ``|C|`` base solves of construction.
+        leaf updates. Costs the N_b base solves of construction.
 
         Args:
-            base: The new ``(N, N)`` base operator.
-            null_vector: Right null vector of a singular ``base``. As in the
+            base: The new square base operator A₀′, N × N.
+            null_vector: Right null vector r of a singular A₀′. As in the
                 constructor, it is derived automatically for a singular
                 diagonalised base; the old one is *not* reused, since the
                 update may change (or remove) the null space.
-            left_null_vector: Left null vector of a singular non-symmetric
-                ``base``; defaults to ``null_vector``.
+            left_null_vector: Left null vector w of a singular non-symmetric
+                A₀′; defaults to ``null_vector``.
 
         Returns:
-            A new `MaskedOperator` over ``base`` with the same masks, tags and
+            A new `MaskedOperator` over A₀′ with the same masks, tags and
             coupling indices.
+
+        Raises:
+            ValueError: As in the constructor.
+
+        Examples:
+            >>> import jax.numpy as jnp
+            >>> import lineax as lx
+            >>> import gaussx
+            >>> mask = jnp.array([True, False, True])
+            >>> A0 = lx.MatrixLinearOperator(jnp.eye(3))
+            >>> A = gaussx.MaskedOperator(A0, mask, mask)
+            >>> B = A.with_base(lx.MatrixLinearOperator(2.0 * jnp.eye(3)))
+            >>> B.as_matrix().tolist()
+            [[2.0, 0.0], [0.0, 2.0]]
         """
         if self.capacitance is None:
             return MaskedOperator(base, self.row_mask, self.col_mask, tags=self.tags)
@@ -195,10 +279,17 @@ class MaskedOperator(lx.AbstractLinearOperator):
         )
 
     def transpose(self) -> MaskedOperator:
-        # Built field by field rather than through ``__init__``, which needs
-        # concrete masks (so it can run under a trace, e.g. in lineax's solve
-        # VJP). ``(B[m][:, m])ᵀ = (Bᵀ)[m][:, m]``, and the capacitance of
-        # ``Bᵀ`` is the transposed factorisation of ``B``'s.
+        """Aᵀ = A₀ᵀ[m_c, m_r], still a `MaskedOperator`.
+
+        Built field by field rather than through ``__init__``, which needs
+        concrete masks, so it can run under a trace (lineax's solve VJP,
+        say). The capacitance of A₀ᵀ is the transposed factorisation of
+        A₀'s.
+
+        Returns:
+            The transposed operator, with swapped masks and transposed tags.
+        """
+        # (A₀[m_r, m_c])ᵀ = A₀ᵀ[m_c, m_r]
         return _replace_fields(
             self,
             base=self.base.T,
@@ -213,9 +304,11 @@ class MaskedOperator(lx.AbstractLinearOperator):
         )
 
     def in_structure(self) -> jax.ShapeDtypeStruct:
+        """Shape (N_c,) and dtype of the input vector."""
         return jax.ShapeDtypeStruct((self._in_size,), jnp.dtype(self._dtype))
 
     def out_structure(self) -> jax.ShapeDtypeStruct:
+        """Shape (N_r,) and dtype of the output vector."""
         return jax.ShapeDtypeStruct((self._out_size,), jnp.dtype(self._dtype))
 
 
@@ -227,7 +320,32 @@ def _build_capacitance(
     null_vector: Float[Array, " N"] | None,
     left_null_vector: Float[Array, " N"] | None,
 ) -> CapacitanceSolver:
-    """Capacitance solver on the full index space for a square mask."""
+    """Capacitance solver on the full index space for a square mask.
+
+    Algorithm:
+        1. Check that the masks are concrete and equal, m_r = m_c.
+        2. Without a given null vector, derive r and w from a concrete
+           diagonalised A₀, or keep its traced eigenvalues γ for a run-time
+           check.
+        3. Build the solver from x ↦ A₀⁻¹ x and the coupling indices.
+        4. For traced γ, guard the factorisation so any solve raises if some
+           γ_i = 0.
+
+    Args:
+        base: The square base operator A₀, N × N.
+        row_mask: Row mask m_r.
+        col_mask: Column mask m_c.
+        coupling_indices: Flat coupling indices b_1, …, b_N_b.
+        null_vector: Right null vector r of a singular A₀, or ``None``.
+        left_null_vector: Left null vector w of a singular A₀, or ``None``.
+
+    Returns:
+        The capacitance solver, without a stored base solve.
+
+    Raises:
+        ValueError: If the masks are traced or unequal, or a singular A₀'s
+            null vector cannot be derived.
+    """
     # lazy import, cycle: _primitives._solve -> _operators._masked
     from gaussx._primitives._solve import solve
 
@@ -271,7 +389,15 @@ def _build_capacitance(
 
 
 def _traced_eigenvalues(base: lx.AbstractLinearOperator) -> Array | None:
-    """A diagonalised base's eigenvalues when they are traced, else ``None``."""
+    """A diagonalised base's eigenvalues γ when they are traced, else ``None``.
+
+    Args:
+        base: The base operator A₀.
+
+    Returns:
+        The flat eigenvalues γ of A₀ = W⁻¹ diag(γ) W if A₀ is diagonalisable
+        and γ is a tracer, otherwise ``None``.
+    """
     diagonalised = as_diagonalized(base)
     if diagonalised is None:
         return None
@@ -284,20 +410,35 @@ def _derived_null_vectors(
 ) -> tuple[Float[Array, " N"] | None, Float[Array, " N"] | None]:
     """Null vectors of a singular diagonalised base, from its zero eigenvalue.
 
-    ``A r = 0`` iff ``V r`` is supported on the zero eigenvalues, so with a
-    single zero at coefficient ``k`` the right null vector is ``r = V⁻¹ e_k``.
-    For a normal transform and a real operator ``Aᵀ`` has the same
-    eigenvectors, so ``r`` is also the left null vector. Zero detection is
-    exact (``λ == 0``), matching the pseudo-inverse used by ``solve``.
+        A₀ r = 0,   r = W⁻¹ e_k,   γ_k = 0
+
+    With A₀ = W⁻¹ diag(γ) W, A₀ r = 0 iff W r is supported on the zero
+    eigenvalues, so with a single zero at coefficient k the right null
+    vector is r = W⁻¹ e_k. For a normal transform and a real operator, A₀ᵀ
+    has the same eigenvectors, so r is also the left null vector w. Zero
+    detection is exact (γ_k == 0), matching the pseudo-inverse used by
+    ``solve``.
+
+    Args:
+        base: The base operator A₀.
+
+    Returns:
+        Tuple ``(r, w)`` with w = r, or ``(None, None)`` when A₀ is not
+        diagonalisable, γ is traced, or A₀ is non-singular.
+
+    Raises:
+        ValueError: If A₀ has several zero eigenvalues, or its transform is
+            not normal or its output not real.
     """
     diagonalised = as_diagonalized(base)
     if diagonalised is None:
         return None, None
     try:
-        lam = np.asarray(diagonalised.eigenvalues_flat())
+        eigenvalues = np.asarray(diagonalised.eigenvalues_flat())
     except jax.errors.TracerArrayConversionError:
         return None, None
-    zeros = np.flatnonzero(lam == 0)
+    # {k : γ_k = 0}
+    zeros = np.flatnonzero(eigenvalues == 0)
     if zeros.size == 0:
         return None, None
     if zeros.size > 1 or not (diagonalised.normal and diagonalised.real_output):
@@ -307,9 +448,12 @@ def _derived_null_vectors(
             f"{diagonalised.normal}, real_output={diagonalised.real_output}); "
             "pass null_vector (and left_null_vector) explicitly."
         )
-    unit = jnp.zeros(lam.shape, dtype=lam.dtype).at[int(zeros[0])].set(1.0)
-    r = jnp.real(diagonalised.inverse_flat(unit))
-    return r, r
+    # e_k, the unit coefficient of the zero eigenvalue
+    unit = jnp.zeros(eigenvalues.shape, dtype=eigenvalues.dtype)
+    unit = unit.at[int(zeros[0])].set(1.0)
+    # r = Re(W⁻¹ e_k)
+    null_vector = jnp.real(diagonalised.inverse_flat(unit))
+    return null_vector, null_vector
 
 
 def grid_coupling_indices(
@@ -320,47 +464,91 @@ def grid_coupling_indices(
 ) -> Int[Array, " Nc"]:
     """Flat indices of masked-out grid cells adjacent to the masked-in region.
 
-    This is the coupling set ``C`` that `MaskedOperator` needs for a local
-    stencil operator on a regular grid: every cell outside ``mask`` that the
-    stencil of some cell inside ``mask`` reaches. With ``connectivity=1``
-    neighbours differ by ±1 along one axis (the 5-point / 7-point stencil);
-    ``connectivity=mask.ndim`` includes diagonals (9-point / 27-point).
+        {b_1, …, b_N_b} = {c ∉ m : c = c′ + δ for some c′ ∈ m, δ ∈ Δ}
+
+    Δ ⊂ {−1, 0, 1}^D are the stencil offsets that change between 1 and
+    ``connectivity`` of the D axes. The b_k are the coupling indices that
+    `MaskedOperator` needs for a local stencil operator on a regular grid:
+    every cell outside m that the stencil of some cell inside m reaches.
+    With ``connectivity=1`` neighbours differ by ±1 along one axis (the
+    5-point or 7-point stencil); ``connectivity=mask.ndim`` includes
+    diagonals (9-point or 27-point).
 
     Args:
-        mask: Boolean grid, ``True`` for the unknowns (masked-in cells).
+        mask: Boolean grid m, ``True`` for the unknowns (masked-in cells).
         periodic: Whether each axis wraps around (a bool applies to all
             axes). Must match the base operator: a periodic operator couples
             cells across the edge, so an edge-touching mask needs the wrapped
-            neighbours in ``C``.
+            neighbours among the b_k.
         connectivity: Maximum number of axes a neighbour offset may change.
 
     Returns:
-        Flat (row-major) indices of the coupled masked-out cells.
+        Flat (row-major) indices of the coupled masked-out cells, sorted.
+
+    Raises:
+        ValueError: If ``periodic`` has the wrong number of entries or
+            ``connectivity`` is outside [1, D].
+
+    Examples:
+        The ring around a 2 × 2 block in a 4 × 4 grid, with and without
+        diagonals:
+
+        >>> import numpy as np
+        >>> import gaussx
+        >>> mask = np.zeros((4, 4), dtype=bool)
+        >>> mask[1:3, 1:3] = True
+        >>> gaussx.grid_coupling_indices(mask).tolist()
+        [1, 2, 4, 7, 8, 11, 13, 14]
+        >>> gaussx.grid_coupling_indices(mask, connectivity=2).shape
+        (12,)
+
+        A periodic axis wraps around the edge:
+
+        >>> line = np.array([True, False, False, False])
+        >>> gaussx.grid_coupling_indices(line, periodic=True).tolist()
+        [1, 3]
     """
-    m = np.asarray(mask, dtype=bool)
-    ndim = m.ndim
+    grid_mask = np.asarray(mask, dtype=bool)
+    ndim = grid_mask.ndim
     wrap = (periodic,) * ndim if isinstance(periodic, bool) else tuple(periodic)
     if len(wrap) != ndim:
         raise ValueError(f"periodic has {len(wrap)} entries for a {ndim}-D mask.")
     if not 1 <= connectivity <= ndim:
         raise ValueError(f"connectivity must be in [1, {ndim}], got {connectivity}.")
-    reach = np.zeros_like(m)
+    reach = np.zeros_like(grid_mask)
     for offset in itertools.product((-1, 0, 1), repeat=ndim):
+        # δ ∈ Δ: a non-zero offset changing at most ``connectivity`` axes
         if 0 < np.count_nonzero(offset) <= connectivity:
-            reach |= _shift(m, offset, wrap)
-    return jnp.asarray(np.flatnonzero((reach & ~m).ravel()))
+            # cells c′ + δ reached from some c′ ∈ m
+            reach |= _shift(grid_mask, offset, wrap)
+    # b_1, …, b_N_b = reached cells outside m, as flat row-major indices
+    return jnp.asarray(np.flatnonzero((reach & ~grid_mask).ravel()))
 
 
 def _shift(
     m: np.ndarray, offset: tuple[int, ...], wrap: tuple[bool, ...]
 ) -> np.ndarray:
-    """``out[i] = m[i − offset]``, wrapping or zero-filling per axis."""
+    """Shift a boolean grid by an offset, wrapping or zero-filling per axis.
+
+        out[c] = m[c − δ]
+
+    Args:
+        m: Boolean grid.
+        offset: Offset δ, one step in {−1, 0, 1} per axis.
+        wrap: Whether each axis wraps around; a non-wrapping axis fills the
+            vacated edge with ``False``.
+
+    Returns:
+        The shifted grid, of the same shape.
+    """
     out = m
     for axis, (step, periodic) in enumerate(zip(offset, wrap, strict=True)):
         if step == 0:
             continue
+        # out[c] = m[c − δ] along this axis, wrapping
         out = np.roll(out, step, axis=axis)
         if not periodic:
+            # clear the cells that wrapped across a non-periodic edge
             edge = [slice(None)] * m.ndim
             edge[axis] = slice(0, step) if step > 0 else slice(step, None)
             out = out.copy()
