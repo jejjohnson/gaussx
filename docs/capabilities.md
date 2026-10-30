@@ -16,10 +16,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `solve` | function | Solve ``A x = b`` with structural dispatch. |
-| `logdet` | function | Compute log \|det(A)\| with structural dispatch. |
+| `solve` | function | Solve A x = b with structural dispatch on the operator type. |
+| `logdet` | function | Log-determinant log ∣det A∣ with structural dispatch on the operator type. |
 | `cholesky` | function | Compute Cholesky factor L such that A = L L^T. |
-| `cholesky_logdet` | function | Compute log\|A\| from Cholesky factor L where A = L Lᵀ. |
+| `cholesky_logdet` | function | Log-determinant log det A from a Cholesky factor L of A = L Lᵀ. |
 
 ### Pseudo-determinant
 
