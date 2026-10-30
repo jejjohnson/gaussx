@@ -27,10 +27,7 @@ MAX_FUNCTION_LINES = 150
 MAX_MODULE_LINES = 800
 
 # "<path relative to src/gaussx>::<function>": ceiling. Reasons:
-FUNCTION_ALLOWLIST = {
-    # 159 code lines with the square_root= dispatch (gh-454).
-    "_ssm/_parallel_kalman.py::parallel_kalman_filter": 159,
-}
+FUNCTION_ALLOWLIST: dict[str, int] = {}
 
 # "<path relative to src/gaussx>": ceiling.
 MODULE_ALLOWLIST = {

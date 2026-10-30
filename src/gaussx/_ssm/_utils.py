@@ -15,6 +15,7 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._deprecation import warn_deprecated
+from gaussx._einx import repeat
 from gaussx._linalg._linalg import sandwich
 from gaussx._operators._low_rank_update import LowRankUpdate
 
@@ -349,3 +350,36 @@ def _warn_unused_process_noise(function: str, process_noise: object) -> None:
             "recurrence never reads it (the filter's predicted covariances "
             "already include Q). Omit it; the argument will be removed in gaussx 0.7.0."
         )
+
+
+def _transition_stack(
+    transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
+    num_steps: int,
+) -> Float[Array, "T N N"]:
+    """Dense dynamics F_t stacked over time, as the smoothers consume them.
+
+    Args:
+        transition: Dynamics F_t, one for all steps or a stack over time,
+            as an array or a `lineax.AbstractLinearOperator`.
+        num_steps: Number of steps T.
+
+    Raises:
+        TypeError: If an operator-typed ``transition`` has a time axis.
+        ValueError: If ``transition`` is neither a matrix nor a stack.
+
+    Returns:
+        F_1:T, one dense matrix per step.
+    """
+    transition_dense = _materialise(transition)
+    transition_op = (
+        transition if isinstance(transition, lx.AbstractLinearOperator) else None
+    )
+    if transition_dense.ndim == 2:
+        return repeat(transition_dense, "row col -> t row col", t=num_steps)
+    if transition_dense.ndim == 3:
+        if transition_op is not None:
+            raise TypeError(
+                "Operator-typed transition cannot have a leading time axis."
+            )
+        return transition_dense
+    raise ValueError(f"transition must have ndim 2 or 3, got {transition_dense.ndim}.")
