@@ -1013,4 +1013,4 @@ added here, not inline in one caller.
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |
 | `gaussx._distributions._utils` | Shared helpers for batched distribution reshaping. | `_axis_names`, `_reshape_batch`, `_reshape_series`, `_reshape_samples`, `_unflatten_sample_axis` |
-| `gaussx._ssm._utils` | Shared internal helpers for SSM operators. | `_materialise`, `_matvec`, `_as_operator`, `_right_matmul_transpose`, `_left_matmul`, `_innovation_covariance`, `_masked_obs_inputs`, `_is_operator_input`, `_normalise_tv_inputs`, `_warn_unused_process_noise`, `_transition_stack`, `_smoother_element` |
+| `gaussx._ssm._utils` | Shared internal helpers for SSM operators. | `_materialise`, `_matvec`, `_as_operator`, `_right_matmul_transpose`, `_left_matmul`, `_innovation_covariance`, `_masked_obs_inputs`, `_is_operator_input`, `_normalise_tv_inputs`, `_warn_unused_process_noise`, `_transition_stack` |
