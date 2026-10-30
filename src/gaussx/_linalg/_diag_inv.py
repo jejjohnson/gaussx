@@ -41,116 +41,111 @@ def diag_inv(
     solver: AbstractSolveStrategy | None = None,
     pinv: bool = False,
 ) -> Float[Array, " N"]:
-    r"""Compute the diagonal of the inverse of a linear operator.
+    """Diagonal of the inverse, diag(A⁻¹), without forming A⁻¹.
 
-    Returns ``diag(A⁻¹)`` without forming the full inverse matrix — the
-    marginal variances of a Gaussian with precision ``A``.
+        diag(A⁻¹)_i = [A⁻¹]_ii
 
-    With ``method="auto"`` the operator's structure picks an exact path
-    first:
+    For a Gaussian with precision A these are the marginal variances.
 
-    - ``DiagonalLinearOperator``: ``1 / d``; `BlockDiag`: per block, each
-      dispatched in turn; a symmetric `LowRankUpdate`: the diagonal of its
-      Woodbury inverse, ``O(N k²)``; ``c · A``, ``A / c`` and ``-A``: the
-      structured path of ``A``, rescaled (gh-365).
+    With ``method="auto"`` the structure of A picks an exact path first:
+
+    - ``DiagonalLinearOperator`` D: 1 / D_ii. `BlockDiag`: block by block,
+      each dispatched in turn. A symmetric `LowRankUpdate`: the diagonal of
+      its Woodbury inverse, O(N k²). c A, A / c and −A: the structured path
+      of A, rescaled (gh-365).
     - `BlockTriDiag` (symmetric): the diagonal blocks of
-      `gaussx.selected_inverse`, ``O(N d³)``.
-    - `Kronecker` ``A ⊗ B``: ``diag_inv(A) ⊗ diag_inv(B)``, each factor
-      dispatched in turn.
-    - `KroneckerSum` ``A ⊕ B`` (and a `DiagonalizedOperator`, or a
-      `SpectralFunction` ``f(A ⊕ B)``, with ``M_ij = 1/f(λ^A_i + λ^B_j)``): with
-      ``A = U_A Λ_A U_Aᵀ``, ``B = U_B Λ_B U_Bᵀ``,
-      ``diag((A ⊕ B)⁻¹) = (U_A ∘ U_A) M (U_B ∘ U_B)ᵀ`` with
-      ``M_ij = 1/(λ^A_i + λ^B_j)`` — two small matrix products,
-      ``O(H²W + HW²)`` on an ``H × W`` grid. A factor that carries its own
-      eigenbasis keeps it; others are eigendecomposed individually.
-    - Shifted Kronecker products ``A ⊗ B + c·I`` (a `SumOfKroneckers` or the
+      `gaussx.selected_inverse`, O(N d³).
+    - `Kronecker` A ⊗ B: diag(A⁻¹) ⊗ diag(B⁻¹), each factor dispatched in
+      turn.
+    - `KroneckerSum` A ⊕ B (and a `DiagonalizedOperator`, or a
+      `SpectralFunction` f(A ⊕ B), with M_ij = 1 / f(γ^A_i + γ^B_j)): with
+      A = U_A diag(γ^A) U_Aᵀ and B = U_B diag(γ^B) U_Bᵀ,
+      diag((A ⊕ B)⁻¹) = (U_A ⊙ U_A) M (U_B ⊙ U_B)ᵀ with
+      M_ij = 1 / (γ^A_i + γ^B_j), two small matrix products, O(H² W + H W²)
+      on an H × W grid. A factor that carries its own eigenbasis keeps it;
+      the others are eigendecomposed one by one.
+    - A shifted Kronecker product A ⊗ B + c I (a `SumOfKroneckers` or the
       equivalent lineax sum): the same formula with
-      ``M_ij = 1/(λ^A_i λ^B_j + c)``.
+      M_ij = 1 / (γ^A_i γ^B_j + c).
     - `SparseOperator` with ``solver=SparseCholeskySolver(...)``: Takahashi's
       selected inverse through the sparse Cholesky factor, exact at
-      ``O(Σ_j |struct(L_{:,j})|²)``, at any size.
+      O(∑_j |struct(L_:,j)|²), at any size.
 
-    Anything else uses Cholesky for ``N ≤ 2048`` (the sparse factor for a
+    Anything else uses Cholesky for N ≤ 2048 (the sparse factor for a
     `SparseOperator`, dense otherwise) and Hutchinson above.
 
-    **XDiag** (``method="xdiag"``, Epperly, Tropp & Webber, 2024) is the
-    variance-reduced estimator for operators too large to factor (e.g. the
-    Laplace Hessian of a GMRF on a 10⁶-node mesh). For $B = A^{-1}$, probes
-    $\Omega = [\omega_1, \dots, \omega_k]$ (random signs; Gaussian when
-    $N$ is so small that $k$ sign vectors could be linearly dependent, see
-    below) and
-    $Q = \operatorname{orth}(B\Omega)$,
+    XDiag (``method="xdiag"``, Epperly, Tropp & Webber, 2024) is the
+    variance-reduced estimator for operators too large to factor (the
+    Laplace Hessian of a GMRF on a 10⁶-node mesh, say). For B = A⁻¹, probes
+    Ω = [ω_1, …, ω_k] (the letters of the paper) and Q = orth(B Ω),
 
-    $$
-    \operatorname{diag}(B) = \operatorname{diag}(QQ^\top B)
-    + \operatorname{diag}\big((I - QQ^\top)B\big),
-    $$
+        diag(B) = diag(Q Qᵀ B) + diag((I − Q Qᵀ) B)
 
-    the first term exact and the second estimated by Hutchinson,
-    $\operatorname{diag}(M) \approx \omega \odot M\omega$. XDiag uses every
-    probe for both terms: the $i$-th estimate builds $Q_{-i}$ from the
-    other $k - 1$ probes and applies Hutchinson with $\omega_i$, and the
-    result is the mean of the $k$ leave-one-out estimates. A GMRF covariance
-    has a few large-variance (smooth, large-scale) directions where plain
-    Hutchinson is noisy; the low-rank part captures exactly those. It costs
-    $2k$ solves ($B\Omega$ and $B^\top Q$), so compare it with Hutchinson
-    at ``num_probes = 2k``. With $2k \ge N$ it returns the exact diagonal
-    from $N$ solves instead.
-
-    ```text
-    Ω = signs(key, N × k)
-    Y = A⁻¹ Ω;  Q, R = qr(Y);  Z = A⁻ᵀ Q          # 2k solves
-    for i in 1..k:                                # in closed form, vectorised
-        dᵢ = diag(Q₋ᵢ Q₋ᵢᵀ B) + ωᵢ ⊙ (I − Q₋ᵢ Q₋ᵢᵀ) B ωᵢ
-    return mean(dᵢ)
-    ```
+    with the first term exact and the second estimated by Hutchinson,
+    diag(M) ≈ ω ⊙ M ω. XDiag uses every probe for both terms: the i-th
+    estimate builds Q_−i from the other k − 1 probes and applies Hutchinson
+    with ω_i, and the result is the mean of the k leave-one-out estimates.
+    A GMRF covariance has a few large-variance (smooth, large-scale)
+    directions where plain Hutchinson is noisy, and the low-rank part
+    captures exactly those. It costs 2k solves (B Ω and Bᵀ Q), so compare
+    it with Hutchinson at ``num_probes = 2k``. With 2k ≥ N it returns the
+    exact diagonal from N solves instead.
 
     It wraps matfree's ``stochtrace.leave_one_out_xdiag``, which reads a
-    rank-deficient $A^{-1}\Omega$ as a low-rank $A^{-1}$ and returns the
-    projected diagonal as exact. $k$ random-sign vectors in $N$ dimensions
-    are dependent with probability about $k^2 2^{-N}$ (two equal or opposite
-    columns), so signs, which estimate a diagonal with less variance, are
-    used only when that is below $2^{-60}$; smaller problems use Gaussian
-    probes, dependent with probability zero. The solves go
-    through ``solver`` (any solve strategy; for a precision matrix,
-    Jacobi-preconditioned CG, since the Nyström and RPCholesky
-    preconditioners are for covariance form). Prefer an exact path (the
-    structured ones above, or Takahashi via ``SparseCholeskySolver``)
-    whenever the operator factors; XDiag beats Hutchinson whenever
-    $A^{-1}$'s spectrum decays, and matches it when the spectrum is flat.
+    rank-deficient A⁻¹ Ω as a low-rank A⁻¹ and returns the projected
+    diagonal as exact. k random-sign vectors in N dimensions are dependent
+    with probability about k² 2⁻ᴺ (two equal or opposite columns), so
+    signs, which estimate a diagonal with less variance, are used only when
+    that is below 2⁻⁶⁰; smaller problems use Gaussian probes, dependent with
+    probability zero. The solves go through ``solver`` (any solve strategy;
+    for a precision matrix, Jacobi-preconditioned CG, since the Nyström and
+    RPCholesky preconditioners are for covariance form). Prefer an exact
+    path (the structured ones above, or Takahashi through
+    ``SparseCholeskySolver``) whenever the operator factors; XDiag beats
+    Hutchinson whenever the spectrum of A⁻¹ decays, and matches it when the
+    spectrum is flat.
+
+    Algorithm:
+        1. With ``method="auto"``, try the exact structured paths above;
+           otherwise pick Cholesky for N ≤ 2048 and Hutchinson above.
+        2. Cholesky: L Lᵀ = A, then diag(A⁻¹)_i = ∑_j [L⁻¹]_ji².
+        3. Solve: diag(A⁻¹)_i = e_iᵀ A⁻¹ e_i, one solve per basis vector.
+        4. Hutchinson: diag(A⁻¹) ≈ mean over probes of z ⊙ A⁻¹ z with
+           Rademacher z.
+        5. XDiag: Y = A⁻¹ Ω and Q R = Y (k solves), Z = A⁻ᵀ Q (k more), then
+           the mean over i of diag(Q_−i Q_−iᵀ B) + ω_i ⊙ (I − Q_−i Q_−iᵀ) B ω_i,
+           in closed form.
 
     Args:
-        operator: A linear operator representing A.
-        method: Algorithm to use. One of ``"cholesky"`` (exact via
-            dense Cholesky), ``"solve"`` (exact via repeated solves),
+        operator: The operator A.
+        method: Algorithm to use. One of ``"cholesky"`` (exact via dense
+            Cholesky), ``"solve"`` (exact via repeated solves),
             ``"hutchinson"`` (stochastic estimator), ``"xdiag"`` (the
             variance-reduced estimator above), or ``"auto"`` (the
             structured paths above; otherwise cholesky for N ≤ 2048,
-            hutchinson above). ``"cholesky"`` on a
-            `SparseOperator` is the sparse factor's Takahashi sweep.
-        num_probes: Number of Rademacher probe vectors for the
-            hutchinson and xdiag methods (xdiag: $1 \le k \le N$, and
-            $2k$ solves).
-        key: PRNG key for probe generation in the hutchinson and xdiag
-            methods. When ``None``, defaults to ``jax.random.PRNGKey(0)``.
+            hutchinson above). ``"cholesky"`` on a `SparseOperator` is the
+            sparse factor's Takahashi sweep.
+        num_probes: Number of probe vectors k for the hutchinson and xdiag
+            methods (xdiag: 1 ≤ k ≤ N, and 2k solves).
+        key: PRNG key for the probes of the hutchinson and xdiag methods.
+            When ``None``, defaults to ``jax.random.PRNGKey(0)``.
         solver: Optional solve strategy for the ``"solve"``,
             ``"hutchinson"`` and ``"xdiag"`` methods.
-        pinv: Return the diagonal of the pseudo-inverse instead: eigenvalues
-            below ``max(n_k) · eps · max|λ|`` contribute nothing. For
-            intrinsic (singular) precisions on grids, e.g. the exact ICAR /
-            BYM2 scaling constant on a raster. Only the eigenvalue-based
-            paths (Kronecker sums and products of such operators, shifted
-            Kronecker products, `DiagonalizedOperator`, `SpectralFunction`)
-            support it.
+        pinv: Return the diagonal of the pseudo-inverse A⁺ instead:
+            eigenvalues below max(n_k) · eps · max|γ| contribute nothing.
+            For intrinsic (singular) precisions on grids, such as the exact
+            ICAR / BYM2 scaling constant on a raster. Only the
+            eigenvalue-based paths (Kronecker sums and products of such
+            operators, shifted Kronecker products, `DiagonalizedOperator`,
+            `SpectralFunction`) support it.
 
     Returns:
-        1D array of shape ``(N,)`` with the diagonal entries of A⁻¹.
+        The diagonal of A⁻¹ (or of A⁺ with ``pinv=True``).
 
     Raises:
         ValueError: For an unknown ``method``, ``pinv=True`` on an
             operator without an eigenvalue-based path, or ``method="xdiag"``
-            with ``num_probes`` outside ``[1, N]``.
+            with ``num_probes`` outside [1, N].
 
     References:
         Epperly, E. N., Tropp, J. A. & Webber, R. J. (2024). XTrace: making
@@ -158,43 +153,45 @@ def diag_inv(
         Matrix Anal. Appl.*, 45(1), 1-23.
 
     Examples:
-        ```python
-        import jax.numpy as jnp
-        import lineax as lx
-        import gaussx
+        Prior variances of an intrinsic field on a 4 × 5 grid. The
+        Kronecker sum of two path-graph Laplacians is singular (the
+        constants), so take the pseudo-inverse:
 
-        # Prior sd of an intrinsic field on a 4 x 5 grid: L_H ⊕ L_W is
-        # singular (constants), so take the pseudo-inverse.
-        def path_laplacian(n):
-            off = -jnp.ones(n - 1)
-            L = jnp.diag(jnp.r_[1.0, 2.0 * jnp.ones(n - 2), 1.0])
-            L = L + jnp.diag(off, 1) + jnp.diag(off, -1)
-            return lx.MatrixLinearOperator(L, lx.symmetric_tag)
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> def path_laplacian(size):
+        ...     off_diagonal = -jnp.ones(size - 1)
+        ...     degrees = jnp.r_[1.0, 2.0 * jnp.ones(size - 2), 1.0]
+        ...     laplacian = jnp.diag(degrees) + jnp.diag(off_diagonal, 1)
+        ...     laplacian = laplacian + jnp.diag(off_diagonal, -1)
+        ...     return lx.MatrixLinearOperator(laplacian, lx.symmetric_tag)
+        >>> precision = gaussx.KroneckerSum(path_laplacian(4), path_laplacian(5))
+        >>> variances = gaussx.diag_inv(precision, pinv=True)
+        >>> dense = jnp.diag(jnp.linalg.pinv(precision.as_matrix()))
+        >>> bool(jnp.allclose(variances, dense, atol=1e-5))
+        True
 
-        Q = gaussx.KroneckerSum(path_laplacian(4), path_laplacian(5))
-        variances = gaussx.diag_inv(Q, pinv=True)
-        dense = jnp.diag(jnp.linalg.pinv(Q.as_matrix()))
-        assert jnp.allclose(variances, dense, atol=1e-5)
-        ```
+        XDiag with every probe it can take (k = N) is exact, through any
+        solve strategy:
 
-        Marginal sd of a precision too large to factor (e.g. a 2M-node
-        global mesh; ``H`` a `SparseOperator` tagged
-        ``lx.positive_semidefinite_tag``, which CG needs), with
-        Jacobi-preconditioned CG for the solves:
+        >>> import jax
+        >>> precision = lx.MatrixLinearOperator(
+        ...     jnp.array([[4.0, 1.0, 0.0], [1.0, 3.0, 1.0], [0.0, 1.0, 2.0]]),
+        ...     lx.positive_semidefinite_tag,
+        ... )
+        >>> estimate = gaussx.diag_inv(
+        ...     precision, method="xdiag", num_probes=3, key=jax.random.key(0)
+        ... )
+        >>> exact = jnp.diag(jnp.linalg.inv(precision.as_matrix()))
+        >>> bool(jnp.allclose(estimate, exact, atol=1e-4))
+        True
 
-        ```python
-        sd = jnp.sqrt(
-            gaussx.diag_inv(
-                H,
-                method="xdiag",
-                num_probes=64,
-                key=key,
-                solver=gaussx.PreconditionedCGSolver(
-                    preconditioner=gaussx.JacobiPreconditioner()
-                ),
-            )
-        )
-        ```
+        A diagonal operator takes its exact path:
+
+        >>> diagonal = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0]))
+        >>> gaussx.diag_inv(diagonal).tolist()
+        [0.5, 0.25]
     """
     n = operator.in_size()
 
@@ -243,7 +240,21 @@ def _diag_inv_structured(
     key: jax.Array | None,
     solver: AbstractSolveStrategy | None,
 ) -> Float[Array, " N"] | None:
-    """The exact structural path for ``operator``, or ``None`` if none applies."""
+    """The exact structured path for diag(A⁻¹), or ``None`` if none applies.
+
+    Also used by `gaussx.MultivariateNormalPrecision` for its marginal variances.
+
+    Args:
+        operator: The operator A.
+        pinv: Return the diagonal of A⁺ instead.
+        num_probes: Passed on to the recursive calls on blocks and factors.
+        key: Passed on to the recursive calls.
+        solver: Solve strategy; a `SparseCholeskySolver` enables the sparse
+            Takahashi path.
+
+    Returns:
+        diag(A⁻¹) (or diag(A⁺)), or ``None`` when no structured path applies.
+    """
     if isinstance(operator, lx.TaggedLinearOperator):
         return _diag_inv_structured(
             operator.operator,
@@ -264,12 +275,16 @@ def _diag_inv_structured(
         if inner is None:
             return None
         if isinstance(operator, lx.DivLinearOperator):
+            # diag((A / c)⁻¹) = c diag(A⁻¹)
             return inner * operator.scalar
         if pinv:
             # (0 · A)⁺ = 0, so a zero multiplier gives a zero diagonal.
             scalar = operator.scalar
             is_zero = scalar == 0
-            return jnp.where(is_zero, 0.0, inner / jnp.where(is_zero, 1.0, scalar))
+            safe_scalar = jnp.where(is_zero, 1.0, scalar)
+            # diag((c A)⁺) = diag(A⁺) / c, or 0 for c = 0
+            return jnp.where(is_zero, 0.0, inner / safe_scalar)
+        # diag((c A)⁻¹) = diag(A⁻¹) / c
         return inner / operator.scalar
     if isinstance(operator, lx.NegLinearOperator):
         inner = _diag_inv_structured(
@@ -279,12 +294,15 @@ def _diag_inv_structured(
             key=key,
             solver=solver,
         )
+        # diag((−A)⁻¹) = −diag(A⁻¹)
         return None if inner is None else -inner
     if isinstance(operator, lx.DiagonalLinearOperator):
+        # diag(D⁻¹)_i = 1 / D_ii
         return None if pinv else 1.0 / lx.diagonal(operator)
     if isinstance(operator, BlockDiag):
         if pinv or any(op.in_size() != op.out_size() for op in operator.operators):
             return None
+        # diag(A⁻¹) = [diag(A_1⁻¹); diag(A_2⁻¹); …], block by block
         return jnp.concatenate(
             [
                 diag_inv(op, num_probes=num_probes, key=key, solver=solver)
@@ -299,16 +317,20 @@ def _diag_inv_structured(
         # dense one keeps the general path.
         if pinv or not _invertible_diagonal_base(operator.base):
             return None
+        # (A₀ + U D Vᵀ)⁻¹ by Woodbury, still a low-rank update
         inverse = inv(operator)
         return None if isinstance(inverse, InverseOperator) else diag(inverse)
     if isinstance(operator, SparseOperator):
         if pinv or not isinstance(solver, SparseCholeskySolver):
             return None
+        # Takahashi through the sparse Cholesky factor
         return solver.diag_inv(operator)
     if isinstance(operator, BlockTriDiag):
         if pinv or not operator.symmetric:
             return None
+        # Σ_k,k, the diagonal blocks of Σ = A⁻¹
         blocks = selected_inverse(operator).diagonal
+        # diag(Σ_k,k), stacked over the blocks
         return rearrange(blocks, "N d d -> (N d)")
     if isinstance(operator, Kronecker):
         if any(op.in_size() != op.out_size() for op in operator.operators):
@@ -318,6 +340,7 @@ def _diag_inv_structured(
             factor_diag = diag_inv(
                 factor, pinv=pinv, num_probes=num_probes, key=key, solver=solver
             )
+            # diag((A ⊗ B)⁻¹) = diag(A⁻¹) ⊗ diag(B⁻¹)
             result = (
                 factor_diag
                 if result is None
@@ -325,15 +348,26 @@ def _diag_inv_structured(
             )
         return result
     if isinstance(operator, KroneckerSum | DiagonalizedOperator | SpectralFunction):
+        # (U_A ⊙ U_A) M (U_B ⊙ U_B)ᵀ, M_ij = 1 / f(γ^A_i + γ^B_j)
         factorization = factored_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     if isinstance(operator, SumOfKroneckers | lx.AddLinearOperator):
+        # (U_A ⊙ U_A) M (U_B ⊙ U_B)ᵀ, M_ij = 1 / (γ^A_i γ^B_j + c)
         factorization = _shifted_kronecker_eigen(operator)
         return None if factorization is None else factorization.diag_inv(pinv=pinv)
     return None
 
 
 def _invertible_diagonal_base(base: lx.AbstractLinearOperator) -> bool:
+    """Whether a low-rank base A₀ is an identity or a concrete nonzero diagonal.
+
+    Args:
+        base: The base A₀.
+
+    Returns:
+        ``True`` when A₀ is known to be cheap to invert; ``False`` for a
+        traced, singular or non-diagonal base.
+    """
     if isinstance(base, lx.IdentityLinearOperator):
         return base.in_size() == base.out_size()
     if not isinstance(base, lx.DiagonalLinearOperator):
@@ -348,24 +382,42 @@ def _invertible_diagonal_base(base: lx.AbstractLinearOperator) -> bool:
 def _sparse_factor(
     operator: SparseOperator, solver: AbstractSolveStrategy | None
 ) -> SparseCholeskyFactor:
-    """The sparse factor, with ``solver``'s ordering and backend if it has them."""
+    """The sparse Cholesky factor of A, with the ordering of ``solver`` if any.
+
+    Args:
+        operator: The sparse operator A.
+        solver: A `SparseCholeskySolver` whose ordering and backend to use;
+            anything else gets the default one.
+
+    Returns:
+        The sparse factor of A.
+    """
     if not isinstance(solver, SparseCholeskySolver):
         solver = SparseCholeskySolver()
     return solver.factor(operator)
 
 
 def _diag_inv_cholesky(operator: lx.AbstractLinearOperator) -> Float[Array, " N"]:
-    """Exact diagonal of A⁻¹ via Cholesky factorisation.
+    """Exact diagonal of A⁻¹ through a dense Cholesky factor.
 
-    Uses `safe_cholesky` for robustness on ill-conditioned
-    matrices, then computes L⁻¹ via triangular solve against the
-    identity and returns ``sum_j (L⁻¹)_{j,i}²`` for each column i.
+        diag(A⁻¹)_i = ∑_j [L⁻¹]_ji²,   A = L Lᵀ
+
+    Uses `safe_cholesky` for robustness on ill-conditioned matrices.
+
+    Args:
+        operator: The operator A.
+
+    Returns:
+        The diagonal of A⁻¹.
     """
-    L = safe_cholesky(operator)
-    n = L.shape[0]
-    I = jnp.eye(n, dtype=L.dtype)
-    L_inv = jax.scipy.linalg.solve_triangular(L, I, lower=True)
-    return reduce(L_inv**2, "M N -> N", "sum")
+    # A = L Lᵀ
+    factor = safe_cholesky(operator)
+    size = factor.shape[0]
+    identity = jnp.eye(size, dtype=factor.dtype)
+    # L⁻¹
+    factor_inverse = jax.scipy.linalg.solve_triangular(factor, identity, lower=True)
+    # diag(A⁻¹)_i = ∑_j [L⁻¹]_ji²
+    return reduce(factor_inverse**2, "M N -> N", "sum")
 
 
 def _diag_inv_solve(
@@ -373,16 +425,28 @@ def _diag_inv_solve(
     *,
     solver: AbstractSolveStrategy | None,
 ) -> Float[Array, " N"]:
-    """Exact diagonal of A⁻¹ via repeated solves against basis vectors."""
-    n = operator.in_size()
+    """Exact diagonal of A⁻¹ by one solve per basis vector.
+
+        diag(A⁻¹)_i = e_iᵀ A⁻¹ e_i
+
+    Args:
+        operator: The operator A.
+        solver: Solve strategy; ``None`` uses structural dispatch.
+
+    Returns:
+        The diagonal of A⁻¹.
+    """
+    size = operator.in_size()
     dtype = operator.out_structure().dtype
-    I = jnp.eye(n, dtype=dtype)
+    identity = jnp.eye(size, dtype=dtype)
 
-    def _single_basis(e_i: Float[Array, " N"]) -> Float[Array, ""]:
-        Ainv_ei = dispatch_solve(operator, e_i, solver)
-        return jnp.sum(e_i * Ainv_ei)
+    def _single_basis(basis_vector: Float[Array, " N"]) -> Float[Array, ""]:
+        # A⁻¹ e_i
+        solved = dispatch_solve(operator, basis_vector, solver)
+        # e_iᵀ A⁻¹ e_i
+        return jnp.sum(basis_vector * solved)
 
-    return jax.vmap(_single_basis)(I)
+    return jax.vmap(_single_basis)(identity)
 
 
 def _diag_inv_hutchinson(
@@ -392,28 +456,49 @@ def _diag_inv_hutchinson(
     key: jax.Array | None,
     solver: AbstractSolveStrategy | None,
 ) -> Float[Array, " N"]:
-    """Stochastic diagonal estimator via Hutchinson's trick.
+    """Hutchinson estimate of diag(A⁻¹) from Rademacher probes.
 
-    Generates Rademacher probe vectors z, solves A⁻¹ z, and
-    estimates ``diag(A⁻¹) ≈ mean(z ⊙ A⁻¹z)`` over probes.
+        diag(A⁻¹) ≈ (1 / k) ∑_e z⁽ᵉ⁾ ⊙ A⁻¹ z⁽ᵉ⁾,   z⁽ᵉ⁾ ∈ {−1, 1}ᴺ
+
+    Args:
+        operator: The operator A.
+        num_probes: Number of probes k.
+        key: PRNG key for the probes; ``None`` uses
+            ``jax.random.PRNGKey(0)``.
+        solver: Solve strategy; ``None`` uses structural dispatch.
+
+    Returns:
+        The estimated diagonal of A⁻¹.
     """
     if key is None:
         key = jax.random.PRNGKey(0)
 
-    n = operator.in_size()
+    size = operator.in_size()
     dtype = operator.out_structure().dtype
-    keys = jax.random.split(key, num_probes)
+    probe_keys = jax.random.split(key, num_probes)
 
-    def _single_probe(k: jax.Array) -> Float[Array, " N"]:
-        z = 2.0 * jax.random.bernoulli(k, shape=(n,)).astype(dtype) - 1.0
-        Ainv_z = dispatch_solve(operator, z, solver)
-        return z * Ainv_z
+    def _single_probe(probe_key: jax.Array) -> Float[Array, " N"]:
+        # z⁽ᵉ⁾ ∈ {−1, 1}ᴺ
+        probe = 2.0 * jax.random.bernoulli(probe_key, shape=(size,)).astype(dtype) - 1.0
+        # A⁻¹ z⁽ᵉ⁾
+        solved = dispatch_solve(operator, probe, solver)
+        # z⁽ᵉ⁾ ⊙ A⁻¹ z⁽ᵉ⁾
+        return probe * solved
 
-    samples = jax.vmap(_single_probe)(keys)
-    return jnp.mean(samples, axis=0)
+    samples = jax.vmap(_single_probe)(probe_keys)
+    # (1 / k) ∑_e z⁽ᵉ⁾ ⊙ A⁻¹ z⁽ᵉ⁾
+    return reduce(samples, "member row -> row", "mean")
 
 
 def _is_symmetric(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether lineax knows A is symmetric; ``False`` when it cannot tell.
+
+    Args:
+        operator: The operator A.
+
+    Returns:
+        ``True`` when A is known to be symmetric.
+    """
     try:
         return lx.is_symmetric(operator)
     except NotImplementedError:
@@ -427,7 +512,21 @@ def _diag_inv_xdiag(
     key: jax.Array | None,
     solver: AbstractSolveStrategy | None,
 ) -> Float[Array, " N"]:
-    """XDiag estimate of diag(A⁻¹) (Epperly, Tropp & Webber, 2024), via matfree."""
+    """XDiag estimate of diag(A⁻¹) (Epperly, Tropp & Webber, 2024), via matfree.
+
+    Args:
+        operator: The operator A.
+        num_probes: Number of probes k, 1 ≤ k ≤ N.
+        key: PRNG key for the probes; ``None`` uses
+            ``jax.random.PRNGKey(0)``.
+        solver: Solve strategy; ``None`` uses structural dispatch.
+
+    Returns:
+        The estimated diagonal of A⁻¹.
+
+    Raises:
+        ValueError: If ``num_probes`` is outside [1, N].
+    """
     n = operator.in_size()
     if not 1 <= num_probes <= n:
         msg = (
@@ -440,6 +539,7 @@ def _diag_inv_xdiag(
     symmetric = _is_symmetric(operator)
 
     def transpose_solve(_: object, b: Float[Array, " N"]) -> Float[Array, " N"]:
+        # A⁻ᵀ b
         return dispatch_solve(operator.T, b, solver)
 
     def apply_inverse(v: Float[Array, " N"]) -> Float[Array, " N"]:
@@ -447,6 +547,7 @@ def _diag_inv_xdiag(
         # linear solve transposes by solving again (with A when symmetric,
         # Aᵀ otherwise) instead of transposing the solver's internals, so
         # any solve strategy works, including non-lineax loops.
+        # A⁻¹ v
         return jax.lax.custom_linear_solve(
             operator.mv,
             v,
@@ -474,8 +575,17 @@ def _xdiag_sampler(template: Float[Array, " N"], num_probes: int):
     matfree's XDiag treats a rank-deficient probe image as a low-rank
     operator and returns the projected diagonal as exact, so dependent
     probes would bias the estimate (gh-485 review).
+
+    Args:
+        template: A vector with the size N and dtype of the probes.
+        num_probes: Number of probes k.
+
+    Returns:
+        A matfree sampler of k sign probes when k² 2⁻ᴺ ≤ 2⁻⁶⁰, else of k
+        Gaussian probes.
     """
     n = template.shape[0]
+    # log₂(k² 2⁻ᴺ) = 2 log₂ k − N
     if 2 * math.log2(max(num_probes, 1)) - n <= _SIGN_DEPENDENCE_LOG2:
         return matfree.stochtrace.sampler_signs(template, num=num_probes)
     return matfree.stochtrace.sampler_normal(template, num=num_probes)

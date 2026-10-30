@@ -288,51 +288,51 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `safe_cholesky` | function | Cholesky decomposition with adaptive jitter for near-singular matrices. |
-| `symmetrize` | function | Symmetrize the trailing two axes: ``0.5 * (X + X^T)``. |
+| `safe_cholesky` | function | Cholesky factor with adaptive diagonal jitter for near-singular matrices. |
+| `symmetrize` | function | Symmetric part of the trailing two axes, removing round-off asymmetry. |
 
 ### Matrix identities
 
 | Name | Kind | What it does |
 |---|---|---|
-| `woodbury_solve` | function | Standalone Woodbury identity solve: ``(L + U diag(D) U^T)^{-1} b``. |
-| `schur_complement` | function | Schur complement: ``K_XX - K_XZ @ K_ZZ^{-1} @ K_ZX``. |
-| `conditional_variance` | function | Predictive variance: Schur complement diagonal plus optional variational correction. |
-| `diag_conditional_variance` | function | Diagonal of Schur complement: ``diag(K_XX - A K_ZX)``. |
-| `cov_transform` | function | Covariance propagation through a linear map: ``J @ Sigma @ J^T``. |
-| `sandwich` | function | Return ``A @ P @ A.T`` exploiting compatible operator structure. |
-| `trace_product` | function | Trace of a matrix product: ``tr(A @ B)`` with structural dispatch. |
+| `woodbury_solve` | function | Solve (A + U D Uᵀ) x = b by the Woodbury identity, without the operator. |
+| `schur_complement` | function | Schur complement K_XX − K_XZ K_ZZ⁻¹ K_ZX, kept as a low-rank update. |
+| `conditional_variance` | function | Predictive variance: the Schur-complement diagonal plus a variational term. |
+| `diag_conditional_variance` | function | Diagonal of the Schur complement, max([K_XX]_nn − [A_X K_ZX]_nn, 0). |
+| `cov_transform` | function | Covariance propagation through a linear map, J Σ Jᵀ. |
+| `sandwich` | function | The sandwich A Σ Aᵀ of two operators, keeping compatible structure. |
+| `trace_product` | function | Trace of a product of two operators, tr(A B), with structural dispatch. |
 
 ### Marginal variances & selected inverses
 
 | Name | Kind | What it does |
 |---|---|---|
-| `diag_inv` | function | Compute the diagonal of the inverse of a linear operator. |
-| `selected_inverse` | function | The band of ``Σ = Q⁻¹`` for a symmetric positive-definite `BlockTriDiag`. |
+| `diag_inv` | function | Diagonal of the inverse, diag(A⁻¹), without forming A⁻¹. |
+| `selected_inverse` | function | The band of Σ = Λ⁻¹ for a symmetric positive-definite `BlockTriDiag`. |
 
 ### Matrix-RHS & batched solves
 
 | Name | Kind | What it does |
 |---|---|---|
-| `solve_matrix` | function | Solve ``A X = B`` with a single factorization on the matrix RHS. |
-| `solve_columns` | function | Solve A X = B column-by-column via vmap. |
-| `solve_rows` | function | Solve A x = bᵢ for each row bᵢ of a matrix via vmap. |
-| `tridiagonal_solve` | function | Solve a tridiagonal system ``A x = d``. |
-| `tridiagonal_solve_batched` | function | Solve independent tridiagonal systems over leading batch dimensions. |
+| `solve_matrix` | function | Solve A X = B with one factorisation for the whole matrix right-hand side. |
+| `solve_columns` | function | Solve A X = B column by column, with structured dispatch per column. |
+| `solve_rows` | function | Solve A xᵢ = bᵢ for each row bᵢ of a matrix B, with one solve per row. |
+| `tridiagonal_solve` | function | Solve a tridiagonal system A x = b from its three bands. |
+| `tridiagonal_solve_batched` | function | Solve independent tridiagonal systems over leading batch axes. |
 
 ### Matrix diagonalization & shifted Kronecker-sum solves
 
 | Name | Kind | What it does |
 |---|---|---|
-| `EigenDecomposition` | class | Precomputed eigendecomposition ``A = V diag(λ) V⁻¹`` of a square matrix. |
-| `kronecker_sum_solve` | function | Solve a shifted Kronecker-sum system in tensor (unvectorized) form. |
+| `EigenDecomposition` | class | Precomputed eigendecomposition A = V diag(γ) V⁻¹ of a square matrix. |
+| `kronecker_sum_solve` | function | Solve a shifted Kronecker-sum system in tensor (unvectorised) form. |
 
 ### Stable distances & Lyapunov
 
 | Name | Kind | What it does |
 |---|---|---|
-| `stable_squared_distances` | function | Squared Euclidean distances with mixed-precision stability. |
-| `discrete_lyapunov_solve` | function | Solve the discrete Lyapunov equation ``P - G P G^T = Q``. |
+| `stable_squared_distances` | function | Squared Euclidean distances between two point sets, centred and widened. |
+| `discrete_lyapunov_solve` | function | Solve the discrete Lyapunov equation X − A X Aᵀ = B by diagonalising A. |
 
 ## [Sketching](api/sketching.md)
 

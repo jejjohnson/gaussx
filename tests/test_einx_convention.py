@@ -24,9 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 CEILINGS = {
     "src/gaussx": {
         "method .reshape/.ravel": 32,
-        "axis= keyword": 65,
-        "None-index broadcast": 108,
-        "jnp.swapaxes/expand_dims": 15,
+        "axis= keyword": 61,
+        "None-index broadcast": 100,
+        "jnp.swapaxes/expand_dims": 13,
     },
     "tests": {
         "method .reshape/.ravel": 56,
