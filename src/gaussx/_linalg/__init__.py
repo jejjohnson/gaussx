@@ -1,4 +1,12 @@
-"""GaussX linear-algebra helpers -- compound ops built on primitives."""
+"""Layer-0 linear algebra built on the primitives: compound solves and products.
+
+Woodbury, Schur-complement, tridiagonal, Lyapunov and Kronecker-sum solves,
+covariance sandwiches, traces of products, the (selected) diagonal of an
+inverse and a jittered Cholesky. The functions are generic: A and B are
+square operators, L a lower Cholesky factor, D a diagonal, I the identity,
+U and V low-rank factors, and Σ a covariance; each module says which letters
+it uses.
+"""
 
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._linalg._eigen_factorization import (

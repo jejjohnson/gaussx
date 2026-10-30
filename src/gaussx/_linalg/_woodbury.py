@@ -1,4 +1,8 @@
-"""Standalone Woodbury identity solve."""
+"""Woodbury solve of a low-rank update (A + U D Uᵀ) x = b from its parts.
+
+A is the N × N base operator, U the N × k low-rank factor, D = diag(d) the
+k × k diagonal scaling and C = D⁻¹ + Uᵀ A⁻¹ U the k × k capacitance matrix.
+"""
 
 from __future__ import annotations
 
@@ -15,27 +19,39 @@ def woodbury_solve(
     D: Float[Array, " k"],
     b: Float[Array, " N"],
 ) -> Float[Array, " N"]:
-    """Standalone Woodbury identity solve: ``(L + U diag(D) U^T)^{-1} b``.
+    """Solve (A + U D Uᵀ) x = b by the Woodbury identity, without the operator.
 
-    Convenience function for cases where the user has the components
-    but doesn't want to construct a ``LowRankUpdate`` operator.
+        (A + U D Uᵀ)⁻¹ b = A⁻¹ b − A⁻¹ U C⁻¹ Uᵀ A⁻¹ b,   C = D⁻¹ + Uᵀ A⁻¹ U
 
-    Uses the identity:
-
-        (L + U D U^T)^{-1} b = L^{-1}b - L^{-1}U C^{-1} U^T L^{-1}b
-
-    where ``C = D^{-1} + U^T L^{-1} U`` is the ``(k, k)`` capacitance
-    matrix.
+    A convenience for callers who hold the parts but not a
+    `gaussx.LowRankUpdate`; it builds one and hands it to `gaussx.solve`,
+    whose structured rule applies the identity.
 
     Args:
-        base: Base operator L, shape ``(N, N)``.
-        U: Low-rank factor, shape ``(N, k)``.
-        D: Diagonal scaling, shape ``(k,)``.
-        b: Right-hand side, shape ``(N,)``.
+        base: Base operator A, N × N.
+        U: Low-rank factor U, N × k.
+        D: Diagonal d of the k × k scaling D = diag(d).
+        b: Right-hand side b.
 
     Returns:
-        Solution x, shape ``(N,)``.
-    """
+        The solution x = (A + U D Uᵀ)⁻¹ b.
 
-    op = LowRankUpdate(base, U, D)
-    return solve(op, b)
+    Examples:
+        A diagonal base with a rank-one update matches the dense solve:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> base = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0]))
+        >>> U = jnp.array([[1.0], [0.5], [0.0]])
+        >>> D = jnp.array([2.0])
+        >>> b = jnp.array([1.0, 0.0, 1.0])
+        >>> x = gaussx.woodbury_solve(base, U, D, b)
+        >>> dense = jnp.diag(jnp.array([1.0, 2.0, 3.0])) + 2.0 * jnp.outer(U, U)
+        >>> bool(jnp.allclose(x, jnp.linalg.solve(dense, b), atol=1e-5))
+        True
+    """
+    # A + U D Uᵀ, as a structured operator
+    low_rank_update = LowRankUpdate(base, U, D)
+    # x = (A + U D Uᵀ)⁻¹ b, through the Woodbury rule of `solve`
+    return solve(low_rank_update, b)
