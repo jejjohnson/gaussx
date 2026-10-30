@@ -52,6 +52,29 @@ class FilterState(eqx.Module):
     log_likelihood: Float[Array, ""]
 
 
+def _empty_filter_state(
+    init_mean: Float[Array, " N"],
+    init_cov: Float[Array, "N N"],
+) -> FilterState:
+    """Zero-length `FilterState` for T = 0, as `kalman_filter`'s empty scan.
+
+    Args:
+        init_mean: Prior mean μ_x,0, which sets D_x and the dtype.
+        init_cov: Prior covariance Σ_x,0.
+
+    Returns:
+        A `FilterState` with no steps and ``log_likelihood == 0``.
+    """
+    state_size = init_mean.shape[0]
+    return FilterState(
+        filtered_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
+        filtered_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
+        predicted_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
+        predicted_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
+        log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
+    )
+
+
 def _kalman_predict(
     filtered_mean: Float[Array, " N"],
     filtered_covariance: Float[Array, "N N"],

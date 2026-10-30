@@ -50,12 +50,19 @@ from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, rearrange, reduce, repeat
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._logdet import cholesky_logdet
-from gaussx._ssm._kalman import FilterState, _kalman_predict, kalman_filter
+from gaussx._ssm._kalman import (
+    FilterState,
+    _empty_filter_state,
+    _kalman_predict,
+    kalman_filter,
+)
 from gaussx._ssm._parallel_kalman_factor import parallel_kalman_filter_factor
 from gaussx._ssm._utils import (
+    SmootherElement,
     _masked_obs_inputs,
-    _materialise,
     _normalise_tv_inputs,
+    _smoother_element,
+    _transition_stack,
     _warn_unused_process_noise,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
@@ -67,9 +74,6 @@ FilterElement = tuple[
     Float[Array, "*T N N"],
     Float[Array, "*T N"],
     Float[Array, "*T N N"],
-]
-SmootherElement = tuple[
-    Float[Array, "*T N N"], Float[Array, "*T N"], Float[Array, "*T N N"]
 ]
 
 
@@ -577,29 +581,6 @@ def _smoother_combine(
 # ----------------------------------------------------------------
 
 
-def _empty_filter_state(
-    init_mean: Float[Array, " N"],
-    init_cov: Float[Array, "N N"],
-) -> FilterState:
-    """Zero-length `FilterState` for T = 0, as `kalman_filter`'s empty scan.
-
-    Args:
-        init_mean: Prior mean μ_x,0, which sets D_x and the dtype.
-        init_cov: Prior covariance Σ_x,0.
-
-    Returns:
-        A `FilterState` with no steps and ``log_likelihood == 0``.
-    """
-    state_size = init_mean.shape[0]
-    return FilterState(
-        filtered_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
-        filtered_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
-        predicted_means=jnp.zeros((0, state_size), dtype=init_mean.dtype),
-        predicted_covs=jnp.zeros((0, state_size, state_size), dtype=init_cov.dtype),
-        log_likelihood=jnp.zeros((), dtype=init_mean.dtype),
-    )
-
-
 def _predicted_moments(
     filtered_means: Float[Array, "T N"],
     filtered_covs: Float[Array, "T N N"],
@@ -706,96 +687,6 @@ def _log_likelihood_step(
         -0.5 * (mahalanobis + logdet + obs_size * _LOG_2PI) + 0.5 * n_missing * _LOG_2PI
     )
     return jnp.where(active, log_likelihood_step, jnp.zeros_like(log_likelihood_step))
-
-
-# ----------------------------------------------------------------
-# Smoother elements
-# ----------------------------------------------------------------
-
-
-def _transition_stack(
-    transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    num_steps: int,
-) -> Float[Array, "T N N"]:
-    """Dense dynamics F_t stacked over time, as the smoothers consume them.
-
-    Args:
-        transition: Dynamics F_t, one for all steps or a stack over time,
-            as an array or a `lineax.AbstractLinearOperator`.
-        num_steps: Number of steps T.
-
-    Raises:
-        TypeError: If an operator-typed ``transition`` has a time axis.
-        ValueError: If ``transition`` is neither a matrix nor a stack.
-
-    Returns:
-        F_1:T, one dense matrix per step.
-    """
-    transition_dense = _materialise(transition)
-    transition_op = (
-        transition if isinstance(transition, lx.AbstractLinearOperator) else None
-    )
-    if transition_dense.ndim == 2:
-        return repeat(transition_dense, "row col -> t row col", t=num_steps)
-    if transition_dense.ndim == 3:
-        if transition_op is not None:
-            raise TypeError(
-                "Operator-typed transition cannot have a leading time axis."
-            )
-        return transition_dense
-    raise ValueError(f"transition must have ndim 2 or 3, got {transition_dense.ndim}.")
-
-
-def _smoother_element(
-    filtered_mean: Float[Array, " N"],
-    filtered_covariance: Float[Array, "N N"],
-    predicted_mean_next: Float[Array, " N"],
-    predicted_covariance_next: Float[Array, "N N"],
-    transition_next: Float[Array, "N N"],
-) -> SmootherElement:
-    """Smoothing element of step t < T: the backward conditional of x_t.
-
-        G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹
-        μ_back,t = μ_x,t|t − G_smooth,t μ_x,t+1|t
-        Σ_back,t = Σ_x,t|t − G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
-
-    Args:
-        filtered_mean: Filtered mean μ_x,t|t.
-        filtered_covariance: Filtered covariance Σ_x,t|t.
-        predicted_mean_next: Predicted mean μ_x,t+1|t.
-        predicted_covariance_next: Predicted covariance Σ_x,t+1|t.
-        transition_next: Dynamics F_t+1.
-
-    Returns:
-        The element ``(G_smooth, μ_back, Σ_back)`` of step t.
-    """
-    # Σ_x,t|t F_t+1ᵀ
-    cross_covariance = einsum(
-        filtered_covariance, transition_next, "state col, next col -> state next"
-    )
-    # F_t+1 Σ_x,t|t
-    cross_covariance_transpose = rearrange(cross_covariance, "state next -> next state")
-    # G_smooth,tᵀ = Σ_x,t+1|t⁻¹ F_t+1 Σ_x,t|t, using the symmetry of Σ_x,t+1|t
-    smoother_gain_transpose = jnp.linalg.solve(
-        predicted_covariance_next, cross_covariance_transpose
-    )
-    # G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹
-    smoother_gain = rearrange(smoother_gain_transpose, "next state -> state next")
-    # G_smooth,t μ_x,t+1|t
-    predicted_shift = smoother_gain @ predicted_mean_next
-    # μ_back,t = μ_x,t|t − G_smooth,t μ_x,t+1|t
-    back_mean = filtered_mean - predicted_shift
-    # G_smooth,t Σ_x,t+1|t
-    gain_covariance = einsum(
-        smoother_gain, predicted_covariance_next, "state next, next col -> state col"
-    )
-    # G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
-    correction = einsum(
-        gain_covariance, smoother_gain, "state col, other col -> state other"
-    )
-    # Σ_back,t = Σ_x,t|t − G_smooth,t Σ_x,t+1|t G_smooth,tᵀ
-    back_covariance = symmetrize(filtered_covariance - correction)
-    return smoother_gain, back_mean, back_covariance
 
 
 # ----------------------------------------------------------------
