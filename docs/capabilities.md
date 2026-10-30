@@ -40,9 +40,9 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `inv` | function | Return a lazy inverse operator A^{-1}. |
-| `sqrt` | function | Compute matrix square root S such that S @ S = A. |
-| `eig` | function | Compute eigenvalues and eigenvectors. |
-| `eigvals` | function | Compute eigenvalues only. |
+| `sqrt` | function | Principal matrix square root A^½ with structural dispatch, lazy where possible. |
+| `eig` | function | Eigenvalues and eigenvectors of A, with structural dispatch. |
+| `eigvals` | function | Eigenvalues of A only, with structural dispatch. |
 | `svd` | function | Compute the singular value decomposition ``A = U diag(s) V^T``. |
 | `frobenius_norm` | function | Compute the Frobenius norm ``\|\|A\|\|_F`` with structural dispatch. |
 | `submatrix` | function | Extract ``A[row_idx, col_idx]`` without forming the full matrix. |
@@ -51,15 +51,15 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `eigh_generalized` | function | Solve $A v = \lambda B v$ for symmetric $A$ and symmetric PSD $B$. |
+| `eigh_generalized` | function | Generalised eigenproblem A v = γ B v, A symmetric and B symmetric PSD. |
 
 ### Matrix-free square-root products
 
 | Name | Kind | What it does |
 |---|---|---|
-| `sqrt_matmul` | function | Compute $A^{1/2} b$ via contour-integral quadrature. |
-| `sqrt_inv_matmul` | function | Compute $A^{-1/2} b$ via contour-integral quadrature. |
-| `estimate_spectral_bounds` | function | Estimate $(\lambda_{\min}, \lambda_{\max})$ of a symmetric operator. |
+| `sqrt_matmul` | function | Square root times a matrix, A^½ B, by contour quadrature. |
+| `sqrt_inv_matmul` | function | Inverse square root times a matrix, A^−½ B, by contour quadrature. |
+| `estimate_spectral_bounds` | function | Estimate the extreme eigenvalues (γ_min, γ_max) of a symmetric operator. |
 
 ### Joint inverse-quadratic and log-determinant
 
@@ -71,9 +71,9 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `root_decomposition` | function | Compute a tall factor ``R`` such that ``R Rᵀ ≈ A``. |
-| `root_inv_decomposition` | function | Compute a tall factor ``R⁻`` such that ``R⁻ (R⁻)ᵀ ≈ A⁻¹``. |
-| `RootDecomposition` | class | Tall factor ``R`` with ``R Rᵀ ≈ A`` semantics. |
+| `root_decomposition` | function | Root decomposition of an SPD operator: a tall factor R with A ≈ R Rᵀ. |
+| `root_inv_decomposition` | function | Inverse-root decomposition: a tall factor R⁻ with A⁻¹ ≈ R⁻ (R⁻)ᵀ. |
+| `RootDecomposition` | class | Tall factor R of a root decomposition, A ≈ R Rᵀ. |
 
 ### Quantiles
 
@@ -100,7 +100,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `KroneckerSum` | class | Kronecker sum ``A \oplus B = A \otimes I_b + I_a \otimes B``. |
 | `KroneckerSumSqrt` | class | Symmetric square root of ``A \oplus B`` via per-factor eigenvectors. |
 | `SumOfKroneckers` | class | Sum of Kronecker products ``Σ_k A_k \otimes B_k``. |
-| `SumOfKroneckersSqrt` | class | Lazy Lanczos square-root operator for ``SumOfKroneckers`` covariances. |
+| `SumOfKroneckersSqrt` | class | Lazy Lanczos square root A^½ of a `SumOfKroneckers` covariance. |
 
 ### Low-rank updates
 
