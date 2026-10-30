@@ -1,4 +1,12 @@
-"""GaussX state-space models -- Kalman family, SpInGP, CVI sites, SDE kernels."""
+"""State-space recipes for linear-Gaussian and Gauss-Markov models.
+
+Kalman filters and RTS smoothers (sequential, parallel, square-root,
+infinite-horizon, mean-field and nonlinear), SDE kernels and their exact
+discretisation, SpInGP, the UDL factorisation of a chain precision, and
+the natural-parameter, site and variational tools: CVI and EP sites, the
+natural and expectation parameters of a chain, and the Gaussian-path
+linearisation of a nonlinear SDE.
+"""
 
 from gaussx._ssm._autocovariance import sde_autocovariance
 from gaussx._ssm._composition import ProductSDE, QuasiPeriodicSDE, SumSDE
