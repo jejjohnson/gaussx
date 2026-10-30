@@ -618,19 +618,19 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `SDEKernel` | class | Abstract base class for state-space kernel representations. |
-| `SDEParams` | class | Continuous-time SDE parameters for a linear SDE. |
+| `SDEKernel` | class | Abstract state-space form of a kernel k(τ): a linear SDE. |
+| `SDEParams` | class | Continuous-time matrices (F_c, L_c, H, Q_c, Σ_x,∞) of a linear SDE. |
 | `ConstantSDE` | class | State-space form of the constant kernel k(τ) = σ_k². |
-| `MaternSDE` | class | State-space representation of the Matern kernel. |
-| `PeriodicSDE` | class | State-space representation of the periodic (MacKay) kernel. |
-| `QuasiPeriodicSDE` | class | Quasi-periodic kernel: product of Matern and Periodic SDE. |
-| `CosineSDE` | class | State-space representation of the cosine kernel. |
-| `IntegratedWienerSDE` | class | State-space representation of an integrated Wiener process. |
-| `ProductSDE` | class | Product of two SDE kernels via Kronecker composition. |
-| `SumSDE` | class | Sum of SDE kernels via block-diagonal composition. |
-| `sde_autocovariance` | function | Compute the stationary autocovariance of an SDE kernel. |
+| `MaternSDE` | class | State-space form of the Matérn kernel of order p, smoothness p + ½. |
+| `PeriodicSDE` | class | State-space form of the periodic (MacKay) kernel, as J + 1 harmonics. |
+| `QuasiPeriodicSDE` | class | Quasi-periodic kernel: a Matérn factor times a periodic factor. |
+| `CosineSDE` | class | State-space form of the cosine kernel k(τ) = σ_k² cos(ω₀ τ). |
+| `IntegratedWienerSDE` | class | State-space form of the p-times integrated Wiener process. |
+| `ProductSDE` | class | Product of two SDE kernels, by Kronecker composition. |
+| `SumSDE` | class | Sum of independent SDE kernels, stacked block-diagonally. |
+| `sde_autocovariance` | function | Stationary autocovariance k(τ) of an SDE kernel at each lag τ. |
 | `discretize_mfd` | function | Discretise a linear SDE by matrix-fraction decomposition. |
-| `discretize_mfd_sequence` | function | Vectorised `gaussx.discretize_mfd` over a vector of time steps. |
+| `discretize_mfd_sequence` | function | Vectorised `gaussx.discretize_mfd` over a stack of steps Δt_1:T. |
 
 ### Nonlinear filters
 
@@ -666,8 +666,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `spingp_log_likelihood` | function | Log marginal likelihood via sparse inverse GP formulation. |
-| `spingp_posterior` | function | Posterior mean and precision via SpInGP. |
+| `spingp_log_likelihood` | function | Log marginal likelihood log p(y_1:T) of a zero-mean SpInGP prior. |
+| `spingp_posterior` | function | Posterior mean μ_x\|y and precision Λ_x\|y of x_1:T under SpInGP. |
 
 ### Precision-form chains
 
@@ -705,7 +705,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `process_noise_covariance` | function | Compute process noise from stationary covariance. |
+| `process_noise_covariance` | function | Model-noise covariance Σ_η,t of a step, from the stationary covariance. |
 
 ## [Bayesian Inference & Ensembles](api/inference.md)
 
