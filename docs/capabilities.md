@@ -648,10 +648,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `EmissionModel` | class | Observation (emission) model wrapping a linear observation matrix. |
-| `FilterState` | class | Output of ``kalman_filter``. |
-| `kalman_filter` | function | Kalman filter forward pass via ``jax.lax.scan``. |
-| `rts_smoother` | function | Rauch-Tung-Striebel backward smoother. |
-| `kalman_gain` | function | Compute Kalman gain ``K = P @ H^T @ (H @ P @ H^T + R)^{-1}``. |
+| `FilterState` | class | Output of ``kalman_filter``: the filtered and predicted moments of x_t. |
+| `kalman_filter` | function | Kalman filter forward pass for a linear-Gaussian state-space model. |
+| `rts_smoother` | function | Rauch-Tung-Striebel backward smoother for `kalman_filter` output. |
+| `kalman_gain` | function | Kalman gain of a linear-Gaussian observation of the state x. |
 | `parallel_kalman_filter` | function | Parallel Kalman filter via `jax.lax.associative_scan`. |
 | `parallel_rts_smoother` | function | Parallel RTS smoother via reverse `jax.lax.associative_scan`. |
 | `meanfield_kalman_filter` | function | Mean-field Kalman filter over ``L = D // block_size`` state blocks. |
