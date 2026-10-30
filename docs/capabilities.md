@@ -45,7 +45,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `eigvals` | function | Eigenvalues of A only, with structural dispatch. |
 | `svd` | function | Singular value decomposition of A, with structural dispatch. |
 | `frobenius_norm` | function | Frobenius norm ‖A‖_F of an operator, with structural dispatch. |
-| `submatrix` | function | Extract ``A[row_idx, col_idx]`` without forming the full matrix. |
+| `submatrix` | function | Sub-matrix A[I, J] of an operator, without forming the full matrix. |
 
 ### Generalised eigenproblems
 
