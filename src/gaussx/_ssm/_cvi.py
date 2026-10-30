@@ -1,4 +1,17 @@
-"""CVI — Conjugate-computation Variational Inference sites."""
+"""Gaussian likelihood sites for conjugate-computation variational inference.
+
+CVI (Khan & Lin, 2017) approximates each non-conjugate likelihood term
+p(y_t ∣ x_t) by a Gaussian site in natural form,
+
+    t_site,t(x_t) ∝ exp(x_tᵀ Λμ_site,t − ½ x_tᵀ Λ_site,t x_t),
+
+so the approximate posterior q(x_1:T; ν) ∝ p(x_1:T) ∏_t t_site,t(x_t) is a
+Gauss-Markov chain. The variational parameters are the site natural
+parameters ν_t = (Λμ_site,t, −½ Λ_site,t), in the convention of
+`gaussx.mean_cov_to_natural`; Λμ_site,t is one symbol because the site
+precision Λ_site,t is singular whenever a site sees fewer than D_x
+directions.
+"""
 
 from __future__ import annotations
 
@@ -10,16 +23,25 @@ from gaussx._operators._block_tridiag import BlockTriDiag
 
 
 class GaussianSites(eqx.Module):
-    r"""Time-varying Gaussian likelihood sites in natural parameterization.
+    """Time-varying Gaussian likelihood sites in natural parameterization.
 
-    Stores per-timestep natural parameters for ``N`` Gaussian sites,
-    following the ``\eta_2 = -\tfrac{1}{2}\Lambda`` convention
-    (consistent with `gaussx.mean_cov_to_natural`).
+        ν_t = (Λμ_site,t, −½ Λ_site,t),   t = 1, …, T
+
+    One site per time step on a state of length D_x, in the convention of
+    `gaussx.mean_cov_to_natural`.
 
     Attributes:
-        nat1: Natural location parameters, shape ``(N, d)``.
-        nat2: Natural precision parameters, shape ``(N, d, d)``.
-            Stores ``-\tfrac{1}{2}\Lambda_k`` at each time step.
+        nat1: First natural parameters Λμ_site,t, the precision-weighted
+            site means.
+        nat2: Second natural parameters −½ Λ_site,t.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> identity = jnp.broadcast_to(jnp.eye(2), (4, 2, 2))
+        >>> sites = gaussx.GaussianSites(nat1=jnp.zeros((4, 2)), nat2=-0.5 * identity)
+        >>> sites.nat1.shape, sites.nat2.shape
+        ((4, 2), (4, 2, 2))
     """
 
     nat1: Float[Array, "N d"]
@@ -32,46 +54,86 @@ def cvi_update_sites(
     grad_nat2: Float[Array, "N d d"],
     rho: float,
 ) -> GaussianSites:
-    r"""Natural gradient update for CVI sites.
+    """Damped natural-gradient update of CVI sites.
 
-    Performs a damped update in natural parameter space:
+        ν_t ← (1 − γ) ν_t + γ g_t
 
-        \theta \leftarrow (1 - \rho) \theta + \rho \nabla
+    applied to both natural parameters, with ν_t = (Λμ_site,t, −½ Λ_site,t)
+    and g_t = (g_1,t, g_2,t) the natural-gradient targets in the same
+    convention. γ = 1 replaces the sites by the targets; γ = 0 keeps them.
 
     Args:
-        sites: Current Gaussian sites.
-        grad_nat1: Natural gradient for location, shape ``(N, d)``.
-        grad_nat2: Natural gradient for precision, shape ``(N, d, d)``.
-        rho: Step size / damping factor in ``[0, 1]``.
+        sites: Current sites ν_t.
+        grad_nat1: Natural-gradient target g_1,t for Λμ_site,t.
+        grad_nat2: Natural-gradient target g_2,t for −½ Λ_site,t.
+        rho: Step size γ ∈ [0, 1].
 
     Returns:
-        Updated `GaussianSites`.
+        The updated `GaussianSites`.
+
+    Examples:
+        A full step replaces the sites by the targets:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> identity = jnp.broadcast_to(jnp.eye(2), (3, 2, 2))
+        >>> sites = gaussx.GaussianSites(nat1=jnp.zeros((3, 2)), nat2=-0.5 * identity)
+        >>> target1, target2 = jnp.ones((3, 2)), -identity
+        >>> updated = gaussx.cvi_update_sites(sites, target1, target2, 1.0)
+        >>> bool(jnp.allclose(updated.nat1, target1))
+        True
+
+        A half step lands midway:
+
+        >>> half = gaussx.cvi_update_sites(sites, target1, target2, 0.5)
+        >>> round(float(half.nat2[0, 0, 0]), 4)
+        -0.75
     """
-    new_nat1 = (1.0 - rho) * sites.nat1 + rho * grad_nat1
-    new_nat2 = (1.0 - rho) * sites.nat2 + rho * grad_nat2
+    # (1 − γ) Λμ_site,t
+    kept_nat1 = (1.0 - rho) * sites.nat1
+    # γ g_1,t
+    step_nat1 = rho * grad_nat1
+    # Λμ_site,t ← (1 − γ) Λμ_site,t + γ g_1,t
+    new_nat1 = kept_nat1 + step_nat1
+    # (1 − γ) (−½ Λ_site,t)
+    kept_nat2 = (1.0 - rho) * sites.nat2
+    # γ g_2,t
+    step_nat2 = rho * grad_nat2
+    # −½ Λ_site,t ← (1 − γ) (−½ Λ_site,t) + γ g_2,t
+    new_nat2 = kept_nat2 + step_nat2
     return GaussianSites(nat1=new_nat1, nat2=new_nat2)
 
 
 def sites_to_precision(sites: GaussianSites) -> BlockTriDiag:
-    r"""Convert Gaussian sites to a block-tridiagonal precision.
+    """Block-diagonal precision of the sites, as a `BlockTriDiag`.
 
-    Returns a block-diagonal `BlockTriDiag` (zero
-    sub-diagonals) representing the precision contribution of the
-    sites. This can be added to a prior precision via ``.add()``
-    or ``+`` to form the posterior precision:
+        Λ_site = blockdiag(Λ_site,1, …, Λ_site,T),   Λ_site,t = −2 (−½ Λ_site,t)
 
-        \Lambda_{post} = \Lambda_{prior} + \Lambda_{sites}
-
-    Since ``nat2`` stores ``-\tfrac{1}{2}\Lambda``, the precision
-    blocks are ``-2 \cdot nat2``.
+    The result is a `BlockTriDiag` with zero sub-diagonal blocks, so it adds
+    to a Gauss-Markov prior precision Λ_x with ``+`` to give the CVI
+    posterior precision Λ_x + Λ_site without leaving the banded structure.
 
     Args:
-        sites: Gaussian sites with ``nat2`` in eta2 convention.
+        sites: Sites whose ``nat2`` holds −½ Λ_site,t.
 
     Returns:
-        Block-diagonal `BlockTriDiag` precision.
+        The block-diagonal site precision Λ_site.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> identity = jnp.broadcast_to(jnp.eye(2), (3, 2, 2))
+        >>> sites = gaussx.GaussianSites(nat1=jnp.zeros((3, 2)), nat2=-0.5 * identity)
+        >>> precision = gaussx.sites_to_precision(sites)
+        >>> precision.as_matrix().shape
+        (6, 6)
+        >>> bool(jnp.allclose(precision.as_matrix(), jnp.eye(6)))
+        True
     """
-    N, d = sites.nat1.shape
-    diag_blocks = -2.0 * sites.nat2  # (N, d, d)
-    sub_diag_blocks = jnp.zeros((N - 1, d, d), dtype=diag_blocks.dtype)
+    num_steps, state_size = sites.nat1.shape
+    # Λ_site,t = −2 (−½ Λ_site,t)
+    diag_blocks = -2.0 * sites.nat2
+    sub_diag_blocks = jnp.zeros(
+        (num_steps - 1, state_size, state_size), dtype=diag_blocks.dtype
+    )
     return BlockTriDiag(diag_blocks, sub_diag_blocks)

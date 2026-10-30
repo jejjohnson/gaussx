@@ -683,21 +683,21 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `GaussianSites` | class | Time-varying Gaussian likelihood sites in natural parameterization. |
-| `cvi_update_sites` | function | Natural gradient update for CVI sites. |
-| `sites_to_precision` | function | Convert Gaussian sites to a block-tridiagonal precision. |
-| `cavity_from_marginal` | function | Compute cavity distribution by removing a site from the marginal. |
-| `site_natural_from_tilted` | function | Compute site natural parameters from tilted and cavity moments. |
-| `site_mean_var_from_natural` | function | Convert per-site natural parameters to mean/variance. |
-| `expectations_to_ssm` | function | Convert expectation parameters back to SSM marginals. |
-| `naturals_to_ssm` | function | Convert natural parameters back to SSM parameters. |
-| `ssm_to_expectations` | function | Convert SSM marginals to expectation parameters. |
-| `ssm_to_naturals` | function | Convert SSM parameters to natural parameters. |
+| `cvi_update_sites` | function | Damped natural-gradient update of CVI sites. |
+| `sites_to_precision` | function | Block-diagonal precision of the sites, as a `BlockTriDiag`. |
+| `cavity_from_marginal` | function | Cavity distribution: the marginal with one site divided out. |
+| `site_natural_from_tilted` | function | Site natural parameters that turn the cavity into the tilted moments. |
+| `site_mean_var_from_natural` | function | Mean and variance of a site from its natural parameters. |
+| `expectations_to_ssm` | function | Marginals of a chain from its expectation parameters (𝔼[x], 𝔼[x xᵀ]). |
+| `naturals_to_ssm` | function | Gauss-Markov chain (F_t, Σ_η,t, μ_x,0, Σ_x,0) from its natural parameters. |
+| `ssm_to_expectations` | function | Expectation parameters (𝔼[x], 𝔼[x xᵀ]) of a chain from its marginals. |
+| `ssm_to_naturals` | function | Natural parameters (Λ_x μ_x, −½ Λ_x) of a Gauss-Markov chain. |
 
 ### Variational SDE linearisation
 
 | Name | Kind | What it does |
 |---|---|---|
-| `LinearizedSDE` | class | Linear surrogate $dx = (A_t x + b_t)\,dt + Q_t^{1/2}\,dW$ of an SDE. |
+| `LinearizedSDE` | class | Linear surrogate dx(t) = (F_c,t x(t) + c_t) dt + L_c db(t) of an SDE. |
 | `linearize_sde` | function | Optimal linear drift of a nonlinear SDE along a Gaussian path. |
 | `sde_kl_divergence` | function | Drift path-KL between a linear and a nonlinear SDE along a Gaussian path. |
 
