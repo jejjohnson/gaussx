@@ -1,15 +1,19 @@
 """Size limits for functions and modules in ``src/gaussx`` (gh-415).
 
-A function over 150 lines (docstring included) or a module over 800 lines
-is hard to review and leaves its logic untestable except through the whole
-body. Existing exceptions are listed below with their current size as a
-ceiling: they may shrink, not grow, and an entry is deleted once it is
-under the limit.
+A function over 150 lines or a module over 800 lines is hard to review and
+leaves its logic untestable except through the whole body. Only code lines
+count: docstrings, comment-only lines and blank lines are excluded, so the
+equation comments and docstrings the house style asks for never push a
+function over the limit. Existing exceptions are listed below with their
+current size as a ceiling: they may shrink, not grow, and an entry is
+deleted once it is under the limit.
 """
 
 from __future__ import annotations
 
 import ast
+import io
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -24,31 +28,50 @@ MAX_MODULE_LINES = 800
 
 # "<path relative to src/gaussx>::<function>": ceiling. Reasons:
 FUNCTION_ALLOWLIST = {
-    # Ensemble recipes; their split is the ensemble epic's (#385) business.
-    "_inference/_eki.py::eki_step": 238,
-    "_inference/_enkf.py::enkf_analysis": 217,
-    # Docstring-dominated: 40, 46 and 48 lines of code under long docstrings.
-    "_inference/_laplace.py::laplace_mode": 175,
-    "_linalg/_diag_inv.py::diag_inv": 201,
-    "_ssm/_nonlinear_filter.py::nonlinear_kalman_filter": 161,
-    # Deferred: the in-flight square-root parallel filter work edits these
-    # files, and #364 consolidates the Kalman signatures first.
-    "_ssm/_kalman.py::kalman_filter": 243,
-    # 264 with the square_root= dispatch (gh-454); docstring-heavy.
-    "_ssm/_parallel_kalman.py::parallel_kalman_filter": 264,
-    "_ssm/_utils.py::_normalise_tv_inputs": 159,
+    # 159 code lines with the square_root= dispatch (gh-454).
+    "_ssm/_parallel_kalman.py::parallel_kalman_filter": 159,
 }
 
 # "<path relative to src/gaussx>": ceiling.
 MODULE_ALLOWLIST = {
-    "__init__.py": 846,  # the public re-export list (grows with the API)
-    "_distributions/_gmrf.py": 1213,
-    "_operators/_sum_kronecker.py": 903,
+    "__init__.py": 823,  # the public re-export list (grows with the API)
 }
 
 
+def _non_code_lines(source: str) -> set[int]:
+    """Line numbers holding only a docstring, a comment or whitespace."""
+    lines = source.splitlines()
+    skip = {i for i, line in enumerate(lines, start=1) if not line.strip()}
+    tokens = tokenize.generate_tokens(io.StringIO(source).readline)
+    skip |= {
+        tok.start[0]
+        for tok in tokens
+        if tok.type == tokenize.COMMENT
+        and lines[tok.start[0] - 1].lstrip().startswith("#")
+    }
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(
+            node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+        ):
+            continue
+        doc = node.body[0] if node.body else None
+        if (
+            isinstance(doc, ast.Expr)
+            and isinstance(doc.value, ast.Constant)
+            and isinstance(doc.value.value, str)
+        ):
+            skip |= set(range(doc.lineno, doc.end_lineno + 1))
+    return skip
+
+
+def _code_lines(source: str, start: int, end: int) -> int:
+    skip = _non_code_lines(source)
+    return sum(1 for line in range(start, end + 1) if line not in skip)
+
+
 def _line_count(path: Path) -> int:
-    return len(path.read_text().splitlines())
+    source = path.read_text()
+    return _code_lines(source, 1, len(source.splitlines()))
 
 
 def _modules() -> list[Path]:
@@ -59,9 +82,11 @@ def _functions() -> list[tuple[str, int]]:
     found = []
     for path in _modules():
         rel = path.relative_to(SRC).as_posix()
-        for node in ast.walk(ast.parse(path.read_text())):
+        source = path.read_text()
+        for node in ast.walk(ast.parse(source)):
             if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
-                found.append((f"{rel}::{node.name}", node.end_lineno - node.lineno + 1))
+                size = _code_lines(source, node.lineno, node.end_lineno)
+                found.append((f"{rel}::{node.name}", size))
     return found
 
 
