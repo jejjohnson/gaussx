@@ -24,17 +24,17 @@ from gaussx._einx import einsum, rearrange
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._ssm._kalman import FilterState, _empty_filter_state, _kalman_predict
-from gaussx._ssm._parallel_kalman import (
+from gaussx._ssm._scan_elements import (
     FilterElement,
     _bmv,
     _filter_combine,
     _first_filter_element_active,
     _first_filter_element_masked,
     _generic_filter_element_active,
+    _smoother_element,
 )
 from gaussx._ssm._utils import (
     _normalise_tv_inputs,
-    _smoother_element,
     _transition_stack,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
