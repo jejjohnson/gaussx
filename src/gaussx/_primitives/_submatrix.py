@@ -1,4 +1,13 @@
-"""Structured sub-matrix extraction with dispatch on operator type."""
+"""Structured sub-matrix A[I, J], dispatched on the operator type of A.
+
+A is an N × N operator, I = (i_1, …, i_R) a list of row indices and
+J = (j_1, …, j_C) a list of column indices (repeats allowed, negative entries
+counted from the end), and A[I, J] is the dense R × C block with entries
+A[I, J]_rc = A_{i_r j_c}. A Kronecker product is A = A_1 ⊗ … ⊗ A_D with
+factors A_d of size N_d,row × N_d,col, d = 1, …, D, and a block-diagonal
+operator is blockdiag(A_1, …, A_B). A low-rank update is A = A₀ + U D Vᵀ, with
+base A₀, N × k factors U and V and D = diag(d).
+"""
 
 from __future__ import annotations
 
@@ -19,38 +28,66 @@ def submatrix(
     row_idx: Int[Array, " R"],
     col_idx: Int[Array, " C"],
 ) -> Float[Array, "R C"]:
-    """Extract ``A[row_idx, col_idx]`` without forming the full matrix.
+    """Sub-matrix A[I, J] of an operator, without forming the full matrix.
 
-    For structured operators, exploits the structure to avoid
-    materializing the full ``(N, N)`` matrix when only a sub-block is
-    needed (e.g., the conditional Gaussian extracts ``Sigma_AA``,
-    ``Sigma_AB``, ``Sigma_BB`` from a joint covariance).
+        A[I, J]_rc = A_{i_r j_c},   r = 1, …, R,   c = 1, …, C
 
-    Currently dispatches on:
+    A structured A gives its block from its parts, so only R × C intermediates
+    are formed, never the N × N matrix; the conditional Gaussian uses it to
+    pull Σ_AA, Σ_AB and Σ_BB out of a joint covariance.
 
-    - `lineax.DiagonalLinearOperator`
-    - `lineax.IdentityLinearOperator`
-    - `lineax.TaggedLinearOperator` / ``MulLinearOperator`` /
-      ``DivLinearOperator`` / ``NegLinearOperator`` / ``AddLinearOperator``
-      (recurse into the wrapped operators)
-    - `gaussx.BlockDiag`
-    - `gaussx.Kronecker`
-    - `gaussx.LowRankUpdate` (base sub-block plus ``U[r] diag(d) V[c]ᵀ``)
-
-    Falls back to ``operator.as_matrix()[ix_(row_idx, col_idx)]`` for
-    other operators.
+    Algorithm:
+        1. Map negative indices in I and J to their non-negative positions.
+        2. Take the first structural rule that matches A: a diagonal keeps
+           d_i on matching pairs i_r = j_c, a block-diagonal operator gathers
+           from its stacked blocks and zeroes pairs in different blocks, and
+           a Kronecker product multiplies its factors' blocks entrywise.
+        3. An empty I or J gives an empty block. Otherwise a square low-rank
+           update adds U[I] D V[J]ᵀ to A₀[I, J], the identity marks matching
+           pairs, and tagged, scaled, negated and summed operators recurse
+           into their parts.
+        4. Otherwise materialise A and index it.
 
     Args:
-        operator: Linear operator A, shape ``(N, N)``.
-        row_idx: Row indices, shape ``(R,)``.
-        col_idx: Column indices, shape ``(C,)``.
+        operator: The N × N operator A.
+        row_idx: Row indices I, negative entries counted from the end.
+        col_idx: Column indices J, negative entries counted from the end.
 
     Returns:
-        Dense sub-matrix ``A[ix_(row_idx, col_idx)]`` of shape ``(R, C)``.
+        The dense block A[I, J].
+
+    Examples:
+        A Kronecker product gives its block from its factors' blocks:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A_1 = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+        >>> A_2 = lx.MatrixLinearOperator(jnp.array([[2.0, 1.0], [1.0, 3.0]]))
+        >>> A = gaussx.Kronecker(A_1, A_2)  # A_1 ⊗ A_2, never densified
+        >>> block = gaussx.submatrix(A, jnp.array([0, 3]), jnp.array([1, 3]))
+        >>> block.tolist()
+        [[1.0, 0.0], [0.0, 6.0]]
+
+        A low-rank update adds U[I] D V[J]ᵀ to the base block; negative
+        indices count from the end:
+
+        >>> base = lx.DiagonalLinearOperator(jnp.array([1.0, 1.0, 1.0]))
+        >>> U = jnp.array([[1.0], [2.0], [0.0]])
+        >>> A = gaussx.LowRankUpdate(base, U)  # I + U Uᵀ
+        >>> gaussx.submatrix(A, jnp.array([-2]), jnp.array([0, 1])).tolist()
+        [[2.0, 5.0]]
+
+        An empty index list gives an empty block:
+
+        >>> gaussx.submatrix(A, jnp.array([], dtype=int), jnp.array([0, 1])).shape
+        (0, 2)
     """
-    n = operator.in_size()
-    row_idx = _normalize_indices(row_idx, n)
-    col_idx = _normalize_indices(col_idx, n)
+    size = operator.in_size()
+    # i_r ← i_r + N where i_r < 0
+    row_idx = _normalize_indices(row_idx, size)
+    # j_c ← j_c + N where j_c < 0
+    col_idx = _normalize_indices(col_idx, size)
     if isinstance(operator, lx.DiagonalLinearOperator):
         return _submatrix_diagonal(operator, row_idx, col_idx)
     if isinstance(operator, BlockDiag):
@@ -64,25 +101,42 @@ def submatrix(
     if isinstance(operator, LowRankUpdate) and _is_square(operator.base):
         return _submatrix_low_rank(operator, row_idx, col_idx)
     if isinstance(operator, lx.IdentityLinearOperator) and _is_square(operator):
-        match = einx.equal("r, c -> r c", row_idx, col_idx)
+        # I[I, J]_rc = 1[i_r = j_c]
+        match = einx.equal("row, col -> row col", row_idx, col_idx)
         return match.astype(dtype)
     if isinstance(operator, lx.TaggedLinearOperator):
         return submatrix(operator.operator, row_idx, col_idx)
     if isinstance(operator, lx.MulLinearOperator):
-        return operator.scalar * submatrix(operator.operator, row_idx, col_idx)
+        inner_block = submatrix(operator.operator, row_idx, col_idx)
+        # (c A)[I, J] = c A[I, J]
+        return operator.scalar * inner_block
     if isinstance(operator, lx.DivLinearOperator):
-        return submatrix(operator.operator, row_idx, col_idx) / operator.scalar
+        inner_block = submatrix(operator.operator, row_idx, col_idx)
+        # (A / c)[I, J] = A[I, J] / c
+        return inner_block / operator.scalar
     if isinstance(operator, lx.NegLinearOperator):
-        return -submatrix(operator.operator, row_idx, col_idx)
+        inner_block = submatrix(operator.operator, row_idx, col_idx)
+        # (−A)[I, J] = −A[I, J]
+        return -inner_block
     if isinstance(operator, lx.AddLinearOperator):
-        return submatrix(operator.operator1, row_idx, col_idx) + submatrix(
-            operator.operator2, row_idx, col_idx
-        )
-    return operator.as_matrix()[jnp.ix_(row_idx, col_idx)]
+        first_block = submatrix(operator.operator1, row_idx, col_idx)
+        second_block = submatrix(operator.operator2, row_idx, col_idx)
+        # (A + B)[I, J] = A[I, J] + B[I, J]
+        return first_block + second_block
+    dense = operator.as_matrix()
+    # A[I, J], dense
+    return dense[jnp.ix_(row_idx, col_idx)]
 
 
 def _matrix_dtype(operator: lx.AbstractLinearOperator):
-    """The dtype ``as_matrix`` would have, also for PyTree structures."""
+    """The dtype ``as_matrix`` would have, also for PyTree structures.
+
+    Args:
+        operator: The operator A.
+
+    Returns:
+        The result dtype of A's input and output structures.
+    """
     leaves = jax.tree_util.tree_leaves(
         (operator.in_structure(), operator.out_structure())
     )
@@ -90,6 +144,14 @@ def _matrix_dtype(operator: lx.AbstractLinearOperator):
 
 
 def _is_square(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether A has as many rows as columns.
+
+    Args:
+        operator: The operator A.
+
+    Returns:
+        ``True`` when A is square.
+    """
     return operator.in_size() == operator.out_size()
 
 
@@ -98,27 +160,51 @@ def _submatrix_low_rank(
     row_idx: Int[Array, " R"],
     col_idx: Int[Array, " C"],
 ) -> Float[Array, "R C"]:
-    """``(L + U diag(d) Vᵀ)[r, c] = L[r, c] + U[r] diag(d) V[c]ᵀ`` (gh-379).
+    """Sub-matrix of a low-rank update A₀ + U D Vᵀ (gh-379).
 
-    ``O(R C k)`` plus the base's own sub-block.
+        (A₀ + U D Vᵀ)[I, J] = A₀[I, J] + U[I] D V[J]ᵀ
+
+    Costs O(R C k) on top of the base's own block.
+
+    Args:
+        operator: Square low-rank update A₀ + U D Vᵀ.
+        row_idx: Non-negative row indices I.
+        col_idx: Non-negative column indices J.
+
+    Returns:
+        The dense block A[I, J].
     """
-    base = submatrix(operator.base, row_idx, col_idx)
+    base_block = submatrix(operator.base, row_idx, col_idx)
     if operator.rank == 0:
         # einx rejects a zero-length axis.
-        return base
-    U = operator.U[row_idx] * operator.d
-    return base + einsum(U, operator.V[col_idx], "r k, c k -> r c")
+        return base_block
+    # U[I] D
+    weighted_rows = operator.U[row_idx] * operator.d
+    # V[J]
+    selected_cols = operator.V[col_idx]
+    # U[I] D V[J]ᵀ
+    update_block = einsum(weighted_rows, selected_cols, "row rank, col rank -> row col")
+    # A₀[I, J] + U[I] D V[J]ᵀ
+    return base_block + update_block
 
 
 def _normalize_indices(
     idx: Int[Array, " K"],
     n: int,
 ) -> Int[Array, " K"]:
-    """Map negative indices to their canonical non-negative positions.
+    """Map negative indices to their non-negative positions, as NumPy does.
 
-    Mirrors NumPy/JAX indexing: ``idx[idx < 0] += n``.
+        i ← i + N   where i < 0
+
+    Args:
+        idx: Indices into an axis of length N.
+        n: The axis length N.
+
+    Returns:
+        The indices, each in 0, …, N − 1 when it was in range.
     """
     idx = jnp.asarray(idx)
+    # i ← i + N where i < 0
     return jnp.where(idx < 0, idx + n, idx)
 
 
@@ -127,11 +213,27 @@ def _submatrix_diagonal(
     row_idx: Int[Array, " R"],
     col_idx: Int[Array, " C"],
 ) -> Float[Array, "R C"]:
-    """Diagonal sub-matrix: nonzero only on matched index pairs."""
-    d = lx.diagonal(operator)
-    # M[i, j] = d[row_idx[i]] if row_idx[i] == col_idx[j] else 0
+    """Sub-matrix of a diagonal operator: nonzero only on matching pairs.
+
+        diag(d)[I, J]_rc = d_{i_r} 1[i_r = j_c]
+
+    Args:
+        operator: Diagonal operator diag(d).
+        row_idx: Non-negative row indices I.
+        col_idx: Non-negative column indices J.
+
+    Returns:
+        The dense block diag(d)[I, J].
+    """
+    diagonal = lx.diagonal(operator)
+    # 1[i_r = j_c]
+    # jnp, not einx: I or J may be empty here, and einx rejects a zero axis.
     match = row_idx[:, None] == col_idx[None, :]
-    return jnp.where(match, d[row_idx][:, None], jnp.zeros((), dtype=d.dtype))
+    # d_{i_r} 1[i_r = j_c]
+    # jnp, not einx: I may be empty here, and einx rejects a zero axis.
+    return jnp.where(
+        match, diagonal[row_idx][:, None], jnp.zeros((), dtype=diagonal.dtype)
+    )
 
 
 def _submatrix_kronecker(
@@ -139,24 +241,41 @@ def _submatrix_kronecker(
     row_idx: Int[Array, " R"],
     col_idx: Int[Array, " C"],
 ) -> Float[Array, "R C"]:
-    """Kronecker sub-matrix as an elementwise product of factor sub-matrices.
+    """Sub-matrix of a Kronecker product as an entrywise product of factor blocks.
 
-    A global entry decomposes over the factors:
-    ``A[i, j] = prod_f A_f[i_f, j_f]`` where ``(i_f, j_f)`` are the
-    mixed-radix digits of ``(i, j)``. Each factor contributes its own
-    ``(R, C)`` sub-matrix (via recursive dispatch), so only ``R x C``
-    intermediates are formed — never the full Kronecker matrix.
+        (A_1 ⊗ … ⊗ A_D)[I, J] = A_1[I_1, J_1] ⊙ … ⊙ A_D[I_D, J_D]
+
+    I_d and J_d are the mixed-radix digits of I and J in the factor sizes
+    N_d,row and N_d,col. Each factor's R × C block comes from recursive
+    dispatch, so only R × C intermediates are formed, never A.
+
+    Args:
+        operator: Kronecker product A_1 ⊗ … ⊗ A_D.
+        row_idx: Non-negative row indices I.
+        col_idx: Non-negative column indices J.
+
+    Returns:
+        The dense block A[I, J].
     """
     result = jnp.ones(
         (row_idx.shape[0], col_idx.shape[0]), dtype=operator.in_structure().dtype
     )
-    row_rem, col_rem = row_idx, col_idx
-    for op in reversed(operator.operators):
-        m = op.out_size()
-        n = op.in_size()
-        result = result * submatrix(op, row_rem % m, col_rem % n)
-        row_rem = row_rem // m
-        col_rem = col_rem // n
+    row_quotient, col_quotient = row_idx, col_idx
+    # The last factor owns the fastest-varying digit.
+    for factor in reversed(operator.operators):
+        factor_rows = factor.out_size()
+        factor_cols = factor.in_size()
+        # I_d = I mod N_d,row
+        row_digit = row_quotient % factor_rows
+        # J_d = J mod N_d,col
+        col_digit = col_quotient % factor_cols
+        factor_block = submatrix(factor, row_digit, col_digit)
+        # ⊙ A_d[I_d, J_d]
+        result = result * factor_block
+        # I ← ⌊I / N_d,row⌋
+        row_quotient = row_quotient // factor_rows
+        # J ← ⌊J / N_d,col⌋
+        col_quotient = col_quotient // factor_cols
     return result
 
 
@@ -165,54 +284,67 @@ def _submatrix_block_diag(
     row_idx: Int[Array, " R"],
     col_idx: Int[Array, " C"],
 ) -> Float[Array, "R C"]:
-    """Sub-matrix of a block-diagonal operator without forming the full matrix.
+    """Sub-matrix of a block-diagonal operator, without forming the full matrix.
 
-    Materializes every block once (so it can be stacked and gathered
-    from), then masks off-block entries to zero. The win over the dense
-    fallback is that we never materialize the full ``(N, N)`` matrix —
-    only the union of the per-block matrices, plus a single padded
-    stack of size ``(num_blocks, max_block_size, max_block_size)``.
-    Block sizes are static (operator structure is a PyTree leaf), so
-    the bookkeeping is jit-compatible.
+        blockdiag(A_1, …, A_B)[I, J]_rc = A_b[i_r − o_b, j_c − o_b] 1[b(i_r) = b(j_c)]
 
-    For workloads where the requested indices stay within a few blocks
-    a future optimization could materialize only the touched blocks.
+    o_b is the offset of block b and b(i) the block that holds index i.
+    Every block is materialised once and padded into one
+    B × N_max × N_max stack to gather from, so only the blocks and the stack
+    are formed, never the N × N matrix. Block sizes are static, so the
+    bookkeeping is jit-compatible. When I and J stay within a few blocks,
+    materialising only the touched blocks would be cheaper.
+
+    Args:
+        operator: Block-diagonal operator blockdiag(A_1, …, A_B).
+        row_idx: Non-negative row indices I.
+        col_idx: Non-negative column indices J.
+
+    Returns:
+        The dense block A[I, J].
     """
-    block_sizes = [op.in_size() for op in operator.operators]
+    block_sizes = [block.in_size() for block in operator.operators]
     offsets_list = [0]
-    for s in block_sizes[:-1]:
-        offsets_list.append(offsets_list[-1] + s)
+    for block_size in block_sizes[:-1]:
+        # o_b+1 = o_b + N_b
+        offsets_list.append(offsets_list[-1] + block_size)
     offsets = jnp.asarray(offsets_list)
-    # Static, computed in Python — keeps this jit-compatible.
+    # N_max, static: computed in Python, which keeps this jit-compatible.
     max_size = max(block_sizes)
 
     def _block_index(
         idx: Int[Array, " K"],
     ) -> tuple[Int[Array, " K"], Int[Array, " K"]]:
-        # Assign each global index to (block_id, local_idx).
+        # b(i) = max{b : o_b ≤ i}
         block_ids = jnp.searchsorted(offsets, idx, side="right") - 1
+        # i − o_b(i)
         return block_ids, idx - offsets[block_ids]
 
     row_block, row_local = _block_index(row_idx)
     col_block, col_local = _block_index(col_idx)
+    # 1[b(i_r) = b(j_c)]
+    # jnp, not einx: I or J may be empty here, and einx rejects a zero axis.
     same_block = row_block[:, None] == col_block[None, :]
 
-    # Materialize each block once; pull entries from the right block.
-    block_mats = [op.as_matrix() for op in operator.operators]
+    # Materialise each block once; entries are pulled from the right block.
+    block_matrices = [block.as_matrix() for block in operator.operators]
+    # [A_1; …; A_B], each zero-padded to N_max × N_max
     padded = jnp.stack(
         [
             jnp.pad(
-                m,
-                ((0, max_size - m.shape[0]), (0, max_size - m.shape[1])),
+                matrix,
+                ((0, max_size - matrix.shape[0]), (0, max_size - matrix.shape[1])),
             )
-            for m in block_mats
+            for matrix in block_matrices
         ]
-    )  # (num_blocks, max_size, max_size)
+    )
 
-    # Pull raw entries assuming row_block == col_block; mask afterwards.
-    raw = padded[
+    # A_b(i_r)[i_r − o_b, j_c − o_b], as if b(i_r) = b(j_c); masked below.
+    # jnp, not einx: I or J may be empty here, and einx rejects a zero axis.
+    gathered = padded[
         row_block[:, None],
         row_local[:, None],
         col_local[None, :],
     ]
-    return jnp.where(same_block, raw, jnp.zeros((), dtype=raw.dtype))
+    # A_b[i_r − o_b, j_c − o_b] 1[b(i_r) = b(j_c)]
+    return jnp.where(same_block, gathered, jnp.zeros((), dtype=gathered.dtype))
