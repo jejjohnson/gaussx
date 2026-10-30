@@ -1,17 +1,17 @@
 """Mean-field (block-diagonal) Kalman filter and RTS smoother.
 
-For a state that decomposes into ``L`` independent blocks of size ``d``
-(total dimension ``D = L * d``), the mean-field approximation keeps the
-posterior covariance block-diagonal, so the joint filter factorises into
-``L`` independent ``d``-state filters — ``O(L d^3)`` per step instead of
-the full filter's ``O((L d)^3)``. The factorisation is exact when the
-true cross-block dynamics are zero; otherwise the off-block entries of
-the inputs are dropped (the natural mean-field projection: the posterior
-precision keeps the same block-diagonal sparsity).
+The state x of length D_x splits into L independent blocks x⁽ℓ⁾ of length
+d, so D_x = L d. The mean-field approximation keeps the posterior
+covariance block-diagonal, so the joint filter factorises into L
+independent d-state filters: O(L d³) per step instead of O(L³ d³). The
+factorisation is exact when the cross-block dynamics are zero; otherwise
+the off-block entries of the inputs are dropped, which is the mean-field
+projection (the posterior precision keeps the same block-diagonal
+sparsity).
 
-Internally these recipes ``vmap`` the existing `gaussx.kalman_filter` /
-`gaussx.rts_smoother` (or their parallel associative-scan variants) over
-the diagonal blocks — no forked Kalman implementation.
+These recipes ``vmap`` `gaussx.kalman_filter` and `gaussx.rts_smoother`
+(or their parallel associative-scan variants) over the diagonal blocks;
+there is no forked Kalman implementation.
 """
 
 from __future__ import annotations
@@ -33,46 +33,86 @@ from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def _split_diag_blocks(
-    x: Float[Array, ...] | lx.AbstractLinearOperator,
-    L: int,
+    matrix: Float[Array, ...] | lx.AbstractLinearOperator,
+    num_blocks: int,
     rows: int,
     cols: int,
 ) -> Float[Array, ...]:
-    """Extract the ``L`` diagonal blocks of a (stacked) matrix or operator.
+    """The L diagonal blocks of a matrix, or of a stack of them over time.
 
-    Returns ``(L, rows, cols)`` for time-invariant inputs and
-    ``(L, T, rows, cols)`` for time-varying ``(T, ...)`` stacks. A
-    `gaussx.BlockDiag` whose sub-operators align with the requested
-    blocking is split structurally (per-block ``as_matrix``, never
-    materialising the full matrix); everything else drops to dense and
-    slices out the diagonal blocks, discarding off-block entries — the
-    mean-field projection.
+    A `gaussx.BlockDiag` whose sub-operators match the requested blocking
+    is split structurally (one ``as_matrix`` per block, never the full
+    matrix); anything else is materialised and its diagonal blocks are
+    sliced out, discarding the off-block entries. That is the mean-field
+    projection.
+
+    Args:
+        matrix: A matrix, a stack of matrices over time, or an operator.
+        num_blocks: Number of blocks L.
+        rows: Rows per block.
+        cols: Columns per block.
+
+    Returns:
+        The blocks, stacked as ``(L, rows, cols)`` for a single matrix and
+        ``(L, T, rows, cols)`` for a stack over time.
+
+    Raises:
+        ValueError: If ``matrix`` is neither a matrix nor a stack.
     """
     if (
-        isinstance(x, BlockDiag)
-        and len(x.operators) == L
-        and all(op.out_size() == rows and op.in_size() == cols for op in x.operators)
+        isinstance(matrix, BlockDiag)
+        and len(matrix.operators) == num_blocks
+        and all(
+            op.out_size() == rows and op.in_size() == cols for op in matrix.operators
+        )
     ):
-        return jnp.stack([op.as_matrix() for op in x.operators])
-    dense = _materialise(x)
+        return jnp.stack([op.as_matrix() for op in matrix.operators])
+    dense = _materialise(matrix)
     if dense.ndim == 2:
-        grid = rearrange(dense, "(l1 r) (l2 c) -> l1 l2 r c", l1=L, l2=L)
+        grid = rearrange(
+            dense,
+            "(block_row row) (block_col col) -> block_row block_col row col",
+            block_row=num_blocks,
+            block_col=num_blocks,
+        )
     elif dense.ndim == 3:
-        grid = rearrange(dense, "t (l1 r) (l2 c) -> l1 l2 t r c", l1=L, l2=L)
+        grid = rearrange(
+            dense,
+            "t (block_row row) (block_col col) -> block_row block_col t row col",
+            block_row=num_blocks,
+            block_col=num_blocks,
+        )
     else:
         raise ValueError(f"Expected ndim 2 or 3, got {dense.ndim}.")
-    return grid[jnp.arange(L), jnp.arange(L)]
+    block_index = jnp.arange(num_blocks)
+    return grid[block_index, block_index]
 
 
-def _embed_block_diag(covs: Float[Array, "L T d d"]) -> Float[Array, "T D D"]:
-    """Assemble per-block covariance stacks into ``(T, D, D)`` block-diagonals.
+def _embed_block_diag(
+    block_covs: Float[Array, "L T d d"],
+) -> Float[Array, "T D D"]:
+    """Assemble per-block covariance stacks into block-diagonal matrices.
 
-    Contracting against ``eye(L)`` places block ``l`` on the diagonal and
+    Contracting against the identity I_L places block ℓ on the diagonal and
     exact zeros everywhere off-block.
+
+    Args:
+        block_covs: Per-block covariances, one stack over time per block.
+
+    Returns:
+        The block-diagonal covariances over time.
     """
-    eye = jnp.eye(covs.shape[0], dtype=covs.dtype)
-    grid = einsum(eye, covs, "l1 l2, l1 t d1 d2 -> t l1 d1 l2 d2")
-    return rearrange(grid, "t l1 d1 l2 d2 -> t (l1 d1) (l2 d2)")
+    num_blocks = block_covs.shape[0]
+    block_identity = jnp.eye(num_blocks, dtype=block_covs.dtype)
+    # δ_ℓℓ' Σ⁽ℓ⁾, block (ℓ, ℓ') of the block-diagonal matrix
+    grid = einsum(
+        block_identity,
+        block_covs,
+        "block_row block_col, block_row t row col -> t block_row row block_col col",
+    )
+    return rearrange(
+        grid, "t block_row row block_col col -> t (block_row row) (block_col col)"
+    )
 
 
 def meanfield_kalman_filter(
@@ -89,120 +129,158 @@ def meanfield_kalman_filter(
     solver: AbstractSolverStrategy | None = None,
     parallel: bool = False,
 ) -> FilterState:
-    r"""Mean-field Kalman filter over ``L = D // block_size`` state blocks.
+    """Mean-field Kalman filter over L = D_x / d independent state blocks.
 
-    Runs ``L`` independent ``block_size``-state Kalman filters under
-    `jax.vmap` — ``O(T L d^3)`` total work instead of the full filter's
-    ``O(T L^3 d^3)`` — at the cost of dropping posterior cross-block
-    covariances. All inputs are projected onto their diagonal blocks;
-    off-block entries are discarded, which is the mean-field projection
-    (exact when the true cross-block couplings are zero). The returned
-    log-likelihood is the sum of the per-block log-likelihoods,
+        log p(y_1:T) ≈ ∑_ℓ log p(y⁽ℓ⁾_1:T)
 
-    $$\log p(y_{1:T}) \approx \sum_{\ell=1}^{L}
-    \log p^{(\ell)}\bigl(y_{1:T}^{(\ell)}\bigr).$$
+    for the model of `gaussx.kalman_filter` with every input projected onto
+    its diagonal blocks: F_t⁽ℓ⁾, H_t⁽ℓ⁾, Σ_η,t⁽ℓ⁾ and Σ_ε,t⁽ℓ⁾ for
+    ℓ = 1, …, L. The L filters run under `jax.vmap`, O(T L d³) work instead
+    of O(T L³ d³), at the cost of the posterior cross-block covariances.
+    Dropping the off-block entries is the mean-field projection, exact when
+    the true cross-block couplings are zero. The observation must split the
+    same way: channel block ℓ, of length D_y / L, observes state block ℓ.
 
-    Accepts the same time-invariant / time-varying / operator input
-    forms as `gaussx.kalman_filter`. A `gaussx.BlockDiag` whose
-    sub-operators match the blocking is split structurally without
-    materialising the full ``(D, D)`` matrix. The observation dimension
-    must factorise the same way: channel block ``\ell`` (of size
-    ``M // L``) is observed through state block ``\ell``.
+    Accepts the time-invariant, time-varying and operator forms of
+    `gaussx.kalman_filter`. A `gaussx.BlockDiag` whose sub-operators match
+    the blocking is split without materialising the full matrix.
+
+    Algorithm:
+        1. Split F_t, H_t, Σ_η,t, Σ_ε,t, μ_x,0, Σ_x,0, y_1:T and the mask
+           into their L diagonal blocks.
+        2. Run `gaussx.kalman_filter` (or `gaussx.parallel_kalman_filter`)
+           on every block under `jax.vmap`.
+        3. Concatenate the block means, embed the block covariances in
+           block-diagonal matrices and sum the block log-likelihoods.
 
     Args:
-        transition: State transition ``A``. Shape ``(D, D)``,
-            ``(T, D, D)``, or `lineax.AbstractLinearOperator`.
-        obs_model: Observation matrix ``H``. Shape ``(M, D)``,
-            ``(T, M, D)``, or operator. ``M`` must be divisible by
-            ``L``.
-        process_noise: Process noise covariance ``Q``. Shape ``(D, D)``,
-            ``(T, D, D)``, or operator.
-        obs_noise: Observation noise covariance ``R``. Shape ``(M, M)``,
-            ``(T, M, M)``, or operator.
-        observations: Observed data, shape ``(T, M)``.
-        init_mean: Initial state mean, shape ``(D,)``.
-        init_cov: Initial state covariance, shape ``(D, D)``.
-        block_size: State block size ``d``; ``D`` must be divisible by
-            it.
-        mask: Optional observation mask, as in `gaussx.kalman_filter`.
-            A ``(T,)`` mask gates whole steps for every block; a
-            ``(T, M)`` mask gates individual channels and is split
-            per block.
-        solver: Optional solver strategy for the per-block innovation
-            solves. Sequential mode only (the parallel filter does not
-            thread it through).
+        transition: Linear dynamics F_t, one for all steps, a stack over
+            time or an operator.
+        obs_model: Observation operator H_t, in the same forms; D_y must be
+            divisible by L.
+        process_noise: Model-error covariance Σ_η,t, in the same forms.
+        obs_noise: Observation-error covariance Σ_ε,t, in the same forms.
+        observations: Observations y_1:T, one row per step.
+        init_mean: Prior mean μ_x,0 of the initial state x₀.
+        init_cov: Prior covariance Σ_x,0 of x₀.
+        block_size: State block length d; D_x must be divisible by it.
+        mask: Optional observation mask, as in `gaussx.kalman_filter`. A
+            per-step mask gates whole steps for every block; a per-channel
+            mask is split per block.
+        solver: Solver strategy for the per-block Σ_y,t. Sequential mode
+            only; the parallel filter does not thread it through.
         parallel: When ``True``, run each block through
             `gaussx.parallel_kalman_filter` (``O(log T)`` depth on
             accelerators) instead of the sequential scan.
 
-    Raises:
-        ValueError: If ``D`` is not divisible by ``block_size``, or the
-            observation dimension is not divisible by the number of
-            blocks.
-
     Returns:
-        A `gaussx.FilterState` over the full ``D``-dimensional state.
-        Covariances are block-diagonal ``(T, D, D)`` embeddings of the
-        per-block covariances (exact zeros off-block).
-    """
-    D = init_mean.shape[0]
-    M = observations.shape[-1]
-    d = block_size
-    if D % d != 0:
-        raise ValueError(f"State dimension {D} is not divisible by block_size {d}.")
-    L = D // d
-    if M % L != 0:
-        raise ValueError(
-            f"Observation dimension {M} is not divisible by the number of blocks {L}."
-        )
-    m = M // L
+        A `gaussx.FilterState` over the full state. Its covariances are
+        block-diagonal embeddings of the block covariances, with exact
+        zeros off-block.
 
-    A_blocks = _split_diag_blocks(transition, L, d, d)
-    H_blocks = _split_diag_blocks(obs_model, L, m, d)
-    Q_blocks = _split_diag_blocks(process_noise, L, d, d)
-    R_blocks = _split_diag_blocks(obs_noise, L, m, m)
-    y_blocks = rearrange(observations, "t (l m) -> l t m", l=L)
-    m0_blocks = rearrange(init_mean, "(l d) -> l d", l=L)
-    P0_blocks = _split_diag_blocks(init_cov, L, d, d)
+    Raises:
+        ValueError: If D_x is not divisible by ``block_size``, or D_y is not
+            divisible by the number of blocks L.
+
+    Examples:
+        Two independent random walks, each observed directly:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> model = (jnp.eye(2), jnp.eye(2), 0.1 * jnp.eye(2), 0.5 * jnp.eye(2))
+        >>> observations = jnp.array([[0.1, -0.2], [0.3, 0.0], [0.2, 0.1]])
+        >>> prior = (jnp.zeros(2), jnp.eye(2))
+        >>> state = gaussx.meanfield_kalman_filter(
+        ...     *model, observations, *prior, block_size=1
+        ... )
+        >>> state.filtered_covs.shape
+        (3, 2, 2)
+
+        With no cross-block coupling the full filter agrees:
+
+        >>> full = gaussx.kalman_filter(*model, observations, *prior)
+        >>> bool(jnp.allclose(state.log_likelihood, full.log_likelihood))
+        True
+    """
+    state_size = init_mean.shape[0]
+    obs_size = observations.shape[-1]
+    if state_size % block_size != 0:
+        raise ValueError(
+            f"State dimension {state_size} is not divisible by block_size {block_size}."
+        )
+    num_blocks = state_size // block_size
+    if obs_size % num_blocks != 0:
+        raise ValueError(
+            f"Observation dimension {obs_size} is not divisible by the number "
+            f"of blocks {num_blocks}."
+        )
+    block_obs_size = obs_size // num_blocks
+
+    # F_t⁽ℓ⁾, H_t⁽ℓ⁾, Σ_η,t⁽ℓ⁾, Σ_ε,t⁽ℓ⁾
+    transition_blocks = _split_diag_blocks(
+        transition, num_blocks, block_size, block_size
+    )
+    obs_model_blocks = _split_diag_blocks(
+        obs_model, num_blocks, block_obs_size, block_size
+    )
+    process_noise_blocks = _split_diag_blocks(
+        process_noise, num_blocks, block_size, block_size
+    )
+    obs_noise_blocks = _split_diag_blocks(
+        obs_noise, num_blocks, block_obs_size, block_obs_size
+    )
+    # y⁽ℓ⁾_1:T
+    obs_blocks = rearrange(
+        observations, "t (block obs) -> block t obs", block=num_blocks
+    )
+    # μ_x,0⁽ℓ⁾ and Σ_x,0⁽ℓ⁾
+    init_mean_blocks = rearrange(
+        init_mean, "(block state) -> block state", block=num_blocks
+    )
+    init_cov_blocks = _split_diag_blocks(init_cov, num_blocks, block_size, block_size)
 
     base_filter = parallel_kalman_filter if parallel else kalman_filter
+    block_inputs = (
+        transition_blocks,
+        obs_model_blocks,
+        process_noise_blocks,
+        obs_noise_blocks,
+        obs_blocks,
+        init_mean_blocks,
+        init_cov_blocks,
+    )
 
     channel_mask = mask is not None and jnp.ndim(mask) == 2
     if channel_mask:
-        mask_blocks = rearrange(mask, "t (l m) -> l t m", l=L)
+        mask_blocks = rearrange(mask, "t (block obs) -> block t obs", block=num_blocks)
 
-        def _run(A_b, H_b, Q_b, R_b, y_b, m0_b, P0_b, mask_b):
-            return base_filter(
-                A_b, H_b, Q_b, R_b, y_b, m0_b, P0_b, mask=mask_b, solver=solver
-            )
+        def _run_masked(*inputs):
+            *model_inputs, mask_block = inputs
+            return base_filter(*model_inputs, mask=mask_block, solver=solver)
 
-        states = jax.vmap(_run)(
-            A_blocks,
-            H_blocks,
-            Q_blocks,
-            R_blocks,
-            y_blocks,
-            m0_blocks,
-            P0_blocks,
-            mask_blocks,
-        )
+        block_states = jax.vmap(_run_masked)(*block_inputs, mask_blocks)
     else:
 
-        def _run(A_b, H_b, Q_b, R_b, y_b, m0_b, P0_b):
-            return base_filter(
-                A_b, H_b, Q_b, R_b, y_b, m0_b, P0_b, mask=mask, solver=solver
-            )
+        def _run(*inputs):
+            return base_filter(*inputs, mask=mask, solver=solver)
 
-        states = jax.vmap(_run)(
-            A_blocks, H_blocks, Q_blocks, R_blocks, y_blocks, m0_blocks, P0_blocks
-        )
+        block_states = jax.vmap(_run)(*block_inputs)
+
+    filtered_means = rearrange(
+        block_states.filtered_means, "block t state -> t (block state)"
+    )
+    predicted_means = rearrange(
+        block_states.predicted_means, "block t state -> t (block state)"
+    )
+    # log p(y_1:T) ≈ ∑_ℓ log p(y⁽ℓ⁾_1:T)
+    log_likelihood = jnp.sum(block_states.log_likelihood)
 
     return FilterState(
-        filtered_means=rearrange(states.filtered_means, "l t d -> t (l d)"),
-        filtered_covs=_embed_block_diag(states.filtered_covs),
-        predicted_means=rearrange(states.predicted_means, "l t d -> t (l d)"),
-        predicted_covs=_embed_block_diag(states.predicted_covs),
-        log_likelihood=jnp.sum(states.log_likelihood),
+        filtered_means=filtered_means,
+        filtered_covs=_embed_block_diag(block_states.filtered_covs),
+        predicted_means=predicted_means,
+        predicted_covs=_embed_block_diag(block_states.predicted_covs),
+        log_likelihood=log_likelihood,
     )
 
 
@@ -215,63 +293,111 @@ def meanfield_rts_smoother(
     solver: AbstractSolverStrategy | None = None,
     parallel: bool = False,
 ) -> tuple[Float[Array, "T D"], Float[Array, "T D D"]]:
-    """Mean-field RTS smoother over ``L = D // block_size`` state blocks.
+    """Mean-field RTS smoother over L = D_x / d independent state blocks.
 
-    Backward pass paired with `meanfield_kalman_filter`: runs ``L``
-    independent `gaussx.rts_smoother` passes under `jax.vmap`, one per
-    diagonal block. ``transition`` accepts the same forms as the filter
-    and is projected onto its diagonal blocks.
+        μ_x,t|T⁽ℓ⁾ = μ_x,t|t⁽ℓ⁾ + G_smooth,t⁽ℓ⁾ (μ_x,t+1|T⁽ℓ⁾ − μ_x,t+1|t⁽ℓ⁾)
+
+    with one smoother gain G_smooth,t⁽ℓ⁾ per diagonal block ℓ. The backward
+    pass paired with `meanfield_kalman_filter`: L independent
+    `gaussx.rts_smoother` passes under `jax.vmap`. ``transition`` accepts
+    the same forms as the filter and is projected onto its diagonal blocks.
+
+    Algorithm:
+        1. Split F_t and the filtered and predicted moments into their L
+           diagonal blocks.
+        2. Run `gaussx.rts_smoother` (or `gaussx.parallel_rts_smoother`) on
+           every block under `jax.vmap`.
+        3. Concatenate the block means and embed the block covariances in
+           block-diagonal matrices.
 
     Args:
-        filter_state: Output of `meanfield_kalman_filter` (or any
-            `gaussx.FilterState` whose covariances are block-diagonal —
-            off-block entries are discarded).
-        transition: State transition matrix or operator.
+        filter_state: Output of `meanfield_kalman_filter`, or any
+            `gaussx.FilterState` whose covariances are block-diagonal; the
+            off-block entries are discarded.
+        transition: Linear dynamics F_t, as in the filter.
         process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
             it will be removed in gaussx 0.7.0.
-        block_size: State block size ``d``; ``D`` must be divisible by
-            it.
-        solver: Optional solver strategy for the per-block smoother
-            gains. Sequential mode only.
+        block_size: State block length d; D_x must be divisible by it.
+        solver: Solver strategy for the per-block Σ_x,t+1|t. Sequential
+            mode only.
         parallel: When ``True``, run each block through
-            `gaussx.parallel_rts_smoother` instead of the sequential
-            scan.
-
-    Raises:
-        ValueError: If ``D`` is not divisible by ``block_size``.
+            `gaussx.parallel_rts_smoother` instead of the sequential scan.
 
     Returns:
-        Tuple ``(smoothed_means, smoothed_covs)`` with shapes
-        ``(T, D)`` and ``(T, D, D)``; covariances are block-diagonal
-        embeddings of the per-block smoothed covariances.
+        Tuple ``(smoothed_means, smoothed_covs)`` holding μ_x,t|T and the
+        block-diagonal Σ_x,t|T.
+
+    Raises:
+        ValueError: If D_x is not divisible by ``block_size``.
+
+    Examples:
+        Smooth a mean-field filter run of two independent random walks:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> model = (jnp.eye(2), jnp.eye(2), 0.1 * jnp.eye(2), 0.5 * jnp.eye(2))
+        >>> observations = jnp.array([[0.1, -0.2], [0.3, 0.0], [0.2, 0.1]])
+        >>> state = gaussx.meanfield_kalman_filter(
+        ...     *model, observations, jnp.zeros(2), jnp.eye(2), block_size=1
+        ... )
+        >>> means, covs = gaussx.meanfield_rts_smoother(
+        ...     state, jnp.eye(2), block_size=1
+        ... )
+        >>> means.shape, covs.shape
+        ((3, 2), (3, 2, 2))
+
+        The off-block covariances stay exactly zero:
+
+        >>> bool(jnp.all(covs[:, 0, 1] == 0.0))
+        True
     """
-    D = filter_state.filtered_means.shape[-1]
-    d = block_size
-    if D % d != 0:
-        raise ValueError(f"State dimension {D} is not divisible by block_size {d}.")
-    L = D // d
+    state_size = filter_state.filtered_means.shape[-1]
+    if state_size % block_size != 0:
+        raise ValueError(
+            f"State dimension {state_size} is not divisible by block_size {block_size}."
+        )
+    num_blocks = state_size // block_size
 
     _warn_unused_process_noise("meanfield_rts_smoother", process_noise)
-    A_blocks = _split_diag_blocks(transition, L, d, d)
+    # F_t⁽ℓ⁾
+    transition_blocks = _split_diag_blocks(
+        transition, num_blocks, block_size, block_size
+    )
 
+    filtered_mean_blocks = rearrange(
+        filter_state.filtered_means,
+        "t (block state) -> block t state",
+        block=num_blocks,
+    )
+    predicted_mean_blocks = rearrange(
+        filter_state.predicted_means,
+        "t (block state) -> block t state",
+        block=num_blocks,
+    )
+    # The smoother never reads the log-likelihood; broadcast it so the
+    # vmapped state has a block axis on every leaf.
+    log_likelihood_blocks = jnp.broadcast_to(filter_state.log_likelihood, (num_blocks,))
     block_states = FilterState(
-        filtered_means=rearrange(filter_state.filtered_means, "t (l d) -> l t d", l=L),
-        filtered_covs=_split_diag_blocks(filter_state.filtered_covs, L, d, d),
-        predicted_means=rearrange(
-            filter_state.predicted_means, "t (l d) -> l t d", l=L
+        filtered_means=filtered_mean_blocks,
+        filtered_covs=_split_diag_blocks(
+            filter_state.filtered_covs, num_blocks, block_size, block_size
         ),
-        predicted_covs=_split_diag_blocks(filter_state.predicted_covs, L, d, d),
-        log_likelihood=jnp.broadcast_to(filter_state.log_likelihood, (L,)),
+        predicted_means=predicted_mean_blocks,
+        predicted_covs=_split_diag_blocks(
+            filter_state.predicted_covs, num_blocks, block_size, block_size
+        ),
+        log_likelihood=log_likelihood_blocks,
     )
 
     base_smoother = parallel_rts_smoother if parallel else rts_smoother
 
-    def _run(state_b, A_b):
-        return base_smoother(state_b, A_b, solver=solver)
+    def _run(block_state, transition_block):
+        return base_smoother(block_state, transition_block, solver=solver)
 
-    s_means, s_covs = jax.vmap(_run)(block_states, A_blocks)
-
-    return (
-        rearrange(s_means, "l t d -> t (l d)"),
-        _embed_block_diag(s_covs),
+    smoothed_mean_blocks, smoothed_cov_blocks = jax.vmap(_run)(
+        block_states, transition_blocks
     )
+
+    smoothed_means = rearrange(smoothed_mean_blocks, "block t state -> t (block state)")
+    smoothed_covs = _embed_block_diag(smoothed_cov_blocks)
+    return smoothed_means, smoothed_covs
