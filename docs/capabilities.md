@@ -636,10 +636,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `nonlinear_kalman_filter` | function | Moment-matched nonlinear Kalman filter. |
+| `nonlinear_kalman_filter` | function | Moment-matched nonlinear Kalman filter (EKF, UKF, CKF, GHKF, …). |
 | `nonlinear_rts_smoother` | function | Moment-matched nonlinear Rauch-Tung-Striebel smoother. |
-| `nonlinear_kalman_predict` | function | One moment-matched predict step. |
-| `nonlinear_kalman_update` | function | One moment-matched update step. |
+| `nonlinear_kalman_predict` | function | One moment-matched predict step through the dynamics f. |
+| `nonlinear_kalman_update` | function | One moment-matched update step through the observation map h. |
 | `nonlinear_rts_step` | function | One moment-matched RTS backward step. |
 | `masked_moment_inputs` | function | Make masked observation channels inert in a moment-matched update. |
 
@@ -654,10 +654,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `kalman_gain` | function | Kalman gain of a linear-Gaussian observation of the state x. |
 | `parallel_kalman_filter` | function | Parallel Kalman filter via `jax.lax.associative_scan`. |
 | `parallel_rts_smoother` | function | Parallel RTS smoother via reverse `jax.lax.associative_scan`. |
-| `meanfield_kalman_filter` | function | Mean-field Kalman filter over ``L = D // block_size`` state blocks. |
-| `meanfield_rts_smoother` | function | Mean-field RTS smoother over ``L = D // block_size`` state blocks. |
-| `infinite_horizon_filter` | function | Infinite-horizon Kalman filter with fixed steady-state gain. |
-| `infinite_horizon_smoother` | function | Infinite-horizon RTS smoother with fixed steady-state gain. |
+| `meanfield_kalman_filter` | function | Mean-field Kalman filter over L = D_x / d independent state blocks. |
+| `meanfield_rts_smoother` | function | Mean-field RTS smoother over L = D_x / d independent state blocks. |
+| `infinite_horizon_filter` | function | Infinite-horizon Kalman filter with the fixed steady-state gain G_∞. |
+| `infinite_horizon_smoother` | function | Infinite-horizon RTS smoother with the fixed steady-state gain G_smooth,∞. |
 | `dare` | function | Steady-state Kalman filter covariance and gain (the filtering DARE). |
 | `DAREResult` | class | Result of DARE solver. |
 | `pairwise_marginals` | function | Joint p(x_k, x_{k+1}) for each consecutive pair. |
