@@ -93,7 +93,7 @@ line-length = 88
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "TID251"]
 ignore = ["E402", "E721", "E731", "E741", "F722"]
-allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺", "∣", "ℝ", "ℓ"]
+allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", "ε", "∈", "⊙", "≈", "⟺", "∣", "ℝ", "ℓ", "𝔼", "𝕍", "ν", "γ", "ρ", "ℛ", "′", "″"]
 
 # The einx convention (AGENTS.md, gh-404): contractions, permutations and
 # reshapes go through gaussx._einx, so the jnp spellings are banned outright.

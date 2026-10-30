@@ -1,4 +1,15 @@
-"""Abstract SDE kernel base class and SDEParams container."""
+"""Abstract SDE kernel base class and its `SDEParams` container.
+
+A stationary kernel k(τ) is the measurement of a linear time-invariant SDE
+
+    dx(t) = F_c x(t) dt + L_c db(t),    f(t) = H x(t),
+
+with drift matrix F_c, diffusion (noise-effect) matrix L_c, white-noise
+spectral density Q_c of the Brownian motion b(t) (db ~ 𝒩(0, Q_c dt)),
+stationary covariance Σ_x,∞ and measurement row H. Over a step Δt_t the SDE
+discretises to the transition F_t = exp(F_c Δt_t) and the model-noise
+covariance Σ_η,t, the inputs of the Kalman recursions in ``_kalman.py``.
+"""
 
 from __future__ import annotations
 
@@ -10,32 +21,50 @@ import jax
 import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
+from gaussx._einx import einsum
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._ssm._discretise import discretize_mfd, process_noise_covariance
 
 
 class SDEParams(NamedTuple):
-    """Continuous-time SDE parameters for a linear SDE.
+    """Continuous-time matrices (F_c, L_c, H, Q_c, Σ_x,∞) of a linear SDE.
 
-    Defines the linear time-invariant SDE:
-
-        dx = F x dt + L dW,   W ~ N(0, Q_c dt)
-
-    with observation model ``y = H x``.
+        dx(t) = F_c x(t) dt + L_c db(t),    db(t) ~ 𝒩(0, Q_c dt),
+        f(t) = H x(t),
+        F_c Σ_x,∞ + Σ_x,∞ F_cᵀ + L_c Q_c L_cᵀ = 0
 
     Attributes:
-        F: Drift matrix, shape ``(d, d)``.
-        L: Diffusion matrix, shape ``(d, s)``.
-        H: Observation matrix, shape ``(1, d)``.
-        Q_c: Spectral density, shape ``(s, s)``.
-        P_inf: Stationary covariance, shape ``(d, d)``, or ``None`` when
-            the kernel has no closed-form stationary covariance — as for a
-            learned drift matrix, or a non-stationary kernel such as
-            `gaussx.IntegratedWienerSDE`, which has no stationary
-            covariance at all. `SDEKernel.discretise` then falls back to
-            `gaussx.discretize_mfd`, which needs no ``P_inf``, and the
-            filter is started from `SDEKernel.initial_covariance`
-            instead.
+        F: Drift matrix F_c.
+        L: Diffusion (noise-effect) matrix L_c.
+        H: Measurement row H.
+        Q_c: White-noise spectral density Q_c.
+        P_inf: Stationary covariance Σ_x,∞, or ``None`` when the kernel
+            has no closed form for it: a learned drift matrix, or a
+            non-stationary kernel such as `gaussx.IntegratedWienerSDE`,
+            which has no stationary covariance at all.
+            `SDEKernel.discretise` then falls back to
+            `gaussx.discretize_mfd`, which needs no Σ_x,∞, and the filter
+            is started from `SDEKernel.initial_covariance` instead.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> kernel = gaussx.MaternSDE(
+        ...     variance=jnp.asarray(1.0), lengthscale=jnp.asarray(1.0), order=1
+        ... )
+        >>> params = kernel.sde_params()
+        >>> params.F.shape, params.L.shape, params.H.shape, params.Q_c.shape
+        ((2, 2), (2, 1), (1, 2), (1, 1))
+
+        The stationary covariance solves the Lyapunov equation:
+
+        >>> lyapunov = (
+        ...     params.F @ params.P_inf
+        ...     + params.P_inf @ params.F.T
+        ...     + params.L @ params.Q_c @ params.L.T
+        ... )
+        >>> bool(jnp.allclose(lyapunov, 0.0, atol=1e-4))
+        True
     """
 
     F: Float[Array, "d d"]
@@ -46,18 +75,36 @@ class SDEParams(NamedTuple):
 
 
 class SDEKernel(eqx.Module):
-    """Abstract base class for state-space kernel representations.
+    """Abstract state-space form of a kernel k(τ): a linear SDE.
 
-    Subclasses implement `sde_params` to provide the continuous-time
-    SDE matrices ``(F, L, H, Q_c, P_inf)``. The default `discretise`
-    uses the matrix exponential for discretization; subclasses may override
-    with closed-form solutions.
+        k(τ) = H exp(F_c τ) Σ_x,∞ Hᵀ,    τ ≥ 0
+
+    Subclasses implement `sde_params`, which returns (F_c, L_c, H, Q_c,
+    Σ_x,∞). The default `discretise` takes the matrix exponential of the
+    drift; subclasses may override it with a closed form.
+
+    Examples:
+        Every kernel in the zoo is an `SDEKernel`:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> kernel = gaussx.MaternSDE(
+        ...     variance=jnp.asarray(1.0), lengthscale=jnp.asarray(0.5), order=2
+        ... )
+        >>> isinstance(kernel, gaussx.SDEKernel), kernel.state_dim
+        (True, 3)
+
+        Discretise over a stack of steps Δt_1:T:
+
+        >>> transitions, noises = kernel.discretise_sequence(jnp.array([0.1, 0.2]))
+        >>> transitions.shape, noises.shape
+        ((2, 3, 3), (2, 3, 3))
     """
 
     @property
     @abc.abstractmethod
     def state_dim(self) -> int:
-        """Dimension of the latent state vector."""
+        """State length D_x."""
         ...
 
     @property
@@ -69,34 +116,39 @@ class SDEKernel(eqx.Module):
         `gaussx.IntegratedWienerSDE` overrides it. Consumers should
         branch on this rather than on ``sde_params().P_inf is None``:
         the two are different questions, since a stationary kernel may
-        report ``P_inf=None`` when it has no *closed form* for it (a
+        report ``P_inf=None`` when it has no *closed form* for Σ_x,∞ (a
         learned drift, say).
         """
         return True
 
     @abc.abstractmethod
     def sde_params(self) -> SDEParams:
-        """Return continuous-time SDE parameters."""
+        """Continuous-time parameters (F_c, L_c, H, Q_c, Σ_x,∞) of the SDE.
+
+        Returns:
+            The `SDEParams` of this kernel.
+        """
         ...
 
     def initial_covariance(self) -> Float[Array, "d d"]:
-        r"""Return the covariance of the state at the first time point.
+        """Covariance Σ_x,0 of the state at the first time point.
 
-        For a stationary kernel the process is assumed started in its
-        stationary distribution, so this is $P_\infty$ — the default
-        implementation returns it and existing kernels need no change.
-        A non-stationary kernel has no such limit to start from and must
-        override this with an explicit choice.
+            Σ_x,0 = Σ_x,∞
+
+        A stationary kernel is assumed started in its stationary
+        distribution, so the default returns Σ_x,∞ and existing kernels
+        need no change. A non-stationary kernel has no such limit to start
+        from and must override this with an explicit choice.
 
         Returns:
-            Initial state covariance, shape ``(d, d)``.
+            Initial state covariance Σ_x,0.
 
         Raises:
             ValueError: If ``sde_params().P_inf`` is ``None``, so there
                 is no stationary covariance to fall back on.
         """
-        P_inf = self.sde_params().P_inf
-        if P_inf is None:
+        stationary_covariance = self.sde_params().P_inf
+        if stationary_covariance is None:
             msg = (
                 f"{type(self).__name__} has no initial covariance: it "
                 f"reports P_inf=None, and the default initial covariance "
@@ -105,54 +157,69 @@ class SDEKernel(eqx.Module):
                 f"or give the kernel a P_inf."
             )
             raise ValueError(msg)
-        return P_inf
+        return stationary_covariance
 
     def discretise(
         self,
         dt: Float[Array, ""],
     ) -> tuple[Float[Array, "d d"], Float[Array, "d d"]]:
-        """Discretise the SDE at time step ``dt``.
+        """Discretise the SDE over one step Δt.
 
-        Default implementation computes:
+            F_t = exp(F_c Δt)
+            Σ_η,t = Σ_x,∞ − F_t Σ_x,∞ F_tᵀ
 
-            A = expm(F * dt)
-            Q = P_inf - A @ P_inf @ A^T
-
-        When ``sde_params()`` returns ``P_inf=None`` — a kernel with no
+        When ``sde_params()`` returns ``P_inf=None`` (a kernel with no
         closed-form stationary covariance, such as one whose drift is a
-        learned parameter — this falls back to `gaussx.discretize_mfd`,
-        which recovers both ``A`` and ``Q`` from one matrix exponential and
-        is well defined for every ``F``. The fallback is chosen at trace
+        learned parameter) this falls back to `gaussx.discretize_mfd`,
+        which recovers both F_t and Σ_η,t from one matrix exponential and
+        is well defined for every F_c. The fallback is chosen at trace
         time from a static ``None`` check, so kernels that do supply
-        ``P_inf`` keep the stationary route and its precision exactly.
-
+        Σ_x,∞ keep the stationary route and its precision exactly.
         Subclasses may override with closed-form expressions.
 
+        Algorithm:
+            1. Without Σ_x,∞, form B_c = L_c Q_c L_cᵀ and return
+               `gaussx.discretize_mfd` (F_c, B_c, Δt).
+            2. Otherwise exponentiate the drift, F_t = exp(F_c Δt).
+            3. Take Σ_η,t = Σ_x,∞ − F_t Σ_x,∞ F_tᵀ and symmetrise it.
+
         Args:
-            dt: Time step (scalar, non-negative).
+            dt: Time step Δt ≥ 0.
 
         Returns:
-            Tuple ``(A, Q)`` where A is the transition matrix and
-            Q is the process noise covariance.
+            Tuple ``(A, Q)`` holding the transition F_t and the
+            model-noise covariance Σ_η,t.
         """
         params = self.sde_params()
         if params.P_inf is None:
-            diffusion = params.L @ params.Q_c @ params.L.T
-            return discretize_mfd(params.F, diffusion, dt)
-        A = jsl.expm(params.F * dt)
-        Q = symmetrize(process_noise_covariance(A, params.P_inf))
-        return A, Q
+            # L_c Q_c
+            noise_effect_density = einsum(
+                params.L, params.Q_c, "state noise, noise col -> state col"
+            )
+            # B_c = L_c Q_c L_cᵀ
+            diffusion_covariance = einsum(
+                noise_effect_density, params.L, "state col, other col -> state other"
+            )
+            return discretize_mfd(params.F, diffusion_covariance, dt)
+        # F_t = exp(F_c Δt)
+        transition = jsl.expm(params.F * dt)
+        # Σ_η,t = Σ_x,∞ − F_t Σ_x,∞ F_tᵀ
+        model_noise_covariance = process_noise_covariance(transition, params.P_inf)
+        model_noise_covariance = symmetrize(model_noise_covariance)
+        return transition, model_noise_covariance
 
     def discretise_sequence(
         self,
         dt: Float[Array, " N"],
     ) -> tuple[Float[Array, "N d d"], Float[Array, "N d d"]]:
-        """Discretise the SDE at multiple time steps.
+        """Discretise the SDE over a stack of steps Δt_1:T, one per step.
+
+            F_t = exp(F_c Δt_t),    Σ_η,t,    t = 1, …, T
 
         Args:
-            dt: Time steps, shape ``(N,)``.
+            dt: Time steps Δt_1:T.
 
         Returns:
-            Tuple ``(A_seq, Q_seq)`` with shapes ``(N, d, d)``.
+            Tuple ``(A_seq, Q_seq)`` stacking F_t and Σ_η,t over time.
         """
         return jax.vmap(self.discretise)(dt)
