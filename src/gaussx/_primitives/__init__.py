@@ -1,4 +1,12 @@
-"""GaussX primitives -- Layer 0 pure functions with structural dispatch."""
+"""Layer 0 primitives: pure functions of an operator A with structural dispatch.
+
+The structured primitives (solve A x = b, log det A, the Cholesky factor L
+with A = L Lᵀ, diag(A), tr(A), ‖A‖_F, A^½, A⁻¹, the eigendecomposition
+A = Q diag(γ) Qᵀ, the SVD and root decompositions A ≈ R Rᵀ) take the first
+``isinstance`` rule that matches A's structure before any dense fallback.
+The package also holds submatrix extraction, mixture quantiles and the
+Chandrupatla root finder they use.
+"""
 
 from gaussx._primitives._chandrupatla import Chandrupatla
 from gaussx._primitives._cholesky import DenseFallbackWarning, cholesky

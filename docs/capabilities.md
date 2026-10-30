@@ -18,7 +18,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `solve` | function | Solve A x = b with structural dispatch on the operator type. |
 | `logdet` | function | Log-determinant log ∣det A∣ with structural dispatch on the operator type. |
-| `cholesky` | function | Compute Cholesky factor L such that A = L L^T. |
+| `cholesky` | function | Lower Cholesky factor L of an operator, structured where A is. |
 | `cholesky_logdet` | function | Log-determinant log det A from a Cholesky factor L of A = L Lᵀ. |
 
 ### Pseudo-determinant
@@ -31,20 +31,20 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `trace` | function | Compute the trace of an operator. |
-| `diag` | function | Extract the diagonal of an operator as a 1D array. |
-| `trace_and_diag` | function | Jointly estimate the trace and diagonal from one probe pass. |
+| `trace` | function | Trace tr(A) of an operator, with structural dispatch. |
+| `diag` | function | Diagonal diag(A) of an operator, with structural dispatch. |
+| `trace_and_diag` | function | Joint stochastic estimate of tr(A) and diag(A) from one probe pass. |
 
 ### Inverse, square root & spectral decompositions
 
 | Name | Kind | What it does |
 |---|---|---|
-| `inv` | function | Return a lazy inverse operator A^{-1}. |
+| `inv` | function | Lazy inverse A⁻¹ of an operator, structured where A is. |
 | `sqrt` | function | Principal matrix square root A^½ with structural dispatch, lazy where possible. |
 | `eig` | function | Eigenvalues and eigenvectors of A, with structural dispatch. |
 | `eigvals` | function | Eigenvalues of A only, with structural dispatch. |
-| `svd` | function | Compute the singular value decomposition ``A = U diag(s) V^T``. |
-| `frobenius_norm` | function | Compute the Frobenius norm ``\|\|A\|\|_F`` with structural dispatch. |
+| `svd` | function | Singular value decomposition of A, with structural dispatch. |
+| `frobenius_norm` | function | Frobenius norm ‖A‖_F of an operator, with structural dispatch. |
 | `submatrix` | function | Extract ``A[row_idx, col_idx]`` without forming the full matrix. |
 
 ### Generalised eigenproblems
