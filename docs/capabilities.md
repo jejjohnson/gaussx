@@ -95,11 +95,11 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `Kronecker` | class | Kronecker product operator ``A₁ ⊗ A₂ ⊗ … ⊗ Aₖ``. |
+| `Kronecker` | class | Kronecker product A = A_1 ⊗ … ⊗ A_D, applied one factor at a time. |
 | `BlockDiag` | class | Block diagonal operator ``diag(A₁, A₂, …, Aₖ)``. |
-| `KroneckerSum` | class | Kronecker sum ``A \oplus B = A \otimes I_b + I_a \otimes B``. |
-| `KroneckerSumSqrt` | class | Symmetric square root of ``A \oplus B`` via per-factor eigenvectors. |
-| `SumOfKroneckers` | class | Sum of Kronecker products ``Σ_k A_k \otimes B_k``. |
+| `KroneckerSum` | class | Kronecker sum A_1 ⊕ A_2 = A_1 ⊗ I + I ⊗ A_2 of two square operators. |
+| `KroneckerSumSqrt` | class | Symmetric square root S of A_1 ⊕ A_2 from the factor eigenvectors. |
+| `SumOfKroneckers` | class | Sum of Kronecker products ∑_j A_j ⊗ B_j, applied term by term. |
 | `SumOfKroneckersSqrt` | class | Lazy Lanczos square root A^½ of a `SumOfKroneckers` covariance. |
 
 ### Low-rank updates
@@ -149,8 +149,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `sum_operator` | function | Lazy sum ``(A + B + …) v = A v + B v + …``. |
 | `scaled_operator` | function | Lazy scalar multiply ``(c A) v = c (A v)``. |
 | `product_operator` | function | Lazy matmul ``(A B) v = A (B v)``. |
-| `kronecker_sum_sample` | function | Sample from ``𝒩(0, A ⊕ B)`` using per-factor eigendecompositions. |
-| `sum_of_kroneckers_sample` | function | Sample from ``𝒩(0, op)`` with matrix-free Lanczos square roots. |
+| `kronecker_sum_sample` | function | Sample from 𝒩(0, A_1 ⊕ A_2) through the factor eigendecompositions. |
+| `sum_of_kroneckers_sample` | function | Sample from 𝒩(0, K) with a matrix-free Lanczos square root. |
 | `toeplitz_sample` | function | Sample from ``𝒩(0, Toeplitz(column))`` via FFT circulant embedding. |
 | `CapacitanceSolver` | class | Solve a base system subject to homogeneous point constraints. |
 
