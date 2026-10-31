@@ -229,7 +229,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `linear_solve` | function | Solve ``A x = b`` through the unified front door. |
+| `linear_solve` | function | Solve A x = b through the unified front door. |
 | `as_linear_operator` | function | Wrap a raw ``matvec`` callable as a tagged lineax operator. |
 
 ### Abstract interfaces
@@ -267,19 +267,19 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `DenseLogdet` | class | Dense log-determinant via gaussx structural dispatch. |
-| `SLQLogdet` | class | Stochastic log-determinant via Lanczos quadrature (SLQ). |
-| `IndefiniteSLQLogdet` | class | Stochastic ``log\|det(A)\|`` for symmetric (possibly indefinite) operators. |
-| `NystromLogdet` | class | Nyström-preconditioned log-determinant of $A + \mu I$ (Wenger et al., 2022). |
+| `DenseLogdet` | class | Exact log-determinant by gaussx's structural dispatch. |
+| `SLQLogdet` | class | Stochastic log-determinant by stochastic Lanczos quadrature (SLQ). |
+| `IndefiniteSLQLogdet` | class | Stochastic log \|det(A + σ I)\| for symmetric, possibly indefinite, A. |
+| `NystromLogdet` | class | Nyström-preconditioned SLQ log-determinant of K + σ² I (Wenger et al., 2022). |
 
 ### Preconditioners
 
 | Name | Kind | What it does |
 |---|---|---|
-| `AbstractPreconditioner` | class | Protocol for preconditioners producing an approximate inverse. |
-| `JacobiPreconditioner` | class | Diagonal preconditioner ``M^{-1} = diag(1 / \|diag(A)\|)``. |
+| `AbstractPreconditioner` | class | Protocol for preconditioners that produce an approximate inverse. |
+| `JacobiPreconditioner` | class | Diagonal preconditioner M⁻¹ = diag(1 / \|diag(A)\|). |
 | `OperatorPreconditioner` | class | Use an externally supplied approximate inverse as a preconditioner. |
-| `NystromPreconditioner` | class | Randomized Nyström preconditioner for ``A + μ I``. |
+| `NystromPreconditioner` | class | Randomized Nyström preconditioner for K + σ² I. |
 | `PartialCholeskyPreconditioner` | class | Preconditioner from a pivoted partial Cholesky factor. |
 
 ## [Linear-Algebra Utilities](api/linalg.md)
