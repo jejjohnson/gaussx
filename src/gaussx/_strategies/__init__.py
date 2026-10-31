@@ -1,4 +1,10 @@
-"""GaussX solver strategies -- encapsulate solve + logdet algorithms."""
+"""Solver strategies: how A x = b and log det A are computed, never what.
+
+A is a square N × N operator (M × N for least squares), b the right-hand side
+and x the solution. A strategy pairs a solve with a log-determinant, so the
+same model code runs with a direct factorisation, conjugate gradients (CG),
+MINRES, LSMR or a stochastic Lanczos quadrature (SLQ) estimate.
+"""
 
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import (

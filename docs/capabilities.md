@@ -236,22 +236,22 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `AbstractSolveStrategy` | class | Protocol for linear solve strategies. |
-| `AbstractLogdetStrategy` | class | Protocol for log-determinant strategies. |
-| `AbstractSolverStrategy` | class | Protocol for solver strategies that pair solve + logdet. |
+| `AbstractSolveStrategy` | class | Protocol for a linear-solve strategy. |
+| `AbstractLogdetStrategy` | class | Protocol for a log-determinant strategy. |
+| `AbstractSolverStrategy` | class | Protocol for a solver strategy that pairs a solve and a log-determinant. |
 
 ### Direct & iterative solvers
 
 | Name | Kind | What it does |
 |---|---|---|
-| `DenseSolver` | class | Dense solver strategy using gaussx structural dispatch. |
-| `AutoSolver` | class | Automatic solver selection based on operator type and size. |
-| `CGSolver` | class | Iterative CG solver with stochastic log-determinant. |
-| `PreconditionedCGSolver` | class | CG solver with pivoted partial Cholesky preconditioner. |
-| `MINRESSolver` | class | MINRES solver for symmetric (possibly indefinite) systems. |
+| `DenseSolver` | class | Exact solver strategy through gaussx structural dispatch. |
+| `AutoSolver` | class | Automatic solver selection from the operator's type, size and tags. |
+| `CGSolver` | class | Conjugate-gradient solve with a stochastic log-determinant. |
+| `PreconditionedCGSolver` | class | CG with a pivoted partial Cholesky preconditioner. |
+| `MINRESSolver` | class | MINRES solver for symmetric, possibly indefinite, systems. |
 | `LSMRSolver` | class | LSMR iterative least-squares solver (Fong & Saunders 2011). |
 | `BBMMSolver` | class | CG solve and SLQ logdet with BBMM's defaults (Gardner et al. 2018). |
-| `ComposedSolver` | class | Mix-and-match solve and logdet from different strategies. |
+| `ComposedSolver` | class | Mix-and-match a solve and a log-determinant from different strategies. |
 | `KeyedSolver` | class | Bind a PRNG key to a strategy's stochastic log-determinant (gh-384). |
 | `LineaxSolver` | class | A lineax solver as a gaussx solve strategy. |
 | `SparseCholeskySolver` | class | Exact ``solve`` / ``logdet`` / ``diag_inv`` through a sparse Cholesky factor. |
@@ -1009,7 +1009,7 @@ added here, not inline in one caller.
 | `gaussx._testing` | Test utilities for gaussx. | `default_tolerances`, `tree_allclose`, `_resolve_dtype`, `key_sequence`, `random_pd_matrix`, `random_pd_operator`, `psd_operator`, `random_kronecker_pd`, `random_block_diag_pd`, `random_low_rank_update`, `random_sum_of_kroneckers_pd`, `random_spd_block_tridiag`, `empirical_moments`, `dense_solve`, `dense_logdet`, `dense_inv`, `dense_diag`, `dense_trace`, `assert_sample_moments` |
 | `gaussx._deprecation` | gaussx's own deprecation warning category and helper (gh-332). | `GaussxDeprecationWarning`, `renamed_attribute`, `warn_deprecated`, `renamed_kwargs` |
 | `gaussx._operators._utils` | Lineax structure functions shared by every gaussx operator A. | `lineax_diagonal`, `_square_components`, `lineax_conj`, `register_lineax_structure_functions`, `_identity` |
-| `gaussx._strategies._dispatch` | Dispatch helpers: route through solver strategy or fall back to primitives. | `dispatch_solve`, `dispatch_logdet` |
+| `gaussx._strategies._dispatch` | Route x = A⁻¹ b and log \|det A\| through a strategy, or structural dispatch. | `dispatch_solve`, `dispatch_logdet` |
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |
 | `gaussx._distributions._utils` | Shared helpers for batched distribution reshaping. | `_axis_names`, `_reshape_batch`, `_reshape_series`, `_reshape_samples`, `_unflatten_sample_axis` |
