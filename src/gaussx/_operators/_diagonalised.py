@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import functools as ft
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import equinox as eqx
 import jax
@@ -28,6 +29,10 @@ from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._operators._kronecker_sum import KroneckerSum
+
+
+if TYPE_CHECKING:
+    from gaussx._linalg._eigen_factorization import EigenDecomposition
 
 
 Transform = Callable[[Array], Array]
@@ -185,7 +190,7 @@ class DiagonalizedOperator(lx.AbstractLinearOperator):
     @classmethod
     def from_eigen_factorization(
         cls,
-        factorization,
+        factorization: EigenDecomposition,
         *,
         tags: object | frozenset[object] = frozenset(),
     ) -> DiagonalizedOperator:
