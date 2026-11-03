@@ -1,4 +1,9 @@
-"""Abstract solver strategy protocols."""
+"""Abstract strategy protocols: a solve x = A⁻¹ b, a log-determinant log |det A|.
+
+A is a square N × N operator, b ∈ ℝ^N the right-hand side and x ∈ ℝ^N the
+solution. A strategy changes how these are computed (a factorisation, a
+Krylov iteration, a stochastic estimate), never what they are.
+"""
 
 from __future__ import annotations
 
@@ -11,11 +16,20 @@ from jaxtyping import Array, Float
 
 
 class AbstractSolveStrategy(eqx.Module):
-    """Protocol for linear solve strategies.
+    """Protocol for a linear-solve strategy.
 
-    A solve strategy encapsulates the choice of algorithm for
-    solving ``A x = b``.  Separating solve from logdet lets
-    users mix-and-match via `ComposedSolver`.
+        x = A⁻¹ b
+
+    A solve strategy fixes the algorithm for A x = b. Keeping it apart from
+    the log-determinant lets `ComposedSolver` pair any solve with any
+    log-determinant.
+
+    Examples:
+        Every full strategy is also a solve strategy:
+
+        >>> import gaussx
+        >>> isinstance(gaussx.CGSolver(), gaussx.AbstractSolveStrategy)
+        True
     """
 
     @abc.abstractmethod
@@ -24,27 +38,38 @@ class AbstractSolveStrategy(eqx.Module):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
-        """Solve ``A x = b``.
+        """Solve A x = b.
+
+            x = A⁻¹ b
 
         Args:
-            operator: Linear operator ``A``.
-            vector: Right-hand side ``b``, shape ``(n,)``.
+            operator: Linear operator A, N × N.
+            vector: Right-hand side b, of length N.
 
         Returns:
-            Solution ``x``, shape ``(n,)``.
+            Solution x, of length N.
         """
         ...
 
 
 class AbstractLogdetStrategy(eqx.Module):
-    """Protocol for log-determinant strategies.
+    """Protocol for a log-determinant strategy.
 
-    A logdet strategy encapsulates the choice of algorithm for
-    computing ``log |det(A)|``.  Separating logdet from solve
-    lets users mix-and-match via `ComposedSolver`.
+        log |det A|
 
-    All implementations accept an optional ``key`` parameter for
-    stochastic methods.  Deterministic strategies ignore it.
+    A logdet strategy fixes the algorithm for log |det A|. Keeping it apart
+    from the solve lets `ComposedSolver` pair any log-determinant with any
+    solve. Every implementation takes an optional ``key`` for its stochastic
+    estimators; deterministic strategies ignore it.
+
+    Examples:
+        The stochastic Lanczos estimator is a logdet-only strategy:
+
+        >>> import gaussx
+        >>> isinstance(gaussx.SLQLogdet(), gaussx.AbstractLogdetStrategy)
+        True
+        >>> isinstance(gaussx.SLQLogdet(), gaussx.AbstractSolveStrategy)
+        False
     """
 
     @abc.abstractmethod
@@ -54,25 +79,45 @@ class AbstractLogdetStrategy(eqx.Module):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Compute log |det(A)|.
+        """Compute log |det A|.
+
+            log |det A| = ∑_d log |γ_d|
+
+        with γ_d, d = 1, …, N, the eigenvalues of A.
 
         Args:
-            operator: Linear operator.
+            operator: Linear operator A, N × N.
             key: Optional PRNG key for stochastic estimators.
+
+        Returns:
+            Scalar log |det A|, exact or estimated.
         """
         ...
 
 
 class AbstractSolverStrategy(AbstractSolveStrategy, AbstractLogdetStrategy):
-    """Protocol for solver strategies that pair solve + logdet.
+    """Protocol for a solver strategy that pairs a solve and a log-determinant.
 
-    A solver strategy encapsulates the choice of algorithm for
-    solving linear systems and computing log-determinants. This
-    decouples distribution objects from solver implementation
-    details.
+        x = A⁻¹ b,   log |det A|
 
-    Subclasses must implement both `solve` and `logdet`.
-    For independent control, see `AbstractSolveStrategy` and
-    `AbstractLogdetStrategy`, composable via
+    A solver strategy fixes both algorithms, which decouples distributions
+    and recipes from how their linear algebra is computed. Subclasses
+    implement both `solve` and `logdet`; for independent control use
+    `AbstractSolveStrategy` and `AbstractLogdetStrategy`, composed with
     `ComposedSolver`.
+
+    Examples:
+        A structural-dispatch strategy behind a solve and a log-determinant:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> solver = gaussx.DenseSolver()
+        >>> isinstance(solver, gaussx.AbstractSolverStrategy)
+        True
+        >>> A = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0]))
+        >>> [round(float(v), 4) for v in solver.solve(A, jnp.ones(2))]
+        [0.5, 0.25]
+        >>> round(float(solver.logdet(A)), 4)
+        2.0794
     """

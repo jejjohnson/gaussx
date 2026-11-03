@@ -1,4 +1,12 @@
-"""BBMM solver strategy: batched CG + stochastic logdet (Gardner et al. 2018)."""
+"""BBMM solver strategy: a CG solve and an SLQ logdet (Gardner et al. 2018).
+
+A is a square N × N symmetric positive-definite operator, b the right-hand
+side and x the solution of A x = b, computed by conjugate gradients (CG)
+with residuals r_j = b − A x_j. The log-determinant is the stochastic
+Lanczos quadrature (SLQ) estimate over probes z^(i), i = 1, …, N_probe, with
+T^(i) the Lanczos tridiagonal of A started at z^(i). The shared modified
+batched CG (mBCG) pass lives in `gaussx.inv_quad_logdet`.
+"""
 
 from __future__ import annotations
 
@@ -20,6 +28,9 @@ from gaussx._strategies._tolerances import (
 
 class BBMMSolver(AbstractSolverStrategy):
     """CG solve and SLQ logdet with BBMM's defaults (Gardner et al. 2018).
+
+        x = A⁻¹ b   by CG,
+        log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
 
     Solve: an ordinary lineax CG solve of each right-hand side.
     Logdet: stochastic Lanczos quadrature (SLQ) via matfree, with
@@ -46,18 +57,50 @@ class BBMMSolver(AbstractSolverStrategy):
     ``max_steps`` and ``lanczos_iter`` is ``lanczos_order``.
 
     Attributes:
-        rtol: Relative tolerance for CG. ``None``: ``1e-4`` in float64,
-            ``1e-3`` in float32 (gh-327).
-        atol: Absolute tolerance for CG. ``None``: ``1e-4`` in float64; in
-            float32, ``sqrt(eps) * max|b_i|``, relative to the right-hand
-            side (the solve runs on ``b / max|b_i|``; gh-639).
-        max_steps: Maximum CG iterations.
-        lanczos_order: Lanczos iterations for SLQ.
-        num_probes: Number of probe vectors for Hutchinson.
-        seed: Seed for probe vector generation.
+        rtol: Relative tolerance tol_rel. ``None``: 1e-4 in float64, 1e-3
+            in float32 (gh-327).
+        atol: Absolute tolerance tol_abs. ``None``: 1e-4 in float64; in
+            float32, √eps maxₙ |b_n|, relative to the right-hand side (the
+            solve runs on b / maxₙ |b_n|; gh-639).
+        max_steps: Maximum number of CG steps j.
+        lanczos_order: Number of Lanczos steps, the order of T^(i).
+        num_probes: Number of probe vectors N_probe.
+        seed: Seed of the probes z^(i) when `logdet` gets no ``key``.
         throw: Raise when CG does not converge within ``max_steps``. With
             ``False`` the last iterate is returned unchecked (see
             `gaussx.CGSolver`).
+
+    Examples:
+        A solve, and an SLQ estimate that is exact on a diagonal:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> matrix = jnp.array([[4.0, 1.0], [1.0, 3.0]])
+        >>> A = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+        >>> b = jnp.array([1.0, 2.0])
+        >>> solver = gaussx.BBMMSolver(lanczos_order=2, num_probes=4)
+        >>> bool(jnp.allclose(matrix @ solver.solve(A, b), b, atol=1e-3))
+        True
+        >>> diagonal = lx.MatrixLinearOperator(
+        ...     jnp.diag(jnp.array([1.0, 2.0])), lx.positive_semidefinite_tag
+        ... )
+        >>> round(float(solver.logdet(diagonal)), 3)
+        0.693
+
+        The deprecated keywords still work, with a warning:
+
+        >>> import warnings
+        >>> with warnings.catch_warnings():
+        ...     warnings.simplefilter("ignore")
+        ...     old = gaussx.BBMMSolver(cg_max_iter=50)
+        >>> old.max_steps
+        50
+
+    References:
+        Gardner, J. R., Pleiss, G., Weinberger, K. Q., Bindel, D., &
+        Wilson, A. G. (2018). GPyTorch: Blackbox matrix-matrix Gaussian
+        process inference with GPU acceleration. *Proc. NeurIPS*.
     """
 
     rtol: float | None = eqx.field(static=True, default=None)
@@ -104,7 +147,11 @@ class BBMMSolver(AbstractSolverStrategy):
 
     @property
     def cg_tolerance(self) -> float | None:
-        """Deprecated: `rtol` (gh-405)."""
+        """Deprecated: `rtol` (gh-405).
+
+        Returns:
+            ``rtol``, with a deprecation warning.
+        """
         warn_deprecated(
             "BBMMSolver.cg_tolerance is deprecated and will be removed in gaussx "
             "0.7.0; use .rtol (gh-405)."
@@ -113,7 +160,11 @@ class BBMMSolver(AbstractSolverStrategy):
 
     @property
     def cg_max_iter(self) -> int:
-        """Deprecated: `max_steps` (gh-405)."""
+        """Deprecated: `max_steps` (gh-405).
+
+        Returns:
+            ``max_steps``, with a deprecation warning.
+        """
         warn_deprecated(
             "BBMMSolver.cg_max_iter is deprecated and will be removed in gaussx "
             "0.7.0; use .max_steps (gh-405)."
@@ -122,7 +173,11 @@ class BBMMSolver(AbstractSolverStrategy):
 
     @property
     def lanczos_iter(self) -> int:
-        """Deprecated: `lanczos_order` (gh-405)."""
+        """Deprecated: `lanczos_order` (gh-405).
+
+        Returns:
+            ``lanczos_order``, with a deprecation warning.
+        """
         warn_deprecated(
             "BBMMSolver.lanczos_iter is deprecated and will be removed in gaussx "
             "0.7.0; use .lanczos_order (gh-405)."
@@ -134,25 +189,44 @@ class BBMMSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
-        """Solve A x = b via CG.
+        """Solve A x = b by conjugate gradients.
+
+            x = A⁻¹ b
+
+        Algorithm:
+            1. Resolve tol_rel and tol_abs for the dtype; below float64 with
+               the default ``atol``, rescale to A y = b / s with
+               s = maxₙ |b_n|.
+            2. Run lineax CG to |r_j,n| ≤ tol_abs + tol_rel |b_n|, raising
+               at ``max_steps`` when ``throw`` is set.
+            3. Undo the rescaling, x = s y.
 
         Args:
-            operator: A PSD linear operator.
-            vector: The right-hand side b.
+            operator: Symmetric positive-definite operator A, N × N.
+            vector: Right-hand side b, of length N.
 
         Returns:
-            The solution x.
+            Solution x, of length N.
+
+        Raises:
+            equinox.EquinoxRuntimeError: If CG has not converged after
+                ``max_steps`` steps and ``throw`` is set.
         """
         dtype = operator_dtype(operator, vector)
+        # tol_abs and s = maxₙ |b_n| (s is None: no rescaling)
         atol, scale = rhs_scaling(self.atol, dtype, 1e-4, vector)
+        # b / s
         rhs = vector if scale is None else vector / scale
+        rtol = resolve_tolerance(self.rtol, dtype, 1e-4)
         solver = lx.CG(
-            rtol=resolve_tolerance(self.rtol, dtype, 1e-4),
+            rtol=rtol,
             atol=atol,
             max_steps=self.max_steps,
         )
-        x = lx.linear_solve(operator, rhs, solver, throw=self.throw).value
-        return x if scale is None else x * scale
+        # y = A⁻¹ (b / s)
+        solution = lx.linear_solve(operator, rhs, solver, throw=self.throw).value
+        # x = s y
+        return solution if scale is None else solution * scale
 
     def logdet(
         self,
@@ -160,15 +234,20 @@ class BBMMSolver(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Stochastic log-determinant via Lanczos quadrature.
+        """Estimate log det A by stochastic Lanczos quadrature.
 
-        Probe vectors are generated deterministically from ``self.seed``.
+            log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
+
+        With no ``key`` the probes z^(i) come from ``PRNGKey(seed)``, the
+        same on every call.
 
         Args:
-            operator: A PSD linear operator.
+            operator: Symmetric positive-definite operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``.
 
         Returns:
-            Scalar estimate of log |det(A)|.
+            Scalar estimate of log det A.
         """
         return SLQLogdet(
             num_probes=self.num_probes,
@@ -181,17 +260,24 @@ class BBMMSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> tuple[Float[Array, " n"], Float[Array, ""]]:
-        """``(solve(A, b), logdet(A))`` in one call.
+        """Solve A x = b and estimate log det A in one call.
+
+            (x, log det A) = (A⁻¹ b, SLQ estimate)
 
         A convenience wrapper: it costs exactly `solve` plus `logdet`, with
         no shared matvecs. For the shared mBCG pass use
         ``gaussx.inv_quad_logdet(operator, rhs, strategy=self)``.
 
         Args:
-            operator: A PSD linear operator.
-            vector: The right-hand side b.
+            operator: Symmetric positive-definite operator A, N × N.
+            vector: Right-hand side b, of length N.
 
         Returns:
-            Tuple of (solution, log_determinant).
+            Tuple ``(solution, logdet)`` holding x and the estimate of
+            log det A.
+
+        Raises:
+            equinox.EquinoxRuntimeError: If CG has not converged after
+                ``max_steps`` steps and ``throw`` is set.
         """
         return self.solve(operator, vector), self.logdet(operator)

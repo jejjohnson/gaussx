@@ -1,4 +1,4 @@
-"""Composed solver strategy: mix-and-match solve and logdet."""
+"""Composed solver strategy: x = A⁻¹ b and log |det A| from two strategies."""
 
 from __future__ import annotations
 
@@ -14,25 +14,37 @@ from gaussx._strategies._base import (
 
 
 class ComposedSolver(AbstractSolverStrategy):
-    """Mix-and-match solve and logdet from different strategies.
+    """Mix-and-match a solve and a log-determinant from different strategies.
 
-    This lets you pair, e.g., an exact dense solve with a stochastic
-    log-determinant estimator, or an iterative CG solve with a
-    closed-form Kronecker log-determinant.
+        x = A⁻¹ b   by ``solve_strategy``,   log |det A|   by ``logdet_strategy``
 
-    Accepts either fine-grained protocols (`AbstractSolveStrategy`,
-    `AbstractLogdetStrategy`) or full solver strategies.
+    This pairs, e.g., an exact dense solve with a stochastic log-determinant
+    estimator, or an iterative CG solve with a closed-form Kronecker
+    log-determinant. Either slot takes a fine-grained protocol
+    (`AbstractSolveStrategy`, `AbstractLogdetStrategy`) or a full solver
+    strategy.
 
     Attributes:
-        solve_strategy: Strategy whose ``.solve()`` method will be used.
-        logdet_strategy: Strategy whose ``.logdet()`` method will be used.
+        solve_strategy: Strategy whose ``solve`` is used.
+        logdet_strategy: Strategy whose ``logdet`` is used.
 
     Examples:
+        A CG solve with an exact log-determinant:
 
-        solver = ComposedSolver(
-            solve_strategy=DenseSolver(),
-            logdet_strategy=SLQLogdet(num_probes=50, lanczos_order=30),
-        )
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> solver = gaussx.ComposedSolver(
+        ...     solve_strategy=gaussx.CGSolver(),
+        ...     logdet_strategy=gaussx.DenseLogdet(),
+        ... )
+        >>> matrix = jnp.array([[4.0, 1.0], [1.0, 3.0]])
+        >>> A = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+        >>> b = jnp.array([1.0, 2.0])
+        >>> bool(jnp.allclose(matrix @ solver.solve(A, b), b, atol=1e-3))
+        True
+        >>> round(float(solver.logdet(A)), 4)
+        2.3979
     """
 
     solve_strategy: AbstractSolveStrategy
@@ -43,14 +55,16 @@ class ComposedSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " n"],
     ) -> Float[Array, " n"]:
-        """Solve ``A x = b`` by delegating to ``solve_strategy``.
+        """Solve A x = b with ``solve_strategy``.
+
+            x = A⁻¹ b
 
         Args:
-            operator: Linear operator ``A``.
-            vector: Right-hand side ``b``, shape ``(n,)``.
+            operator: Linear operator A, N × N.
+            vector: Right-hand side b, of length N.
 
         Returns:
-            Solution ``x``, shape ``(n,)``.
+            Solution x, of length N.
         """
         return self.solve_strategy.solve(operator, vector)
 
@@ -60,13 +74,17 @@ class ComposedSolver(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Compute ``log|det(A)|`` by delegating to ``logdet_strategy``.
+        """Compute log |det A| with ``logdet_strategy``.
+
+            log |det A| = ∑_d log |γ_d|
+
+        with γ_d, d = 1, …, N, the eigenvalues of A.
 
         Args:
-            operator: Linear operator ``A``.
-            key: Optional PRNG key forwarded to stochastic estimators.
+            operator: Linear operator A, N × N.
+            key: Optional PRNG key, forwarded to a stochastic estimator.
 
         Returns:
-            Scalar log-determinant.
+            Scalar log |det A|, exact or estimated.
         """
         return self.logdet_strategy.logdet(operator, key=key)

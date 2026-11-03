@@ -1,4 +1,12 @@
-"""LSMR solver strategy for least-squares and regularized systems."""
+"""LSMR solver strategy for least-squares and Tikhonov-regularised systems.
+
+A is an M × N operator (it may be rectangular), b ∈ ℝ^M the right-hand side
+and x ∈ ℝ^N the solution. LSMR (Fong & Saunders, 2011) minimises
+‖A x − b‖₂² + β ‖x‖₂² with the regularisation weight β = damp² ≥ 0, using
+only the products A v and Aᵀ u. The log-determinant, for a square symmetric
+PSD A, is the stochastic Lanczos quadrature (SLQ) estimate over probes z^(i),
+i = 1, …, N_probe.
+"""
 
 from __future__ import annotations
 
@@ -19,11 +27,11 @@ from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 class LSMRSolver(AbstractSolverStrategy):
     """LSMR iterative least-squares solver (Fong & Saunders 2011).
 
-    Matrix-free solver that only requires matvec and transpose-matvec.
-    Supports Tikhonov regularization via ``damp`` parameter:
-    minimizes ``||Ax - b||^2 + damp^2 ||x||^2``.
+        x = argmin_x ‖A x − b‖₂² + β ‖x‖₂²,   β = damp²
 
-    Suitable for rectangular, ill-conditioned, or regularized systems.
+    A matrix-free solver that needs only A v and Aᵀ u, for rectangular,
+    ill-conditioned or regularised systems; ``damp`` adds the Tikhonov
+    term β ‖x‖₂².
 
     The undamped path delegates to `lineax.LSMR` (with lineax's
     implicit-differentiation rules). lineax's LSMR has no Tikhonov
@@ -31,20 +39,40 @@ class LSMRSolver(AbstractSolverStrategy):
     a custom VJP for memory-efficient backpropagation.
 
     Attributes:
-        atol: Absolute tolerance. ``None``: ``1e-6`` in float64, ``1e-3``
-            in float32 (gh-327).
+        atol: Absolute tolerance. ``None``: 1e-6 in float64, 1e-3 in
+            float32 (gh-327).
         btol: Relative tolerance on the residual. ``None``: as ``atol``.
-        ctol: Condition number tolerance (the lineax path uses
+        ctol: Condition-number tolerance: stop once the estimate of
+            cond(A) passes 1 / ``ctol`` (the lineax path uses
             ``conlim = 1 / ctol``).
-        max_steps: Maximum iterations (formerly ``maxiter``, a deprecated
-            alias; gh-405).
-        damp: Tikhonov damping parameter.
-        num_probes: Number of probe vectors for stochastic logdet.
-        lanczos_order: Lanczos iterations for SLQ logdet.
-        seed: Seed for probe vector generation.
+        max_steps: Maximum number of iterations (formerly ``maxiter``, a
+            deprecated alias; gh-405).
+        damp: Tikhonov damping √β.
+        num_probes: Number of SLQ probe vectors N_probe.
+        lanczos_order: Number of Lanczos steps for the SLQ log-determinant.
+        seed: Seed of the SLQ probes when `logdet` gets no ``key``.
         throw: Raise when LSMR stops without converging (``max_steps``
             reached), on both the lineax and the damped matfree path. With
             ``False`` the last iterate is returned unchecked (gh-336).
+
+    Examples:
+        An overdetermined least-squares problem:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> matrix = jnp.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+        >>> b = jnp.array([1.0, 2.0, 2.0])
+        >>> x = gaussx.LSMRSolver().solve(lx.MatrixLinearOperator(matrix), b)
+        >>> [round(float(v), 2) for v in x]
+        [0.67, 1.67]
+
+        Damping shrinks the solution towards zero:
+
+        >>> damped = gaussx.LSMRSolver(damp=1.0)
+        >>> x_damped = damped.solve(lx.MatrixLinearOperator(matrix), b)
+        >>> bool(jnp.linalg.norm(x_damped) < jnp.linalg.norm(x))
+        True
     """
 
     atol: float | None = eqx.field(static=True, default=None)
@@ -85,7 +113,11 @@ class LSMRSolver(AbstractSolverStrategy):
 
     @property
     def maxiter(self) -> int:
-        """Deprecated: `max_steps` (gh-405)."""
+        """Deprecated: `max_steps` (gh-405).
+
+        Returns:
+            ``max_steps``, with a deprecation warning.
+        """
         warn_deprecated(
             "LSMRSolver.maxiter is deprecated and will be removed in gaussx 0.7.0; "
             "use .max_steps (gh-405)."
@@ -97,19 +129,34 @@ class LSMRSolver(AbstractSolverStrategy):
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " m"],
     ) -> Float[Array, " n"]:
-        """Solve A x = b via LSMR.
+        """Solve the (damped) least-squares problem for A x ≈ b by LSMR.
+
+            x = argmin_x ‖A x − b‖₂² + β ‖x‖₂²,   β = damp²
+
+        Algorithm:
+            1. Resolve ``atol`` and ``btol`` for the dtype.
+            2. Undamped (β = 0): `lineax.LSMR` through
+               `lineax.linear_solve`, with lineax's implicit derivatives.
+            3. Damped: matfree's LSMR, with its custom VJP; raise through
+               ``eqx.error_if`` when it does not converge and ``throw`` is
+               set.
 
         Args:
-            operator: A linear operator (may be rectangular).
-            vector: The right-hand side b.
+            operator: Linear operator A, M × N, possibly rectangular.
+            vector: Right-hand side b, of length M.
 
         Returns:
-            The (least-squares) solution x.
+            The least-squares solution x, of length N.
+
+        Raises:
+            equinox.EquinoxRuntimeError: If LSMR has not converged after
+                ``max_steps`` steps and ``throw`` is set.
         """
         dtype = operator_dtype(operator, vector)
         atol = resolve_tolerance(self.atol, dtype, 1e-6)
         btol = resolve_tolerance(self.btol, dtype, 1e-6)
         if self.damp == 0.0:
+            # cond(A) limit 1 / ctol, or lineax's default when ctol = 0
             solver = lx.LSMR(
                 rtol=btol,
                 atol=atol,
@@ -127,19 +174,21 @@ class LSMRSolver(AbstractSolverStrategy):
             maxiter=self.max_steps,
         )
 
-        def vecmat(v):
-            return operator.T.mv(v)
+        def vecmat(left_vector):
+            # uᵀ A = (Aᵀ u)ᵀ
+            return operator.T.mv(left_vector)
 
-        x, stats = lsmr_fn(vecmat, vector, damp=self.damp)
+        # x = argmin_x ‖A x − b‖₂² + β ‖x‖₂²
+        solution, stats = lsmr_fn(vecmat, vector, damp=self.damp)
         if self.throw:
             # matfree reports success but never raises; match lineax.
-            x = eqx.error_if(
-                x,
+            solution = eqx.error_if(
+                solution,
                 jnp.logical_not(stats["success"]),
                 "LSMR did not converge within `max_steps` steps. Increase "
                 "`max_steps`, loosen `atol`/`btol`, or pass `throw=False`.",
             )
-        return x
+        return solution
 
     def logdet(
         self,
@@ -147,16 +196,21 @@ class LSMRSolver(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Stochastic log-determinant via Lanczos quadrature.
+        """Estimate log det A by stochastic Lanczos quadrature.
 
-        LSMR itself does not use this: it is SLQ on a *square* symmetric
-        PSD operator, for the `AbstractSolverStrategy` interface.
+            log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
+
+        with T^(i) the Lanczos tridiagonal of A started at z^(i). LSMR itself
+        does not use this: it is SLQ on a *square* symmetric PSD operator,
+        for the `AbstractSolverStrategy` interface.
 
         Args:
-            operator: A square symmetric PSD linear operator.
+            operator: Square symmetric positive-definite operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``: the same probes on every call.
 
         Returns:
-            Scalar estimate of log |det(A)|.
+            Scalar estimate of log det A.
 
         Raises:
             ValueError: If the operator is not square (gh-402).
