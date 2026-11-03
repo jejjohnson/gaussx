@@ -136,7 +136,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `InterpolatedOperator` | class | Structured kernel interpolation A = W_interp K_ℐℐ W_interpᵀ ≈ K_XX. |
-| `MaskedOperator` | class | Row/column-masked view of a base operator. |
+| `MaskedOperator` | class | Masked view A = A₀[m_r, m_c] of a square base operator A₀. |
 | `grid_coupling_indices` | function | Flat indices of masked-out grid cells adjacent to the masked-in region. |
 | `create_grid` | function | Regular grid axes g_d = linspace(lo_d, hi_d, N_d), one per dimension. |
 | `grid_data` | function | Inducing inputs X_ℐ, the Cartesian product of the grid axes. |
@@ -199,8 +199,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `SparseOperator` | class | Sparse matrix with a static `SparsityPattern` and traced values. |
-| `SparsityPattern` | class | Static, hashable sparsity pattern of a ``(m, n)`` matrix. |
+| `SparseOperator` | class | Sparse matrix A with a static `SparsityPattern` and traced values. |
+| `SparsityPattern` | class | Static, hashable sparsity pattern of an M × N matrix A. |
 | `symbolic_cholesky` | function | Symbolic analysis of a sparse Cholesky factorisation (host, cached). |
 | `SymbolicCholesky` | class | Symbolic Cholesky factor of a symmetric sparsity pattern. |
 | `sparse_cholesky` | function | Sparse Cholesky factorisation of a symmetric positive-definite operator. |
@@ -1008,7 +1008,7 @@ added here, not inline in one caller.
 | `gaussx._einx` | Typed einx adapters for tensor reshaping and contraction. | `rearrange`, `repeat`, `reduce`, `einsum` |
 | `gaussx._testing` | Test utilities for gaussx. | `default_tolerances`, `tree_allclose`, `_resolve_dtype`, `key_sequence`, `random_pd_matrix`, `random_pd_operator`, `psd_operator`, `random_kronecker_pd`, `random_block_diag_pd`, `random_low_rank_update`, `random_sum_of_kroneckers_pd`, `random_spd_block_tridiag`, `empirical_moments`, `dense_solve`, `dense_logdet`, `dense_inv`, `dense_diag`, `dense_trace`, `assert_sample_moments` |
 | `gaussx._deprecation` | gaussx's own deprecation warning category and helper (gh-332). | `GaussxDeprecationWarning`, `renamed_attribute`, `warn_deprecated`, `renamed_kwargs` |
-| `gaussx._operators._utils` | Private utilities shared by operator implementations. | `lineax_diagonal`, `_square_components`, `lineax_conj`, `register_lineax_structure_functions`, `_identity` |
+| `gaussx._operators._utils` | Lineax structure functions shared by every gaussx operator A. | `lineax_diagonal`, `_square_components`, `lineax_conj`, `register_lineax_structure_functions`, `_identity` |
 | `gaussx._strategies._dispatch` | Dispatch helpers: route through solver strategy or fall back to primitives. | `dispatch_solve`, `dispatch_logdet` |
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |
