@@ -1,4 +1,20 @@
-"""Standalone logdet strategies: SLQ, indefinite SLQ, and dense."""
+"""Standalone log-determinant strategies: SLQ, indefinite SLQ and dense.
+
+A is a square N × N symmetric operator and log det A = tr(log A). Stochastic
+Lanczos quadrature (SLQ) estimates the trace with probes z^(i) ∈ ℝᴺ,
+i = 1, …, N_probe, 𝔼[z zᵀ] = I,
+
+    log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁,
+
+with T^(i) the k × k Lanczos tridiagonal of A started at v₁ = z^(i) / ‖z^(i)‖.
+The Lanczos recurrence
+
+    α_j = v_jᵀ A v_j,   β_j+1 v_j+1 = A v_j − α_j v_j − β_j v_j−1,
+
+gives T's diagonal α_j and off-diagonal β_j+1, j = 1, …, k, and the Gauss
+quadrature reads e₁ᵀ f(T) e₁ = ∑_j [S]₁ⱼ² f(θ_j) from the Ritz values θ_j and
+vectors S of T = S diag(θ) Sᵀ.
+"""
 
 from __future__ import annotations
 
@@ -29,48 +45,82 @@ def _lanczos(
 ) -> tuple[Float[Array, " k"], Float[Array, " k"]]:
     """Fully reorthogonalised Lanczos that stops cleanly at breakdown (gh-520).
 
-    Once the Krylov space is exhausted (``β_j ≤ sqrt(eps) · ‖T‖``) the
-    remaining steps are padded: ``β = 0`` and ``α = 1``, a decoupled
-    identity block that carries no quadrature weight. Every division and
-    square root is double-``where`` guarded, so reverse mode through the
-    breakdown is finite instead of ``0 · ∞ = NaN``.
+        α_j = v_jᵀ A v_j,   β_j+1 v_j+1 = A v_j − α_j v_j − β_j v_j−1
+
+    Once the Krylov space is exhausted (β_j+1 ≤ √eps ‖T‖) the remaining
+    steps are padded with β = 0 and α = 1, a decoupled identity block that
+    carries no quadrature weight. Every division and square root is
+    double-``where`` guarded, so reverse mode through the breakdown is
+    finite instead of 0 · ∞ = NaN.
+
+    Algorithm:
+        1. Store v_j as row j of the basis V and form
+           w = A v_j − β_j v_j−1.
+        2. Take α_j = v_jᵀ w and subtract α_j v_j.
+        3. Reorthogonalise w against every stored row of V, twice.
+        4. Track the scale ‖T‖ ≈ maxⱼ (|α_j| + β_j) and flag a breakdown
+           once ‖w‖₂² ≤ (√eps ‖T‖)².
+        5. Set β_j+1 = ‖w‖₂ and v_j+1 = w / β_j+1, or pad after a
+           breakdown.
 
     Args:
-        matvec: ``(v, *parameters) -> A v`` for a symmetric ``A``.
-        v0: Unit-norm starting vector.
-        order: Number of Lanczos steps ``k``.
+        matvec: ``(v, *parameters) -> A v`` for a symmetric A.
+        v0: Unit-norm starting vector v₁.
+        order: Number of Lanczos steps k.
         *parameters: Passed to ``matvec``.
 
     Returns:
-        ``(alphas, betas)``, the diagonal and the off-diagonal (in
-        ``betas[:-1]``) of the ``k × k`` tridiagonal.
+        ``(alphas, betas)``: the diagonal α_j of the k × k tridiagonal T
+        and, in ``betas[:-1]``, its off-diagonal β_j+1.
     """
-    n = v0.shape[0]
+    size = v0.shape[0]
     dtype = v0.dtype
+    # √eps
     sqrt_eps = jnp.sqrt(jnp.finfo(dtype).eps)
     zero = jnp.zeros((), dtype=dtype)
 
     def step(carry, j):
-        basis, q, q_prev, beta_prev, broken, scale = carry
-        basis = basis.at[j].set(q)
-        w = matvec(q, *parameters) - beta_prev * q_prev
-        alpha = jnp.dot(q, w)
-        w = w - alpha * q
+        basis, lanczos_vector, previous_vector, beta, broken, scale = carry
+        # row j of V is v_j
+        basis = basis.at[j].set(lanczos_vector)
+        # A v_j
+        operator_vector = matvec(lanczos_vector, *parameters)
+        # w = A v_j − β_j v_j−1
+        krylov_residual = operator_vector - beta * previous_vector
+        # α_j = v_jᵀ w
+        alpha = jnp.dot(lanczos_vector, krylov_residual)
+        # w ← w − α_j v_j
+        krylov_residual = krylov_residual - alpha * lanczos_vector
         # Full reorthogonalisation against every stored vector, twice.
         for _ in range(2):
-            w = w - einsum(basis, einsum(basis, w, "k n, n -> k"), "k n, k -> n")
-        squared = jnp.dot(w, w)
-        scale = jnp.maximum(scale, jnp.abs(alpha) + beta_prev)
+            # V w
+            overlaps = einsum(basis, krylov_residual, "step row, row -> step")
+            # w ← w − Vᵀ V w
+            krylov_residual = krylov_residual - einsum(
+                basis, overlaps, "step row, step -> row"
+            )
+        # ‖w‖₂²
+        squared = jnp.dot(krylov_residual, krylov_residual)
+        # ‖T‖ ≈ maxⱼ (|α_j| + β_j)
+        scale = jnp.maximum(scale, jnp.abs(alpha) + beta)
+        # breakdown once ‖w‖₂² ≤ (√eps ‖T‖)²
         broken_now = broken | (squared <= (sqrt_eps * scale) ** 2)
-        safe = jnp.where(broken_now, jnp.ones((), dtype=dtype), squared)
-        norm = jnp.sqrt(safe)
-        beta = jnp.where(broken_now, zero, norm)
-        q_next = jnp.where(broken_now, jnp.zeros_like(w), w / norm)
+        # Double where: the untaken √0 branch would make the gradient NaN.
+        safe_squared = jnp.where(broken_now, jnp.ones((), dtype=dtype), squared)
+        # β_j+1 = ‖w‖₂
+        norm = jnp.sqrt(safe_squared)
+        beta_next = jnp.where(broken_now, zero, norm)
+        # v_j+1 = w / β_j+1
+        next_vector = jnp.where(
+            broken_now, jnp.zeros_like(krylov_residual), krylov_residual / norm
+        )
+        # α_j = 1 in the padded identity block
         alpha = jnp.where(broken, jnp.ones((), dtype=dtype), alpha)
-        return (basis, q_next, q, beta, broken_now, scale), (alpha, beta)
+        carry = (basis, next_vector, lanczos_vector, beta_next, broken_now, scale)
+        return carry, (alpha, beta_next)
 
     init = (
-        jnp.zeros((order, n), dtype=dtype),
+        jnp.zeros((order, size), dtype=dtype),
         v0,
         jnp.zeros_like(v0),
         zero,
@@ -87,72 +137,148 @@ def _gauss_quadrature(
     dfun: Callable[[Array], Array],
     tridiagonal: Float[Array, "k k"],
 ) -> Float[Array, ""]:
-    """``e₁ᵀ f(T) e₁`` for a symmetric tridiagonal ``T`` (Gauss quadrature)."""
+    """Gauss quadrature e₁ᵀ f(T) e₁ for a symmetric tridiagonal T.
+
+        e₁ᵀ f(T) e₁ = ∑_j [S]₁ⱼ² f(θ_j),   T = S diag(θ) Sᵀ
+
+    Args:
+        fun: Matrix function f, applied to the Ritz values θ_j.
+        dfun: Its derivative f′, used only by the JVP.
+        tridiagonal: Symmetric tridiagonal T, k × k.
+
+    Returns:
+        The scalar e₁ᵀ f(T) e₁.
+    """
     del dfun
-    eigenvalues, eigenvectors = jnp.linalg.eigh(tridiagonal)
-    return jnp.sum(eigenvectors[0] ** 2 * fun(eigenvalues))
+    # T = S diag(θ) Sᵀ
+    ritz_values, ritz_vectors = jnp.linalg.eigh(tridiagonal)
+    # ∑_j [S]₁ⱼ² f(θ_j)
+    return jnp.sum(ritz_vectors[0] ** 2 * fun(ritz_values))
 
 
 @_gauss_quadrature.defjvp
 def _gauss_quadrature_jvp(fun, dfun, primals, tangents):
-    r"""Daleckii-Krein derivative of ``e₁ᵀ f(T) e₁``.
+    """Daleckii-Krein derivative of e₁ᵀ f(T) e₁.
 
-    $$
-    d\,e_1^\top f(T) e_1 = \sum_{ij} c_i\, (V^\top dT\, V)_{ij}\,
-    f[\lambda_i, \lambda_j]\, c_j, \qquad c = V^\top e_1,
-    $$
+        d e₁ᵀ f(T) e₁ = ∑_jl c_j [Sᵀ dT S]_jl f[θ_j, θ_l] c_l,   c = Sᵀ e₁
 
-    with the divided difference $f[\lambda_i, \lambda_j]$ (and
-    $f'(\lambda_i)$ on ties). Unlike differentiating ``eigh``, which divides
-    by eigenvalue gaps, this stays finite when eigenvalues coincide, as they
-    do in the padded block after a Lanczos breakdown (gh-520).
+    with the divided difference f[θ_j, θ_l] = (f(θ_j) − f(θ_l)) / (θ_j − θ_l),
+    and f′ at the midpoint on ties. Unlike differentiating ``eigh``, which
+    divides by eigenvalue gaps, this stays finite when Ritz values coincide,
+    as they do in the padded block after a Lanczos breakdown (gh-520).
+
+    Args:
+        fun: Matrix function f.
+        dfun: Its derivative f′.
+        primals: Tuple ``(T,)``.
+        tangents: Tuple ``(dT,)``.
+
+    Returns:
+        Tuple ``(e₁ᵀ f(T) e₁, d e₁ᵀ f(T) e₁)``.
     """
     (tridiagonal,) = primals
     (tangent,) = tangents
-    eigenvalues, eigenvectors = jnp.linalg.eigh(tridiagonal)
-    weights = eigenvectors[0]
-    gaps = einx.subtract("i, j -> i j", eigenvalues, eigenvalues)
-    rises = einx.subtract("i, j -> i j", fun(eigenvalues), fun(eigenvalues))
-    mids = 0.5 * einx.add("i, j -> i j", eigenvalues, eigenvalues)
-    sizes = einx.add("i, j -> i j", jnp.abs(eigenvalues), jnp.abs(eigenvalues))
+    # T = S diag(θ) Sᵀ
+    ritz_values, ritz_vectors = jnp.linalg.eigh(tridiagonal)
+    # c = Sᵀ e₁
+    weights = ritz_vectors[0]
+    # θ_j − θ_l
+    gaps = einx.subtract("ritz, other -> ritz other", ritz_values, ritz_values)
+    # f(θ_j) − f(θ_l)
+    rises = einx.subtract(
+        "ritz, other -> ritz other", fun(ritz_values), fun(ritz_values)
+    )
+    # (θ_j + θ_l) / 2
+    mids = 0.5 * einx.add("ritz, other -> ritz other", ritz_values, ritz_values)
+    # |θ_j| + |θ_l|
+    sizes = einx.add(
+        "ritz, other -> ritz other", jnp.abs(ritz_values), jnp.abs(ritz_values)
+    )
+    # tie: |θ_j − θ_l| ≤ √eps (|θ_j| + |θ_l|)
     tie = jnp.abs(gaps) <= jnp.sqrt(jnp.finfo(gaps.dtype).eps) * sizes
+    # Double where: the untaken 0 / 0 branch would make the gradient NaN.
     safe_gaps = jnp.where(tie, jnp.ones_like(gaps), gaps)
+    # f[θ_j, θ_l], f′((θ_j + θ_l) / 2) on ties
     divided = jnp.where(tie, dfun(mids), rises / safe_gaps)
-    rotated = einsum(eigenvectors, tangent, eigenvectors, "a i, a b, b j -> i j")
-    primal = jnp.sum(weights**2 * fun(eigenvalues))
-    return primal, einsum(weights, rotated * divided, weights, "i, i j, j ->")
+    # Sᵀ dT S
+    rotated = einsum(
+        ritz_vectors,
+        tangent,
+        ritz_vectors,
+        "row ritz, row col, col other -> ritz other",
+    )
+    # ∑_j [S]₁ⱼ² f(θ_j)
+    primal = jnp.sum(weights**2 * fun(ritz_values))
+    # ∑_jl c_j [Sᵀ dT S]_jl f[θ_j, θ_l] c_l
+    tangent_out = einsum(
+        weights, rotated * divided, weights, "ritz, ritz other, other ->"
+    )
+    return primal, tangent_out
 
 
 def _quadform_integrand(
     order: int, fun: Callable[[Array], Array], dfun: Callable[[Array], Array]
 ):
-    """SLQ integrand ``‖v‖² e₁ᵀ f(T) e₁`` in matfree's integrand signature."""
+    """SLQ integrand ‖z‖² e₁ᵀ f(T) e₁ in matfree's integrand signature.
+
+        z ↦ ‖z‖² e₁ᵀ f(T) e₁,   T the Lanczos tridiagonal from v₁ = z / ‖z‖
+
+    Args:
+        order: Number of Lanczos steps k.
+        fun: Matrix function f.
+        dfun: Its derivative f′.
+
+    Returns:
+        A function ``(matvec, z, *parameters) -> ‖z‖² e₁ᵀ f(T) e₁``.
+    """
 
     def quadform(matvec, v0, *parameters):
+        # ‖z‖₂
         length = jnp.linalg.norm(v0)
+        # α_j, β_j+1 from v₁ = z / ‖z‖₂
         alphas, betas = _lanczos(matvec, v0 / length, order, *parameters)
-        off = betas[:-1]
-        tridiagonal = jnp.diag(alphas) + jnp.diag(off, 1) + jnp.diag(off, -1)
+        off_diagonal = betas[:-1]
+        # T = tridiag(β, α, β)
+        tridiagonal = (
+            jnp.diag(alphas) + jnp.diag(off_diagonal, 1) + jnp.diag(off_diagonal, -1)
+        )
+        # ‖z‖² e₁ᵀ f(T) e₁
         return length**2 * _gauss_quadrature(fun, dfun, tridiagonal)
 
     return quadform
 
 
 def _reciprocal(x: Array) -> Array:
+    """Derivative of log: x ↦ 1 / x."""
     return 1.0 / x
 
 
 def _log_abs(x: Array) -> Array:
+    """Matrix function of the indefinite log-determinant: x ↦ log |x|."""
     return jnp.log(jnp.abs(x))
 
 
 def _logdet_integrand(order: int):
-    """SLQ integrand for ``log det(A)`` of a PSD operator."""
+    """SLQ integrand for log det A of a PSD operator, with f = log.
+
+    Args:
+        order: Number of Lanczos steps k.
+
+    Returns:
+        The integrand ``(matvec, z, *parameters) -> ‖z‖² e₁ᵀ log(T) e₁``.
+    """
     return _quadform_integrand(order, jnp.log, _reciprocal)
 
 
 def _logabsdet_integrand(order: int):
-    """SLQ integrand for ``log|det(A)|`` of a symmetric operator."""
+    """SLQ integrand for log |det A| of a symmetric operator, f = log |·|.
+
+    Args:
+        order: Number of Lanczos steps k.
+
+    Returns:
+        The integrand ``(matvec, z, *parameters) -> ‖z‖² e₁ᵀ log|T| e₁``.
+    """
     return _quadform_integrand(order, _log_abs, _reciprocal)
 
 
@@ -163,7 +289,21 @@ def _slq_estimators(
     sampler: SamplerName,
     dtype: DTypeLike,
 ) -> tuple[Callable, Callable]:
-    """Build (point, mean-and-sem) SLQ estimators sharing one sampler."""
+    """Build the point and the mean-and-SEM SLQ estimators on one sampler.
+
+        (1 / N_probe) ∑_i g(z^(i)),   z^(i) ~ p(z)
+
+    Args:
+        integrand: The SLQ integrand g, e.g. ‖z‖² e₁ᵀ log(T) e₁.
+        n: Probe length N.
+        num_probes: Number of probes N_probe.
+        sampler: Probe distribution name.
+        dtype: The operator's dtype, for the probes and the result.
+
+    Returns:
+        Tuple ``(point, with_sem)`` of functions ``(matvec, key) -> …``,
+        the estimate and the estimate with its standard error.
+    """
     probe_fn = resolve_sampler(sampler, n, num_probes, dtype)
     point_raw = matfree.stochtrace.estimator_monte_carlo(integrand, probe_fn)
     with_sem_raw = matfree.stochtrace.estimator_monte_carlo_mean_and_sem(
@@ -189,6 +329,10 @@ def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
 
     Symmetric Lanczos on a non-symmetric operator returns a silently wrong
     log-determinant. The check is on the tags, so it is free under ``jit``.
+
+    Args:
+        operator: Operator A handed to the strategy.
+        name: Strategy name for the warning.
     """
     if not lx.is_symmetric(operator):
         warn_deprecated(
@@ -200,12 +344,14 @@ def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
 
 
 class SLQLogdet(AbstractLogdetStrategy):
-    """Stochastic log-determinant via Lanczos quadrature (SLQ).
+    """Stochastic log-determinant by stochastic Lanczos quadrature (SLQ).
 
-    Estimates ``log det(A)`` for PSD operators using stochastic
-    trace estimation: ``logdet(A) = tr(log(A))``.  Uses matfree's
-    Lanczos decomposition with sign-flip ("Rademacher") probe vectors
-    by default.
+        log det A = tr(log A) ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
+
+    for a PSD operator A, with T^(i) the k × k Lanczos tridiagonal of A
+    started at z^(i) / ‖z^(i)‖, k = min(``lanczos_order``, N). The Lanczos
+    run is fully reorthogonalised and stops cleanly at breakdown; the
+    probes are sign-flip (Rademacher) vectors by default.
 
     With no ``key``, `logdet` uses ``PRNGKey(seed)``, so every call sees the
     same probes: common random numbers, which suit stochastic-gradient
@@ -214,12 +360,28 @@ class SLQLogdet(AbstractLogdetStrategy):
     strategy in `gaussx.KeyedSolver`) to decorrelate calls.
 
     Attributes:
-        num_probes: Number of probe vectors for Hutchinson estimator.
-        lanczos_order: Order of the Lanczos decomposition.
-        seed: Seed for probe vector generation (used when no
-            ``key`` is passed to `logdet`).
-        sampler: Probe distribution (``"signs"``, ``"normal"``,
-            ``"sphere"``).
+        num_probes: Number of probe vectors N_probe.
+        lanczos_order: Number of Lanczos steps k, clamped to N.
+        seed: Seed of the probes z^(i) when `logdet` gets no ``key``.
+        sampler: Probe distribution: ``"signs"``, ``"normal"`` or
+            ``"sphere"``.
+
+    Examples:
+        On a diagonal operator one Lanczos step per probe is exact:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 4.0]))
+        >>> estimate = gaussx.SLQLogdet(num_probes=4).logdet(A)
+        >>> round(float(estimate), 3), round(float(jnp.log(8.0)), 3)
+        (2.079, 2.079)
+
+        The standard error across probes comes with ``logdet_and_error``:
+
+        >>> estimate, error = gaussx.SLQLogdet().logdet_and_error(A)
+        >>> error.shape
+        ()
     """
 
     num_probes: int = eqx.field(static=True, default=20)
@@ -228,6 +390,14 @@ class SLQLogdet(AbstractLogdetStrategy):
     sampler: SamplerName = eqx.field(static=True, default="signs")
 
     def _integrand(self, n: int):
+        """SLQ integrand with k = min(``lanczos_order``, N) Lanczos steps.
+
+        Args:
+            n: Operator size N.
+
+        Returns:
+            The integrand ``(matvec, z) -> ‖z‖² e₁ᵀ log(T) e₁``.
+        """
         return _logdet_integrand(min(self.lanczos_order, n))
 
     def logdet(
@@ -236,24 +406,32 @@ class SLQLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Stochastic ``log det(A)`` via Lanczos quadrature.
+        """Estimate log det A by stochastic Lanczos quadrature.
+
+            log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
+
+        Algorithm:
+            1. Warn when A is not tagged symmetric.
+            2. Draw N_probe probes z^(i) from ``key`` (or ``PRNGKey(seed)``).
+            3. Run k Lanczos steps from each z^(i) / ‖z^(i)‖ and average
+               the Gauss quadratures ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁.
 
         Args:
-            operator: A PSD linear operator.
-            key: PRNG key for probe vector sampling.  If ``None``,
-                uses ``jax.random.PRNGKey(self.seed)``.
+            operator: Symmetric positive-definite operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``: the same probes on every call.
 
         Returns:
-            Scalar estimate of ``log det(A)``.
+            Scalar estimate of log det A.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
-        n = operator.in_size()
+        size = operator.in_size()
         point, _ = _slq_estimators(
-            self._integrand(n),
-            n,
+            self._integrand(size),
+            size,
             self.num_probes,
             self.sampler,
             operator.in_structure().dtype,
@@ -266,25 +444,28 @@ class SLQLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> tuple[Float[Array, ""], Float[Array, ""]]:
-        """Stochastic ``log det(A)`` with its standard error.
+        """Estimate log det A and the standard error of the probe mean.
+
+            log det A ≈ ḡ = (1 / N_probe) ∑_i g^(i),
+            SEM = std(g^(i)) / √N_probe,   g^(i) = ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
 
         Args:
-            operator: A PSD linear operator.
-            key: PRNG key for probe vector sampling.  If ``None``,
-                uses ``jax.random.PRNGKey(self.seed)``.
+            operator: Symmetric positive-definite operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``.
 
         Returns:
-            Tuple ``(estimate, standard_error)`` where the standard
-            error is the standard error of the mean across probes.
+            Tuple ``(estimate, standard_error)``: the SLQ estimate and the
+            standard error of the mean across probes.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
-        n = operator.in_size()
+        size = operator.in_size()
         _, with_sem = _slq_estimators(
-            self._integrand(n),
-            n,
+            self._integrand(size),
+            size,
             self.num_probes,
             self.sampler,
             operator.in_structure().dtype,
@@ -293,19 +474,32 @@ class SLQLogdet(AbstractLogdetStrategy):
 
 
 class IndefiniteSLQLogdet(AbstractLogdetStrategy):
-    """Stochastic ``log|det(A)|`` for symmetric (possibly indefinite) operators.
+    """Stochastic log |det(A + σ I)| for symmetric, possibly indefinite, A.
 
-    Like `SLQLogdet` but uses ``log(|lambda|)`` as the matrix
-    function, so it works on indefinite and negative-definite matrices.
-    Supports a diagonal shift ``(A + shift * I)``.
+        log |det(A + σ I)| ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁
+
+    with T^(i) the Lanczos tridiagonal of A + σ I and σ the diagonal
+    ``shift``. Like `SLQLogdet`, but the matrix function is log |θ|, so it
+    works on indefinite and negative-definite operators.
 
     Attributes:
-        num_probes: Number of probe vectors for Hutchinson estimator.
-        lanczos_order: Order of the Lanczos decomposition.
-        shift: Diagonal shift applied before computing the logdet.
-        seed: Seed for probe vector generation.
-        sampler: Probe distribution (``"signs"``, ``"normal"``,
-            ``"sphere"``).
+        num_probes: Number of probe vectors N_probe.
+        lanczos_order: Number of Lanczos steps k, clamped to N.
+        shift: Diagonal shift σ, applied before the log-determinant.
+        seed: Seed of the probes z^(i) when `logdet` gets no ``key``.
+        sampler: Probe distribution: ``"signs"``, ``"normal"`` or
+            ``"sphere"``.
+
+    Examples:
+        A diagonal with a negative entry:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([-2.0, 1.0, 4.0]))
+        >>> estimate = gaussx.IndefiniteSLQLogdet(num_probes=4).logdet(A)
+        >>> round(float(estimate), 3), round(float(jnp.log(8.0)), 3)
+        (2.079, 2.079)
     """
 
     num_probes: int = eqx.field(static=True, default=20)
@@ -315,9 +509,18 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
     sampler: SamplerName = eqx.field(static=True, default="signs")
 
     def _shifted_matvec(self, operator: lx.AbstractLinearOperator):
+        """The shifted product v ↦ (A + σ I) v.
+
+        Args:
+            operator: Symmetric operator A.
+
+        Returns:
+            A function ``v -> A v + σ v``.
+        """
         shift = self.shift
 
         def matvec(v):
+            # (A + σ I) v
             return operator.mv(v) + shift * v
 
         return matvec
@@ -328,25 +531,33 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        r"""Stochastic ``log|det(A + shift I)|`` via Lanczos quadrature.
+        """Estimate log |det(A + σ I)| by stochastic Lanczos quadrature.
+
+            log |det(A + σ I)| ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁
+
+        Algorithm:
+            1. Warn when A is not tagged symmetric.
+            2. Draw N_probe probes z^(i) from ``key`` (or ``PRNGKey(seed)``).
+            3. Run k Lanczos steps of A + σ I from each z^(i) / ‖z^(i)‖ and
+               average ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁.
 
         Args:
-            operator: A symmetric linear operator.
-            key: PRNG key for probe vector sampling.  If ``None``,
-                uses ``jax.random.PRNGKey(self.seed)``.
+            operator: Symmetric operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``.
 
         Returns:
-            Scalar estimate of ``log|det(A + shift I)|``.
+            Scalar estimate of log |det(A + σ I)|.
         """
         _check_symmetric(operator, "IndefiniteSLQLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
-        n = operator.in_size()
-        order = min(self.lanczos_order, n)
+        size = operator.in_size()
+        order = min(self.lanczos_order, size)
         point, _ = _slq_estimators(
             _logabsdet_integrand(order),
-            n,
+            size,
             self.num_probes,
             self.sampler,
             operator.in_structure().dtype,
@@ -359,12 +570,15 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> tuple[Float[Array, ""], Float[Array, ""]]:
-        """Stochastic ``log|det(A + shift I)|`` with its standard error.
+        """Estimate log |det(A + σ I)| and the standard error of the mean.
+
+            log |det(A + σ I)| ≈ ḡ = (1 / N_probe) ∑_i g^(i),
+            SEM = std(g^(i)) / √N_probe,   g^(i) = ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁
 
         Args:
-            operator: A symmetric linear operator.
-            key: PRNG key for probe vector sampling.  If ``None``,
-                uses ``jax.random.PRNGKey(self.seed)``.
+            operator: Symmetric operator A, N × N.
+            key: PRNG key for the probes z^(i). ``None`` uses
+                ``jax.random.PRNGKey(seed)``.
 
         Returns:
             Tuple ``(estimate, standard_error)``.
@@ -373,11 +587,11 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
         if key is None:
             key = jax.random.PRNGKey(self.seed)
 
-        n = operator.in_size()
-        order = min(self.lanczos_order, n)
+        size = operator.in_size()
+        order = min(self.lanczos_order, size)
         _, with_sem = _slq_estimators(
             _logabsdet_integrand(order),
-            n,
+            size,
             self.num_probes,
             self.sampler,
             operator.in_structure().dtype,
@@ -386,11 +600,21 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
 
 
 class DenseLogdet(AbstractLogdetStrategy):
-    """Dense log-determinant via gaussx structural dispatch.
+    """Exact log-determinant by gaussx's structural dispatch.
 
-    Delegates to `gaussx.logdet` which automatically selects
-    the best algorithm based on operator structure (Diagonal,
-    BlockDiag, Kronecker, LowRankUpdate, or dense fallback).
+        log |det A|
+
+    Delegates to `gaussx.logdet`, which picks the algorithm from the
+    operator's structure (diagonal, `BlockDiag`, `Kronecker`,
+    `LowRankUpdate`, or the dense fallback).
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> A = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0]))
+        >>> round(float(gaussx.DenseLogdet().logdet(A)), 4)
+        2.0794
     """
 
     def logdet(
@@ -399,14 +623,15 @@ class DenseLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        """Compute ``log |det(A)|`` via structural dispatch.
+        """Exact log |det A| through structural dispatch.
+
+            log |det A|
 
         Args:
-            operator: A linear operator.
-            key: Ignored (deterministic).
+            operator: Square operator A.
+            key: Ignored; the result is deterministic.
 
         Returns:
-            Scalar ``log |det(A)|``.
+            Scalar log |det A|.
         """
-
         return _logdet(operator)

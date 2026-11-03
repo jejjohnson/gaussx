@@ -1,4 +1,12 @@
-"""Randomized Nyström preconditioner (Frangella, Tropp & Udell, 2023)."""
+"""Randomized Nyström preconditioner (Frangella, Tropp & Udell, 2023).
+
+A = K + σ² I is an N × N symmetric positive-definite system with a PSD part K
+and a noise variance σ² > 0 (the ``shift``). The rank-k randomized Nyström
+approximation K̂ = K Ω (Ωᵀ K Ω)⁺ Ωᵀ K = U diag(γ̂) Uᵀ of K, with test matrix Ω
+(the letters of the paper, not the spatial domain), orthonormal U (N × k)
+and eigenvalues γ̂₁ ≥ … ≥ γ̂_k, gives the preconditioner M ≈ A whose inverse
+M⁻¹ ≈ A⁻¹ conjugate gradients applies to each residual r_j.
+"""
 
 from __future__ import annotations
 
@@ -13,41 +21,32 @@ from gaussx._randomized._nystrom import randomized_nystrom
 
 
 class NystromPreconditioner(AbstractPreconditioner):
-    r"""Randomized Nyström preconditioner for ``A + μ I``.
+    """Randomized Nyström preconditioner for K + σ² I.
 
-    For a system ``A + μ I`` with ``A`` PSD (e.g. ``K + σ² I``), it builds a
-    rank-``l`` randomized Nyström approximation ``Â = U Λ̂ Uᵀ`` of the PSD
-    part ``A`` alone (`gaussx.randomized_nystrom`) and applies (Frangella,
-    Tropp & Udell, 2023)
+        M⁻¹ r = (γ̂_k + σ²) U diag(γ̂ + σ²)⁻¹ Uᵀ r + (r − U Uᵀ r)
 
-    $$
-    P^{-1}x = (\hat\lambda_\ell + \mu)\,U(\hat\Lambda + \mu I)^{-1}U^\top x
-    + (x - UU^\top x).
-    $$
+    For a system A = K + σ² I with K PSD (e.g. a kernel matrix plus noise),
+    it builds a rank-k randomized Nyström approximation K̂ = U diag(γ̂) Uᵀ of
+    the PSD part K alone (`gaussx.randomized_nystrom`) and applies the
+    inverse above (Frangella, Tropp & Udell, 2023). On range(U) the
+    preconditioned operator is ≈ γ̂_k + σ²; on the complement it is A
+    itself, with eigenvalues in [σ², γ_k+1 + σ²]. So
 
-    On ``range(U)`` the preconditioned operator is ``≈ λ̂_l + μ``; on the
-    complement it is ``A + μ I`` itself, with eigenvalues in
-    ``[μ, λ_{l+1} + μ]``. So
+        κ(M^(−½) A M^(−½)) ≤ (γ̂_k + σ² + ‖K − K̂‖₂) / σ²,
 
-    $$
-    \kappa\big(P^{-1/2}(A+\mu I)P^{-1/2}\big)
-    \le \frac{\hat\lambda_\ell + \mu + \|A - \hat A\|}{\mu},
-    $$
+    which is O(1) once k ≳ d_eff(σ²) = tr(K (K + σ² I)⁻¹), the effective
+    dimension. With k = 2⌈1.5 d_eff(σ²)⌉ + 1 the expected condition number
+    is below 28, so CG needs a number of steps that does not grow with N.
 
-    which is ``O(1)`` once ``l ≳ d_eff(μ) = tr(A (A + μ I)⁻¹)``, the
-    effective dimension. With ``l = 2⌈1.5 d_eff(μ)⌉ + 1`` the expected
-    condition number is below 28, so CG needs a number of iterations that
-    does not grow with ``n``.
-
-    Build it once with `from_operator` on the PSD part ``A`` and an explicit
-    ``shift=μ``, like `gaussx.PartialCholeskyPreconditioner`: ``A`` must not
-    already contain ``μ``, or the noise is counted twice (#345). The
-    factors are stored as arrays, so `as_operator` ignores its argument and
+    Build it once with `from_operator` on the PSD part K and an explicit
+    ``shift=σ²``, like `gaussx.PartialCholeskyPreconditioner`: K must not
+    already contain σ², or the noise is counted twice (#345). The factors
+    are stored as arrays, so `as_operator` ignores its argument and
     repeated solves cost no further matvecs.
 
-    **Covariance form only.** ``Â`` captures the *top* of ``A``'s spectrum,
-    which is right for ``K + σ² I``. It is not a good preconditioner for a
-    precision-form GMRF system ``Q + Aᵀ W A``, whose hard directions are its
+    **Covariance form only.** K̂ captures the *top* of K's spectrum, which
+    is right for K + σ² I. It is not a good preconditioner for a
+    precision-form GMRF system Q + Aᵀ W A, whose hard directions are its
     smallest eigenvalues; use an exact sparse factorisation or
     Jacobi-preconditioned CG there.
 
@@ -55,37 +54,45 @@ class NystromPreconditioner(AbstractPreconditioner):
     onto a random subspace, which made CG *slower* below full rank (#354).
     For a Rayleigh-Ritz eigendecomposition use
     ``gaussx.randomized_eigh(op, rank, n_power_iter=0)``; it projects onto
-    ``orth(AΩ)`` rather than ``orth(Ω)``, which is more accurate, so it is not
+    orth(K Ω) rather than orth(Ω), which is more accurate, so it is not
     numerically identical to the old preconditioner.
 
     Attributes:
-        basis: Orthonormal ``U``, shape ``(n, l)``.
-        eigenvalues: ``Λ̂``, descending, shape ``(l,)``.
-        shift: ``μ`` (e.g. the noise variance ``σ²``).
+        basis: Orthonormal basis U, N × k.
+        eigenvalues: Nyström eigenvalues γ̂, descending, of length k.
+        shift: Noise variance σ².
 
     Examples:
-        A GP with n = 200k and a Matérn-3/2 kernel is solved by preconditioned
-        CG in tens of iterations, not thousands::
+        Build once on the kernel matrix K, then solve K + σ² I by CG:
 
-            K_op = kl.to_operator(kernel, X, implicit=True)
-            P = gx.NystromPreconditioner.from_operator(
-                K_op, rank=500, shift=noise_var, key=key
-            )
-            A_op = K_op + lx.DiagonalLinearOperator(jnp.full(n, noise_var))
-            alpha = gx.PreconditionedCGSolver(preconditioner=P).solve(A_op, y)
-
-        A small runnable version:
-
-        >>> import einx, jax.numpy as jnp, jax.random as jr, lineax as lx
-        >>> import gaussx as gx
-        >>> x = jnp.linspace(0.0, 10.0, 100)
-        >>> K = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
+        >>> import einx
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> inputs = jnp.linspace(0.0, 10.0, 100)
+        >>> gaps = einx.subtract("row, col -> row col", inputs, inputs)
+        >>> kernel = jnp.exp(-0.5 * gaps**2)
         >>> psd = lx.positive_semidefinite_tag
-        >>> P = gx.NystromPreconditioner.from_operator(
-        ...     lx.MatrixLinearOperator(K, psd), rank=30, shift=0.1, key=jr.key(0)
+        >>> preconditioner = gaussx.NystromPreconditioner.from_operator(
+        ...     lx.MatrixLinearOperator(kernel, psd), rank=30, shift=0.1, key=jr.key(0)
         ... )
-        >>> A = lx.MatrixLinearOperator(K + 0.1 * jnp.eye(100), psd)
-        >>> alpha = gx.PreconditionedCGSolver(preconditioner=P).solve(A, jnp.ones(100))
+        >>> preconditioner.basis.shape, preconditioner.eigenvalues.shape
+        ((100, 30), (30,))
+        >>> A = lx.MatrixLinearOperator(kernel + 0.1 * jnp.eye(100), psd)
+        >>> solver = gaussx.PreconditionedCGSolver(preconditioner=preconditioner)
+        >>> x = solver.solve(A, jnp.ones(100))
+        >>> bool(jnp.allclose(A.mv(x), jnp.ones(100), atol=1e-2))
+        True
+
+        A non-positive shift is rejected:
+
+        >>> gaussx.NystromPreconditioner.from_operator(
+        ...     lx.MatrixLinearOperator(kernel, psd), rank=5, shift=0.0
+        ... )  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        ValueError: shift must be positive, got 0.0.
     """
 
     basis: Float[Array, "n l"]
@@ -102,18 +109,20 @@ class NystromPreconditioner(AbstractPreconditioner):
         oversample: int = 0,
         key: jax.Array | None = None,
     ) -> NystromPreconditioner:
-        """Sketch the PSD part once and store the preconditioner.
+        """Sketch the PSD part K once and store the preconditioner.
+
+            K̂ = K Ω (Ωᵀ K Ω)⁺ Ωᵀ K = U diag(γ̂) Uᵀ
 
         Args:
-            operator: The PSD part ``A`` (e.g. a kernel matrix ``K``),
-                **not** ``A + μ I``. May be matrix-free.
-            rank: Sketch size ``l`` (``rank`` matvecs of ``A``), clamped to
-                the operator size. Aim for ``l ≳ 2⌈1.5 d_eff(μ)⌉ + 1``.
-            shift: ``μ``, e.g. the noise variance ``σ²``; the preconditioner
-                targets ``A + μ I``. Must be positive.
+            operator: The PSD part K (e.g. a kernel matrix), **not**
+                K + σ² I. May be matrix-free.
+            rank: Rank k (``rank`` matvecs of K), clamped to the operator
+                size. Aim for k ≳ 2⌈1.5 d_eff(σ²)⌉ + 1.
+            shift: Noise variance σ²; the preconditioner targets K + σ² I.
+                Must be positive.
             oversample: Extra sketch columns, discarded after the
                 approximation (see `gaussx.randomized_nystrom`).
-            key: PRNG key for the test matrix. ``None`` means
+            key: PRNG key for the test matrix Ω. ``None`` means
                 ``jax.random.PRNGKey(0)``.
 
         Returns:
@@ -125,6 +134,7 @@ class NystromPreconditioner(AbstractPreconditioner):
         """
         if isinstance(shift, (int, float)) and shift <= 0:
             raise ValueError(f"shift must be positive, got {shift}.")
+        # K̂ = U diag(γ̂) Uᵀ
         approx = randomized_nystrom(operator, rank, oversample=oversample, key=key)
         return cls(
             basis=approx.U,
@@ -136,15 +146,29 @@ class NystromPreconditioner(AbstractPreconditioner):
         self,
         operator: lx.AbstractLinearOperator | None = None,
     ) -> lx.AbstractLinearOperator:
-        """Return ``P⁻¹`` as a PSD operator; *operator* is ignored."""
-        U, mu = self.basis, self.shift
-        # P⁻¹ = I + U diag((λ̂_l + μ)/(λ̂ + μ) − 1) Uᵀ.
-        scale = (self.eigenvalues[-1] + mu) / (self.eigenvalues + mu) - 1.0
-        structure = jax.ShapeDtypeStruct((U.shape[0],), U.dtype)
+        """Return M⁻¹ as a PSD operator; ``operator`` is ignored.
+
+            M⁻¹ = I + U diag((γ̂_k + σ²) / (γ̂ + σ²) − 1) Uᵀ
+
+        Args:
+            operator: The system operator A; unused, since the factors are
+                stored.
+
+        Returns:
+            The matrix-free operator M⁻¹, tagged positive semidefinite.
+        """
+        basis, noise_variance = self.basis, self.shift
+        # (γ̂_k + σ²) / (γ̂ + σ²) − 1
+        scale = (self.eigenvalues[-1] + noise_variance) / (
+            self.eigenvalues + noise_variance
+        ) - 1.0
+        structure = jax.ShapeDtypeStruct((basis.shape[0],), basis.dtype)
 
         def matvec(x: Float[Array, " n"]) -> Float[Array, " n"]:
-            coeffs = einsum(U, x, "n l, n -> l")
-            return x + einsum(U, scale * coeffs, "n l, l -> n")
+            # Uᵀ r
+            coefficients = einsum(basis, x, "row rank, row -> rank")
+            # M⁻¹ r = r + U (((γ̂_k + σ²) / (γ̂ + σ²) − 1) ⊙ Uᵀ r)
+            return x + einsum(basis, scale * coefficients, "row rank, rank -> row")
 
         return lx.FunctionLinearOperator(
             matvec, structure, lx.positive_semidefinite_tag

@@ -1,4 +1,13 @@
-"""Nyström-preconditioned stochastic log-determinant (G17)."""
+"""Nyström-preconditioned stochastic log-determinant (G17).
+
+A = K + σ² I is an N × N symmetric positive-definite system with a PSD part K
+and a noise variance σ² > 0 (the ``shift``). A rank-k randomized Nyström
+approximation K̂ = K Ω (Ωᵀ K Ω)⁺ Ωᵀ K = U diag(γ̂) Uᵀ of K, with test matrix Ω
+(the letters of the paper, not the spatial domain), orthonormal U (N × k)
+and eigenvalues γ̂_j, gives the log-determinant preconditioner
+P = K̂ + σ² I ≈ A. The remainder log det(P^(−½) A P^(−½)) is the stochastic
+Lanczos quadrature (SLQ) estimate over probes z^(i), i = 1, …, N_probe.
+"""
 
 from __future__ import annotations
 
@@ -16,67 +25,78 @@ from gaussx._strategies._slq_logdet import SLQLogdet, _check_symmetric
 
 
 class NystromLogdet(AbstractLogdetStrategy):
-    r"""Nyström-preconditioned log-determinant of $A + \mu I$ (Wenger et al., 2022).
+    """Nyström-preconditioned SLQ log-determinant of K + σ² I (Wenger et al., 2022).
 
-    For a covariance-form system $A + \mu I$ ($A$ PSD, e.g. $K + \sigma^2 I$)
-    and the rank-$k$ randomized Nyström approximation $\hat A = U\hat\Lambda
-    U^\top$ of $A$ (`gaussx.randomized_nystrom`), the preconditioner
-    $P = \hat A + \mu I$ splits the log-determinant as
+        log det A = log det P + log det(P^(−½) A P^(−½)),
+        log det P = ∑_j log(γ̂_j + σ²) + (N − k) log σ²
 
-    $$
-    \log|A + \mu I| = \log|P| + \log\big|P^{-1/2}(A + \mu I)P^{-1/2}\big|,
-    \qquad
-    \log|P| = \sum_{i=1}^{k}\log(\hat\lambda_i + \mu) + (n - k)\log\mu .
-    $$
+    for the system A = K + σ² I with K PSD, and the rank-k randomized
+    Nyström approximation K̂ = U diag(γ̂) Uᵀ of K (`gaussx.randomized_nystrom`)
+    in the preconditioner P = K̂ + σ² I.
 
     The first term is exact. The second is SLQ (`gaussx.SLQLogdet`) on the
-    preconditioned operator, whose eigenvalues cluster at one once $k$
-    exceeds the effective dimension $d_\text{eff}(\mu) = \operatorname{tr}(A
-    (A + \mu I)^{-1})$; SLQ's variance scales with $\|\log M\|_F^2$, so it
-    collapses as $M \to I$, and its Lanczos quadrature converges in few
-    steps. With
+    preconditioned operator A_prec = P^(−½) A P^(−½), whose eigenvalues
+    cluster at one once k exceeds the effective dimension
+    d_eff(σ²) = tr(K (K + σ² I)⁻¹). SLQ's variance scales with
+    ‖log A_prec‖_F², so it collapses as A_prec → I, and its Lanczos quadrature
+    converges in few steps. With
 
-    $$
-    P^{-1/2} = U\big((\hat\Lambda + \mu I)^{-1/2} - \mu^{-1/2} I\big)U^\top
-    + \mu^{-1/2} I,
-    $$
+        P^(−½) = U (diag(γ̂ + σ²)^(−½) − σ⁻¹ I) Uᵀ + σ⁻¹ I,
 
-    every matvec with $M$ costs one matvec with $A + \mu I$ and $O(nk)$.
+    every product with A_prec costs one product with A and O(N k).
 
-    ```text
-    key₁, key₂ = split(key)
-    c = 10 n eps μ                               # above the rounding of A + μI − μI
-    U, Λ̂ = randomized_nystrom(A + μI − (μ − c)I, rank; key₁);  Λ̂ ← max(Λ̂ − c, 0)
-    log|P| = Σ log(λ̂ᵢ + μ) + (n − k) log μ
-    M = P^{-1/2} (A + μI) P^{-1/2}
-    return log|P| + SLQ(M; num_probes, lanczos_order; key₂)
-    ```
+    **Covariance form only**: K̂ captures the *top* of K's spectrum, as for
+    `gaussx.NystromPreconditioner`. For a precision-form GMRF system
+    Q + Aᵀ W A the hard directions are the smallest eigenvalues; use
+    `SLQLogdet` (or an exact sparse factorisation) there.
 
-    **Covariance form only**: $\hat A$ captures the *top* of $A$'s
-    spectrum, as for `gaussx.NystromPreconditioner`. For a precision-form
-    GMRF system $Q + A^\top W A$ the hard directions are the smallest
-    eigenvalues; use `SLQLogdet` (or an exact sparse factorisation) there.
-
-    ``operator`` is the full system $A + \mu I$, as for every other logdet
+    ``operator`` is the full system A = K + σ² I, as for every other logdet
     strategy; the strategy sketches its PSD part as the matrix-free
-    ``operator − shift·I`` (plus $c = 10\,n\,\epsilon\,\mu$, removed again
-    from $\hat\Lambda$, so that the rounding of the subtraction cannot make
-    it indefinite), so ``shift`` must be the $\mu$ that ``operator``
-    contains (#345). ``shift`` is a PyTree leaf, so it can be
-    a traced, learned noise variance.
+    A − σ² I, plus a guard c = 10 N eps σ² that is removed again from γ̂,
+    so the rounding of the subtraction cannot make it indefinite. So
+    ``shift`` must be the σ² that ``operator`` contains (#345). ``shift``
+    is a PyTree leaf, so it can be a traced, learned noise variance.
 
     Attributes:
-        shift: $\mu > 0$, e.g. the noise variance $\sigma^2$.
-        rank: Nyström rank $k$ (``rank`` matvecs), clamped to $n$. Aim for
-            $k \gtrsim d_\text{eff}(\mu)$.
+        shift: Noise variance σ² > 0 contained in A.
+        rank: Nyström rank k (``rank`` matvecs), clamped to N. Aim for
+            k ≳ d_eff(σ²).
         oversample: Extra sketch columns (see `gaussx.randomized_nystrom`).
-        num_probes: SLQ probe vectors for the remainder.
-        lanczos_order: Lanczos steps per probe.
-        seed: ``logdet`` without a ``key`` uses ``PRNGKey(seed)`` for both
-            the sketch and the probes (common random numbers, as
+        num_probes: Number of SLQ probe vectors N_probe for the remainder.
+        lanczos_order: Number of Lanczos steps per probe.
+        seed: `logdet` without a ``key`` uses ``PRNGKey(seed)`` for both the
+            sketch Ω and the probes z^(i) (common random numbers, as
             `SLQLogdet`).
-        sampler: SLQ probe distribution (``"signs"``, ``"normal"``,
-            ``"sphere"``).
+        sampler: SLQ probe distribution: ``"signs"``, ``"normal"`` or
+            ``"sphere"``.
+
+    Raises:
+        ValueError: If a concrete ``shift`` is not positive or ``rank < 1``.
+
+    Examples:
+        A noisy RBF Gram matrix, within 1% of the exact log-determinant:
+
+        >>> import einx
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> inputs = jnp.linspace(0.0, 10.0, 200)
+        >>> gaps = einx.subtract("row, col -> row col", inputs, inputs)
+        >>> kernel = jnp.exp(-0.5 * gaps**2)
+        >>> A = lx.MatrixLinearOperator(
+        ...     kernel + 0.1 * jnp.eye(200), lx.positive_semidefinite_tag
+        ... )
+        >>> estimate = gaussx.NystromLogdet(shift=0.1, rank=40).logdet(A)
+        >>> exact = jnp.linalg.slogdet(A.as_matrix())[1]
+        >>> bool(jnp.abs(estimate - exact) < 1e-2 * jnp.abs(exact))
+        True
+
+        A non-positive shift is rejected at construction:
+
+        >>> gaussx.NystromLogdet(shift=0.0)  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        ValueError: NystromLogdet needs shift > 0, got 0.0.
 
     References:
         Wenger, J., Pleiss, G., Hennig, P., Cunningham, J. P. & Gardner,
@@ -85,19 +105,6 @@ class NystromLogdet(AbstractLogdetStrategy):
 
         Frangella, Z., Tropp, J. A. & Udell, M. (2023). Randomized Nyström
         preconditioning. *SIAM J. Matrix Anal. Appl.*, 44(2), 718-752.
-
-    Examples:
-        >>> import einx, jax.numpy as jnp, lineax as lx
-        >>> import gaussx as gx
-        >>> x = jnp.linspace(0.0, 10.0, 200)
-        >>> K = jnp.exp(-0.5 * einx.subtract("i, j -> i j", x, x) ** 2)
-        >>> A = lx.MatrixLinearOperator(
-        ...     K + 0.1 * jnp.eye(200), lx.positive_semidefinite_tag
-        ... )
-        >>> est = gx.NystromLogdet(shift=0.1, rank=40).logdet(A)
-        >>> exact = jnp.linalg.slogdet(A.as_matrix())[1]
-        >>> bool(jnp.abs(est - exact) < 1e-2 * jnp.abs(exact))
-        True
     """
 
     shift: float | Float[Array, ""]
@@ -120,59 +127,90 @@ class NystromLogdet(AbstractLogdetStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        r"""Estimate $\log|A + \mu I|$.
+        """Estimate log det(K + σ² I) with a Nyström log-determinant preconditioner.
+
+            log det A ≈ ∑_j log(γ̂_j + σ²) + (N − k) log σ²
+                + (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
+
+        with T^(i) the Lanczos tridiagonal of P^(−½) A P^(−½).
+
+        Algorithm:
+            1. Split the key into a sketch key and a probe key.
+            2. Sketch K + c I = A − (σ² − c) I at rank k and remove the
+               guard, γ̂ ← max(γ̂ − c, 0).
+            3. Sum the exact log det P = ∑_j log(γ̂_j + σ²) + (N − k) log σ².
+            4. Run SLQ on A_prec = P^(−½) A P^(−½) and add the remainder.
 
         Args:
-            operator: The symmetric PSD system $A + \mu I$, ``shift`` $= \mu$
+            operator: The symmetric PSD system A = K + σ² I, ``shift`` = σ²
                 included; may be matrix-free.
-            key: PRNG key for the sketch and the probes. ``None`` means
-                ``jax.random.PRNGKey(seed)``.
+            key: PRNG key for the sketch Ω and the probes z^(i). ``None``
+                means ``jax.random.PRNGKey(seed)``.
 
         Returns:
-            Scalar estimate of $\log|A + \mu I|$.
+            Scalar estimate of log det(K + σ² I).
         """
         _check_symmetric(operator, "NystromLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
         sketch_key, probe_key = jax.random.split(key)
-        n = operator.in_size()
+        size = operator.in_size()
         structure = operator.in_structure()
-        mu = jnp.asarray(self.shift, dtype=structure.dtype)
+        noise_variance = jnp.asarray(self.shift, dtype=structure.dtype)
 
-        # `operator - mu I` carries rounding noise of ~eps * mu, indefinite
-        # once A is small next to mu (e.g. a zero kernel amplitude), which
-        # breaks the Nystrom Cholesky (gh-486 review). Sketch A + c I with c
-        # well above that noise, then shift the eigenvalues back.
-        guard = 10 * n * jnp.finfo(structure.dtype).eps * mu
+        # A − σ² I carries rounding noise of ~eps σ², indefinite once K is
+        # small next to σ² (e.g. a zero kernel amplitude), which breaks the
+        # Nyström Cholesky (gh-486 review). Sketch K + c I with c well above
+        # that noise, then shift the eigenvalues back.
+        # c = 10 N eps σ²
+        guard = 10 * size * jnp.finfo(structure.dtype).eps * noise_variance
+        # K + c I = A − (σ² − c) I
         psd_part = lx.FunctionLinearOperator(
-            lambda v: operator.mv(v) - (mu - guard) * v,
+            lambda v: operator.mv(v) - (noise_variance - guard) * v,
             structure,
             lx.positive_semidefinite_tag,
         )
+        # K̂ = K Ω (Ωᵀ K Ω)⁺ Ωᵀ K = U diag(γ̂) Uᵀ
         approx = randomized_nystrom(
-            psd_part, min(self.rank, n), oversample=self.oversample, key=sketch_key
+            psd_part, min(self.rank, size), oversample=self.oversample, key=sketch_key
         )
-        U, eigenvalues = approx.U, jnp.maximum(approx.d - guard, 0.0)
-        k = eigenvalues.shape[0]
-        logdet_preconditioner = jnp.sum(jnp.log(eigenvalues + mu)) + (n - k) * jnp.log(
-            mu
+        basis = approx.U
+        # γ̂ ← max(γ̂ − c, 0)
+        eigenvalues = jnp.maximum(approx.d - guard, 0.0)
+        rank = eigenvalues.shape[0]
+        # ∑_j log(γ̂_j + σ²)
+        logdet_low_rank = jnp.sum(jnp.log(eigenvalues + noise_variance))
+        # log det P = ∑_j log(γ̂_j + σ²) + (N − k) log σ²
+        logdet_preconditioner = logdet_low_rank + (size - rank) * jnp.log(
+            noise_variance
         )
-        inv_sqrt_mu = 1.0 / jnp.sqrt(mu)
-        correction = 1.0 / jnp.sqrt(eigenvalues + mu) - inv_sqrt_mu
+        # σ⁻¹
+        inv_noise_std = 1.0 / jnp.sqrt(noise_variance)
+        # (γ̂ + σ²)^(−½) − σ⁻¹
+        correction = 1.0 / jnp.sqrt(eigenvalues + noise_variance) - inv_noise_std
 
         def inv_sqrt_preconditioner(v: Float[Array, " n"]) -> Float[Array, " n"]:
-            coefficients = correction * einsum(U, v, "n k, n -> k")
-            return inv_sqrt_mu * v + einsum(U, coefficients, "n k, k -> n")
+            # Uᵀ v
+            projection = einsum(basis, v, "row rank, row -> rank")
+            # ((γ̂ + σ²)^(−½) − σ⁻¹) ⊙ Uᵀ v
+            coefficients = correction * projection
+            # P^(−½) v = σ⁻¹ v + U (((γ̂ + σ²)^(−½) − σ⁻¹) ⊙ Uᵀ v)
+            return inv_noise_std * v + einsum(
+                basis, coefficients, "row rank, rank -> row"
+            )
 
+        # A_prec = P^(−½) A P^(−½)
         preconditioned = lx.FunctionLinearOperator(
             lambda v: inv_sqrt_preconditioner(operator.mv(inv_sqrt_preconditioner(v))),
             structure,
             (lx.symmetric_tag, lx.positive_semidefinite_tag),
         )
+        # log det A_prec ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
         remainder = SLQLogdet(
             num_probes=self.num_probes,
             lanczos_order=self.lanczos_order,
             seed=self.seed,
             sampler=self.sampler,
         ).logdet(preconditioned, key=probe_key)
+        # log det A = log det P + log det A_prec
         return logdet_preconditioner + remainder

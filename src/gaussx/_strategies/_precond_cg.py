@@ -1,8 +1,8 @@
 """Preconditioned CG strategy with a pivoted partial Cholesky preconditioner.
 
 A = K + σ² I is an N × N symmetric positive-definite system with a PSD part K
-and a noise variance σ². A rank-k pivoted partial Cholesky factor F of K
-(N × k) gives the preconditioner M = σ² I + F Fᵀ ≈ A, applied as M⁻¹ by the
+and a noise variance σ². A rank-k pivoted partial Cholesky factor L_k of K
+(N × k) gives the preconditioner M = σ² I + L_k L_kᵀ ≈ A, applied as M⁻¹ by the
 Woodbury identity inside conjugate gradients (CG). The log-determinant is the
 stochastic Lanczos quadrature (SLQ) estimate over probes z^(i),
 i = 1, …, N_probe.
@@ -27,11 +27,11 @@ from gaussx._strategies._slq_logdet import SLQLogdet
 class PreconditionedCGSolver(AbstractSolverStrategy):
     """CG with a pivoted partial Cholesky preconditioner.
 
-        M = σ² I + F Fᵀ ≈ A = K + σ² I,
-        M⁻¹ v = σ⁻² (v − F (σ² I_k + Fᵀ F)⁻¹ Fᵀ v)
+        M = σ² I + L_k L_kᵀ ≈ A = K + σ² I,
+        M⁻¹ v = σ⁻² (v − L_k (σ² I_k + L_kᵀ L_k)⁻¹ L_kᵀ v)
 
     `gaussx.PartialCholeskyPreconditioner`'s guarded pivoted partial
-    Cholesky builds the rank-k factor F of K, and lineax CG applies M⁻¹
+    Cholesky builds the rank-k factor L_k of K, and lineax CG applies M⁻¹
     by the Woodbury identity. For A = K + σ² I this cuts the number of CG
     steps sharply.
 

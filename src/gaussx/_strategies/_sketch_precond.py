@@ -1,4 +1,15 @@
-"""Sketch-and-precondition least squares (G15)."""
+"""Sketch-and-precondition least squares (G15).
+
+A is a tall M × N operator (M ≫ N), b ∈ ℝ^M the right-hand side and
+x ∈ ℝ^N the solution of the damped least-squares problem
+min_x ‖A x − b‖₂² + β ‖x‖₂² with β = damp² ≥ 0. A random sketch
+S ∈ ℝ^(d × M) with d ≪ M rows (`gaussx.AbstractSketch`) compresses A to
+S A ∈ ℝ^(d × N); the reduced QR factorisation [S A; √β I] = Q R gives a
+sketch-and-solve warm start x₀ and the right preconditioner R⁻¹ for LSMR.
+S is an ε-subspace embedding for range(A) when
+(1 − ε) ‖A x‖₂ ≤ ‖S A x‖₂ ≤ (1 + ε) ‖A x‖₂ for every x (ε is the
+distortion, the letter of the sketching literature).
+"""
 
 from __future__ import annotations
 
@@ -27,19 +38,31 @@ from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 SketchName = Literal["sparse_sign", "srht", "gaussian"]
 
 # A matrix-free operator is sketched this many rows of S at a time, so the
-# peak extra memory is _ROW_BATCH * m (rows of S^T) rather than d * m.
+# peak extra memory is _ROW_BATCH · M (rows of Sᵀ) rather than d · M.
 _ROW_BATCH = 32
 
 
 def _sketch(
     operator: lx.AbstractLinearOperator, sketch: AbstractSketch
 ) -> Float[Array, "d n"]:
-    r"""$SA$, without materialising $S^\top$ for a matrix-free $A$.
+    """The sketch S A, without materialising Sᵀ for a matrix-free A.
 
-    `AbstractSketch.sketch_operator` vmaps over all $d$ rows of $S$ at once,
-    which forms the $(m, d)$ block $S^\top$: 4.8 GB in float32 at $m =
-    10^6$, $d = 1200$. Row $i$ of $SA$ is $A^\top (S^\top e_i)$, so this
-    maps over the rows of $S$ in batches of ``_ROW_BATCH``.
+        [S A]_i,: = (Aᵀ Sᵀ e_i)ᵀ,   i = 1, …, d
+
+    `AbstractSketch.sketch_operator` vmaps over all d rows of S at once,
+    which forms the M × d block Sᵀ: 4.8 GB in float32 at M = 10⁶, d = 1200.
+    Row i of S A is Aᵀ (Sᵀ e_i), so this maps over the rows of S in batches
+    of ``_ROW_BATCH``.
+
+    Args:
+        operator: Operator A, M × N.
+        sketch: Sketch S, d × M.
+
+    Returns:
+        The sketch S A, d × N.
+
+    Raises:
+        ValueError: If the sketch's ``in_size`` is not M.
     """
     if operator.out_size() != sketch.in_size:
         raise ValueError(
@@ -47,24 +70,46 @@ def _sketch(
             f"sketch with in_size={sketch.in_size}."
         )
     if isinstance(operator, lx.MatrixLinearOperator):
+        # S A, on the stored matrix
         return sketch.apply(operator.matrix)
     transpose = operator.transpose()
+    # e_i, i = 1, …, d
     unit_rows = jnp.eye(sketch.out_size, dtype=operator.out_structure().dtype)
+    # Aᵀ Sᵀ e_i, a batch of rows of S at a time
     return jax.lax.map(
-        lambda e: transpose.mv(sketch.apply_transpose(e)),
+        lambda unit_row: transpose.mv(sketch.apply_transpose(unit_row)),
         unit_rows,
         batch_size=min(_ROW_BATCH, sketch.out_size),
     )
 
 
 def _check_full_rank(
-    R: Float[Array, "n n"], x: Float[Array, " n"]
+    triangular_factor: Float[Array, "n n"], solution: Float[Array, " n"]
 ) -> Float[Array, " n"]:
-    """Raise (at run time) when the undamped triangular factor is singular."""
-    magnitudes = jnp.abs(jnp.diagonal(R))
-    threshold = R.shape[0] * jnp.finfo(R.dtype).eps * jnp.max(magnitudes)
+    """Raise (at run time) when the undamped triangular factor R is singular.
+
+        minₙ |R_nn| ≤ N eps maxₙ |R_nn|
+
+    Args:
+        triangular_factor: Upper-triangular factor R of the sketch, N × N.
+        solution: Array to thread the check through, e.g. x₀.
+
+    Returns:
+        ``solution``, unchanged.
+
+    Raises:
+        equinox.EquinoxRuntimeError: If R is numerically singular.
+    """
+    # |R_nn|
+    magnitudes = jnp.abs(jnp.diagonal(triangular_factor))
+    # N eps maxₙ |R_nn|
+    threshold = (
+        triangular_factor.shape[0]
+        * jnp.finfo(triangular_factor.dtype).eps
+        * jnp.max(magnitudes)
+    )
     return eqx.error_if(
-        x,
+        solution,
         jnp.min(magnitudes) <= threshold,
         "The sketch SA is numerically rank-deficient: A has (numerically) "
         "dependent columns, so the least-squares solution is not unique. "
@@ -75,28 +120,59 @@ def _check_full_rank(
 def _sketch_qr(
     operator: lx.AbstractLinearOperator, sketch: AbstractSketch, damp: float
 ) -> tuple[Float[Array, "d n"], Float[Array, "n n"]]:
-    r"""QR of the (augmented) sketch, $[SA;\ \delta I] = QR$.
+    """Reduced QR of the (augmented) sketch.
 
-    Returns the first $d$ rows of $Q$ (the block that meets $Sb$) and $R$.
+        [S A; √β I] = Q R,   √β = ``damp``
+
+    Args:
+        operator: Operator A, M × N.
+        sketch: Sketch S, d × M.
+        damp: Tikhonov damping √β ≥ 0; the √β I block is stacked only when
+            it is nonzero.
+
+    Returns:
+        Tuple ``(orthogonal_top, triangular_factor)``: the first d rows
+        Q_1:d of Q, the block that meets S b, and R.
     """
-    SA = _sketch(operator, sketch)
-    n = operator.in_size()
-    stacked = SA
+    # S A
+    sketched_operator = _sketch(operator, sketch)
+    size = operator.in_size()
+    stacked = sketched_operator
     if damp != 0.0:
-        stacked = jnp.concatenate([SA, damp * jnp.eye(n, dtype=SA.dtype)])
-    Q, R = jnp.linalg.qr(stacked)
-    return Q[: sketch.out_size], R
+        # [S A; √β I]
+        stacked = jnp.concatenate(
+            [sketched_operator, damp * jnp.eye(size, dtype=sketched_operator.dtype)]
+        )
+    # [S A; √β I] = Q R
+    orthogonal, triangular_factor = jnp.linalg.qr(stacked)
+    return orthogonal[: sketch.out_size], triangular_factor
 
 
 def _warm_start(
-    Q_top: Float[Array, "d n"],
-    R: Float[Array, "n n"],
+    orthogonal_top: Float[Array, "d n"],
+    triangular_factor: Float[Array, "n n"],
     sketch: AbstractSketch,
     vector: Float[Array, " m"],
 ) -> Float[Array, " n"]:
-    r"""Sketch-and-solve, $x_0 = R^{-1} Q_{1:d}^\top S b$."""
-    Sb = sketch.apply(vector)
-    return jsl.solve_triangular(R, einsum(Q_top, Sb, "d n, d -> n"), lower=False)
+    """Sketch-and-solve estimate, the warm start of the preconditioned LSMR.
+
+        x₀ = R⁻¹ Q_1:dᵀ S b
+
+    Args:
+        orthogonal_top: First d rows Q_1:d of the QR factor Q.
+        triangular_factor: Upper-triangular R, N × N.
+        sketch: Sketch S, d × M.
+        vector: Right-hand side b, of length M.
+
+    Returns:
+        The estimate x₀, of length N.
+    """
+    # S b
+    sketched_rhs = sketch.apply(vector)
+    # Q_1:dᵀ S b
+    projected_rhs = einsum(orthogonal_top, sketched_rhs, "sketch col, sketch -> col")
+    # x₀ = R⁻¹ Q_1:dᵀ S b
+    return jsl.solve_triangular(triangular_factor, projected_rhs, lower=False)
 
 
 def sketch_and_solve(
@@ -106,148 +182,162 @@ def sketch_and_solve(
     sketch: AbstractSketch,
     damp: float = 0.0,
 ) -> Float[Array, " n"]:
-    r"""Approximate least squares from a sketch.
+    """Approximate least squares from a sketch.
 
-    Solves the sketched problem $\min_x \|S(Ax - b)\|^2 + \delta^2\|x\|^2$
-    exactly, through the QR factorisation
-    $[SA;\ \delta I] = QR$ of the $d \times n$ sketch (stacked on
-    $\delta I$ when ``damp`` $= \delta > 0$):
+        x̂ = argmin_x ‖S (A x − b)‖₂² + β ‖x‖₂² = R⁻¹ Q_1:dᵀ S b,
+        [S A; √β I] = Q R,   β = damp²
 
-    $$
-    \hat x = R^{-1} Q_{1:d}^\top S b .
-    $$
+    Solves the sketched problem exactly, through the reduced QR
+    factorisation of the d × N sketch S A (stacked on √β I when
+    ``damp`` > 0). If S is an ε-subspace embedding for range([A b]), the
+    residual is within a constant factor of the optimum x^⋆ (Woodruff,
+    2014, §2):
 
-    If $S$ is an $\varepsilon$-subspace embedding for
-    $\operatorname{range}([A\ b])$, the residual is within a constant factor
-    of the optimum $x^\star$ (Woodruff, 2014, §2):
+        ‖A x̂ − b‖₂ ≤ ‖S (A x̂ − b)‖₂ / (1 − ε)
+                   ≤ ‖S (A x^⋆ − b)‖₂ / (1 − ε)
+                   ≤ (1 + ε) / (1 − ε) ‖A x^⋆ − b‖₂.
 
-    $$
-    \|A\hat x - b\| \le \tfrac{1}{1-\varepsilon}\|S(A\hat x - b)\|
-    \le \tfrac{1}{1-\varepsilon}\|S(Ax^\star - b)\|
-    \le \frac{1+\varepsilon}{1-\varepsilon}\,\|Ax^\star - b\| .
-    $$
+    The solution itself is only O(ε)-accurate, so this is a function, not
+    a solver strategy; `gaussx.SketchAndPrecondLSMR` uses it as its warm
+    start and then solves to tolerance.
 
-    The solution itself is only $O(\varepsilon)$-accurate, so this is a
-    function, not a solver strategy; `SketchAndPrecondLSMR` uses it as its
-    warm start and then solves to tolerance.
-
-    ```text
-    SA = S A                        # d × n, matrix-free via sketch_operator
-    Q, R = qr([SA; δ I])            # reduced QR, O(d n²)
-    x̂ = R⁻¹ Q[:d]ᵀ (S b)
-    ```
+    Algorithm:
+        1. Sketch the operator, S A (d × N), matrix-free through
+           transpose-matvecs when A is not stored.
+        2. Factor [S A; √β I] = Q R, O(d N²).
+        3. Solve x̂ = R⁻¹ Q_1:dᵀ (S b).
+        4. With β = 0, raise when R is numerically singular.
 
     Args:
-        operator: Tall operator $A$, shape ``(m, n)``.
-        vector: Right-hand side $b$, shape ``(m,)``.
-        sketch: A sampled sketch with ``in_size == m`` and, for a unique
-            solution when ``damp == 0``, ``out_size >= n``.
-        damp: Ridge parameter $\delta \ge 0$.
+        operator: Tall operator A, M × N.
+        vector: Right-hand side b, of length M.
+        sketch: A sampled sketch S with ``in_size == M`` and, for a unique
+            solution when ``damp == 0``, ``out_size >= N``.
+        damp: Tikhonov damping √β ≥ 0.
 
     Returns:
-        The sketch-and-solve estimate $\hat x$, shape ``(n,)``.
+        The sketch-and-solve estimate x̂, of length N.
 
     Raises:
-        ValueError: If ``damp < 0`` or the sketch's ``in_size`` is not $m$.
-        equinox.EquinoxRuntimeError: If ``damp == 0`` and $SA$ is
-            numerically rank-deficient ($A$ has dependent columns).
+        ValueError: If ``damp < 0`` or the sketch's ``in_size`` is not M.
+        equinox.EquinoxRuntimeError: If ``damp == 0`` and S A is
+            numerically rank-deficient (A has dependent columns).
+
+    Examples:
+        A noisy overdetermined system with true coefficients one:
+
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> matrix = jr.normal(jr.key(0), (2000, 10))
+        >>> b = matrix @ jnp.ones(10) + 0.1 * jr.normal(jr.key(1), (2000,))
+        >>> sketch = gaussx.GaussianSketch.sample(jr.key(2), d=200, m=2000)
+        >>> A = lx.MatrixLinearOperator(matrix)
+        >>> x = gaussx.sketch_and_solve(A, b, sketch=sketch)
+        >>> bool(jnp.max(jnp.abs(x - 1.0)) < 0.05)
+        True
+
+        A negative damping is rejected:
+
+        >>> gaussx.sketch_and_solve(
+        ...     A, b, sketch=sketch, damp=-1.0
+        ... )  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        ValueError: sketch_and_solve needs damp >= 0, got -1.0.
 
     References:
         Woodruff, D. P. (2014). Sketching as a tool for numerical linear
         algebra. *Foundations and Trends in Theoretical Computer Science*,
         10(1-2), 1-157.
-
-    Examples:
-        >>> import jax.numpy as jnp, jax.random as jr, lineax as lx
-        >>> import gaussx as gx
-        >>> A = jr.normal(jr.key(0), (2000, 10))
-        >>> b = A @ jnp.ones(10) + 0.1 * jr.normal(jr.key(1), (2000,))
-        >>> S = gx.GaussianSketch.sample(jr.key(2), d=200, m=2000)
-        >>> x = gx.sketch_and_solve(lx.MatrixLinearOperator(A), b, sketch=S)
-        >>> bool(jnp.max(jnp.abs(x - 1.0)) < 0.05)
-        True
     """
     if damp < 0:
         raise ValueError(f"sketch_and_solve needs damp >= 0, got {damp}.")
-    Q_top, R = _sketch_qr(operator, sketch, damp)
-    x = _warm_start(Q_top, R, sketch, vector)
-    return x if damp != 0.0 else _check_full_rank(R, x)
+    # [S A; √β I] = Q R
+    orthogonal_top, triangular_factor = _sketch_qr(operator, sketch, damp)
+    # x̂ = R⁻¹ Q_1:dᵀ S b
+    solution = _warm_start(orthogonal_top, triangular_factor, sketch, vector)
+    if damp != 0.0:
+        return solution
+    return _check_full_rank(triangular_factor, solution)
 
 
 class SketchAndPrecondLSMR(AbstractSolverStrategy):
-    r"""Sketch-and-precondition LSMR for tall least squares (Rokhlin & Tygert, 2008).
+    """Sketch-and-precondition LSMR for tall least squares (Rokhlin & Tygert, 2008).
 
-    Solves
+        x = argmin_x ‖A x − b‖₂² + β ‖x‖₂²,   A ∈ ℝ^(M × N),   M ≫ N
 
-    $$
-    \min_x \|Ax - b\|^2 + \delta^2 \|x\|^2, \qquad A \in \mathbb{R}^{m
-    \times n},\ m \gg n,
-    $$
+    that is, plain least squares on the augmented system A_aug = [A; √β I],
+    b_aug = [b; 0] (A_aug = A when β = 0). A sketch S ∈ ℝ^(d × M),
+    d = ⌈γ N⌉, gives the QR factorisation [S A; √β I] = Q R, and R⁻¹ is a
+    right preconditioner: if S is an ε-embedding for range(A), then
+    ‖[S A; √β I] R⁻¹ y‖₂ = ‖y‖₂ and
 
-    i.e. plain least squares on the augmented system $\tilde A = [A;\
-    \delta I]$, $\tilde b = [b;\ 0]$ ($\tilde A = A$ when $\delta = 0$). A
-    sketch $S \in \mathbb{R}^{d \times m}$, $d = \lceil \gamma n \rceil$,
-    gives the QR factorisation $[SA;\ \delta I] = QR$, and $M = R^{-1}$ is a
-    right preconditioner: if $S$ is an $\varepsilon$-embedding for
-    $\operatorname{range}(A)$, then $\|[SA;\ \delta I]\,My\| = \|y\|$ and
+        ‖A_aug R⁻¹ y‖₂ ∈ [1 / (1 + ε), 1 / (1 − ε)] ‖y‖₂
+            ⟹   κ(A_aug R⁻¹) ≤ (1 + ε) / (1 − ε),
 
-    $$
-    \|\tilde A M y\| \in \Big[\tfrac{1}{1+\varepsilon},
-    \tfrac{1}{1-\varepsilon}\Big]\|y\|
-    \quad\Longrightarrow\quad
-    \kappa(\tilde A M) \le \frac{1+\varepsilon}{1-\varepsilon},
-    $$
+    so LSMR on A_aug R⁻¹ contracts the error by about (κ − 1) / (κ + 1) per
+    step, independently of M and of κ(A). The default sampling factor
+    γ = 4 gives ε ≈ √(1 / γ) = 0.5 for a Gaussian sketch (and comparable
+    for the sparse sign sketch), so κ ≲ 3 and LSMR converges in a few tens
+    of steps (Meng, Saunders & Mahoney, 2014; Epperly, 2024).
 
-    so LSMR on $\tilde A M$ contracts the error by about
-    $(\kappa - 1)/(\kappa + 1)$ per step, independently of $m$ and of
-    $\kappa(A)$. The default $\gamma = 4$ gives $\varepsilon \approx
-    \sqrt{1/\gamma} = 0.5$ for a Gaussian sketch (and comparable for the
-    sparse sign sketch), so $\kappa \lesssim 3$ and LSMR converges in a few
-    tens of steps (Meng, Saunders & Mahoney, 2014; Epperly, 2024).
+    The inner solve is `lineax.LSMR` on the composed operator A_aug R⁻¹
+    (the undamped path of `gaussx.LSMRSolver`), so gradients use lineax's
+    implicit differentiation. Only A is sketched; the ridge block is exact.
 
-    ```text
-    S = sample(sketch, d = ceil(gamma n), m; PRNGKey(seed))
-    Q, R = qr([S A; δ I])                    # O(d n²)
-    x₀ = R⁻¹ Q[:d]ᵀ (S b)                    # sketch-and-solve warm start
-    y = LSMR(Ã R⁻¹, [b; 0] − Ã x₀)           # undamped, lineax
-    return x₀ + R⁻¹ y
-    ```
+    With ``damp == 0``, A must have full column rank (otherwise the solution
+    is not unique and R is singular; ``throw=True`` raises); ``damp > 0``
+    always has a unique solution. A matrix-free A is sketched with d
+    transpose-matvecs, a batch of rows of S at a time, so the extra memory
+    is O(M) per batch, not O(d M).
 
-    The inner solve is `lineax.LSMR` on the composed operator $\tilde A M$
-    (the undamped path of `LSMRSolver`), so gradients use lineax's implicit
-    differentiation. Only $A$ is sketched; the ridge block is exact.
-
-    With ``damp == 0``, $A$ must have full column rank (otherwise the
-    solution is not unique and $R$ is singular; ``throw=True`` raises);
-    ``damp > 0`` always has a unique solution. A matrix-free $A$ is
-    sketched with $d$ transpose-matvecs, a batch of rows of $S$ at a time,
-    so the extra memory is $O(m)$ per batch, not $O(dm)$.
-
-    **Scope.** The dense QR of the $d \times n$ sketch costs $O(d n^2)$ and
-    $O(dn)$ memory, so this targets $n \lesssim 10^4$ (e.g. Gauss-Newton
-    steps on a Jacobian with $10^6$ pixels and a few hundred parameters).
-    For larger $n$, solve the normal equations $(A^\top A + \delta^2 I)x =
-    A^\top b$ with `PreconditionedCGSolver` and a `NystromPreconditioner`
-    built from $A^\top A$ with ``shift=δ²``.
+    **Scope.** The dense QR of the d × N sketch costs O(d N²) and O(d N)
+    memory, so this targets N ≲ 10⁴ (e.g. Gauss-Newton steps on a Jacobian
+    with 10⁶ pixels and a few hundred parameters). For larger N, solve the
+    normal equations (Aᵀ A + β I) x = Aᵀ b with
+    `gaussx.PreconditionedCGSolver` and a `gaussx.NystromPreconditioner`
+    built from Aᵀ A with ``shift=β``.
 
     Attributes:
-        sketch: ``"sparse_sign"`` (default; `SparseSignSketch`), ``"srht"``
-            (`SRHTSketch`) or ``"gaussian"`` (`GaussianSketch`).
-        sampling_factor: $\gamma \ge 1$; the sketch has $d = \min(\lceil
-            \gamma n \rceil, m)$ rows.
+        sketch: ``"sparse_sign"`` (default; `gaussx.SparseSignSketch`),
+            ``"srht"`` (`gaussx.SRHTSketch`) or ``"gaussian"``
+            (`gaussx.GaussianSketch`).
+        sampling_factor: Sampling factor γ ≥ 1; the sketch has
+            d = min(⌈γ N⌉, M) rows.
         nnz: Non-zeros per column of the sparse sign sketch.
-        damp: Ridge parameter $\delta \ge 0$.
+        damp: Tikhonov damping √β ≥ 0.
         atol: LSMR tolerance on the normal-equations residual. ``None``:
-            ``1e-6`` in float64, ``1e-3`` in float32, as `LSMRSolver`
-            (gh-327). The preconditioned system has $\kappa \lesssim 3$, so
-            ``1e-6`` is reachable in float32 too and costs only a few more
-            steps; set it explicitly when float32 accuracy matters.
+            1e-6 in float64, 1e-3 in float32, as `gaussx.LSMRSolver`
+            (gh-327). The preconditioned system has κ ≲ 3, so 1e-6 is
+            reachable in float32 too and costs only a few more steps; set it
+            explicitly when float32 accuracy matters.
         btol: LSMR relative tolerance on the residual. ``None``: as
             ``atol``.
-        max_steps: Maximum LSMR iterations.
-        seed: The sketch is drawn from ``jax.random.PRNGKey(seed)``; it is
+        max_steps: Maximum number of LSMR iterations.
+        seed: The sketch S is drawn from ``jax.random.PRNGKey(seed)``; it is
             also the probe seed of `logdet`.
-        throw: Raise when LSMR stops without converging, as `LSMRSolver`.
+        throw: Raise when LSMR stops without converging, as
+            `gaussx.LSMRSolver`.
+
+    Raises:
+        ValueError: If ``sketch`` is unknown, ``sampling_factor < 1`` or
+            ``damp < 0``.
+
+    Examples:
+        A tall least-squares problem matches the dense solution:
+
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> matrix = jr.normal(jr.key(0), (2000, 10))
+        >>> b = jr.normal(jr.key(1), (2000,))
+        >>> solver = gaussx.SketchAndPrecondLSMR(atol=1e-6, btol=1e-6)
+        >>> x = solver.solve(lx.MatrixLinearOperator(matrix), b)
+        >>> bool(jnp.allclose(x, jnp.linalg.lstsq(matrix, b)[0], atol=1e-4))
+        True
 
     References:
         Rokhlin, V. & Tygert, M. (2008). A fast randomized algorithm for
@@ -261,16 +351,6 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
         Epperly, E. N. (2024). Fast and forward stable randomized algorithms
         for linear least-squares problems. *SIAM J. Matrix Anal. Appl.*,
         45(4), 1782-1804.
-
-    Examples:
-        >>> import jax.numpy as jnp, jax.random as jr, lineax as lx
-        >>> import gaussx as gx
-        >>> A = jr.normal(jr.key(0), (2000, 10))
-        >>> b = jr.normal(jr.key(1), (2000,))
-        >>> solver = gx.SketchAndPrecondLSMR(atol=1e-6, btol=1e-6)
-        >>> x = solver.solve(lx.MatrixLinearOperator(A), b)
-        >>> bool(jnp.allclose(x, jnp.linalg.lstsq(A, b)[0], atol=1e-4))
-        True
     """
 
     sketch: SketchName = eqx.field(static=True, default="sparse_sign")
@@ -298,18 +378,49 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
             raise ValueError(f"SketchAndPrecondLSMR needs damp >= 0, got {self.damp}.")
 
     def _sample_sketch(self, m: int, n: int) -> AbstractSketch:
-        d = min(math.ceil(self.sampling_factor * n), m)
+        """Draw the sketch S with d = min(⌈γ N⌉, M) rows from ``seed``.
+
+        Args:
+            m: Number of rows M of A.
+            n: Number of columns N of A.
+
+        Returns:
+            The sampled sketch S, d × M.
+        """
+        # d = min(⌈γ N⌉, M)
+        sketch_size = min(math.ceil(self.sampling_factor * n), m)
         key = jax.random.PRNGKey(self.seed)
         if self.sketch == "sparse_sign":
-            return SparseSignSketch.sample(key, d, m, nnz=self.nnz)
+            return SparseSignSketch.sample(key, sketch_size, m, nnz=self.nnz)
         if self.sketch == "srht":
-            return SRHTSketch.sample(key, d, m)
-        return GaussianSketch.sample(key, d, m)
+            return SRHTSketch.sample(key, sketch_size, m)
+        return GaussianSketch.sample(key, sketch_size, m)
 
     def _solve(
         self, operator: lx.AbstractLinearOperator, vector: Float[Array, " m"]
     ) -> tuple[Float[Array, " n"], lx.Solution]:
-        """The solution and lineax's inner LSMR solution (with its stats)."""
+        """The solution and lineax's inner LSMR solution, with its stats.
+
+            x = x₀ + R⁻¹ y,   y = argmin_y ‖A_aug R⁻¹ y − (b_aug − A_aug x₀)‖₂
+
+        Algorithm:
+            1. Sample S and factor [S A; √β I] = Q R.
+            2. Warm-start with x₀ = R⁻¹ Q_1:dᵀ S b, checking R when β = 0.
+            3. Run undamped `lineax.LSMR` on A_aug R⁻¹ against the residual
+               b_aug − A_aug x₀.
+            4. Map back, x = x₀ + R⁻¹ y.
+
+        Args:
+            operator: Operator A, M × N.
+            vector: Right-hand side b, of length M.
+
+        Returns:
+            Tuple ``(solution, inner)``: x, and the `lineax.Solution` of
+            the preconditioned LSMR solve.
+
+        Raises:
+            ValueError: If ``damp == 0`` and M < N.
+        """
         m, n = operator.out_size(), operator.in_size()
         if self.damp == 0.0 and m < n:
             raise ValueError(
@@ -317,60 +428,82 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
                 f"damp == 0, got shape ({m}, {n})."
             )
         sketch = self._sample_sketch(m, n)
-        Q_top, R = _sketch_qr(operator, sketch, self.damp)
-        x0 = _warm_start(Q_top, R, sketch, vector)
+        # [S A; √β I] = Q R
+        orthogonal_top, triangular_factor = _sketch_qr(operator, sketch, self.damp)
+        # x₀ = R⁻¹ Q_1:dᵀ S b
+        initial_solution = _warm_start(
+            orthogonal_top, triangular_factor, sketch, vector
+        )
         if self.damp == 0.0 and self.throw:
-            x0 = _check_full_rank(R, x0)
+            initial_solution = _check_full_rank(triangular_factor, initial_solution)
         damp = self.damp
 
         def precondition(y: Float[Array, " n"]) -> Float[Array, " n"]:
-            return jsl.solve_triangular(R, y, lower=False)
+            # R⁻¹ y
+            return jsl.solve_triangular(triangular_factor, y, lower=False)
 
         def augmented(x: Float[Array, " n"]) -> Float[Array, " mn"]:
-            Ax = operator.mv(x)
+            # A x
+            operator_x = operator.mv(x)
             if damp == 0.0:
-                return Ax
-            return jnp.concatenate([Ax, damp * x])
+                return operator_x
+            # A_aug x = [A x; √β x]
+            return jnp.concatenate([operator_x, damp * x])
 
         dtype = operator_dtype(operator, vector)
+        # A_aug R⁻¹
         preconditioned = lx.FunctionLinearOperator(
             lambda y: augmented(precondition(y)),
-            jax.ShapeDtypeStruct((n,), R.dtype),
+            jax.ShapeDtypeStruct((n,), triangular_factor.dtype),
         )
-        residual = (
-            vector if damp == 0.0 else jnp.concatenate([vector, jnp.zeros_like(x0)])
-        ) - augmented(x0)
+        # b_aug = [b; 0]
+        augmented_rhs = (
+            vector
+            if damp == 0.0
+            else jnp.concatenate([vector, jnp.zeros_like(initial_solution)])
+        )
+        # b_aug − A_aug x₀
+        residual = augmented_rhs - augmented(initial_solution)
         atol = resolve_tolerance(self.atol, dtype, 1e-6)
         btol = resolve_tolerance(self.btol, dtype, 1e-6)
-        solution = lx.linear_solve(
+        # y = argmin_y ‖A_aug R⁻¹ y − (b_aug − A_aug x₀)‖₂
+        inner = lx.linear_solve(
             preconditioned,
             residual,
             lx.LSMR(rtol=btol, atol=atol, max_steps=self.max_steps),
             throw=self.throw,
         )
-        return x0 + precondition(solution.value), solution
+        # x = x₀ + R⁻¹ y
+        return initial_solution + precondition(inner.value), inner
 
     def solve(
         self,
         operator: lx.AbstractLinearOperator,
         vector: Float[Array, " m"],
     ) -> Float[Array, " n"]:
-        r"""Least-squares solution $\arg\min_x \|Ax - b\|^2 + \delta^2\|x\|^2$.
+        """Solve the (damped) least-squares problem by sketch-preconditioned LSMR.
+
+            x = argmin_x ‖A x − b‖₂² + β ‖x‖₂²,   β = damp²
+
+        Algorithm:
+            1. Sample S and factor [S A; √β I] = Q R.
+            2. Warm-start with x₀ = R⁻¹ Q_1:dᵀ S b.
+            3. Run LSMR on A_aug R⁻¹ and return x = x₀ + R⁻¹ y.
 
         Args:
-            operator: Operator $A$, shape ``(m, n)``; tall ($m \ge n$) unless
-                ``damp > 0``. Matrix-free operators are sketched with $d$
-                transpose-matvecs.
-            vector: Right-hand side $b$, shape ``(m,)``.
+            operator: Operator A, M × N; tall (M ≥ N) unless ``damp > 0``.
+                Matrix-free operators are sketched with d transpose-matvecs.
+            vector: Right-hand side b, of length M.
 
         Returns:
-            The solution $x$, shape ``(n,)``.
+            The solution x, of length N.
 
         Raises:
-            ValueError: If ``damp == 0`` and $m < n$.
-            equinox.EquinoxRuntimeError: With ``throw=True``, if ``damp == 0``
-                and $A$ has numerically dependent columns (the solution is
-                not unique; pass ``damp > 0``), or LSMR does not converge.
+            ValueError: If ``damp == 0`` and M < N.
+            equinox.EquinoxRuntimeError: With ``throw=True``, if
+                ``damp == 0`` and A has numerically dependent columns (the
+                solution is not unique; pass ``damp > 0``), or LSMR does not
+                converge.
         """
         return self._solve(operator, vector)[0]
 
@@ -380,18 +513,21 @@ class SketchAndPrecondLSMR(AbstractSolverStrategy):
         *,
         key: jax.Array | None = None,
     ) -> Float[Array, ""]:
-        r"""Stochastic log-determinant, delegated to `LSMRSolver`'s SLQ path.
+        """Stochastic log-determinant, delegated to `gaussx.LSMRSolver`'s SLQ.
+
+            log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
 
         Present for the `AbstractSolverStrategy` protocol only: the sketch
         plays no part. For the log-determinant of a square system, use a
-        square-system strategy (`SLQLogdet`, `CGSolver`, `DenseSolver`).
+        square-system strategy (`gaussx.SLQLogdet`, `gaussx.CGSolver`,
+        `gaussx.DenseSolver`).
 
         Args:
-            operator: A square symmetric PSD linear operator.
-            key: PRNG key for the probes; ``None`` means
+            operator: Square symmetric PSD operator A, N × N.
+            key: PRNG key for the probes z^(i); ``None`` means
                 ``PRNGKey(seed)``.
 
         Returns:
-            Scalar estimate of $\log|\det A|$.
+            Scalar estimate of log |det A|.
         """
         return LSMRSolver(seed=self.seed).logdet(operator, key=key)
