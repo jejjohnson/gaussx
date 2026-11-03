@@ -1,15 +1,20 @@
-"""GaussX GP-specific helpers -- ELBO, whitening, prediction caches, SVGP.
+"""GaussX GP-specific helpers: ELBOs, whitening, prediction caches, SVGP.
 
 Sparse-GP convention (gh-353): new helpers follow it, existing ones are
-being moved onto it with one-release deprecations.
+being moved onto it with one-release deprecations. X stacks the N
+evaluation inputs and X_ℐ the M = N_ℐ inducing inputs of the inducing set
+ℐ; each of the R outputs, indexed by r, has the variational distribution
+q(f_ℐ,r) = 𝒩(μ_ℐ,r, L_ℐ,r L_ℐ,rᵀ) over its inducing values. Under the
+convention the inducing kernel matrix is the first argument.
 
-| Object | Name | Shape / type |
-|---|---|---|
-| Inducing covariance (first argument) | ``K_zz`` | ``(M, M)`` array or PSD operator |
-| Cross-covariance (data x inducing) | ``K_xz`` | ``(N, M)`` |
-| Prior at the evaluation points | ``K_xx`` / ``K_xx_diag`` | ``(N, N)`` / ``(N,)`` |
-| Variational mean | ``q_mu`` | ``(M, R)`` or ``(M,)`` |
-| Variational root | ``q_sqrt`` | ``(R, M, M)`` or ``(M, R)`` |
+| Object | Symbol | Name | Shape / type |
+|---|---|---|---|
+| Inducing kernel matrix | K_ℐℐ | ``K_zz`` | ``(M, M)`` array or PSD operator |
+| Cross-covariance (data × inducing) | K_Xℐ | ``K_xz`` | ``(N, M)`` |
+| Prior at the evaluation points | K_XX | ``K_xx`` | ``(N, N)`` |
+| Its diagonal | diag(K_XX) | ``K_xx_diag`` | ``(N,)`` |
+| Variational mean | μ_ℐ,r | ``q_mu`` | ``(M, R)`` or ``(M,)`` |
+| Variational root | L_ℐ,r | ``q_sqrt`` | ``(R, M, M)`` or ``(M, R)`` |
 
 Functions take no ``solver=`` they would ignore.
 """

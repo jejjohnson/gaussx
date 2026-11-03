@@ -491,11 +491,11 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `unwhiten` | function | Unwhiten variational mean: ``m = L @ m_tilde``. |
-| `unwhiten_covariance` | function | Unwhiten variational covariance: S = L S̃ Lᵀ. |
-| `whiten_covariance` | function | Unwhiten variational covariance: S = L S̃ Lᵀ. |
-| `whitened_svgp_predict` | function | Whitened SVGP prediction: mean and variance at test points. |
-| `svgp_variance_adjustment` | function | Compute the SVGP variance adjustment operator. |
+| `unwhiten` | function | Unwhiten a variational mean: μ_ℐ = L_ℐℐ μ_z. |
+| `unwhiten_covariance` | function | Unwhiten a variational covariance: Σ_ℐ = L_ℐℐ Σ_z L_ℐℐᵀ. |
+| `whiten_covariance` | function | Unwhiten a variational covariance: Σ_ℐ = L_ℐℐ Σ_z L_ℐℐᵀ. |
+| `whitened_svgp_predict` | function | Whitened SVGP prediction: per-input means μ_n and variances σ²_n. |
+| `svgp_variance_adjustment` | function | SVGP variance adjustment operator Q = K_ℐℐ⁻¹ Σ_ℐ K_ℐℐ⁻¹ − K_ℐℐ⁻¹. |
 
 ### Variational bounds & KL
 
@@ -504,7 +504,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `variational_elbo_gaussian` | function | Uncollapsed (SVGP) ELBO for a Gaussian likelihood. |
 | `variational_elbo_mc` | function | Monte Carlo ELBO for non-conjugate likelihoods. |
 | `collapsed_elbo` | function | Collapsed ELBO (Titsias bound) for sparse GP regression. |
-| `gauss_kl` | function | KL(first ‖ second): ``KL[q(u) \|\| p(u)]`` with ``p(u) = N(0, K)``. |
+| `gauss_kl` | function | KL(first ‖ second): KL[q(f_ℐ) ‖ p(f_ℐ)] with p(f_ℐ) = 𝒩(0, K_ℐℐ). |
 
 ### Cross-validation & diagnostics
 
@@ -515,8 +515,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `love_residual` | function | Relative solve residual of a LOVE cache for one cross-covariance. |
 | `love_variance_error_bound` | function | Upper bound on the variance over-estimate of a LOVE cache. |
 | `LOVECache` | class | Cached rank-k Lanczos approximation Q diag(θ)⁻¹ Qᵀ of Σ_y⁻¹. |
-| `leave_one_out_cv` | function | LOO-CV via the bordered-system identity. |
-| `LOOResult` | class | Result of leave-one-out cross-validation. |
+| `leave_one_out_cv` | function | LOO-CV via the bordered-system identity, without refitting N times. |
+| `LOOResult` | class | Result of `leave_one_out_cv`: the LOO log-likelihood and predictives. |
 
 ### Multi-output projections
 
