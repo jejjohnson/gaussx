@@ -404,10 +404,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `GaussianMRF` | class | Gaussian Markov random field $x \sim \mathcal N(\mu, Q^{-1})$. |
-| `IntrinsicGMRF` | class | Improper $\mathcal N(\mu, (\tau R)^+)$ on the complement of $\ker R$. |
-| `ConstrainedGMRF` | class | A `GaussianMRF` conditioned on hard linear constraints $A_cx = e$. |
-| `BYM2GMRF` | class | The BYM2 pair $(b, u^\ast)$ (Riebler et al., 2016), with its exact density. |
+| `GaussianMRF` | class | Gaussian Markov random field x ~ 𝒩(μ, Λ⁻¹) with a structured precision Λ. |
+| `IntrinsicGMRF` | class | Improper Gaussian field x ~ 𝒩(μ, (τ R)⁺) on the complement of ker R. |
+| `ConstrainedGMRF` | class | A `GaussianMRF` conditioned on hard linear constraints A_c x = e. |
+| `BYM2GMRF` | class | The BYM2 pair (b, u*) (Riebler et al., 2016), with its exact density. |
 
 ### Sequential distributions
 
