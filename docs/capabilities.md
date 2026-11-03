@@ -118,29 +118,29 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `BlockTriDiag` | class | Block-tridiagonal operator A with a symmetric off-diagonal band. |
 | `LowerBlockTriDiag` | class | Lower block-bidiagonal operator L, the block Cholesky factor of A. |
 | `UpperBlockTriDiag` | class | Upper block-bidiagonal operator U, the transpose of a `LowerBlockTriDiag`. |
-| `Toeplitz` | class | Symmetric Toeplitz matrix from its first column. |
-| `ToeplitzCholesky` | class | Circulant-embedding sample factor for a symmetric positive Toeplitz matrix. |
+| `Toeplitz` | class | Symmetric Toeplitz matrix A = toeplitz(t) from its first column t. |
+| `ToeplitzCholesky` | class | Circulant-embedding sample factor L, N × M, with L Lᵀ = toeplitz(t). |
 
 ### Fast-diagonalisable operators
 
 | Name | Kind | What it does |
 |---|---|---|
-| `DiagonalizedOperator` | class | Linear operator ``A x = V⁻¹(Λ ⊙ V x)`` given by a transform pair. |
-| `circulant` | function | (Block-)circulant operator from its first column. |
-| `circulant_from_symbol` | function | (Block-)circulant operator from its DFT symbol. |
-| `as_diagonalized` | function | Express ``operator`` as one `DiagonalizedOperator`, if possible. |
-| `SpectralFunction` | class | ``f(B)`` for a symmetric ``B`` with a factored eigenbasis. |
+| `DiagonalizedOperator` | class | Linear operator A = W⁻¹ diag(γ) W given by a transform pair. |
+| `circulant` | function | (Block-)circulant operator C from its first column c. |
+| `circulant_from_symbol` | function | (Block-)circulant operator C = DFT⁻¹ diag(γ) DFT from its symbol γ. |
+| `as_diagonalized` | function | Express an operator as one `DiagonalizedOperator`, if possible. |
+| `SpectralFunction` | class | f(A) = W⁻¹ diag(f(γ)) W for a symmetric A with a factored eigenbasis. |
 
 ### Interpolated & masked operators
 
 | Name | Kind | What it does |
 |---|---|---|
-| `InterpolatedOperator` | class | Structured Kernel Interpolation: ``K \approx W K_{uu} W^T``. |
+| `InterpolatedOperator` | class | Structured kernel interpolation A = W_interp K_ℐℐ W_interpᵀ ≈ K_XX. |
 | `MaskedOperator` | class | Row/column-masked view of a base operator. |
 | `grid_coupling_indices` | function | Flat indices of masked-out grid cells adjacent to the masked-in region. |
-| `create_grid` | function | Create a regular grid from per-dimension sizes and bounds. |
-| `grid_data` | function | Expand a grid to the full Cartesian product of grid points. |
-| `cubic_interpolation_weights` | function | Compute cubic interpolation indices and weights for SKI. |
+| `create_grid` | function | Regular grid axes g_d = linspace(lo_d, hi_d, N_d), one per dimension. |
+| `grid_data` | function | Inducing inputs X_ℐ, the Cartesian product of the grid axes. |
+| `cubic_interpolation_weights` | function | Sparse rows of the cubic SKI interpolation matrix W_interp. |
 
 ### Lazy algebra & sampling
 
@@ -151,7 +151,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `product_operator` | function | Lazy product A B, applied right to left. |
 | `kronecker_sum_sample` | function | Sample from 𝒩(0, A_1 ⊕ A_2) through the factor eigendecompositions. |
 | `sum_of_kroneckers_sample` | function | Sample from 𝒩(0, K) with a matrix-free Lanczos square root. |
-| `toeplitz_sample` | function | Sample from ``𝒩(0, Toeplitz(column))`` via FFT circulant embedding. |
+| `toeplitz_sample` | function | Draw from 𝒩(0, toeplitz(t)) by circulant embedding and the FFT. |
 | `CapacitanceSolver` | class | Solve a base system subject to homogeneous point constraints. |
 
 ### Structural tags & predicates
