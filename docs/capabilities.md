@@ -413,10 +413,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `LGSSM` | class | Linear-Gaussian state-space model as a density over ``(T, M)``. |
+| `LGSSM` | class | Linear-Gaussian state-space model as a density over observations ``(T, M)``. |
 | `MaskedLGSSM` | class | `LGSSM` whose ``log_prob`` marginalises unobserved channels exactly. |
 | `LGSSMFactory` | class | Callable ``obs_mask -> MaskedLGSSM``, for conditional use. |
-| `MarkovGaussian` | class | Chain-Markov Gaussian over $x_{0:T-1}$ as a density over ``(T, d)``. |
+| `MarkovGaussian` | class | Gauss-Markov chain over the states x_0:T−1 as a density over ``(T, d)``. |
 
 ### Gaussian sugar ops
 
@@ -436,7 +436,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `sample_mvn` | function | Draw samples from $\mathcal{N}(\mu, K)$, dispatching on $K$'s structure. |
+| `sample_mvn` | function | Draw samples from 𝒩(μ, Σ), dispatching on the structure of Σ. |
 | `sample_joint_conditional` | function | Joint draws of a partitioned Gaussian, and conditional draws from them. |
 
 ### Exponential family
