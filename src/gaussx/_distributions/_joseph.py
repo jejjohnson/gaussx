@@ -1,9 +1,16 @@
-"""Joseph-form covariance update for Kalman filters."""
+"""Joseph-form covariance update of a Kalman measurement step.
+
+The notation is that of `gaussx._ssm._kalman`: prior covariance Σ_x,
+observation operator H, observation-error covariance Σ_ε, gain G and
+posterior covariance Σ_x|y.
+"""
 
 from __future__ import annotations
 
 import jax.numpy as jnp
 from jaxtyping import Array, Float
+
+from gaussx._linalg._symmetrize import symmetrize
 
 
 def joseph_update(
@@ -12,27 +19,75 @@ def joseph_update(
     H: Float[Array, "M N"],
     R: Float[Array, "M M"],
 ) -> Float[Array, "N N"]:
-    r"""Numerically stable Joseph-form covariance update.
+    """Joseph-form posterior covariance of a Kalman update, stable for any gain.
 
-    Computes the updated covariance after a Kalman measurement update:
+        Σ_x|y = (I − G H) Σ_x (I − G H)ᵀ + G Σ_ε Gᵀ
 
-        P_update = (I - K H) P_pred (I - K H)^T + K R K^T
+    For the optimal gain G = Σ_x Hᵀ Σ_y⁻¹ this equals Σ_x − G Σ_y Gᵀ, but
+    the Joseph form stays symmetric positive semi-definite when G is
+    approximate or the problem is poorly conditioned, where the short forms
+    Σ_x − G Σ_y Gᵀ and (I − G H) Σ_x can lose definiteness.
 
-    This form is more numerically stable than the simplified
-    ``P = P_pred - K S K^T`` or ``P = (I - K H) P_pred`` because it
-    guarantees symmetry and is more robust when the Kalman gain ``K``
-    is approximate or the system is poorly conditioned.
+    Algorithm:
+        1. Form I − G H.
+        2. Sandwich the prior covariance, (I − G H) Σ_x (I − G H)ᵀ.
+        3. Add the noise term G Σ_ε Gᵀ and symmetrise.
 
     Args:
-        P_pred: Predicted covariance, shape ``(N, N)``.
-        K: Kalman gain, shape ``(N, M)``.
-        H: Observation model, shape ``(M, N)``.
-        R: Observation noise covariance, shape ``(M, M)``.
+        P_pred: Prior (predicted) covariance Σ_x of the state.
+        K: Kalman gain G.
+        H: Observation operator H.
+        R: Observation-error covariance Σ_ε.
 
     Returns:
-        Updated covariance, shape ``(N, N)``.
+        The posterior covariance Σ_x|y, symmetrised.
+
+    Examples:
+        With the optimal gain it matches Σ_x − G Σ_y Gᵀ:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> prior_covariance = jnp.eye(2)
+        >>> obs_operator = jnp.array([[1.0, 0.0]])
+        >>> obs_noise_covariance = jnp.array([[1.0]])
+        >>> gain = gaussx.kalman_gain(
+        ...     lx.MatrixLinearOperator(prior_covariance),
+        ...     lx.MatrixLinearOperator(obs_operator),
+        ...     lx.MatrixLinearOperator(obs_noise_covariance),
+        ... )
+        >>> posterior = gaussx.joseph_update(
+        ...     prior_covariance, gain, obs_operator, obs_noise_covariance
+        ... )
+        >>> bool(jnp.allclose(posterior, jnp.diag(jnp.array([0.5, 1.0]))))
+        True
+
+        A suboptimal gain still gives a symmetric covariance:
+
+        >>> suboptimal = jnp.array([[0.3], [0.1]])
+        >>> posterior = gaussx.joseph_update(
+        ...     prior_covariance, suboptimal, obs_operator, obs_noise_covariance
+        ... )
+        >>> bool(jnp.allclose(posterior, posterior.T))
+        True
     """
-    N = P_pred.shape[0]
-    I_KH = jnp.eye(N, dtype=P_pred.dtype) - K @ H  # (N, N)
-    P_update = I_KH @ P_pred @ I_KH.T + K @ R @ K.T
-    return (P_update + P_update.T) / 2
+    state_size = P_pred.shape[0]
+    # jnp, not einx: einx rejects a zero-length axis, and D_x = 0 or D_y = 0
+    # is accepted here.
+    identity = jnp.eye(state_size, dtype=P_pred.dtype)
+    # G H
+    gain_obs_operator = K @ H
+    # I − G H
+    joseph_factor = identity - gain_obs_operator
+    # (I − G H) Σ_x
+    factor_covariance = joseph_factor @ P_pred
+    # (I − G H) Σ_x (I − G H)ᵀ
+    propagated = factor_covariance @ joseph_factor.T
+    # G Σ_ε
+    gain_noise = K @ R
+    # G Σ_ε Gᵀ
+    noise_term = gain_noise @ K.T
+    # Σ_x|y = (I − G H) Σ_x (I − G H)ᵀ + G Σ_ε Gᵀ
+    posterior_covariance = propagated + noise_term
+    # ½ (Σ_x|y + Σ_x|yᵀ)
+    return symmetrize(posterior_covariance)

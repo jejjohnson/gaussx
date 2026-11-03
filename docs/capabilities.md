@@ -397,8 +397,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `AbstractMultivariateNormal` | class | Common surface of `MultivariateNormal` and `MultivariateNormalPrecision`. |
-| `MultivariateNormal` | class | Multivariate normal parameterized by a lineax linear operator. |
-| `MultivariateNormalPrecision` | class | Multivariate normal parameterized by a precision (inverse covariance) operator. |
+| `MultivariateNormal` | class | Multivariate normal 𝒩(μ, Σ) whose covariance Σ is a lineax operator. |
+| `MultivariateNormalPrecision` | class | Multivariate normal 𝒩(μ, Λ⁻¹) whose precision Λ = Σ⁻¹ is a lineax operator. |
 
 ### Gaussian Markov random fields
 
@@ -422,15 +422,15 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `gaussian_log_prob` | function | Multivariate normal log-probability. |
-| `gaussian_entropy` | function | Entropy of a multivariate normal ``N(mu, Sigma)``. |
-| `quadratic_form` | function | Compute ``x^T A^{-1} x`` via a single solve. |
-| `kl_standard_normal` | function | KL(first ‖ second): ``KL(N(m, S) \|\| N(0, I))``. |
-| `gaussian_kl` | function | KL(first ‖ second): ``KL(p \|\| q)`` between two multivariate normals. |
-| `conditional` | function | Compute ``p(x_A \| x_B = b)`` from a joint Gaussian ``p(x_A, x_B)``. |
-| `joseph_update` | function | Numerically stable Joseph-form covariance update. |
-| `add_jitter` | function | Add diagonal jitter for numerical stability: ``A + eps * I``. |
-| `project` | function | Compute A_X = K_XZ @ K_ZZ^{-1} via Cholesky solve. |
+| `gaussian_log_prob` | function | Multivariate normal log-density log 𝒩(x; μ, Σ) of a structured covariance. |
+| `gaussian_entropy` | function | Entropy of a multivariate normal 𝒩(μ, Σ), independent of the mean. |
+| `quadratic_form` | function | Quadratic form xᵀ A⁻¹ x through a single solve. |
+| `kl_standard_normal` | function | KL(first ‖ second): KL[𝒩(μ, Σ) ‖ 𝒩(0, I)] from the standard normal. |
+| `gaussian_kl` | function | KL(first ‖ second): KL[p ‖ q] between two multivariate normals. |
+| `conditional` | function | Conditional p(x_A ∣ x_B = b) of a joint Gaussian 𝒩(μ, Σ) from observed entries. |
+| `joseph_update` | function | Joseph-form posterior covariance of a Kalman update, stable for any gain. |
+| `add_jitter` | function | Diagonal jitter A + β I for numerical stability. |
+| `project` | function | Projection A_X = K_Xℐ K_ℐℐ⁻¹ onto the inducing inputs via Cholesky solves. |
 
 ### Structured sampling
 
@@ -1012,5 +1012,5 @@ added here, not inline in one caller.
 | `gaussx._strategies._dispatch` | Route x = A⁻¹ b and log \|det A\| through a strategy, or structural dispatch. | `dispatch_solve`, `dispatch_logdet` |
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |
-| `gaussx._distributions._utils` | Shared helpers for batched distribution reshaping. | `_axis_names`, `_reshape_batch`, `_reshape_series`, `_reshape_samples`, `_unflatten_sample_axis` |
+| `gaussx._distributions._utils` | Reshaping helpers that unflatten the batch and sample axes of distributions. | `_axis_names`, `_reshape_batch`, `_reshape_series`, `_reshape_samples`, `_unflatten_sample_axis` |
 | `gaussx._ssm._utils` | Shared helpers for the SSM recipes. | `_materialise`, `_matvec`, `_as_operator`, `_right_matmul_transpose`, `_left_matmul`, `_innovation_covariance`, `_masked_obs_inputs`, `_is_operator_input`, `_normalise_tv_inputs`, `_warn_unused_process_noise`, `_transition_stack` |
