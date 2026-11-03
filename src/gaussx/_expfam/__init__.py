@@ -1,4 +1,10 @@
-"""GaussX exponential family -- Gaussian in natural parameter form."""
+"""Gaussian in exponential-family form, with natural parameters (Λ μ, −½ Λ).
+
+The conversions between the mean (μ, Σ), the natural parameters (Λ μ, −½ Λ)
+and the expectation parameters (𝔼[x], 𝔼[x xᵀ]) are in ``_natural.py``; the
+natural-form `GaussianExpFam`, its log-partition, Fisher information,
+sufficient statistics and KL divergence in ``_gaussian.py``.
+"""
 
 from gaussx._expfam._gaussian import (
     GaussianExpFam,

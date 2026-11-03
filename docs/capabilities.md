@@ -443,20 +443,20 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `GaussianExpFam` | class | Gaussian in natural (exponential family) parameters. |
-| `to_mean_cov` | function | Convert natural parameters to the mean and covariance. |
-| `mean_cov_to_natural` | function | Convert mean/covariance to natural parameters (operator form). |
-| `natural_to_mean_cov` | function | Convert natural parameters to mean/covariance (operator form). |
-| `mean_chol_to_natural` | function | Convert mean/variance (Cholesky) to natural parameters. |
-| `natural_to_mean_chol` | function | Convert natural parameters to mean/variance (Cholesky). |
-| `mean_chol_to_expectation` | function | Convert mean/variance (Cholesky) to expectation parameters. |
-| `expectation_to_mean_chol` | function | Convert expectation parameters to mean/variance (Cholesky). |
-| `expectation_to_natural` | function | Convert expectation parameters to natural parameters. |
-| `natural_to_expectation` | function | Convert natural parameters to expectation parameters. |
-| `log_partition` | function | Log-partition function ``A(eta)``. |
-| `fisher_info` | function | Fisher information with respect to the mean, $F_\mu = \Sigma^{-1}$. |
-| `sufficient_stats` | function | Compute sufficient statistics ``T(x) = [x, x x^T]``. |
-| `kl_divergence` | function | KL(first ‖ second): ``KL(q \|\| p)`` via the Bregman form on natural parameters. |
+| `GaussianExpFam` | class | Gaussian 𝒩(μ, Σ) held by its natural parameters (Λ μ, −½ Λ). |
+| `to_mean_cov` | function | Mean μ and covariance Σ of a Gaussian in natural form. |
+| `mean_cov_to_natural` | function | Natural parameters (Λ μ, −½ Λ) from the mean and covariance, in operator form. |
+| `natural_to_mean_cov` | function | Mean μ and covariance Σ from the natural parameters, in operator form. |
+| `mean_chol_to_natural` | function | Natural parameters (Λ μ, −½ Λ) from the mean and the Cholesky factor of Σ. |
+| `natural_to_mean_chol` | function | Mean μ and Cholesky factor of Σ from the natural parameters (Λ μ, −½ Λ). |
+| `mean_chol_to_expectation` | function | Expectation parameters (𝔼[x], 𝔼[x xᵀ]) from the mean and Cholesky factor. |
+| `expectation_to_mean_chol` | function | Mean μ and Cholesky factor of Σ from the expectation parameters. |
+| `expectation_to_natural` | function | Natural parameters (Λ μ, −½ Λ) from the expectation parameters. |
+| `natural_to_expectation` | function | Expectation parameters (𝔼[x], 𝔼[x xᵀ]) from the natural parameters. |
+| `log_partition` | function | Log-partition of a Gaussian in natural form, normaliser included. |
+| `fisher_info` | function | Fisher information of the mean μ, which is the precision Λ = Σ⁻¹. |
+| `sufficient_stats` | function | Sufficient statistics (x, x xᵀ) of a Gaussian, over any batch axes. |
+| `kl_divergence` | function | KL(first ‖ second): KL[q ‖ p] in the Bregman form on natural parameters. |
 
 ### Deprecated aliases
 
