@@ -96,7 +96,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `Kronecker` | class | Kronecker product A = A_1 ⊗ … ⊗ A_D, applied one factor at a time. |
-| `BlockDiag` | class | Block diagonal operator ``diag(A₁, A₂, …, Aₖ)``. |
+| `BlockDiag` | class | Block-diagonal operator A = blockdiag(A_1, …, A_D), one block per slice. |
 | `KroneckerSum` | class | Kronecker sum A_1 ⊕ A_2 = A_1 ⊗ I + I ⊗ A_2 of two square operators. |
 | `KroneckerSumSqrt` | class | Symmetric square root S of A_1 ⊕ A_2 from the factor eigenvectors. |
 | `SumOfKroneckers` | class | Sum of Kronecker products ∑_j A_j ⊗ B_j, applied term by term. |
@@ -106,18 +106,18 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `LowRankUpdate` | class | Low-rank update operator ``L + U diag(d) Vᵀ``. |
-| `low_rank_plus_diag` | function | Construct ``diag(diag) + U diag(d) Vᵀ``. |
-| `low_rank_plus_identity` | function | Construct ``scale * I + U diag(d) Vᵀ``. |
-| `svd_low_rank_plus_diag` | function | Construct ``diag(diag) + U diag(S) Vᵀ`` from a truncated SVD. |
+| `LowRankUpdate` | class | Low-rank update A = A₀ + U D Vᵀ of a base operator, with D = diag(d). |
+| `low_rank_plus_diag` | function | Build A = diag(a) + U D Vᵀ, a low-rank update of a diagonal base. |
+| `low_rank_plus_identity` | function | Build A = c I + U D Vᵀ, a low-rank update of a scaled identity. |
+| `svd_low_rank_plus_diag` | function | Build A = diag(a) + U diag(s) Vᵀ from a truncated SVD. |
 
 ### Banded & Toeplitz
 
 | Name | Kind | What it does |
 |---|---|---|
-| `BlockTriDiag` | class | Block-tridiagonal operator with a symmetric off-diagonal band. |
-| `LowerBlockTriDiag` | class | Lower triangular block-bidiagonal Cholesky factor. |
-| `UpperBlockTriDiag` | class | Upper triangular block-bidiagonal (transpose of LowerBlockTriDiag). |
+| `BlockTriDiag` | class | Block-tridiagonal operator A with a symmetric off-diagonal band. |
+| `LowerBlockTriDiag` | class | Lower block-bidiagonal operator L, the block Cholesky factor of A. |
+| `UpperBlockTriDiag` | class | Upper block-bidiagonal operator U, the transpose of a `LowerBlockTriDiag`. |
 | `Toeplitz` | class | Symmetric Toeplitz matrix from its first column. |
 | `ToeplitzCholesky` | class | Circulant-embedding sample factor for a symmetric positive Toeplitz matrix. |
 
@@ -146,9 +146,9 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `sum_operator` | function | Lazy sum ``(A + B + …) v = A v + B v + …``. |
-| `scaled_operator` | function | Lazy scalar multiply ``(c A) v = c (A v)``. |
-| `product_operator` | function | Lazy matmul ``(A B) v = A (B v)``. |
+| `sum_operator` | function | Lazy sum A = A_1 + … + A_D, applied one summand at a time. |
+| `scaled_operator` | function | Lazy scalar multiple c A, applied after the matvec. |
+| `product_operator` | function | Lazy product A B, applied right to left. |
 | `kronecker_sum_sample` | function | Sample from 𝒩(0, A_1 ⊕ A_2) through the factor eigendecompositions. |
 | `sum_of_kroneckers_sample` | function | Sample from 𝒩(0, K) with a matrix-free Lanczos square root. |
 | `toeplitz_sample` | function | Sample from ``𝒩(0, Toeplitz(column))`` via FFT circulant embedding. |
