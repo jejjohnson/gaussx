@@ -1,4 +1,9 @@
-"""Shared helpers for batched distribution reshaping."""
+"""Reshaping helpers that unflatten the batch and sample axes of distributions.
+
+Distributions flatten their batch shape into one axis, vmap a single-point
+routine over it, then restore the shape with these helpers. They are pure
+bookkeeping: no arithmetic touches the values.
+"""
 
 from __future__ import annotations
 
@@ -8,10 +13,10 @@ from gaussx._einx import rearrange
 
 
 def _axis_names(count: int) -> tuple[str, ...]:
-    """Generate ``count`` spreadsheet-style axis names for rearrange patterns.
+    """Spreadsheet-style axis names for an einx pattern over ``count`` axes.
 
-    Produces ``("a", "b", ..., "z", "aa", "ab", ...)`` so that an arbitrary
-    number of batch axes can be referenced by name in an einx pattern.
+    Produces ``("a", "b", …, "z", "aa", "ab", …)``, so a pattern can name
+    an arbitrary number of batch axes.
 
     Args:
         count: Number of axis names to generate.
@@ -37,15 +42,15 @@ def _reshape_batch(
     values: Float[Array, " flat"],
     batch_shape: tuple[int, ...],
 ) -> Float[Array, "*batch"]:
-    """Reshape a flat batch vector back to its original batch shape.
+    """Unflatten one value per batch element back to the batch shape.
 
     Args:
-        values: Flat values of shape ``(prod(batch_shape),)``.
-        batch_shape: Target batch shape. When empty, the single scalar entry
-            is returned unwrapped.
+        values: One value per batch element, flattened in row-major order.
+        batch_shape: Target batch shape. When empty, the single entry is
+            returned unwrapped.
 
     Returns:
-        Array reshaped to ``batch_shape``.
+        The values arranged in ``batch_shape``.
     """
     if not batch_shape:
         return values[0]
@@ -59,18 +64,18 @@ def _reshape_series(
     values: Float[Array, "flat T M"],
     batch_shape: tuple[int, ...],
 ) -> Float[Array, "*batch T M"]:
-    """Reshape flat ``(T, M)`` series back to their original batch shape.
+    """Unflatten one series y_1:T per batch element back to the batch shape.
 
-    The rank-2-event counterpart of `_reshape_samples`, for
-    distributions whose ``event_shape`` is a matrix.
+    The rank-2-event counterpart of `_reshape_samples`, for distributions
+    whose ``event_shape`` is a matrix.
 
     Args:
-        values: Flat series of shape ``(prod(batch_shape), T, M)``.
+        values: One series per batch element, flattened in row-major order.
         batch_shape: Target batch shape. When empty, the single series is
             returned unwrapped.
 
     Returns:
-        Array reshaped to ``(*batch_shape, T, M)``.
+        The series arranged in ``batch_shape``.
     """
     if not batch_shape:
         return values[0]
@@ -85,15 +90,15 @@ def _reshape_samples(
     values: Float[Array, "flat N"],
     batch_shape: tuple[int, ...],
 ) -> Float[Array, "*batch N"]:
-    """Reshape flat samples back to their original batch shape.
+    """Unflatten one vector x per batch element back to the batch shape.
 
     Args:
-        values: Flat samples of shape ``(prod(batch_shape), N)``.
-        batch_shape: Target batch shape. When empty, the single sample is
+        values: One vector per batch element, flattened in row-major order.
+        batch_shape: Target batch shape. When empty, the single vector is
             returned unwrapped.
 
     Returns:
-        Array reshaped to ``(*batch_shape, N)``.
+        The vectors arranged in ``batch_shape``.
     """
     if not batch_shape:
         return values[0]
@@ -108,15 +113,16 @@ def _unflatten_sample_axis(
     values: Float[Array, "S ..."],
     sample_shape: tuple[int, ...],
 ) -> Float[Array, "*sample ..."]:
-    """Split a leading ``prod(sample_shape)`` axis into ``sample_shape``.
+    """Split a leading axis of ``prod(sample_shape)`` draws into ``sample_shape``.
 
     Args:
-        values: Array whose leading axis has length ``prod(sample_shape)``.
+        values: Draws stacked along the leading axis, flattened in row-major
+            order.
         sample_shape: Target sample shape. When empty, the leading axis must
             have length one and is dropped.
 
     Returns:
-        Array of shape ``(*sample_shape, *values.shape[1:])``.
+        The draws with ``sample_shape`` in place of the leading axis.
     """
     if not sample_shape:
         return values[0]
