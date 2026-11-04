@@ -27,6 +27,7 @@ from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._sum_kronecker import SumOfKroneckers
+from gaussx._operators._utils import diagonal_like
 from gaussx._primitives._scale import scaled_root
 from gaussx._sparse._factor import sparse_cholesky
 
@@ -205,8 +206,7 @@ def _cholesky_diagonal(
         The diagonal operator diag(√a).
     """
     # √a_i, keeping the shape of a
-    root_diagonal = jax.tree.map(jnp.sqrt, operator.diagonal)
-    return lx.DiagonalLinearOperator(root_diagonal)
+    return diagonal_like(jax.tree.map(jnp.sqrt, operator.diagonal))
 
 
 def _cholesky_block_diag(operator: BlockDiag) -> BlockDiag:

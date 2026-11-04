@@ -23,6 +23,7 @@ from gaussx._operators._block_tridiag import LowerBlockTriDiag
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._utils import diagonal_like
 
 
 def scale_factor(
@@ -65,14 +66,12 @@ def scale_factor(
     scale = jnp.asarray(scale)
     if isinstance(operator, lx.DiagonalLinearOperator):
         # s diag(a) = diag(s a)
-        return lx.DiagonalLinearOperator(
-            jax.tree.map(lambda a: scale * a, operator.diagonal)
-        )
+        return diagonal_like(jax.tree.map(lambda a: scale * a, operator.diagonal))
     if isinstance(operator, lx.IdentityLinearOperator):
         dtype = operator.in_structure().dtype
         ones = jnp.ones(operator.in_structure().shape, dtype=dtype)
         # s I = diag(s 1)
-        return lx.DiagonalLinearOperator(scale * ones)
+        return diagonal_like(scale * ones)
     if isinstance(operator, lx.MatrixLinearOperator):
         # s R, entry by entry
         return lx.MatrixLinearOperator(scale * operator.matrix, operator.tags)
