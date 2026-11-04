@@ -49,7 +49,11 @@ from gaussx._operators._low_rank_update import (
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
 )
-from gaussx._operators._masked import MaskedOperator, grid_coupling_indices
+from gaussx._operators._masked import (
+    MaskedOperator,
+    grid_coupling_indices,
+    masked_obs_covariance,
+)
 from gaussx._operators._sparse import SparseOperator, SparsityPattern
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
@@ -525,6 +529,7 @@ __all__ = [
     "kronecker_sum_sample",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
+    "masked_obs_covariance",
     "product_operator",
     "scaled_operator",
     "sum_of_kroneckers_sample",

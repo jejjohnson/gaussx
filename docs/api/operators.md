@@ -145,7 +145,7 @@ on them unchanged.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [InterpolatedOperator, MaskedOperator, grid_coupling_indices, create_grid, grid_data, cubic_interpolation_weights]
+      members: [InterpolatedOperator, MaskedOperator, masked_obs_covariance, grid_coupling_indices, create_grid, grid_data, cubic_interpolation_weights]
 
 ## Lazy algebra & sampling
 

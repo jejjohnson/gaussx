@@ -6,7 +6,9 @@ count: docstrings, comment-only lines and blank lines are excluded, so the
 equation comments and docstrings the house style asks for never push a
 function over the limit. Existing exceptions are listed below with their
 current size as a ceiling: they may shrink, not grow, and an entry is
-deleted once it is under the limit.
+deleted once it is under the limit. The one exception is ``__init__.py``: it
+is the public re-export list, so its ceiling rises by the lines each new
+export needs and for no other reason.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ FUNCTION_ALLOWLIST: dict[str, int] = {}
 
 # "<path relative to src/gaussx>": ceiling.
 MODULE_ALLOWLIST = {
-    "__init__.py": 823,  # the public re-export list (grows with the API)
+    "__init__.py": 825,  # the public re-export list (grows with the API)
 }
 
 

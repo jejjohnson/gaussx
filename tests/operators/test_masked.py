@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest import mock
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -9,8 +11,14 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx._operators import MaskedOperator
-from gaussx._testing import tree_allclose
+from gaussx._testing import (
+    default_tolerances,
+    random_kronecker_pd,
+    random_pd_operator,
+    tree_allclose,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +232,186 @@ class TestJAX:
         g = jax.grad(loss)(A_mat)
         assert g.shape == (5, 5)
         assert jnp.all(jnp.isfinite(g))
+
+
+# ---------------------------------------------------------------------------
+# masked_obs_covariance: R̃ = M R M + (I − M)
+# ---------------------------------------------------------------------------
+
+
+_OBS_MASK = jnp.array([True, False, True, True, False, True])
+
+
+def _dense_covariance_cases():
+    psd = lx.positive_semidefinite_tag
+    block = random_pd_operator(jr.key(1), 4)
+    other = random_pd_operator(jr.key(2), 2)
+    return [
+        pytest.param(lambda: random_pd_operator(jr.key(0), 6), id="dense"),
+        pytest.param(
+            lambda: lx.DiagonalLinearOperator(
+                jnp.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], dtype=jnp.result_type(float))
+            ),
+            id="diagonal",
+        ),
+        pytest.param(lambda: random_kronecker_pd(jr.key(3), (2, 3)), id="kronecker"),
+        pytest.param(lambda: gaussx.BlockDiag(block, other, tags=psd), id="block_diag"),
+    ]
+
+
+def _row_column_deleted(matrix, mask):
+    """Dense reference: R_oo on o, the identity on u, no cross terms."""
+    observed = jnp.flatnonzero(mask)
+    reference = jnp.eye(matrix.shape[0], dtype=matrix.dtype)
+    return reference.at[jnp.ix_(observed, observed)].set(
+        matrix[jnp.ix_(observed, observed)]
+    )
+
+
+class TestMaskedObsCovariance:
+    @pytest.mark.parametrize("build", _dense_covariance_cases())
+    def test_matches_the_row_and_column_deleted_reference(self, build):
+        R = build()
+        masked = gaussx.masked_obs_covariance(R, _OBS_MASK)
+        reference = _row_column_deleted(R.as_matrix(), _OBS_MASK)
+        rtol, atol = default_tolerances(reference)
+        assert jnp.allclose(masked.as_matrix(), reference, rtol=rtol, atol=atol)
+        # r_u = 0, as the masked residual has
+        residual = jnp.where(_OBS_MASK, jr.normal(jr.key(4), (6,), reference.dtype), 0)
+        solved = gaussx.solve(masked, residual)
+        expected = jnp.linalg.solve(reference, residual)
+        assert jnp.allclose(solved, expected, rtol=100 * rtol, atol=100 * atol)
+        assert jnp.allclose(solved[~_OBS_MASK], 0.0, atol=100 * atol)
+        logdet = jnp.linalg.slogdet(reference)[1]
+        assert jnp.allclose(gaussx.logdet(masked), logdet, rtol=100 * rtol, atol=atol)
+
+    def test_a_float_mask_is_the_same_mask(self):
+        R = random_pd_operator(jr.key(0), 6)
+        by_bool = gaussx.masked_obs_covariance(R, _OBS_MASK).as_matrix()
+        by_float = gaussx.masked_obs_covariance(
+            R, _OBS_MASK.astype(jnp.result_type(float))
+        ).as_matrix()
+        assert jnp.array_equal(by_bool, by_float)
+
+    def test_correlated_r_weights_by_the_observed_block(self):
+        """vardax#189: ρ = 0.9 weights y₀ by R₀₀ = 1, not 1 / (1 − ρ²)."""
+        R = lx.MatrixLinearOperator(
+            jnp.array([[1.0, 0.9], [0.9, 1.0]]), lx.positive_semidefinite_tag
+        )
+        masked = gaussx.masked_obs_covariance(R, jnp.array([True, False]))
+        solved = gaussx.solve(masked, jnp.array([1.0, 0.0]))
+        assert jnp.allclose(solved, jnp.array([1.0, 0.0]))
+
+    def test_structure_is_kept(self):
+        tagged = lx.TaggedLinearOperator(
+            lx.DiagonalLinearOperator(jnp.ones(6)), lx.positive_semidefinite_tag
+        )
+        assert isinstance(
+            gaussx.masked_obs_covariance(tagged, _OBS_MASK),
+            lx.DiagonalLinearOperator,
+        )
+        shaped = lx.DiagonalLinearOperator(2.0 * jnp.ones((2, 3)))
+        masked = gaussx.masked_obs_covariance(shaped, jnp.ones((2, 3), dtype=bool))
+        assert masked.in_structure().shape == (2, 3)
+        identity = lx.IdentityLinearOperator(jax.ShapeDtypeStruct((6,), jnp.float32))
+        assert gaussx.masked_obs_covariance(identity, _OBS_MASK) is identity
+        blocks = gaussx.BlockDiag(
+            random_pd_operator(jr.key(1), 4), random_pd_operator(jr.key(2), 2)
+        )
+        assert isinstance(
+            gaussx.masked_obs_covariance(blocks, _OBS_MASK), gaussx.BlockDiag
+        )
+
+    def test_block_diag_of_diagonals_stays_psd_for_cg(self):
+        dtype = jnp.result_type(float)
+        psd = lx.positive_semidefinite_tag
+        diagonal = jnp.array([1.0, 2.0, 3.0, 4.0], dtype)
+        blocks = gaussx.BlockDiag(
+            lx.TaggedLinearOperator(lx.DiagonalLinearOperator(diagonal), psd),
+            random_pd_operator(jr.key(2), 2),
+        )
+        masked = gaussx.masked_obs_covariance(blocks, _OBS_MASK)
+        assert lx.is_positive_semidefinite(masked)
+        residual = jnp.where(_OBS_MASK, jnp.ones(6, dtype), 0)
+        solved = gaussx.CGSolver(rtol=1e-5, atol=1e-5).solve(masked, residual)
+        expected = gaussx.solve(masked, residual)
+        assert jnp.allclose(solved, expected, rtol=1e-3, atol=1e-3)
+
+    def test_lazy_path_never_materialises_r(self):
+        R = random_kronecker_pd(jr.key(3), (2, 3))
+        masked = gaussx.masked_obs_covariance(R, _OBS_MASK)
+        assert lx.is_positive_semidefinite(masked)
+        reference = _row_column_deleted(R.as_matrix(), _OBS_MASK)
+        vector = jr.normal(jr.key(4), (6,), reference.dtype)
+        with forbid_as_matrix(gaussx.Kronecker):
+            applied = masked.mv(vector)
+        rtol, atol = default_tolerances(reference)
+        assert jnp.allclose(applied, reference @ vector, rtol=rtol, atol=atol)
+
+    def test_all_zero_and_all_one_masks(self):
+        R = random_pd_operator(jr.key(0), 6)
+        rtol, atol = default_tolerances(R.as_matrix())
+        none = gaussx.masked_obs_covariance(R, jnp.zeros(6, dtype=bool)).as_matrix()
+        assert jnp.allclose(none, jnp.eye(6), rtol=rtol, atol=atol)
+        every = gaussx.masked_obs_covariance(R, jnp.ones(6, dtype=bool)).as_matrix()
+        assert jnp.allclose(every, R.as_matrix(), rtol=rtol, atol=atol)
+
+    def test_non_finite_masked_entries_do_not_leak(self):
+        matrix = jnp.array([[1.0, jnp.nan], [jnp.nan, jnp.nan]])
+        masked = gaussx.masked_obs_covariance(
+            lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag),
+            jnp.array([True, False]),
+        )
+        assert jnp.array_equal(masked.as_matrix(), jnp.eye(2))
+        diagonal = gaussx.masked_obs_covariance(
+            lx.DiagonalLinearOperator(jnp.array([1.0, jnp.nan])),
+            jnp.array([True, False]),
+        )
+        assert jnp.array_equal(diagonal.as_matrix(), jnp.eye(2))
+
+    def test_wrong_mask_shape_raises(self):
+        R = random_pd_operator(jr.key(0), 6)
+        with pytest.raises(ValueError, match="mask has shape"):
+            gaussx.masked_obs_covariance(R, jnp.ones(5, dtype=bool))
+
+    @pytest.mark.parametrize("build", _dense_covariance_cases())
+    def test_traced_mask_under_jit_and_vmap(self, build):
+        R = build()
+        vector = jnp.ones(6, dtype=R.in_structure().dtype)
+
+        def apply(mask):
+            return gaussx.masked_obs_covariance(R, mask).mv(vector)
+
+        expected = apply(_OBS_MASK)
+        rtol, atol = default_tolerances(expected)
+        assert jnp.allclose(jax.jit(apply)(_OBS_MASK), expected, rtol=rtol, atol=atol)
+        batched = jax.vmap(apply)(jnp.stack([_OBS_MASK, ~_OBS_MASK]))
+        assert jnp.allclose(batched[0], expected, rtol=rtol, atol=atol)
+        assert jnp.allclose(batched[1], apply(~_OBS_MASK), rtol=rtol, atol=atol)
+
+    def test_gradient_matches_the_dense_reference(self):
+        """∂/∂R of ½ rᵀ R̃⁻¹ r, by way of the operator and of the reference."""
+        matrix = random_pd_operator(jr.key(0), 6).as_matrix()
+        residual = jnp.where(_OBS_MASK, jnp.ones(6, dtype=matrix.dtype), 0)
+
+        def through_operator(entries):
+            operator = lx.MatrixLinearOperator(entries, lx.positive_semidefinite_tag)
+            masked = gaussx.masked_obs_covariance(operator, _OBS_MASK)
+            return 0.5 * residual @ gaussx.solve(masked, residual)
+
+        def through_reference(entries):
+            reference = _row_column_deleted(entries, _OBS_MASK)
+            return 0.5 * residual @ jnp.linalg.solve(reference, residual)
+
+        actual = jax.grad(through_operator)(matrix)
+        expected = jax.grad(through_reference)(matrix)
+        assert jnp.all(jnp.isfinite(actual))
+        rtol, atol = default_tolerances(expected)
+        assert jnp.allclose(actual, expected, rtol=100 * rtol, atol=100 * atol)
+
+
+def forbid_as_matrix(cls):
+    """Fail if an instance of ``cls`` is materialised inside the block."""
+    return mock.patch.object(
+        cls, "as_matrix", side_effect=AssertionError(f"{cls.__name__}.as_matrix")
+    )

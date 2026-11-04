@@ -6,6 +6,11 @@ N_c the number of kept rows and columns. A square mask m_r = m_c = m gives
 the masked system A₀[m, m] on the masked-in indices m. Its solve uses the
 capacitance method of `CapacitanceSolver`, with the masked-out indices that
 A₀ couples to m as the constrained indices b_1, …, b_N_b.
+
+`masked_obs_covariance` is the size-preserving counterpart for an
+observation-error covariance R and a run-time mask: R̃ = M R M + (I − M) with
+M = diag(m) keeps R_oo on the observed indices o and the identity on the
+unobserved indices u.
 """
 
 from __future__ import annotations
@@ -13,6 +18,7 @@ from __future__ import annotations
 import functools as ft
 import itertools
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -21,7 +27,7 @@ import numpy as np
 from jax.core import Tracer
 from jaxtyping import Array, Bool, Float, Int
 
-from gaussx._operators._block_diag import _to_frozenset
+from gaussx._operators._block_diag import BlockDiag, _to_frozenset
 from gaussx._operators._capacitance import CapacitanceSolver, _replace_fields
 from gaussx._operators._diagonalised import as_diagonalized
 
@@ -454,6 +460,159 @@ def _derived_null_vectors(
     # r = Re(W⁻¹ e_k)
     null_vector = jnp.real(diagonalised.inverse_flat(unit))
     return null_vector, null_vector
+
+
+def masked_obs_covariance(
+    obs_cov: lx.AbstractLinearOperator,
+    mask: Bool[Array, "*obs"] | Float[Array, "*obs"],
+) -> lx.AbstractLinearOperator:
+    r"""Observation-error covariance with masked entries marginalised out.
+
+        R̃ = M R M + (I − M),   M = diag(m)
+
+    R̃ holds $R_{oo}$ on the observed indices o, the identity on the unobserved
+    indices u, and no cross terms. For a residual r with $r_u = 0$,
+
+        R̃⁻¹ r = [R_oo⁻¹ r_o; 0],   ln det R̃ = ln det R_oo
+
+    so ½ rᵀ R̃⁻¹ r is the exact marginal likelihood term of the observed
+    entries. Solving R itself against r instead weights them by
+    $(R^{-1})_{oo}$, which conditions on the unobserved errors being zero.
+    A Gaussian log-likelihood built on R̃ must drop the ½ N_u ln 2π of the
+    identity block, with $N_u$ the number of unobserved entries.
+
+    Unlike `MaskedOperator`, R̃ keeps the size of R, so the mask may be traced
+    under ``jit`` and batched under ``vmap``. See Särkkä & Svensson (2023),
+    *Bayesian Filtering and Smoothing*, 2nd ed., for missing measurements in
+    a Kalman update.
+
+    Algorithm:
+        1. Look through tags, and take the first rule that matches R: an
+           identity is unchanged, a diagonal gives diag(m ⊙ d + 1 − m), a
+           dense matrix substitutes its masked rows and columns, and a
+           ``BlockDiag`` of 1-D blocks applies the rule per block.
+        2. Otherwise compose M R M + (I − M) lazily, at one R matvec per
+           matvec. Pass a matrix-free ``solver`` to `gaussx.solve` to keep
+           it lazy; without one the solve materialises it.
+
+    Args:
+        obs_cov: The covariance R, whose structure has the shape of ``mask``.
+        mask: The mask m, ``True`` or nonzero where observed. A float mask
+            must hold exactly 0 and 1; this is not checked, since the mask
+            may be traced.
+
+    Returns:
+        R̃: a ``DiagonalLinearOperator`` for a diagonal R, a
+        `gaussx.BlockDiag` for a block-diagonal R, and otherwise an operator
+        tagged positive semidefinite. Wrap a diagonal result in
+        ``lx.TaggedLinearOperator`` before handing it to ``lx.CG``.
+
+    Raises:
+        ValueError: If ``mask`` does not have the shape of R's structure.
+
+    Examples:
+        The observed entry is weighted by R_oo = 1, not by (R⁻¹)_oo = 5.26:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> R = lx.MatrixLinearOperator(
+        ...     jnp.array([[1.0, 0.9], [0.9, 1.0]]), lx.positive_semidefinite_tag
+        ... )
+        >>> R_tilde = gaussx.masked_obs_covariance(R, jnp.array([True, False]))
+        >>> [round(float(v), 4) for v in gaussx.solve(R_tilde, jnp.array([1.0, 0.0]))]
+        [1.0, 0.0]
+
+        A diagonal R stays diagonal, so its solves stay closed form:
+
+        >>> R = lx.DiagonalLinearOperator(jnp.array([2.0, 3.0]))
+        >>> type(gaussx.masked_obs_covariance(R, jnp.array([True, False]))).__name__
+        'DiagonalLinearOperator'
+    """
+    structure = obs_cov.in_structure()
+    mask = jnp.asarray(mask)
+    if mask.shape != structure.shape:
+        raise ValueError(
+            f"mask has shape {mask.shape} but the covariance acts on {structure.shape}."
+        )
+    observed = mask.astype(bool)
+    operator = obs_cov
+    while isinstance(operator, lx.TaggedLinearOperator):
+        operator = operator.operator
+    if isinstance(operator, lx.IdentityLinearOperator):
+        # M I M + (I − M) = I
+        return operator
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        diagonal = operator.diagonal
+        # diag(m ⊙ d + 1 − m), as a where so a masked d may be non-finite
+        return lx.DiagonalLinearOperator(
+            jnp.where(observed, diagonal, jnp.ones_like(diagonal))
+        )
+    if isinstance(operator, lx.MatrixLinearOperator):
+        return lx.MatrixLinearOperator(
+            _masked_dense_covariance(operator.matrix, observed),
+            lx.positive_semidefinite_tag,
+        )
+    if isinstance(operator, BlockDiag) and all(
+        block.in_structure().shape == (block.in_size(),) for block in operator.operators
+    ):
+        return _masked_block_diag(operator, observed)
+    # M
+    mask_operator = lx.DiagonalLinearOperator(observed.astype(structure.dtype))
+    # I − M
+    unobserved_operator = lx.DiagonalLinearOperator((~observed).astype(structure.dtype))
+    # M R M + (I − M)
+    masked = mask_operator @ obs_cov @ mask_operator + unobserved_operator
+    return lx.TaggedLinearOperator(masked, lx.positive_semidefinite_tag)
+
+
+def _masked_dense_covariance(
+    matrix: Float[Array, "M M"], observed: Bool[Array, " M"]
+) -> Float[Array, "M M"]:
+    """Dense R̃: R where both channels are observed, the identity elsewhere.
+
+    The substitution is a `jax.numpy.where`, not a multiply, so a masked
+    entry of R may be non-finite.
+
+    Args:
+        matrix: The dense covariance R.
+        observed: Per-channel mask; ``True`` keeps the channel.
+
+    Returns:
+        The dense matrix M R M + (I − M).
+    """
+    # keep entry (i, j) of R where channels i and j are both observed
+    pair_mask = einx.logical_and("row, col -> row col", observed, observed)
+    identity = jnp.eye(matrix.shape[0], dtype=matrix.dtype)
+    return jnp.where(pair_mask, matrix, identity)
+
+
+def _masked_block_diag(operator: BlockDiag, observed: Bool[Array, " M"]) -> BlockDiag:
+    """R̃ of a block-diagonal R, one block at a time.
+
+    Args:
+        operator: The block-diagonal covariance, with 1-D blocks.
+        observed: Per-channel mask over the concatenated blocks.
+
+    Returns:
+        blockdiag(R̃_1, …, R̃_D), tagged positive semidefinite.
+    """
+    blocks = []
+    offset = 0
+    for block in operator.operators:
+        block_size = block.in_size()
+        # m_d, the slice of m that R_d acts on; static offsets stay traceable
+        block_mask = observed[offset : offset + block_size]
+        masked_block = masked_obs_covariance(block, block_mask)
+        # BlockDiag reads its PSD property from its blocks, and a masked
+        # diagonal comes back untagged
+        if not lx.is_positive_semidefinite(masked_block):
+            masked_block = lx.TaggedLinearOperator(
+                masked_block, lx.positive_semidefinite_tag
+            )
+        blocks.append(masked_block)
+        offset += block_size
+    return BlockDiag(*blocks, tags=lx.positive_semidefinite_tag)
 
 
 def grid_coupling_indices(
