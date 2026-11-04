@@ -205,7 +205,9 @@ def sandwich(
         if isinstance(P, lx.DiagonalLinearOperator):
             # diag(d) diag(s) diag(d) = diag(d ⊙ s ⊙ d)
             return lx.TaggedLinearOperator(
-                lx.DiagonalLinearOperator(scale * lx.diagonal(P) * scale),
+                lx.DiagonalLinearOperator(
+                    jax.tree.map(lambda d, s: d * s * d, A.diagonal, P.diagonal)
+                ),
                 tags,
             )
         covariance = P.as_matrix()

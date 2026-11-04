@@ -174,9 +174,8 @@ def _sqrt_diagonal(
     Returns:
         The diagonal operator diag(√a).
     """
-    diagonal = lx.diagonal(operator)
-    # √a_i
-    root_diagonal = jnp.sqrt(diagonal)
+    # √a_i, keeping the shape of a
+    root_diagonal = jax.tree.map(jnp.sqrt, operator.diagonal)
     return lx.DiagonalLinearOperator(root_diagonal)
 
 

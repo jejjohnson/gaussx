@@ -172,9 +172,8 @@ def _inv_diagonal(
     Returns:
         The diagonal operator diag(1 / a).
     """
-    diagonal = lx.diagonal(operator)
-    # 1 / a_i
-    inverse_diagonal = 1.0 / diagonal
+    # 1 / a_i, keeping the shape of a
+    inverse_diagonal = jax.tree.map(jnp.reciprocal, operator.diagonal)
     return lx.DiagonalLinearOperator(inverse_diagonal)
 
 

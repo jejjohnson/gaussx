@@ -58,10 +58,10 @@ if TYPE_CHECKING:
 
 def solve(
     operator: lx.AbstractLinearOperator,
-    vector: Float[Array, " n"],
+    vector: Float[Array, "*shape"],
     *,
     solver: lx.AbstractLinearSolver | AbstractSolveStrategy | None = None,
-) -> Float[Array, " n"]:
+) -> Float[Array, "*shape"]:
     """Solve A x = b with structural dispatch on the operator type.
 
         x = A⁻¹ b
@@ -326,9 +326,9 @@ def _solve_diagonalised(
 
 def _solve_diagonal(
     operator: lx.DiagonalLinearOperator,
-    vector: Float[Array, " n"],
-) -> Float[Array, " n"]:
-    """Solve diag(a) x = b elementwise.
+    vector: Float[Array, "*shape"],
+) -> Float[Array, "*shape"]:
+    """Solve diag(a) x = b elementwise, in the shape of b.
 
         x_i = b_i / a_i
 
@@ -339,9 +339,11 @@ def _solve_diagonal(
     Returns:
         The solution x.
     """
-    diagonal = lx.diagonal(operator)
+    # a shaped diagonal keeps a flat b working, as lx.diagonal flattens a
+    is_flat = eqx.is_array(vector) and vector.ndim == 1
+    diagonal = lx.diagonal(operator) if is_flat else operator.diagonal
     # x_i = b_i / a_i
-    return vector / diagonal
+    return jax.tree.map(jnp.divide, vector, diagonal)
 
 
 def _solve_block_diag(

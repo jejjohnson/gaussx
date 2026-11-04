@@ -12,6 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jax.core import Tracer
@@ -64,10 +65,12 @@ def scale_factor(
     scale = jnp.asarray(scale)
     if isinstance(operator, lx.DiagonalLinearOperator):
         # s diag(a) = diag(s a)
-        return lx.DiagonalLinearOperator(scale * lx.diagonal(operator))
+        return lx.DiagonalLinearOperator(
+            jax.tree.map(lambda a: scale * a, operator.diagonal)
+        )
     if isinstance(operator, lx.IdentityLinearOperator):
         dtype = operator.in_structure().dtype
-        ones = jnp.ones(operator.in_size(), dtype=dtype)
+        ones = jnp.ones(operator.in_structure().shape, dtype=dtype)
         # s I = diag(s 1)
         return lx.DiagonalLinearOperator(scale * ones)
     if isinstance(operator, lx.MatrixLinearOperator):

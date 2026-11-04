@@ -333,11 +333,11 @@ def _factor_draws(
     Returns:
         The draws L z, one row per draw.
     """
-    dtype = covariance.in_structure().dtype
-    # z ~ 𝒩(0, I), one row per draw
-    noise = jr.normal(key, (num_draws, covariance.in_size()), dtype=dtype)
-    # L z
-    return jax.vmap(factor.mv)(noise)
+    structure = covariance.in_structure()
+    # z ~ 𝒩(0, I), one draw per leading index, in the shape L acts on
+    noise = jr.normal(key, (num_draws, *structure.shape), dtype=structure.dtype)
+    # L z, flattened to one row per draw for a shaped diagonal
+    return jax.vmap(lambda draw: jnp.ravel(factor.mv(draw)))(noise)
 
 
 def _all_square(operators: tuple[lx.AbstractLinearOperator, ...]) -> bool:
