@@ -31,7 +31,7 @@ FUNCTION_ALLOWLIST: dict[str, int] = {}
 
 # "<path relative to src/gaussx>": ceiling.
 MODULE_ALLOWLIST = {
-    "__init__.py": 833,  # the public re-export list (grows with the API)
+    "__init__.py": 839,  # the public re-export list (grows with the API)
 }
 
 

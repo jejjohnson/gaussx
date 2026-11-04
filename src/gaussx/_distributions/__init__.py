@@ -20,6 +20,10 @@ from gaussx._distributions._gaussian import (
     kl_standard_normal,
     quadratic_form,
 )
+from gaussx._distributions._information import (
+    InformationDiagnostics,
+    information_diagnostics,
+)
 from gaussx._distributions._joseph import joseph_update
 from gaussx._distributions._kl import gaussian_kl
 from gaussx._distributions._project import project
@@ -32,6 +36,7 @@ __all__ = [
     "AbstractMultivariateNormal",
     "ConstrainedGMRF",
     "GaussianMRF",
+    "InformationDiagnostics",
     "IntrinsicGMRF",
     "LGSSMFactory",
     "LinearGaussianPosterior",
@@ -44,6 +49,7 @@ __all__ = [
     "gaussian_entropy",
     "gaussian_kl",
     "gaussian_log_prob",
+    "information_diagnostics",
     "joseph_update",
     "kl_standard_normal",
     "linear_gaussian_update",
