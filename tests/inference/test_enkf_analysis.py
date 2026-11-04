@@ -16,6 +16,7 @@ from gaussx import (
     enkf_analysis,
     ensemble_kalman_gain,
     localization_matrix,
+    localized_kalman_gain,
 )
 from gaussx._einx import einsum
 from gaussx._operators import (
@@ -218,6 +219,50 @@ def test_matches_gain_applied_by_hand(getkey, bessel):
     gain = ensemble_kalman_gain(prior, obs_prior, noise, bessel=bessel)
     expected = prior + (perturbed - obs_prior) @ gain.T
     assert jnp.allclose(analysis, expected, atol=1e-10)
+
+
+@pytest.mark.parametrize("dense_innovation", [True, False])
+def test_ensemble_kalman_gain_rejects_obs_noise_with_the_wrong_size(
+    getkey, dense_innovation
+):
+    prior, obs_prior, _, _ = _small_problem(getkey, n_ens=16, n_state=5, n_obs=3)
+    with pytest.raises(ValueError, match=r"obs_noise must be \(3, 3\)"):
+        ensemble_kalman_gain(
+            prior,
+            obs_prior,
+            lx.DiagonalLinearOperator(jnp.array([0.1])),
+            dense_innovation=dense_innovation,
+        )
+
+
+def test_localized_kalman_gain_rejects_obs_noise_with_the_wrong_size(getkey):
+    n_state, n_obs = 5, 3
+    prior, obs_prior, _, _ = _small_problem(
+        getkey, n_ens=16, n_state=n_state, n_obs=n_obs
+    )
+    with pytest.raises(ValueError, match=r"obs_noise must be \(3, 3\)"):
+        localized_kalman_gain(
+            prior,
+            obs_prior,
+            lx.DiagonalLinearOperator(jnp.array([0.1])),
+            jnp.ones((n_state, n_obs)),
+            jnp.ones((n_obs, n_obs)),
+        )
+
+
+@pytest.mark.parametrize(
+    ("rho_xy", "rho_yy", "message"),
+    [
+        (jnp.ones((5, 1)), jnp.ones((3, 3)), r"rho_xy must have shape \(5, 3\)"),
+        (jnp.ones((5, 3)), jnp.ones((1, 1)), r"rho_yy must have shape \(3, 3\)"),
+    ],
+)
+def test_localized_kalman_gain_rejects_broadcastable_tapers(
+    getkey, rho_xy, rho_yy, message
+):
+    prior, obs_prior, _, noise = _small_problem(getkey, n_ens=16, n_state=5, n_obs=3)
+    with pytest.raises(ValueError, match=message):
+        localized_kalman_gain(prior, obs_prior, noise, rho_xy, rho_yy)
 
 
 def test_bessel_flag_changes_the_result(getkey):

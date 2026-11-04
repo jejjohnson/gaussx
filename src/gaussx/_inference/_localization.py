@@ -8,7 +8,10 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._inference._ensemble_stats import ensemble_cross_covariance
+from gaussx._inference._ensemble_stats import (
+    _check_obs_noise_shape,
+    ensemble_cross_covariance,
+)
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._mixed_precision import stable_squared_distances
 from gaussx._linalg._symmetrize import symmetrize
@@ -247,6 +250,44 @@ def localization_matrix(
     return gaspari_cohn(distance, c)
 
 
+def _check_localization_shapes(
+    n_state: int,
+    n_obs: int,
+    localization: Float[Array, "N M"] | None,
+    obs_localization: Float[Array, "M M"] | None,
+    *,
+    localization_name: str = "localization",
+    obs_localization_name: str = "obs_localization",
+) -> None:
+    """Check the taper shapes; ``obs_localization`` only counts with a taper.
+
+    Args:
+        n_state: State length D_x.
+        n_obs: Observation length D_y.
+        localization: State-observation taper ρ_xy, or ``None``.
+        obs_localization: Observation-observation taper ρ_yy, or ``None``.
+        localization_name: Name used for the state-observation taper in errors.
+        obs_localization_name: Name used for the observation taper in errors.
+
+    Raises:
+        ValueError: If a taper given alongside ``localization`` has the wrong
+            shape.
+    """
+    if localization is None:
+        return
+    # Broadcast-compatible but wrong shapes can produce a plausible, wrong gain.
+    if localization.shape != (n_state, n_obs):
+        raise ValueError(
+            f"{localization_name} must have shape ({n_state}, {n_obs}) to match "
+            f"particles and obs_particles, got {localization.shape}."
+        )
+    if obs_localization is not None and obs_localization.shape != (n_obs, n_obs):
+        raise ValueError(
+            f"{obs_localization_name} must have shape ({n_obs}, {n_obs}) to match "
+            f"obs_particles, got {obs_localization.shape}."
+        )
+
+
 def localized_kalman_gain(
     particles: Float[Array, "J N"],
     obs_particles: Float[Array, "J M"],
@@ -293,7 +334,8 @@ def localized_kalman_gain(
 
     Raises:
         ValueError: If the two ensembles have different sizes, or if
-            ``bessel`` is set with |ℰ| < 2.
+            ``obs_noise`` or the tapers do not match the state and observation
+            dimensions, or if ``bessel`` is set with |ℰ| < 2.
 
     Examples:
         Unit tapers recover the unlocalized gain:
@@ -326,6 +368,16 @@ def localized_kalman_gain(
             "particles and obs_particles must share the same ensemble size, "
             f"got J={particles.shape[0]} and J={obs_particles.shape[0]}."
         )
+    n_state, n_obs = particles.shape[1], obs_particles.shape[1]
+    _check_obs_noise_shape(n_obs, obs_noise)
+    _check_localization_shapes(
+        n_state,
+        n_obs,
+        rho_xy,
+        rho_yy,
+        localization_name="rho_xy",
+        obs_localization_name="rho_yy",
+    )
     # Σ̂_xy
     cross_covariance = ensemble_cross_covariance(
         particles, obs_particles, bessel=bessel

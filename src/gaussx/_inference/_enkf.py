@@ -10,10 +10,14 @@ from jaxtyping import Array, Float, PRNGKeyArray
 
 from gaussx._inference._ensemble_stats import (
     _check_ensemble_size,
+    _check_obs_noise_shape,
     ensemble_covariance,
     ensemble_cross_covariance,
 )
-from gaussx._inference._localization import localized_kalman_gain
+from gaussx._inference._localization import (
+    _check_localization_shapes,
+    localized_kalman_gain,
+)
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._operators._block_diag import BlockDiag
@@ -83,8 +87,8 @@ def ensemble_kalman_gain(
         The dense Kalman gain G.
 
     Raises:
-        ValueError: If the two ensembles have different sizes, or if ``bessel``
-            is set with |ℰ| < 2.
+        ValueError: If the ensembles have different sizes, ``obs_noise`` does
+            not match the observation size, or ``bessel`` is set with |ℰ| < 2.
 
     Examples:
         Eight members of a three-dimensional state with two observations:
@@ -114,6 +118,7 @@ def ensemble_kalman_gain(
             "particles and obs_particles must share the same ensemble size, "
             f"got J={particles.shape[0]} and J={ensemble_size}."
         )
+    _check_obs_noise_shape(obs_size, obs_noise)
     use_dense = (
         ensemble_size >= obs_size if dense_innovation is None else dense_innovation
     )
@@ -312,51 +317,8 @@ def _check_observation_shapes(
             f"{observation_name} must have shape ({obs_size},) to match "
             f"obs_particles, got {observation.shape}."
         )
-    # Without this an operator of the wrong size broadcasts against the
-    # (D_y, D_y) sample covariance instead of raising: a (1, 1) Σ_ε against
-    # D_y = 3 adds the scalar to every entry and yields a plausible, wrong gain.
-    if (obs_noise.in_size(), obs_noise.out_size()) != (obs_size, obs_size):
-        raise ValueError(
-            f"obs_noise must be ({obs_size}, {obs_size}) to match obs_particles, "
-            f"got ({obs_noise.out_size()}, {obs_noise.in_size()})."
-        )
+    _check_obs_noise_shape(obs_size, obs_noise)
     return obs_size
-
-
-def _check_localization_shapes(
-    n_state: int,
-    n_obs: int,
-    localization: Float[Array, "N M"] | None,
-    obs_localization: Float[Array, "M M"] | None,
-) -> None:
-    """Check the taper shapes; ``obs_localization`` only counts with a taper.
-
-    Args:
-        n_state: State length D_x.
-        n_obs: Observation length D_y.
-        localization: State-observation taper ρ_xy, or ``None``.
-        obs_localization: Observation-observation taper ρ_yy, or ``None``.
-
-    Raises:
-        ValueError: If a taper given alongside ``localization`` has the wrong
-            shape.
-    """
-    if localization is None:
-        return
-    # Broadcast-compatible but wrong shapes are the danger: a (D_x, 1) taper
-    # repeats one observation's taper across all D_y, and a (1, 1)
-    # obs_localization rescales the whole observation covariance. Both give a
-    # plausible, wrong gain rather than an error.
-    if localization.shape != (n_state, n_obs):
-        raise ValueError(
-            f"localization must have shape ({n_state}, {n_obs}) to match "
-            f"particles and obs_particles, got {localization.shape}."
-        )
-    if obs_localization is not None and obs_localization.shape != (n_obs, n_obs):
-        raise ValueError(
-            f"obs_localization must have shape ({n_obs}, {n_obs}) to match "
-            f"obs_particles, got {obs_localization.shape}."
-        )
 
 
 def _analysis_gain(
