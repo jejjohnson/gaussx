@@ -917,3 +917,22 @@ def test_discrepancy_step_size_validates_shapes(getkey):
             lx.DiagonalLinearOperator(jnp.ones(4)),
             remaining=jnp.asarray(1.0),
         )
+
+
+def test_a_shaped_diagonal_noise_draws_stochastic_perturbations(getkey):
+    """A (2, 3) diagonal R gives the factor that shape; observations stay flat."""
+    dtype = jnp.result_type(float)
+    particles = jr.normal(getkey(), (32, 4), dtype)
+    obs_particles = jr.normal(getkey(), (32, 6), dtype)
+    observation = jr.normal(getkey(), (6,), dtype)
+    variances = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype)
+    updated = eki_step(
+        particles,
+        obs_particles,
+        observation,
+        lx.DiagonalLinearOperator(variances),
+        dt=0.5,
+        key=getkey(),
+    )
+    assert updated.shape == particles.shape
+    assert jnp.all(jnp.isfinite(updated))
