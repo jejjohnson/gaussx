@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.6](https://github.com/jejjohnson/gaussx/compare/v0.6.5...v0.6.6) (2026-11-04)
+
+
+### Features
+
+* **distributions:** add information_diagnostics for linear-Gaussian retrievals ([#729](https://github.com/jejjohnson/gaussx/issues/729)) ([9371d8b](https://github.com/jejjohnson/gaussx/commit/9371d8baf3340d65996c6ce18e17f188e176eaf5))
+* **distributions:** add linear_gaussian_update, a matrix-free posterior mean and lazy covariance ([#728](https://github.com/jejjohnson/gaussx/issues/728)) ([2e812ce](https://github.com/jejjohnson/gaussx/commit/2e812ce05ff60e7d949ac533d0fe00b62c4942f1))
+* **inference:** add gauss_newton_operator, a matrix-free Gauss–Newton precision from a residual function ([#726](https://github.com/jejjohnson/gaussx/issues/726)) ([c95081f](https://github.com/jejjohnson/gaussx/commit/c95081fafbdf683abc749e1a43eb6896c515a4dd))
+* **operators:** add linear_interpolation_weights on non-uniform grids and a public interpolation_operator ([#730](https://github.com/jejjohnson/gaussx/issues/730)) ([8862a85](https://github.com/jejjohnson/gaussx/commit/8862a853d849aeb35f66305d9ebd175acdfa430f)), closes [#687](https://github.com/jejjohnson/gaussx/issues/687)
+* **operators:** add masked_obs_covariance, a lazy M R M + (I − M) for traced observation masks ([#725](https://github.com/jejjohnson/gaussx/issues/725)) ([012a687](https://github.com/jejjohnson/gaussx/commit/012a6872dd80640e89a81bee6077b04503f49208))
+
+
+### Bug Fixes
+
+* **primitives:** keep a shaped diagonal's shape in solve, inv, sqrt, cholesky, scale and sandwich ([#724](https://github.com/jejjohnson/gaussx/issues/724)) ([fedee3b](https://github.com/jejjohnson/gaussx/commit/fedee3b1bac8a7ebc979d49365c8a4448951c641))
+
 ## [0.6.5](https://github.com/jejjohnson/gaussx/compare/v0.6.4...v0.6.5) (2026-10-08)
 
 
