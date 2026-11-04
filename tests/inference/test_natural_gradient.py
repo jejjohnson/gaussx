@@ -446,6 +446,18 @@ class TestGaussNewtonOperator:
         applied = operator.mv(jnp.ones(2, dtype=point.dtype))
         assert jnp.allclose(applied, jnp.array([4.0, 16.0]), rtol=rtol, atol=atol)
 
+    @pytest.mark.parametrize("jac", ["fwd", "bwd"])
+    def test_an_empty_residual_leaves_the_prior(self, jac):
+        """No observations: A = P, or zero without a prior."""
+        point = jnp.array([1.0, 2.0], dtype=jnp.result_type(float))
+        prior = lx.DiagonalLinearOperator(jnp.array([3.0, 4.0], dtype=point.dtype))
+        operator = gaussx.gauss_newton_operator(
+            lambda theta: theta[:0], point, prior_precision=prior, jac=jac
+        )
+        assert jnp.allclose(operator.mv(point), jnp.array([3.0, 8.0]))
+        no_prior = gaussx.gauss_newton_operator(lambda theta: theta[:0], point, jac=jac)
+        assert jnp.allclose(no_prior.mv(point), jnp.zeros(2))
+
     def test_rejects_an_unknown_jac(self):
         with pytest.raises(ValueError, match="jac must be"):
             gaussx.gauss_newton_operator(_nonlinear_residual, _gn_point(), jac="rev")

@@ -16,7 +16,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, PyTree
 
-from gaussx._einx import einsum
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._solve_frontend import as_linear_operator
@@ -332,8 +331,8 @@ def _dense_jacobian(
         return unravel_residual(jacobian @ flat_direction)
 
     def adjoint(weighted: Array) -> PyTree:
-        # J_rᵀ w
-        return unravel_point(einsum(jacobian, jnp.ravel(weighted), "m d, m -> d"))
+        # J_rᵀ w, jnp and not einx: an empty residual leaves an empty axis
+        return unravel_point(jnp.ravel(weighted) @ jacobian)
 
     return tangent, adjoint
 
