@@ -31,7 +31,7 @@ from gaussx._operators._low_rank_update import (
     scaled_identity_like,
 )
 from gaussx._operators._sum_kronecker import SumOfKroneckers
-from gaussx._operators._utils import register_lineax_structure_functions
+from gaussx._operators._utils import diagonal_like, register_lineax_structure_functions
 from gaussx._primitives._scale import scaled_root
 
 
@@ -175,8 +175,7 @@ def _sqrt_diagonal(
         The diagonal operator diag(√a).
     """
     # √a_i, keeping the shape of a
-    root_diagonal = jax.tree.map(jnp.sqrt, operator.diagonal)
-    return lx.DiagonalLinearOperator(root_diagonal)
+    return diagonal_like(jax.tree.map(jnp.sqrt, operator.diagonal))
 
 
 def _sqrt_block_diag(operator: BlockDiag) -> BlockDiag:
