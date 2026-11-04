@@ -1,7 +1,5 @@
 """Tests for natural gradient primitives."""
 
-from unittest import mock
-
 import jax
 import jax.flatten_util
 import jax.numpy as jnp
@@ -411,19 +409,42 @@ class TestGaussNewtonOperator:
         operator = gaussx.gauss_newton_operator(square, point, jac="bwd")
         assert jnp.allclose(operator.as_matrix(), jnp.diag(jnp.array([4.0, 16.0])))
 
-    def test_bwd_never_forms_the_jacobian(self):
-        point = _gn_point()
-        with mock.patch.object(
-            jax, "jacrev", side_effect=AssertionError("formed a dense Jacobian")
-        ):
-            operator = gaussx.gauss_newton_operator(
-                _nonlinear_residual, point, jac="bwd"
+    def test_bwd_takes_a_reverse_pass_with_a_while_loop(self):
+        """A RecursiveCheckpointAdjoint ODE solve's reverse pass is like this one.
+
+        Transposing such a VJP to get J v fails with "Reverse-mode
+        differentiation does not work for lax.while_loop".
+        """
+
+        @jax.custom_vjp
+        def square(x):
+            return x**2
+
+        def square_fwd(x):
+            return x**2, x
+
+        def square_bwd(x, cotangent):
+            def add_a_third(state):
+                step, total = state
+                return step + 1, total + 2.0 * x * cotangent / 3.0
+
+            limit = jnp.asarray(3)
+            _, total = jax.lax.while_loop(
+                lambda state: state[0] < limit,
+                add_a_third,
+                (0, jnp.zeros_like(x)),
             )
-            applied = operator.mv(jnp.ones(3, dtype=point.dtype))
-        jacobian = jax.jacfwd(_nonlinear_residual)(point)
-        expected = einsum(jacobian, jacobian, "m i, m j -> i j") @ jnp.ones(3)
+            return (total,)
+
+        square.defvjp(square_fwd, square_bwd)
+        point = jnp.array([1.0, 2.0], dtype=jnp.result_type(float))
+        operator = gaussx.gauss_newton_operator(square, point, jac="bwd")
+        # J = diag(2 x), so A = diag(4 x²)
+        expected = jnp.diag(jnp.array([4.0, 16.0], dtype=point.dtype))
         rtol, atol = default_tolerances(expected)
-        assert jnp.allclose(applied, expected, rtol=10 * rtol, atol=10 * atol)
+        assert jnp.allclose(operator.as_matrix(), expected, rtol=rtol, atol=atol)
+        applied = operator.mv(jnp.ones(2, dtype=point.dtype))
+        assert jnp.allclose(applied, jnp.array([4.0, 16.0]), rtol=rtol, atol=atol)
 
     def test_rejects_an_unknown_jac(self):
         with pytest.raises(ValueError, match="jac must be"):
