@@ -17,7 +17,8 @@ from jaxtyping import Array, Float
 from gaussx._einx import einsum
 from gaussx._linalg._linalg import solve_columns
 from gaussx._linalg._symmetrize import symmetrize
-from gaussx._primitives._cholesky import cholesky
+from gaussx._operators._sparse import SparseOperator
+from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
 from gaussx._primitives._logdet import logdet
 
 
@@ -62,10 +63,16 @@ def information_diagnostics(
         1. Whiten with structured factors, K̃ = L_ε⁻¹ K and L_a⁻¹, where
            L_ε L_εᵀ = S_ε and L_a L_aᵀ = S_a, so neither covariance is
            materialised beyond the n × n outputs.
-        2. Factor the stacked [K̃; L_a⁻¹] = Q T by QR, so Ŝ⁻¹ = Tᵀ T without
-           forming K̃ᵀ K̃, which would round away the prior when K̃ is large.
-        3. Read the diagnostics off T: Ŝ = T⁻¹ T⁻ᵀ, A = T⁻¹ (K̃ T⁻¹)ᵀ K̃ and
+        2. Factor the stacked [K̃; L_a⁻¹] = [Q_K; Q_a] T by QR, so
+           Ŝ⁻¹ = Tᵀ T without forming K̃ᵀ K̃, which would round away the prior
+           when K̃ is large.
+        3. Read the diagnostics off the factors: Ŝ = T⁻¹ T⁻ᵀ,
+           A = T⁻¹ Q_Kᵀ K̃, since K̃ T⁻¹ = Q_K, and
            ln det Ŝ⁻¹ = 2 ∑ᵢ ln |T_ii|.
+
+    A `gaussx.SparseOperator` covariance is materialised, with a warning: its
+    Cholesky factor solves against the whole covariance and offers no whitening
+    by its root.
 
     Args:
         jacobian: The Jacobian K of the forward model at the retrieval.
@@ -96,11 +103,13 @@ def information_diagnostics(
     n_state = jacobian.shape[1]
     identity = jnp.eye(n_state, dtype=jacobian.dtype)
     # K̃ = L_ε⁻¹ K
-    whitened_jacobian = solve_columns(cholesky(noise_cov), jacobian)
+    whitened_jacobian = solve_columns(_whitening_root(noise_cov), jacobian)
     # L_a⁻¹
-    prior_root_inverse = solve_columns(cholesky(prior_cov), identity)
-    # [K̃; L_a⁻¹] = Q T, so Ŝ⁻¹ = Tᵀ T
-    _, triangular = jnp.linalg.qr(jnp.vstack([whitened_jacobian, prior_root_inverse]))
+    prior_root_inverse = solve_columns(_whitening_root(prior_cov), identity)
+    # [K̃; L_a⁻¹] = [Q_K; Q_a] T, so Ŝ⁻¹ = Tᵀ T
+    orthogonal, triangular = jnp.linalg.qr(
+        jnp.vstack([whitened_jacobian, prior_root_inverse])
+    )
     # T⁻¹
     triangular_inverse = jax.scipy.linalg.solve_triangular(
         triangular, identity, lower=False
@@ -109,9 +118,9 @@ def information_diagnostics(
     posterior_cov = symmetrize(
         einsum(triangular_inverse, triangular_inverse, "i k, j k -> i j")
     )
-    # K̃ T⁻¹
-    gain_factor = einsum(whitened_jacobian, triangular_inverse, "m k, k j -> m j")
-    # A = Ŝ K̃ᵀ K̃ = T⁻¹ (K̃ T⁻¹)ᵀ K̃
+    # K̃ T⁻¹ = Q_K, the observation rows of Q; multiplying K̃ by T⁻¹ would cancel
+    gain_factor = orthogonal[: jacobian.shape[0]]
+    # A = Ŝ K̃ᵀ K̃ = T⁻¹ Q_Kᵀ K̃
     averaging_kernel = einsum(
         triangular_inverse, gain_factor, whitened_jacobian, "i k, m k, m j -> i j"
     )
@@ -130,3 +139,27 @@ def information_diagnostics(
         posterior_cov=posterior_cov,
         retrieval_noise_cov=retrieval_noise_cov,
     )
+
+
+def _whitening_root(
+    covariance: lx.AbstractLinearOperator,
+) -> lx.AbstractLinearOperator:
+    """A lower factor L of a covariance S = L Lᵀ, to whiten with L⁻¹.
+
+    Args:
+        covariance: The covariance S.
+
+    Returns:
+        L as a lineax operator, structured where S is. A `gaussx.SparseOperator`
+        is materialised, since its factor does not solve against its root.
+    """
+    if isinstance(covariance, SparseOperator):
+        warn_dense_fallback(
+            "information_diagnostics materialises a SparseOperator covariance "
+            "to whiten with its Cholesky root; pass a diagonal, Kronecker or "
+            "block-diagonal covariance to keep its structure."
+        )
+        covariance = lx.MatrixLinearOperator(
+            covariance.as_matrix(), lx.positive_semidefinite_tag
+        )
+    return cholesky(covariance)
