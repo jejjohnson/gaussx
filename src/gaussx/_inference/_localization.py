@@ -18,83 +18,121 @@ from gaussx._strategies._base import AbstractSolverStrategy
 def gaspari_cohn(
     r: Float[Array, "*shape"], c: float | Float[Array, ""]
 ) -> Float[Array, "*shape"]:
-    r"""Gaspari-Cohn (1999) fifth-order compactly-supported taper.
+    """Gaspari-Cohn (1999) fifth-order compactly supported taper.
 
-    The standard positive-definite, approximately-Gaussian localization
-    function. With ``z = 2 |r| / c`` it is the piecewise-rational
+    With z = 2 |r| / c, the standard positive-definite, approximately Gaussian
+    localization function is the piecewise rational
 
-    $$
-    \begin{aligned}
-    \rho = \begin{cases}
-      -\tfrac14 z^5 + \tfrac12 z^4 + \tfrac58 z^3 - \tfrac53 z^2 + 1
-        & 0 \le z \le 1 \\
-      \tfrac1{12} z^5 - \tfrac12 z^4 + \tfrac58 z^3 + \tfrac53 z^2
-        - 5 z + 4 - \tfrac{2}{3 z}
-        & 1 < z \le 2 \\
-      0 & z > 2.
-    \end{cases}
-    \end{aligned}
-    $$
+        ρ(z) = −¼ z⁵ + ½ z⁴ + ⅝ z³ − (5/3) z² + 1                 0 ≤ z ≤ 1
+        ρ(z) = (1/12) z⁵ − ½ z⁴ + ⅝ z³ + (5/3) z² − 5 z + 4 − 2 / (3 z)    1 < z < 2
+        ρ(z) = 0                                                  z ≥ 2
 
-    so ``rho(0) = 1`` and ``rho = 0`` for ``|r| >= c`` (``c`` is the
-    compact-support radius, **not** a Gaussian length scale). The taper is
-    only $C^1$ at the knots ``z = 1, 2``.
+    so ρ = 1 at r = 0 and ρ = 0 for |r| ≥ c, where c is the compact-support
+    radius, **not** a Gaussian length scale. The taper is C³ at the knots z = 1
+    and z = 2.
 
-    Differentiability: the ``2 / (3 z)`` term in the middle branch is guarded
-    with a safe denominator so reverse-mode gradients are finite at ``r = 0``
-    (which would otherwise produce ``NaN`` via the standard ``where`` pitfall).
+    Algorithm:
+        1. Scale the distances to z = 2 |r| / c.
+        2. Guard the 1 / z term of the middle branch.
+        3. Evaluate both polynomial branches and select by z.
 
     Args:
-        r: Distances (any shape), e.g. a pairwise distance matrix.
-        c: Compact-support radius; ``rho = 0`` beyond ``|r| = c``.
+        r: Distances r of any shape, e.g. a pairwise distance matrix.
+        c: Compact-support radius c; ρ = 0 beyond |r| = c.
 
     Returns:
-        Taper values in ``[0, 1]``, same shape as ``r``.
+        Taper values in [0, 1], with the shape of ``r``.
+
+    Examples:
+        One at zero distance and zero at the support radius:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> gaussx.gaspari_cohn(jnp.array([0.0, 2.0, 3.0]), 2.0).tolist()
+        [1.0, 0.0, 0.0]
+
+        The gradient stays finite at r = 0:
+
+        >>> import jax
+        >>> slope = jax.grad(lambda r: gaussx.gaspari_cohn(r, 2.0))(jnp.array(0.0))
+        >>> bool(jnp.isfinite(slope))
+        True
+
+    References:
+        Gaspari & Cohn (1999).
     """
-    z = 2.0 * jnp.abs(r) / c
+    # z = 2 |r| / c
+    scaled_distance = 2.0 * jnp.abs(r) / c
     # Guard the 1 / z term: at z = 0 the near branch is selected, but JAX still
     # traces the middle branch, so an unguarded 1 / z poisons the gradient.
-    z_safe = jnp.where(z > 0.0, z, 1.0)
+    safe_distance = jnp.where(scaled_distance > 0.0, scaled_distance, 1.0)
 
-    near = -0.25 * z**5 + 0.5 * z**4 + 0.625 * z**3 - (5.0 / 3.0) * z**2 + 1.0
-    mid = (
-        (1.0 / 12.0) * z**5
-        - 0.5 * z**4
-        + 0.625 * z**3
-        + (5.0 / 3.0) * z**2
-        - 5.0 * z
-        + 4.0
-        - 2.0 / (3.0 * z_safe)
+    # ρ = −¼ z⁵ + ½ z⁴ + ⅝ z³ − (5/3) z² + 1
+    near = (
+        -0.25 * scaled_distance**5
+        + 0.5 * scaled_distance**4
+        + 0.625 * scaled_distance**3
+        - (5.0 / 3.0) * scaled_distance**2
+        + 1.0
     )
-    return jnp.where(z <= 1.0, near, jnp.where(z < 2.0, mid, 0.0))
+    # ρ = (1/12) z⁵ − ½ z⁴ + ⅝ z³ + (5/3) z² − 5 z + 4 − 2 / (3 z)
+    mid = (
+        (1.0 / 12.0) * scaled_distance**5
+        - 0.5 * scaled_distance**4
+        + 0.625 * scaled_distance**3
+        + (5.0 / 3.0) * scaled_distance**2
+        - 5.0 * scaled_distance
+        + 4.0
+        - 2.0 / (3.0 * safe_distance)
+    )
+    outer = jnp.where(scaled_distance < 2.0, mid, 0.0)
+    return jnp.where(scaled_distance <= 1.0, near, outer)
 
 
 def euclidean_distance(
     coords_a: Float[Array, "Na D"],
     coords_b: Float[Array, "Nb D"],
 ) -> Float[Array, "Na Nb"]:
-    """Pairwise Euclidean distances ``||a_i - b_j||``.
+    """Pairwise Euclidean distances ‖aₙ − bₘ‖₂.
 
-    A default ``metric`` for `localization_matrix`. Builds on
-    `stable_squared_distances` and takes a gradient-safe square root so
-    zero distances (e.g. the diagonal of a self-distance matrix) do not produce
-    ``NaN`` gradients.
+    A default ``metric`` for `localization_matrix`. It builds on
+    `stable_squared_distances` and takes a gradient-safe square root, so zero
+    distances (the diagonal of a self-distance matrix) give no ``NaN``
+    gradients.
 
     Args:
-        coords_a: First set of points, shape ``(Na, D)``.
-        coords_b: Second set of points, shape ``(Nb, D)``.
+        coords_a: First set of points aₙ, one row per point.
+        coords_b: Second set of points bₘ, one row per point.
 
     Returns:
-        Distance matrix of shape ``(Na, Nb)``.
+        The matrix of distances ‖aₙ − bₘ‖₂.
+
+    Examples:
+        A 3-4-5 triangle:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> origin = jnp.zeros((1, 2))
+        >>> point = jnp.array([[3.0, 4.0]])
+        >>> bool(jnp.allclose(gaussx.euclidean_distance(origin, point), 5.0))
+        True
+
+        One row and one column per point:
+
+        >>> gaussx.euclidean_distance(jnp.zeros((3, 2)), jnp.ones((4, 2))).shape
+        (3, 4)
     """
-    sq = stable_squared_distances(
+    # ‖aₙ − bₘ‖₂²
+    squared_distance = stable_squared_distances(
         coords_a,
         coords_b,
         compute_dtype=coords_a.dtype,
         accumulate_dtype=coords_a.dtype,
     )
-    sq_safe = jnp.where(sq > 0.0, sq, 1.0)
-    return jnp.where(sq > 0.0, jnp.sqrt(sq_safe), 0.0)
+    # The square root has an infinite slope at zero, so keep zero out of it.
+    safe_squared_distance = jnp.where(squared_distance > 0.0, squared_distance, 1.0)
+    # ‖aₙ − bₘ‖₂
+    return jnp.where(squared_distance > 0.0, jnp.sqrt(safe_squared_distance), 0.0)
 
 
 def haversine_distance(
@@ -104,29 +142,64 @@ def haversine_distance(
 ) -> Float[Array, "Na Nb"]:
     """Pairwise great-circle (haversine) distances on a sphere.
 
-    A ``metric`` for `localization_matrix` on geophysical grids.
-    Coordinates are ``(latitude, longitude)`` in **radians**.
+        h = sin²(Δφ / 2) + cos φ_a cos φ_b sin²(Δϑ / 2)
+        d = 2 r arcsin(√h)
+
+    A ``metric`` for `localization_matrix` on geophysical grids, with latitude
+    φ and longitude ϑ in **radians**.
+
+    Algorithm:
+        1. Broadcast the latitudes and longitudes to one row per point of a
+           and one column per point of b.
+        2. Form the haversine h, clipped to [0, 1] against round-off.
+        3. Return the arc length 2 r arcsin(√h).
 
     Args:
-        coords_a: First set of points ``(lat, lon)`` in radians, shape ``(Na, 2)``.
-        coords_b: Second set of points ``(lat, lon)`` in radians, shape ``(Nb, 2)``.
-        radius: Sphere radius in the units of the returned distance (default the
-            Earth mean radius, ``6.371e6`` m).
+        coords_a: First set of points (φ, ϑ) in radians, one row per point.
+        coords_b: Second set of points (φ, ϑ) in radians, one row per point.
+        radius: Sphere radius r in the units of the returned distance; the
+            default is the Earth mean radius, 6.371e6 m.
 
     Returns:
-        Great-circle distance matrix of shape ``(Na, Nb)``.
+        The matrix of great-circle distances d.
+
+    Examples:
+        A quarter of the unit circle along the equator:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> origin = jnp.zeros((1, 2))
+        >>> east = jnp.array([[0.0, jnp.pi / 2]])
+        >>> distance = gaussx.haversine_distance(origin, east, radius=1.0)
+        >>> bool(jnp.allclose(distance, jnp.pi / 2))
+        True
+
+        As the metric of a localization taper:
+
+        >>> gaussx.localization_matrix(
+        ...     origin, east, 1.0, metric=gaussx.haversine_distance
+        ... ).shape
+        (1, 1)
     """
-    lat_a = coords_a[:, 0][:, None]
-    lon_a = coords_a[:, 1][:, None]
-    lat_b = coords_b[:, 0][None, :]
-    lon_b = coords_b[:, 1][None, :]
-    dlat = lat_b - lat_a
-    dlon = lon_b - lon_a
-    h = (
-        jnp.sin(dlat / 2.0) ** 2
-        + jnp.cos(lat_a) * jnp.cos(lat_b) * jnp.sin(dlon / 2.0) ** 2
+    # jnp, not einx: N_a = 0 or N_b = 0 returns an empty matrix here today, and
+    # einx raises AxisSizeError on a zero-length axis.
+    latitude_a = coords_a[:, 0][:, None]
+    longitude_a = coords_a[:, 1][:, None]
+    latitude_b = coords_b[:, 0][None, :]
+    longitude_b = coords_b[:, 1][None, :]
+    # Δφ = φ_b − φ_a
+    latitude_difference = latitude_b - latitude_a
+    # Δϑ = ϑ_b − ϑ_a
+    longitude_difference = longitude_b - longitude_a
+    # h = sin²(Δφ / 2) + cos φ_a cos φ_b sin²(Δϑ / 2)
+    haversine = (
+        jnp.sin(latitude_difference / 2.0) ** 2
+        + jnp.cos(latitude_a)
+        * jnp.cos(latitude_b)
+        * jnp.sin(longitude_difference / 2.0) ** 2
     )
-    return 2.0 * radius * jnp.arcsin(jnp.sqrt(jnp.clip(h, 0.0, 1.0)))
+    # d = 2 r arcsin(√h)
+    return 2.0 * radius * jnp.arcsin(jnp.sqrt(jnp.clip(haversine, 0.0, 1.0)))
 
 
 def localization_matrix(
@@ -137,23 +210,41 @@ def localization_matrix(
         [Float[Array, "Na D"], Float[Array, "Nb D"]], Float[Array, "Na Nb"]
     ] = euclidean_distance,
 ) -> Float[Array, "Na Nb"]:
-    """Pairwise Gaspari-Cohn taper ``rho(dist(a_i, b_j); c)``.
+    """Pairwise Gaspari-Cohn taper ρ(d(aₙ, bₘ); c).
 
-    Use this to build the ``rho_xy`` (state-obs) and ``rho_yy`` (obs-obs)
-    localization matrices consumed by `localized_kalman_gain`.
+    Builds the ρ_xy (state-observation) and ρ_yy (observation-observation)
+    matrices consumed by `localized_kalman_gain`.
 
     Args:
-        coords_a: First set of points, shape ``(Na, D)``.
-        coords_b: Second set of points, shape ``(Nb, D)``.
-        c: Gaspari-Cohn compact-support radius.
-        metric: Pairwise distance function returning an ``(Na, Nb)`` matrix.
-            Defaults to `euclidean_distance`; pass
-            `haversine_distance` for spherical coordinates.
+        coords_a: First set of points aₙ, one row per point.
+        coords_b: Second set of points bₘ, one row per point.
+        c: Gaspari-Cohn compact-support radius c.
+        metric: Pairwise distance function d returning one row per point of a
+            and one column per point of b. Defaults to `euclidean_distance`;
+            pass `haversine_distance` for spherical coordinates.
 
     Returns:
-        Localization matrix of shape ``(Na, Nb)`` with entries in ``[0, 1]``.
+        The localization matrix, with entries in [0, 1].
+
+    Examples:
+        Self-localization has a unit diagonal:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> coords = jnp.array([[0.0], [1.0], [5.0]])
+        >>> rho = gaussx.localization_matrix(coords, coords, 2.0)
+        >>> jnp.diag(rho).tolist()
+        [1.0, 1.0, 1.0]
+
+        Points beyond the radius are decoupled:
+
+        >>> float(rho[0, 2])
+        0.0
     """
-    return gaspari_cohn(metric(coords_a, coords_b), c)
+    # d(aₙ, bₘ)
+    distance = metric(coords_a, coords_b)
+    # ρ(d; c)
+    return gaspari_cohn(distance, c)
 
 
 def localized_kalman_gain(
@@ -166,48 +257,91 @@ def localized_kalman_gain(
     solver: AbstractSolverStrategy | None = None,
     bessel: bool = True,
 ) -> Float[Array, "N M"]:
-    r"""Ensemble Kalman gain with Hadamard (Schur-product) localization.
+    """Ensemble Kalman gain with Hadamard (Schur-product) localization.
 
-    Computes
+        G = (ρ_xy ⊙ Σ̂_xy) (ρ_yy ⊙ Σ̂_h + Σ_ε)⁻¹
 
-    $$
-    K = (\rho_{xy} \circ P_{xy})\,(\rho_{yy} \circ P_{yy} + R)^{-1},
-    $$
+    where Σ̂_xy is the state-observation sample cross-covariance and Σ̂_h the
+    sample covariance of the observation-space ensemble. Tapering removes
+    spurious long-range sample correlations; because Gaspari-Cohn is positive
+    definite, the Schur product theorem keeps ρ_yy ⊙ Σ̂_h positive semi-definite,
+    so the observation covariance stays invertible.
 
-    where ``P_xy`` is the state-observation cross-covariance and ``P_yy`` the
-    observation-space ensemble covariance. Tapering kills spurious long-range
-    sample correlations; because Gaspari-Cohn is positive-definite, the Schur
-    product theorem keeps ``rho_yy . P_yy`` PSD, so the innovation covariance
-    stays invertible.
+    This is the localized counterpart of `ensemble_kalman_gain`. The Hadamard
+    product destroys the low-rank structure, so Σ_y is materialised and the
+    solve costs O(D_x D_y + D_y³). The unlocalized gain is the c → ∞ limit,
+    ρ_xy = ρ_yy = 1.
 
-    This is the localized counterpart of `ensemble_kalman_gain`. Unlike
-    that routine, the Hadamard product destroys the low-rank structure, so the
-    innovation covariance is materialized densely and the solve is
-    ``O(N M + M^3)``. Recover the unlocalized gain as the ``c -> inf`` limit
-    (``rho_xy = rho_yy = 1``).
+    Algorithm:
+        1. Form the sample covariances Σ̂_xy and Σ̂_h.
+        2. Taper them by ρ_xy and ρ_yy.
+        3. Add Σ_ε and symmetrise to get Σ_y.
+        4. Solve for the gain G row by row.
 
     Args:
-        particles: Prior ensemble in state space, shape ``(J, N)``.
-        obs_particles: Prior ensemble in observation space, shape ``(J, M)``.
-        obs_noise: Observation error covariance operator ``R``, shape ``(M, M)``.
-        rho_xy: State-observation localization matrix, shape ``(N, M)``.
-        rho_yy: Observation-observation localization matrix, shape ``(M, M)``.
-        solver: Optional solver strategy for the dense innovation solve.
-        bessel: Use the ``1 / (J - 1)`` divisor (EnKF convention, default).
+        particles: Prior ensemble x⁽ᵉ⁾ in state space.
+        obs_particles: Its image h⁽ᵉ⁾ = h(x⁽ᵉ⁾) in observation space.
+        obs_noise: Observation-error covariance Σ_ε.
+        rho_xy: State-observation taper ρ_xy.
+        rho_yy: Observation-observation taper ρ_yy.
+        solver: Solver strategy for the dense Σ_y; ``None`` uses structural
+            dispatch.
+        bessel: Use the 1 / (|ℰ| − 1) divisor (the EnKF convention, default).
 
     Returns:
-        Dense localized Kalman gain of shape ``(N, M)``.
+        The dense localized Kalman gain G.
+
+    Raises:
+        ValueError: If the two ensembles have different sizes, or if
+            ``bessel`` is set with |ℰ| < 2.
+
+    Examples:
+        Unit tapers recover the unlocalized gain:
+
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> particles = jr.normal(jr.key(0), (8, 3))
+        >>> obs_particles = particles[:, :2]
+        >>> obs_noise = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> gain = gaussx.localized_kalman_gain(
+        ...     particles, obs_particles, obs_noise, jnp.ones((3, 2)), jnp.ones((2, 2))
+        ... )
+        >>> plain = gaussx.ensemble_kalman_gain(particles, obs_particles, obs_noise)
+        >>> bool(jnp.allclose(gain, plain, atol=1e-4))
+        True
+
+        A zero taper removes that coupling from the gain:
+
+        >>> rho_xy = jnp.ones((3, 2)).at[2, :].set(0.0)
+        >>> gain = gaussx.localized_kalman_gain(
+        ...     particles, obs_particles, obs_noise, rho_xy, jnp.ones((2, 2))
+        ... )
+        >>> bool(jnp.allclose(gain[2], 0.0))
+        True
     """
     if particles.shape[0] != obs_particles.shape[0]:
         raise ValueError(
             "particles and obs_particles must share the same ensemble size, "
             f"got J={particles.shape[0]} and J={obs_particles.shape[0]}."
         )
-    cross_cov = ensemble_cross_covariance(particles, obs_particles, bessel=bessel)
-    obs_cov = ensemble_cross_covariance(obs_particles, obs_particles, bessel=bessel)
+    # Σ̂_xy
+    cross_covariance = ensemble_cross_covariance(
+        particles, obs_particles, bessel=bessel
+    )
+    # Σ̂_h
+    obs_ensemble_covariance = ensemble_cross_covariance(
+        obs_particles, obs_particles, bessel=bessel
+    )
 
-    localized_cross = rho_xy * cross_cov
-    innovation = rho_yy * obs_cov + obs_noise.as_matrix()
-    innovation = symmetrize(innovation)
-    innovation_op = lx.MatrixLinearOperator(innovation, lx.positive_semidefinite_tag)
-    return solve_rows(innovation_op, localized_cross, solver=solver)
+    # ρ_xy ⊙ Σ̂_xy
+    localized_cross = rho_xy * cross_covariance
+    # Σ_y = ρ_yy ⊙ Σ̂_h + Σ_ε
+    obs_covariance = rho_yy * obs_ensemble_covariance + obs_noise.as_matrix()
+    obs_covariance = symmetrize(obs_covariance)
+    obs_covariance_op = lx.MatrixLinearOperator(
+        obs_covariance, lx.positive_semidefinite_tag
+    )
+    # G = (ρ_xy ⊙ Σ̂_xy) Σ_y⁻¹, row by row since Σ_y is symmetric
+    return solve_rows(obs_covariance_op, localized_cross, solver=solver)
