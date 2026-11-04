@@ -106,6 +106,31 @@ def ensemble_kalman_gain(
     return solve_rows(innovation_cov, cross_cov, solver=solver)
 
 
+def _perturbations(
+    factor: lx.AbstractLinearOperator,
+    key: Array,
+    num_members: int,
+    dtype: object,
+) -> Float[Array, "J M"]:
+    """Perturbations eps_j = L n_j, n_j ~ N(0, I), flattened per member.
+
+    The noise takes the factor's own shape, as the factor of a shaped diagonal
+    R acts on that shape while the ensemble's observations are flat.
+
+    Args:
+        factor: The factor L of the noise covariance.
+        key: PRNG key.
+        num_members: The ensemble size J.
+        dtype: The dtype of the noise.
+
+    Returns:
+        The perturbations, one row per member.
+    """
+    shape = factor.in_structure().shape
+    noise = jr.normal(key, (num_members, *shape), dtype=dtype)
+    return jax.vmap(lambda draw: jnp.ravel(factor.mv(draw)))(noise)
+
+
 def _noise_factor(
     obs_noise: lx.AbstractLinearOperator,
     *,
@@ -503,8 +528,8 @@ def enkf_analysis(
         factor = _noise_factor(
             obs_noise, allow_dense=use_dense or localization is not None
         )
-        noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
-        perturbed = observation[None, :] + jax.vmap(factor.mv)(noise)  # (J, M)
+        perturbation = _perturbations(factor, key, n_ens, particles.dtype)  # (J, M)
+        perturbed = observation[None, :] + perturbation  # (J, M)
     else:
         perturbed = perturbed_obs
         if perturbed is None or perturbed.shape != (n_ens, n_obs):
