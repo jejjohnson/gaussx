@@ -1,7 +1,9 @@
 """Tests for natural gradient primitives."""
 
 import jax
+import jax.flatten_util
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 import numpy as np
 import pytest
@@ -14,7 +16,12 @@ from gaussx._inference._natural_gradient import (
     riemannian_psd_correction,
 )
 from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._testing import key_sequence, random_pd_matrix
+from gaussx._testing import (
+    default_tolerances,
+    key_sequence,
+    random_pd_matrix,
+    random_pd_operator,
+)
 
 
 def _make_block_tridiag(getkey, N=3, d=2):
@@ -217,7 +224,9 @@ class TestGaussNewtonPrecision:
         J = jax.random.normal(getkey(), (3, 6))
         op = gauss_newton_precision(J)
         eigvals = jnp.linalg.eigvalsh(op.as_matrix())
-        assert jnp.all(eigvals >= -1e-10)
+        # J has rank 3, so its zero eigenvalues are computed to rounding
+        rounding = 10 * jnp.finfo(eigvals.dtype).eps * jnp.max(eigvals)
+        assert jnp.all(eigvals >= -rounding)
 
 
 class TestGaussNewtonPrecisionWithBase:
@@ -258,3 +267,196 @@ class TestGaussNewtonPrecisionWithBase:
         op = gauss_newton_precision(J)
         assert jnp.linalg.matrix_rank(op.as_matrix()) == 2
         assert not jnp.all(jnp.isfinite(gaussx.solve(op, jnp.ones(4))))
+
+
+# ---------------------------------------------------------------------------
+# gauss_newton_operator: A = P + Jᵀ W J, matrix-free
+# ---------------------------------------------------------------------------
+
+
+def _nonlinear_residual(theta):
+    """r: ℝ³ → ℝ⁴, nonlinear in every entry of θ."""
+    return jnp.stack(
+        [
+            jnp.sin(theta[0]) + theta[1] ** 2,
+            theta[0] * theta[1],
+            jnp.exp(0.5 * theta[2]),
+            theta[0] + theta[2],
+        ]
+    )
+
+
+def _gn_point():
+    return jnp.array([0.3, -0.7, 0.2], dtype=jnp.result_type(float))
+
+
+def _gn_noise():
+    return random_pd_operator(jr.key(0), 4)
+
+
+def _gn_prior():
+    return random_pd_operator(jr.key(1), 3)
+
+
+def _gn_dense(point):
+    jacobian = jax.jacfwd(_nonlinear_residual)(point)
+    weighted = _gn_noise().as_matrix() @ jacobian
+    return _gn_prior().as_matrix() + einsum(jacobian, weighted, "m i, m j -> i j")
+
+
+class TestGaussNewtonOperator:
+    @pytest.mark.parametrize("jac", ["fwd", "bwd"])
+    def test_matches_the_dense_jacobian(self, jac):
+        point = _gn_point()
+        operator = gaussx.gauss_newton_operator(
+            _nonlinear_residual,
+            point,
+            noise_precision=_gn_noise(),
+            prior_precision=_gn_prior(),
+            jac=jac,
+        )
+        expected = _gn_dense(point)
+        rtol, atol = default_tolerances(expected)
+        assert lx.is_positive_semidefinite(operator)
+        assert jnp.allclose(operator.as_matrix(), expected, rtol=rtol, atol=atol)
+        matrix = operator.as_matrix()
+        assert jnp.allclose(
+            matrix, rearrange(matrix, "i j -> j i"), rtol=rtol, atol=atol
+        )
+
+    def test_defaults_are_identity_noise_and_no_prior(self):
+        point = _gn_point()
+        operator = gaussx.gauss_newton_operator(_nonlinear_residual, point)
+        jacobian = jax.jacfwd(_nonlinear_residual)(point)
+        expected = einsum(jacobian, jacobian, "m i, m j -> i j")
+        rtol, atol = default_tolerances(expected)
+        assert jnp.allclose(operator.as_matrix(), expected, rtol=rtol, atol=atol)
+
+    def test_callable_precisions_match_operators(self):
+        point = _gn_point()
+        noise, prior = _gn_noise(), _gn_prior()
+        by_operator = gaussx.gauss_newton_operator(
+            _nonlinear_residual, point, noise_precision=noise, prior_precision=prior
+        )
+        by_callable = gaussx.gauss_newton_operator(
+            _nonlinear_residual,
+            point,
+            noise_precision=noise.mv,
+            prior_precision=prior.mv,
+        )
+        assert jnp.array_equal(by_operator.as_matrix(), by_callable.as_matrix())
+
+    def test_linear_residual_is_exact(self):
+        H = jr.normal(jr.key(2), (5, 3), dtype=jnp.result_type(float))
+        operator = gaussx.gauss_newton_operator(
+            lambda theta: H @ theta, jnp.zeros(3, H.dtype)
+        )
+        expected = einsum(H, H, "m i, m j -> i j")
+        rtol, atol = default_tolerances(expected)
+        assert jnp.allclose(operator.as_matrix(), expected, rtol=rtol, atol=atol)
+
+    @pytest.mark.parametrize("jac", ["fwd", "bwd"])
+    def test_pytree_control_and_shaped_residual(self, jac):
+        """θ = {a, b}, r of shape (2, 2), W a 2-D diagonal, P added leaf by leaf."""
+        dtype = jnp.result_type(float)
+        point = {"a": jnp.array([0.5, -0.5], dtype), "b": jnp.array(0.25, dtype)}
+
+        def residual(theta):
+            a, b = theta["a"], theta["b"]
+            return jnp.array([[a[0] ** 2, a[1] * b], [jnp.sin(b), a[0] + a[1]]])
+
+        weights = jnp.array([[1.0, 2.0], [3.0, 4.0]], dtype)
+        operator = gaussx.gauss_newton_operator(
+            residual,
+            point,
+            noise_precision=lx.DiagonalLinearOperator(weights),
+            prior_precision=lambda theta: jax.tree.map(lambda v: 2.0 * v, theta),
+            jac=jac,
+        )
+        assert jax.tree.map(lambda s: s.shape, operator.in_structure()) == {
+            "a": (2,),
+            "b": (),
+        }
+        direction = {"a": jnp.array([1.0, 2.0], dtype), "b": jnp.array(-1.0, dtype)}
+        applied = operator.mv(direction)
+
+        flat_point, unravel = jax.flatten_util.ravel_pytree(point)
+        flat_direction, _ = jax.flatten_util.ravel_pytree(direction)
+        jacobian = jax.jacfwd(lambda flat: jnp.ravel(residual(unravel(flat))))(
+            flat_point
+        )
+        weighted = jnp.ravel(weights) * (jacobian @ flat_direction)
+        expected = 2.0 * flat_direction + einsum(jacobian, weighted, "m d, m -> d")
+        flat_applied, _ = jax.flatten_util.ravel_pytree(applied)
+        rtol, atol = default_tolerances(expected)
+        assert jnp.allclose(flat_applied, expected, rtol=rtol, atol=atol)
+
+    def test_bwd_takes_a_residual_with_only_a_vjp(self):
+        @jax.custom_vjp
+        def square(x):
+            return x**2
+
+        def square_fwd(x):
+            return x**2, x
+
+        def square_bwd(x, cotangent):
+            return (2.0 * x * cotangent,)
+
+        square.defvjp(square_fwd, square_bwd)
+        point = jnp.array([1.0, 2.0], dtype=jnp.result_type(float))
+        with pytest.raises(TypeError, match="forward-mode"):
+            gaussx.gauss_newton_operator(square, point, jac="fwd").mv(point)
+        operator = gaussx.gauss_newton_operator(square, point, jac="bwd")
+        assert jnp.allclose(operator.as_matrix(), jnp.diag(jnp.array([4.0, 16.0])))
+
+    def test_rejects_an_unknown_jac(self):
+        with pytest.raises(ValueError, match="jac must be"):
+            gaussx.gauss_newton_operator(_nonlinear_residual, _gn_point(), jac="rev")
+
+    def test_jit_and_vmap_over_points(self):
+        vector = jnp.ones(3, dtype=jnp.result_type(float))
+
+        def apply(point):
+            operator = gaussx.gauss_newton_operator(
+                _nonlinear_residual,
+                point,
+                noise_precision=_gn_noise(),
+                prior_precision=_gn_prior(),
+            )
+            return operator.mv(vector)
+
+        points = jnp.stack([_gn_point(), 2.0 * _gn_point()])
+        expected = jnp.stack([_gn_dense(point) @ vector for point in points])
+        rtol, atol = default_tolerances(expected)
+        batched = jax.jit(jax.vmap(apply))(points)
+        assert jnp.allclose(batched, expected, rtol=10 * rtol, atol=10 * atol)
+
+    def test_gradient_through_a_cg_solve(self):
+        """∂/∂b of ½ bᵀ A⁻¹ b is A⁻¹ b, and ∂/∂y flows through the operator."""
+        point = _gn_point()
+        right_hand_side = jnp.array([1.0, -1.0, 0.5], dtype=point.dtype)
+        solver = gaussx.CGSolver(rtol=1e-5, atol=1e-5)
+
+        def energy(scale, rhs):
+            def residual(theta):
+                return scale * _nonlinear_residual(theta)
+
+            operator = gaussx.gauss_newton_operator(
+                residual, point, prior_precision=_gn_prior()
+            )
+            return 0.5 * rhs @ solver.solve(operator, rhs)
+
+        def dense_energy(scale, rhs):
+            jacobian = scale * jax.jacfwd(_nonlinear_residual)(point)
+            matrix = _gn_prior().as_matrix() + einsum(
+                jacobian, jacobian, "m i, m j -> i j"
+            )
+            return 0.5 * rhs @ jnp.linalg.solve(matrix, rhs)
+
+        one = jnp.asarray(1.0, dtype=point.dtype)
+        by_scale = jax.grad(energy)(one, right_hand_side)
+        expected_scale = jax.grad(dense_energy)(one, right_hand_side)
+        by_rhs = jax.grad(energy, argnums=1)(one, right_hand_side)
+        expected_rhs = jax.grad(dense_energy, argnums=1)(one, right_hand_side)
+        assert jnp.allclose(by_scale, expected_scale, rtol=1e-2, atol=1e-3)
+        assert jnp.allclose(by_rhs, expected_rhs, rtol=1e-2, atol=1e-3)
