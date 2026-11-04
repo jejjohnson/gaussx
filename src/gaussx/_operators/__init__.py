@@ -29,7 +29,13 @@ from gaussx._operators._diagonalised import (
     circulant,
     circulant_from_symbol,
 )
-from gaussx._operators._grid import create_grid, cubic_interpolation_weights, grid_data
+from gaussx._operators._grid import (
+    create_grid,
+    cubic_interpolation_weights,
+    grid_data,
+    interpolation_operator,
+    linear_interpolation_weights,
+)
 from gaussx._operators._interpolated import InterpolatedOperator
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import (
@@ -525,8 +531,10 @@ __all__ = [
     "cubic_interpolation_weights",
     "grid_coupling_indices",
     "grid_data",
+    "interpolation_operator",
     "is_eigen_reducible",
     "kronecker_sum_sample",
+    "linear_interpolation_weights",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "masked_obs_covariance",
