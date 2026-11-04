@@ -8,12 +8,14 @@ covariance and A the averaging kernel.
 from __future__ import annotations
 
 import equinox as eqx
+import jax
 import jax.numpy as jnp
+import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
-from gaussx._linalg._linalg import solve_columns, solve_matrix
+from gaussx._linalg._linalg import solve_columns
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._logdet import logdet
@@ -60,8 +62,10 @@ def information_diagnostics(
         1. Whiten with structured factors, K̃ = L_ε⁻¹ K and L_a⁻¹, where
            L_ε L_εᵀ = S_ε and L_a L_aᵀ = S_a, so neither covariance is
            materialised beyond the n × n outputs.
-        2. Form Ŝ⁻¹ = K̃ᵀ K̃ + L_a⁻ᵀ L_a⁻¹, invert it, and symmetrize Ŝ.
-        3. Read the diagnostics off Ŝ and K̃ᵀ K̃.
+        2. Factor the stacked [K̃; L_a⁻¹] = Q T by QR, so Ŝ⁻¹ = Tᵀ T without
+           forming K̃ᵀ K̃, which would round away the prior when K̃ is large.
+        3. Read the diagnostics off T: Ŝ = T⁻¹ T⁻ᵀ, A = T⁻¹ (K̃ T⁻¹)ᵀ K̃ and
+           ln det Ŝ⁻¹ = 2 ∑ᵢ ln |T_ii|.
 
     Args:
         jacobian: The Jacobian K of the forward model at the retrieval.
@@ -95,28 +99,34 @@ def information_diagnostics(
     whitened_jacobian = solve_columns(cholesky(noise_cov), jacobian)
     # L_a⁻¹
     prior_root_inverse = solve_columns(cholesky(prior_cov), identity)
-    # Kᵀ S_ε⁻¹ K = K̃ᵀ K̃
-    data_precision = einsum(whitened_jacobian, whitened_jacobian, "m i, m j -> i j")
-    # S_a⁻¹ = L_a⁻ᵀ L_a⁻¹
-    prior_precision = einsum(prior_root_inverse, prior_root_inverse, "k i, k j -> i j")
-    # Ŝ⁻¹ = Kᵀ S_ε⁻¹ K + S_a⁻¹
-    precision = lx.MatrixLinearOperator(
-        symmetrize(data_precision + prior_precision), lx.positive_semidefinite_tag
+    # [K̃; L_a⁻¹] = Q T, so Ŝ⁻¹ = Tᵀ T
+    _, triangular = jnp.linalg.qr(jnp.vstack([whitened_jacobian, prior_root_inverse]))
+    # T⁻¹
+    triangular_inverse = jax.scipy.linalg.solve_triangular(
+        triangular, identity, lower=False
     )
-    # Ŝ
-    posterior_cov = symmetrize(solve_matrix(precision, identity))
-    # A = Ŝ Kᵀ S_ε⁻¹ K
-    averaging_kernel = einsum(posterior_cov, data_precision, "i k, k j -> i j")
+    # Ŝ = T⁻¹ T⁻ᵀ
+    posterior_cov = symmetrize(
+        einsum(triangular_inverse, triangular_inverse, "i k, j k -> i j")
+    )
+    # K̃ T⁻¹
+    gain_factor = einsum(whitened_jacobian, triangular_inverse, "m k, k j -> m j")
+    # A = Ŝ K̃ᵀ K̃ = T⁻¹ (K̃ T⁻¹)ᵀ K̃
+    averaging_kernel = einsum(
+        triangular_inverse, gain_factor, whitened_jacobian, "i k, m k, m j -> i j"
+    )
     # S_m = A Ŝ
     retrieval_noise_cov = symmetrize(
         einsum(averaging_kernel, posterior_cov, "i k, k j -> i j")
     )
+    # ln det Ŝ⁻¹ = 2 ∑ᵢ ln |T_ii|
+    logdet_precision = 2.0 * jnp.sum(jnp.log(jnp.abs(jnp.diag(triangular))))
     return InformationDiagnostics(
         averaging_kernel=averaging_kernel,
         # d_s = tr A
         dofs=jnp.trace(averaging_kernel),
         # H = ½ (ln det S_a + ln det Ŝ⁻¹)
-        information_content=0.5 * (logdet(prior_cov) + logdet(precision)),
+        information_content=0.5 * (logdet(prior_cov) + logdet_precision),
         posterior_cov=posterior_cov,
         retrieval_noise_cov=retrieval_noise_cov,
     )

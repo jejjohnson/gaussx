@@ -338,6 +338,19 @@ class TestLinearGaussianUpdate:
         assert jnp.allclose(posterior.mean, prior_mean, rtol=1e-2, atol=1e-2)
         assert jnp.allclose(posterior.cov.as_matrix(), B.as_matrix(), atol=1e-2)
 
+    def test_small_noise_keeps_the_posterior_variance(self):
+        """B = 1e8, H = R = 1: B − B Hᵀ S⁻¹ H B cancels to 0 in float32; P_a ≈ 1."""
+        posterior = gaussx.linear_gaussian_update(
+            jnp.zeros(1, jnp.float32),
+            lx.DiagonalLinearOperator(jnp.full(1, 1e8, jnp.float32)),
+            lx.MatrixLinearOperator(jnp.ones((1, 1), jnp.float32)),
+            lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32)),
+            jnp.ones(1, jnp.float32),
+        )
+        variance = posterior.cov.mv(jnp.ones(1, jnp.float32))
+        assert variance.dtype == jnp.float32
+        assert jnp.allclose(variance, jnp.ones(1), rtol=1e-3)
+
     def test_shaped_state_and_observation(self):
         """A (T, N) state observed through a 2-D mask, against the flat update."""
         shape = (2, 3)

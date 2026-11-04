@@ -89,6 +89,29 @@ def test_sandwich_keeps_the_shape():
     _assert_close(result.mv(jnp.ones_like(_diagonal())), _diagonal() ** 3)
 
 
+def test_sandwich_aligns_diagonals_of_different_shapes():
+    """(2, 1) and (2,) have one flattened size; they must not broadcast."""
+    dtype = jnp.result_type(float)
+    scale = lx.DiagonalLinearOperator(jnp.array([[1.0], [2.0]], dtype))
+    inner = lx.DiagonalLinearOperator(jnp.array([3.0, 4.0], dtype))
+    result = gaussx.sandwich(scale, inner)
+    assert result.as_matrix().shape == (2, 2)
+    _assert_close(gaussx.diag(result), jnp.array([3.0, 16.0], dtype))
+
+
+def test_sample_mvn_of_a_dense_fallback_with_a_shaped_structure():
+    """d + d has a (2, 3) structure, and its dense root acts on flat noise."""
+    diagonal = lx.DiagonalLinearOperator(_diagonal())
+    draws = gaussx.sample_mvn(
+        jnp.zeros(6, dtype=_diagonal().dtype),
+        diagonal + diagonal,
+        key=jr.key(0),
+        num_samples=4,
+    )
+    assert draws.shape == (4, 6)
+    assert jnp.all(jnp.isfinite(draws))
+
+
 def test_gaussian_log_prob_takes_the_flattened_value():
     """log N(y; 0, diag(d)) = −½ (yᵀ D⁻¹ y + ln det D + M ln 2π)."""
     operator = lx.TaggedLinearOperator(

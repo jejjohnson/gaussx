@@ -49,23 +49,26 @@ def linear_gaussian_update(
 ) -> LinearGaussianPosterior:
     """Matrix-free posterior of a linear-Gaussian observation.
 
-        S = H B Hᵀ + R
-        x_a = x_b + B Hᵀ S⁻¹ (y − H x_b)
-        P_a = B − B Hᵀ S⁻¹ H B
+        S = H B Hᵀ + R,   G = B Hᵀ S⁻¹
+        x_a = x_b + G (y − H x_b)
+        P_a = (I − G H) B (I − G H)ᵀ + G R Gᵀ
 
     This is the best linear unbiased estimate of Lorenc (1986), "Analysis
     methods for numerical weather prediction", *Q. J. R. Meteorol. Soc.* 112,
-    1177-1194, doi:10.1002/qj.49711247414. Each P_a matvec costs two B
-    matvecs, one H and one Hᵀ matvec and one S solve, and B⁻¹ is never
-    applied, so a smooth B that CG cannot invert is fine. For masked
-    observations, pass a masked H and `gaussx.masked_obs_covariance` as R.
+    1177-1194, doi:10.1002/qj.49711247414. P_a equals B − B Hᵀ S⁻¹ H B, but
+    the Joseph form (`gaussx.joseph_update`) keeps its accuracy when R is small
+    against H B Hᵀ, where the subtraction cancels. Each P_a matvec costs three
+    B matvecs and two S solves, and B⁻¹ is never applied, so a smooth B that
+    CG cannot invert is fine. For masked observations, pass a masked H and
+    `gaussx.masked_obs_covariance` as R.
 
     `gaussx.kalman_gain` and `gaussx.schur_complement` are the dense paths.
 
     Algorithm:
         1. Compose S = H B Hᵀ + R lazily, tagged positive semidefinite.
         2. Solve S v = y − H x_b, and set x_a = x_b + B Hᵀ v.
-        3. Wrap P_a as a lazy operator that solves against S per matvec.
+        3. Wrap P_a as a lazy operator in Joseph form, combining its two
+           gain products into the two S solves per matvec.
 
     Args:
         prior_mean: The prior mean x_b, in the shape B acts on.
@@ -110,14 +113,20 @@ def linear_gaussian_update(
     mean = prior_mean + prior_cov.mv(adjoint.mv(weights))
 
     def posterior_mv(direction: Float[Array, "*state"]) -> Float[Array, "*state"]:
-        # B v
-        prior_direction = prior_cov.mv(direction)
-        # S⁻¹ H B v
-        solved = dispatch_solve(
-            innovation_cov, obs_operator.mv(prior_direction), solver
+        # Gᵀ v = S⁻¹ H B v
+        gain_adjoint = dispatch_solve(
+            innovation_cov, obs_operator.mv(prior_cov.mv(direction)), solver
         )
-        # B v − B Hᵀ S⁻¹ H B v
-        return prior_direction - prior_cov.mv(adjoint.mv(solved))
+        # B (I − G H)ᵀ v = B (v − Hᵀ Gᵀ v)
+        joseph_direction = prior_cov.mv(direction - adjoint.mv(gain_adjoint))
+        # S⁻¹ (R Gᵀ v − H B (I − G H)ᵀ v)
+        correction = dispatch_solve(
+            innovation_cov,
+            obs_cov.mv(gain_adjoint) - obs_operator.mv(joseph_direction),
+            solver,
+        )
+        # (I − G H) B (I − G H)ᵀ v + G R Gᵀ v
+        return joseph_direction + prior_cov.mv(adjoint.mv(correction))
 
     cov = as_linear_operator(
         posterior_mv,
