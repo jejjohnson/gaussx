@@ -27,6 +27,7 @@ from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._low_rank_update import LowRankUpdate
 from gaussx._operators._sparse import SparseOperator
+from gaussx._operators._utils import diagonal_like
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._diag import diag
 from gaussx._primitives._solve import solve
@@ -204,8 +205,12 @@ def sandwich(
         scale = lx.diagonal(A)
         if isinstance(P, lx.DiagonalLinearOperator):
             # diag(d) diag(s) diag(d) = diag(d ⊙ s ⊙ d)
+            same_shape = A.in_structure() == P.in_structure()
+            # keep a shared shape; otherwise align the flattened entries, as
+            # stored shapes that differ would broadcast
+            d, s = (A.diagonal, P.diagonal) if same_shape else (scale, lx.diagonal(P))
             return lx.TaggedLinearOperator(
-                lx.DiagonalLinearOperator(scale * lx.diagonal(P) * scale),
+                diagonal_like(jax.tree.map(lambda d_i, s_i: d_i * s_i * d_i, d, s)),
                 tags,
             )
         covariance = P.as_matrix()

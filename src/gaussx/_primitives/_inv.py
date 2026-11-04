@@ -29,7 +29,7 @@ from gaussx._operators._low_rank_update import (
     orthonormal_scaled_identity,
     scaled_identity_like,
 )
-from gaussx._operators._utils import register_lineax_structure_functions
+from gaussx._operators._utils import diagonal_like, register_lineax_structure_functions
 from gaussx._primitives._cholesky import cholesky
 
 
@@ -172,10 +172,8 @@ def _inv_diagonal(
     Returns:
         The diagonal operator diag(1 / a).
     """
-    diagonal = lx.diagonal(operator)
-    # 1 / a_i
-    inverse_diagonal = 1.0 / diagonal
-    return lx.DiagonalLinearOperator(inverse_diagonal)
+    # 1 / a_i, keeping the shape of a
+    return diagonal_like(jax.tree.map(jnp.reciprocal, operator.diagonal))
 
 
 def _inv_diagonalised(operator: DiagonalizedOperator) -> DiagonalizedOperator:

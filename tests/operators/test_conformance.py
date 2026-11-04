@@ -88,6 +88,12 @@ def _base(name: str) -> Callable[[], lx.AbstractLinearOperator]:
     return lambda: BASE_ZOO[name](jr.key(0))
 
 
+def _diagonal_2d() -> lx.DiagonalLinearOperator:
+    return lx.DiagonalLinearOperator(
+        jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=jnp.result_type(float))
+    )
+
+
 def _kron() -> gaussx.Kronecker:
     return random_kronecker_pd(jr.key(0), (2, 3))
 
@@ -130,6 +136,12 @@ ZOO: list[Case] = [
     # Dense and degenerate.
     Case("dense", lambda: _psd_matrix(4)),
     Case("one_by_one", lambda: _psd_matrix(1)),
+    # A shaped diagonal: its structure is (2, 3), its matrix 6 x 6 (#663, #682).
+    Case("diagonal_2d", _diagonal_2d),
+    Case(
+        "diagonal_2d_tagged",
+        lambda: lx.TaggedLinearOperator(_diagonal_2d(), lx.positive_semidefinite_tag),
+    ),
     # Kronecker and wrappers of it.
     Case("kronecker", _kron, structured=_KRON_LIKE, spy=gaussx.Kronecker),
     Case(
@@ -421,7 +433,9 @@ def test_matvec_and_transpose(case):
     M = op.as_matrix()
     v = _probe(op)
     rtol, atol = default_tolerances(M)
-    assert jnp.allclose(op.mv(v), einsum(M, v, "i j, j -> i"), rtol=rtol, atol=atol)
+    # a shaped operator (a 2-D diagonal) acts on its shape; M on the flattened
+    expected = einsum(M, jnp.ravel(v), "i j, j -> i")
+    assert jnp.allclose(jnp.ravel(op.mv(v)), expected, rtol=rtol, atol=atol)
     assert jnp.allclose(
         op.T.as_matrix(), rearrange(M, "i j -> j i"), rtol=rtol, atol=atol
     )
@@ -437,7 +451,11 @@ def test_primitive_matches_dense(case, prim):
     spy = case.spy if prim in case.structured else None
     with forbid_as_matrix(spy):
         raw = call(op, b)  # only the primitive itself runs under the spy
-    result, expected = post(raw), ref(M, b)
+    # a shaped operator (a 2-D diagonal) solves in its shape; M on the flattened
+    result, expected = post(raw), ref(M, jnp.ravel(b))
+    if prim == "solve":
+        assert result.shape == b.shape
+        result = jnp.ravel(result)
     assert jnp.allclose(result, expected, rtol=1e-7, atol=1e-9), jnp.max(
         jnp.abs(result - expected)
     )
