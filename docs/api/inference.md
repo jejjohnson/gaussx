@@ -27,7 +27,7 @@ on the manifold.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [newton_update, damped_natural_update, gauss_newton_precision, ggn_diagonal, hutchinson_hessian_diag, riemannian_psd_correction, cavity_distribution, trace_correction]
+      members: [newton_update, damped_natural_update, gauss_newton_operator, gauss_newton_precision, ggn_diagonal, hutchinson_hessian_diag, riemannian_psd_correction, cavity_distribution, trace_correction]
 
 ### Natural-parameter conventions
 

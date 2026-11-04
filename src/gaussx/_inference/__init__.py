@@ -40,6 +40,7 @@ from gaussx._inference._localization import (
 )
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
+    gauss_newton_operator,
     gauss_newton_precision,
     riemannian_psd_correction,
 )
@@ -66,6 +67,7 @@ __all__ = [
     "etkf_transform",
     "euclidean_distance",
     "gaspari_cohn",
+    "gauss_newton_operator",
     "gauss_newton_precision",
     "gaussian_expected_log_lik",
     "ggn_diagonal",

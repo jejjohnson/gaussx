@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Literal
+
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, PyTree
 
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._solve_frontend import as_linear_operator
 
 
 def damped_natural_update(
@@ -121,6 +125,124 @@ def riemannian_psd_correction(
     G = site_precision + hessian
     correction = G @ site_covariance @ G
     return hessian - 0.5 * lr * correction
+
+
+def gauss_newton_operator(
+    residual_fn: Callable[[PyTree], Float[Array, "*obs"]],
+    point: PyTree,
+    *,
+    noise_precision: lx.AbstractLinearOperator
+    | Callable[[Float[Array, "*obs"]], Float[Array, "*obs"]]
+    | None = None,
+    prior_precision: lx.AbstractLinearOperator
+    | Callable[[PyTree], PyTree]
+    | None = None,
+    jac: Literal["fwd", "bwd"] = "fwd",
+) -> lx.AbstractLinearOperator:
+    r"""Matrix-free Gauss-Newton precision of a residual function.
+
+        A = P + Jᵀ W J,   A v = P v + Jᵀ (W (J v))
+
+    J = ∂r/∂θ at θ\* is the Jacobian of the residual r, W the noise precision
+    and P the prior precision. A is the Gauss-Newton approximation of the
+    Hessian of ½ rᵀ W r + ½ θᵀ P θ (Nocedal & Wright 2006, *Numerical
+    Optimization*, ch. 10): it drops the second-order residual term, so it is
+    PSD whenever W and P are. This is the sibling of `gauss_newton_precision`
+    for a state too large for a dense Jacobian.
+
+    Algorithm:
+        1. Linearise r at θ\* with `lineax.linearise` of a
+           `lineax.JacobianLinearOperator`, so each matvec costs one J and one
+           Jᵀ product and one W apply, and no Jacobian is formed.
+           ``jac="bwd"`` is for an r that defines only a VJP (a ``custom_vjp``
+           ODE solver, say).
+        2. Wrap v ↦ P v + Jᵀ (W (J v)) as a PSD-tagged operator.
+
+    Args:
+        residual_fn: The residual θ ↦ r(θ).
+        point: The linearisation point θ\*, an array or a pytree of arrays.
+        noise_precision: W, as an operator on r's structure or a callable
+            r ↦ W r. Default ``None`` is the identity.
+        prior_precision: P, as an operator on θ's structure or a callable
+            θ ↦ P θ. Default ``None`` is zero, which leaves A singular when
+            J does not have full column rank.
+        jac: How to differentiate r, ``"fwd"`` or ``"bwd"``.
+
+    Returns:
+        The lazy PSD operator A, whose ``in_structure`` is that of ``point``.
+
+    Raises:
+        ValueError: If ``jac`` is neither ``"fwd"`` nor ``"bwd"``.
+
+    Examples:
+        For a linear residual r(θ) = H θ − y, A is exactly P + Hᵀ W H:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> H = jnp.array([[1.0, 2.0], [0.0, 1.0], [1.0, 0.0]])
+        >>> W = lx.DiagonalLinearOperator(jnp.array([2.0, 1.0, 1.0]))
+        >>> P = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> A = gaussx.gauss_newton_operator(
+        ...     lambda theta: H @ theta,
+        ...     jnp.zeros(2),
+        ...     noise_precision=W,
+        ...     prior_precision=P,
+        ... )
+        >>> [round(float(v), 4) for v in A.mv(jnp.array([1.0, 0.0]))]
+        [4.0, 4.0]
+        >>> solver = gaussx.CGSolver(rtol=1e-4, atol=1e-4)
+        >>> x = solver.solve(A, jnp.array([4.0, 4.0]))
+        >>> bool(jnp.allclose(x, jnp.array([1.0, 0.0]), atol=1e-3))
+        True
+    """
+    if jac not in ("fwd", "bwd"):
+        raise ValueError(f"jac must be 'fwd' or 'bwd', got {jac!r}.")
+    # J, cached at θ*: lineax runs the residual here and not at every matvec
+    jacobian = lx.linearise(
+        lx.JacobianLinearOperator(lambda theta, _: residual_fn(theta), point, jac=jac)
+    )
+    jacobian_adjoint = jacobian.T
+
+    def matvec(direction: PyTree) -> PyTree:
+        # J v
+        observed = jacobian.mv(direction)
+        # W J v
+        weighted = _apply_precision(noise_precision, observed)
+        # Jᵀ W J v
+        data_term = jacobian_adjoint.mv(weighted)
+        if prior_precision is None:
+            return data_term
+        # P v + Jᵀ W J v
+        prior_term = _apply_precision(prior_precision, direction)
+        return jax.tree.map(jnp.add, prior_term, data_term)
+
+    structure = jax.tree.map(
+        lambda leaf: jax.ShapeDtypeStruct(leaf.shape, leaf.dtype), point
+    )
+    return as_linear_operator(
+        matvec, in_structure=structure, positive_semidefinite=True
+    )
+
+
+def _apply_precision(
+    precision: lx.AbstractLinearOperator | Callable[[PyTree], PyTree] | None,
+    vector: PyTree,
+) -> PyTree:
+    """A precision applied to a vector; ``None`` is the identity.
+
+    Args:
+        precision: An operator, a callable matvec, or ``None``.
+        vector: The vector.
+
+    Returns:
+        The product.
+    """
+    if precision is None:
+        return vector
+    if isinstance(precision, lx.AbstractLinearOperator):
+        return precision.mv(vector)
+    return precision(vector)
 
 
 def gauss_newton_precision(
