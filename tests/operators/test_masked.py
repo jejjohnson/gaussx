@@ -322,6 +322,21 @@ class TestMaskedObsCovariance:
             gaussx.masked_obs_covariance(blocks, _OBS_MASK), gaussx.BlockDiag
         )
 
+    def test_block_diag_of_diagonals_stays_psd_for_cg(self):
+        dtype = jnp.result_type(float)
+        psd = lx.positive_semidefinite_tag
+        diagonal = jnp.array([1.0, 2.0, 3.0, 4.0], dtype)
+        blocks = gaussx.BlockDiag(
+            lx.TaggedLinearOperator(lx.DiagonalLinearOperator(diagonal), psd),
+            random_pd_operator(jr.key(2), 2),
+        )
+        masked = gaussx.masked_obs_covariance(blocks, _OBS_MASK)
+        assert lx.is_positive_semidefinite(masked)
+        residual = jnp.where(_OBS_MASK, jnp.ones(6, dtype), 0)
+        solved = gaussx.CGSolver(rtol=1e-5, atol=1e-5).solve(masked, residual)
+        expected = gaussx.solve(masked, residual)
+        assert jnp.allclose(solved, expected, rtol=1e-3, atol=1e-3)
+
     def test_lazy_path_never_materialises_r(self):
         R = random_kronecker_pd(jr.key(3), (2, 3))
         masked = gaussx.masked_obs_covariance(R, _OBS_MASK)

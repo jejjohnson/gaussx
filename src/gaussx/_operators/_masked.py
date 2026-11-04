@@ -603,7 +603,14 @@ def _masked_block_diag(operator: BlockDiag, observed: Bool[Array, " M"]) -> Bloc
         block_size = block.in_size()
         # m_d, the slice of m that R_d acts on; static offsets stay traceable
         block_mask = observed[offset : offset + block_size]
-        blocks.append(masked_obs_covariance(block, block_mask))
+        masked_block = masked_obs_covariance(block, block_mask)
+        # BlockDiag reads its PSD property from its blocks, and a masked
+        # diagonal comes back untagged
+        if not lx.is_positive_semidefinite(masked_block):
+            masked_block = lx.TaggedLinearOperator(
+                masked_block, lx.positive_semidefinite_tag
+            )
+        blocks.append(masked_block)
         offset += block_size
     return BlockDiag(*blocks, tags=lx.positive_semidefinite_tag)
 
