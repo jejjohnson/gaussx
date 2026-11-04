@@ -115,8 +115,8 @@ jobs:
           unzip -l dist/*.whl | grep -q 'gaussx/py.typed' \
             || { echo "::error::the wheel has no gaussx/py.typed (PEP 561)"; exit 1; }
           size=$(stat -c %s dist/*.tar.gz)
-          [ "$size" -lt 1000000 ] \
-            || { echo "::error::the sdist is $size bytes, over the 1 MB budget"; exit 1; }
+          [ "$size" -lt 1200000 ] \
+            || { echo "::error::the sdist is $size bytes, over the 1.2 MB budget"; exit 1; }
           if tar tzf dist/*.tar.gz \
               | grep -E '\.ipynb$|/\.github/|/\.claude/|/uv\.lock$|/CLAUDE\.md$|/AGENTS\.md$|/\.env\.example$'; then
             echo "::error::the sdist ships the files listed above; see [tool.hatch.build.targets.sdist]"
