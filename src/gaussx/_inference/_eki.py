@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
@@ -14,6 +13,7 @@ from gaussx._inference._enkf import (
     _check_analysis_shapes,
     _check_localization_shapes,
     _noise_factor,
+    _perturbations,
 )
 from gaussx._inference._ensemble_stats import _check_ensemble_size
 from gaussx._inference._etkf import etkf_transform
@@ -245,8 +245,8 @@ def eki_step(
         factor = _noise_factor(
             obs_noise, allow_dense=use_dense or localization is not None
         )
-        noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
-        perturbation = jax.vmap(factor.mv)(noise) / jnp.sqrt(dt)  # (J, M)
+        perturbation = _perturbations(factor, key, n_ens, particles.dtype)
+        perturbation = perturbation / jnp.sqrt(dt)  # (J, M)
         perturbed = observation[None, :] + perturbation  # (J, M)
     else:
         perturbed = perturbed_obs
