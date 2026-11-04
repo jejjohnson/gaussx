@@ -7,16 +7,19 @@ Cartesian product, N_ℐ = ∏_d N_d, in row-major order. The interpolation
 weight matrix W_interp ∈ ℝ^{N × N_ℐ} maps grid values to N target inputs
 X ∈ ℝ^{N × D_x}; cubic convolution gives each row 4^{D_x} nonzero weights,
 the products of four per-axis weights w_k(δ) of the fractional offset
-δ ∈ [0, 1) of the target from its grid cell.
+δ ∈ [0, 1) of the target from its grid cell. Multilinear interpolation gives
+2^{D_x} nonzero weights on axes that may be non-uniform.
 """
 
 from __future__ import annotations
 
 import einx
+import jax
 import jax.numpy as jnp
+import lineax as lx
 from jaxtyping import Array, Float, Int
 
-from gaussx._einx import rearrange
+from gaussx._einx import einsum, rearrange
 
 
 def create_grid(
@@ -186,14 +189,6 @@ def cubic_interpolation_weights(
             )
             raise ValueError(msg)
 
-    # s_d = ∏_{d′>d} N_d′, the row-major strides for manual flat indexing
-    strides = []
-    s = 1
-    for d in range(D - 1, -1, -1):
-        strides.append(s)
-        s *= grid_sizes[d]
-    strides = strides[::-1]
-
     # Per axis: the four neighbour indices and their weights
     dim_indices = []
     dim_weights = []
@@ -225,19 +220,189 @@ def cubic_interpolation_weights(
         # w_k(δ)
         dim_weights.append(_cubic_weights_1d(t))
 
+    return _combine_axes(dim_indices, dim_weights, _row_major_strides(grid_sizes))
+
+
+def linear_interpolation_weights(
+    x_target: Float[Array, "B D"],
+    grid: list[Float[Array, " n"]],
+    *,
+    clamp: bool = True,
+) -> tuple[Int[Array, "B K"], Float[Array, "B K"]]:
+    """Sparse rows of the multilinear interpolation matrix on a rectilinear grid.
+
+        i_d = clip(searchsorted(g_d, p_d) − 1, 0, N_d − 2)
+        t_d = (p_d − g_d,i_d) / (g_d,i_d+1 − g_d,i_d)
+        [W]_n,j = ∏_d t_d^{c_d} (1 − t_d)^{1 − c_d},   j = ∑_d (i_d + c_d) s_d
+
+    Each target p takes the K = 2^D corners c ∈ {0, 1}^D of its grid cell, in
+    the index and weight format of `cubic_interpolation_weights`. The axes may
+    be non-uniform. Weights sum to one per target, and grid nodes are
+    reproduced exactly. The result is piecewise linear in p, as in the KISS-GP
+    setting of Wilson & Nickisch (2015), arXiv:1503.01057.
+
+    Algorithm:
+        1. Compute the row-major strides s_d = ∏_{d′>d} N_d′ of the grid.
+        2. For each axis, bracket p_d by its left node i_d and offset t_d,
+           clipped to [0, 1] when ``clamp`` is set.
+        3. Combine the axes over the corners: flat indices add, weights
+           multiply.
+
+    Args:
+        x_target: Target points p, one per row.
+        grid: The D axes g_d, each strictly increasing with N_d ≥ 2 points.
+        clamp: When ``True``, a target outside the grid takes the edge value;
+            when ``False``, it extrapolates linearly from the edge cell.
+
+    Returns:
+        Tuple ``(indices, weights)``, both with 2^D entries per target:
+
+        - ``indices``: Flat row-major indices j into the ∏_d N_d grid points.
+        - ``weights``: The weights [W]_n,j.
+
+    Raises:
+        ValueError: If any grid axis has fewer than 2 points.
+
+    Examples:
+        A point a quarter of the way along a non-uniform cell:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> axis = jnp.array([0.0, 1.0, 3.0])
+        >>> indices, weights = gaussx.linear_interpolation_weights(
+        ...     jnp.array([[1.5]]), [axis]
+        ... )
+        >>> indices.tolist(), [round(float(v), 4) for v in weights[0]]
+        ([[1, 2]], [0.75, 0.25])
+
+        In 2-D each target has 2² = 4 corners:
+
+        >>> gaussx.linear_interpolation_weights(
+        ...     jnp.array([[0.5, 0.5]]), [axis, axis]
+        ... )[0].shape
+        (1, 4)
+    """
+    # N_d
+    grid_sizes = [axis.shape[0] for axis in grid]
+    for d, n in enumerate(grid_sizes):
+        if n < 2:
+            msg = (
+                f"Linear interpolation requires at least 2 grid points per "
+                f"dimension, but dimension {d} has {n}."
+            )
+            raise ValueError(msg)
+
+    dim_indices = []
+    dim_weights = []
+    for d, axis in enumerate(grid):
+        # p_d
+        points = x_target[:, d]
+        # i_d, the left node of the cell around p_d
+        left = jnp.clip(jnp.searchsorted(axis, points) - 1, 0, grid_sizes[d] - 2)
+        # t_d, the offset of p_d in its cell
+        offset = (points - axis[left]) / (axis[left + 1] - axis[left])
+        if clamp:
+            offset = jnp.clip(offset, 0.0, 1.0)
+        # i_d, i_d + 1, one row per target
+        dim_indices.append(jnp.column_stack([left, left + 1]))
+        # 1 − t_d, t_d, one row per target
+        dim_weights.append(jnp.column_stack([1.0 - offset, offset]))
+
+    return _combine_axes(dim_indices, dim_weights, _row_major_strides(grid_sizes))
+
+
+def interpolation_operator(
+    indices: Int[Array, "B K"],
+    weights: Float[Array, "B K"],
+    grid_size: int,
+) -> lx.AbstractLinearOperator:
+    """The interpolation matrix W as a matrix-free operator, B × G.
+
+        (W f)_n = ∑_k w_n,k f_{j_n,k}
+
+    Each matvec is a gather at O(B K), and ``W.T`` is the matching scatter-add
+    (`jax.linear_transpose` of the gather). Takes the output of
+    `linear_interpolation_weights` or `cubic_interpolation_weights`, and the
+    indices may be traced. `gaussx.InterpolatedOperator` is the W K Wᵀ form.
+
+    Args:
+        indices: Flat grid indices j, one row per target.
+        weights: The weights w, one row per target.
+        grid_size: The number G of grid points.
+
+    Returns:
+        W, acting on the flattened grid values.
+
+    Examples:
+        Sample a field on a 3-point axis at x = 1.5, then apply the transpose:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> axis = jnp.array([0.0, 1.0, 3.0])
+        >>> indices, weights = gaussx.linear_interpolation_weights(
+        ...     jnp.array([[1.5]]), [axis]
+        ... )
+        >>> W = gaussx.interpolation_operator(indices, weights, grid_size=3)
+        >>> [round(float(v), 4) for v in W.mv(jnp.array([0.0, 4.0, 8.0]))]
+        [5.0]
+        >>> [round(float(v), 4) for v in W.T.mv(jnp.array([1.0]))]
+        [0.0, 0.75, 0.25]
+    """
+
+    def gather(field: Float[Array, " G"]) -> Float[Array, " B"]:
+        # (W f)_n = ∑_k w_n,k f_{j_n,k}
+        return einsum(weights, field[indices], "b k, b k -> b")
+
+    return lx.FunctionLinearOperator(
+        gather, jax.ShapeDtypeStruct((grid_size,), weights.dtype)
+    )
+
+
+def _row_major_strides(grid_sizes: list[int]) -> list[int]:
+    """Row-major strides s_d = ∏_{d′>d} N_d′ of a grid, for flat indexing.
+
+    Args:
+        grid_sizes: The axis sizes N_d.
+
+    Returns:
+        The strides s_d, one per axis.
+    """
+    strides = []
+    stride = 1
+    for size in reversed(grid_sizes):
+        strides.append(stride)
+        stride *= size
+    return strides[::-1]
+
+
+def _combine_axes(
+    dim_indices: list[Int[Array, "B P"]],
+    dim_weights: list[Float[Array, "B P"]],
+    strides: list[int],
+) -> tuple[Int[Array, "B K"], Float[Array, "B K"]]:
+    """Combine per-axis neighbours: flat indices add and weights multiply.
+
+    Args:
+        dim_indices: Per axis, the P neighbour indices of each target.
+        dim_weights: Per axis, the P neighbour weights of each target.
+        strides: The row-major strides s_d.
+
+    Returns:
+        Tuple ``(indices, weights)``, with P^D entries per target.
+    """
     # j = (i_1 + k_1) s_1 for the first axis
     flat_indices = dim_indices[0] * strides[0]
     # ∏_d w_k_d, starting from the first axis
     weights = dim_weights[0]
-
     # Reached only for D_x ≥ 2, where N = 0 targets were never supported
     # (they raise an einx AxisSizeError); 1-D grids skip this loop.
-    for d in range(1, D):
+    for axis_indices, axis_weights, stride in zip(
+        dim_indices[1:], dim_weights[1:], strides[1:], strict=True
+    ):
         # (i_d + k_d) s_d
-        axis_offsets = dim_indices[d] * strides[d]
+        axis_offsets = axis_indices * stride
         # j + (i_d + k_d) s_d over every pair of neighbours
-        flat_indices = einx.add("B K, B four -> B (K four)", flat_indices, axis_offsets)
+        flat_indices = einx.add("B K, B P -> B (K P)", flat_indices, axis_offsets)
         # w w_k_d(δ_d) over every pair of neighbours
-        weights = einx.multiply("B K, B four -> B (K four)", weights, dim_weights[d])
-
+        weights = einx.multiply("B K, B P -> B (K P)", weights, axis_weights)
     return flat_indices, weights
