@@ -1,4 +1,4 @@
-"""Core types for uncertainty propagation."""
+"""Core types for uncertainty propagation: Gaussian belief and propagation result."""
 
 from __future__ import annotations
 
@@ -8,11 +8,21 @@ from jaxtyping import Array, Float
 
 
 class GaussianState(eqx.Module):
-    """Gaussian distribution as (mean, covariance operator) pair.
+    """Gaussian belief as a pair of mean and covariance operator.
+
+        x ~ 𝒩(μ_x, Σ_x),    x ∈ ℝ^D_x
 
     Attributes:
-        mean: Mean vector, shape ``(N,)``.
-        cov: Covariance operator, shape ``(N, N)``.
+        mean: Mean μ_x.
+        cov: Covariance Σ_x, as a lineax operator.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> covariance = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> state = GaussianState(mean=jnp.zeros(2), cov=covariance)
+        >>> state.mean.shape
+        (2,)
     """
 
     mean: Float[Array, " N"]
@@ -20,7 +30,9 @@ class GaussianState(eqx.Module):
 
 
 class PropagationResult(eqx.Module):
-    """Output of uncertainty propagation through a nonlinear function.
+    """Output moments of a Gaussian pushed through a nonlinear map g.
+
+        y = g(x),    x ~ 𝒩(μ_x, Σ_x),    y ≈ 𝒩(μ_y, Σ_y),    Σ_xy = Cov[x, y]
 
     Tag convention for ``state.cov``: `lineax.positive_semidefinite_tag`
     when the rule guarantees a PSD covariance at the input dimension
@@ -32,9 +44,18 @@ class PropagationResult(eqx.Module):
     on whether PSD is guaranteed, not on which rule produced the state.
 
     Attributes:
-        state: Output Gaussian distribution.
-        cross_cov: Input-output cross-covariance, shape ``(N_in, N_out)``.
-            Used for downstream Kalman updates. ``None`` if not computed.
+        state: Output Gaussian 𝒩(μ_y, Σ_y).
+        cross_cov: Input-output cross-covariance Σ_xy, used for downstream
+            Kalman updates. ``None`` if not computed.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> covariance = lx.DiagonalLinearOperator(jnp.ones(1))
+        >>> state = GaussianState(mean=jnp.zeros(1), cov=covariance)
+        >>> result = PropagationResult(state=state, cross_cov=None)
+        >>> result.cross_cov is None
+        True
     """
 
     state: GaussianState

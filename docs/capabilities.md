@@ -544,26 +544,26 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `GaussianState` | class | Gaussian distribution as (mean, covariance operator) pair. |
-| `PropagationResult` | class | Output of uncertainty propagation through a nonlinear function. |
+| `GaussianState` | class | Gaussian belief as a pair of mean and covariance operator. |
+| `PropagationResult` | class | Output moments of a Gaussian pushed through a nonlinear map g. |
 | `AbstractIntegrator` | class | Protocol for Gaussian integral approximation. |
-| `moment_transform` | function | Moment triple of ``(x, fn(x))`` for ``x`` Gaussian. |
-| `GaussHermiteIntegrator` | class | Gauss-Hermite quadrature integrator. |
-| `UnscentedIntegrator` | class | Unscented transform: deterministic sigma points. |
-| `CubatureIntegrator` | class | Third-order spherical-radial cubature. |
-| `FifthOrderCubatureIntegrator` | class | Fifth-order fully symmetric cubature (McNamee & Stenger). |
-| `TaylorIntegrator` | class | 1st or 2nd order Taylor expansion for uncertainty propagation. |
-| `MonteCarloIntegrator` | class | Monte Carlo moment matching: sample, propagate, compute moments. |
-| `AssumedDensityFilter` | class | KL-optimal Gaussian projection via moment matching. |
+| `moment_transform` | function | Moment triple of (x, g(x)) for a Gaussian x. |
+| `GaussHermiteIntegrator` | class | Gauss-Hermite integrator: a tensor-product rule on order^D_x points. |
+| `UnscentedIntegrator` | class | Unscented transform: 2 D_x + 1 deterministic sigma points. |
+| `CubatureIntegrator` | class | Third-order spherical-radial cubature on 2 D_x equally weighted points. |
+| `FifthOrderCubatureIntegrator` | class | Fifth-order fully symmetric cubature on 2 D_x² + 1 points. |
+| `TaylorIntegrator` | class | First- or second-order Taylor expansion of g about the mean. |
+| `MonteCarloIntegrator` | class | Monte Carlo moment matching: sample, propagate, take empirical moments. |
+| `AssumedDensityFilter` | class | KL-optimal Gaussian projection of g(x) via moment matching. |
 
 ### Quadrature rules
 
 | Name | Kind | What it does |
 |---|---|---|
-| `gauss_hermite_points` | function | Gauss-Hermite quadrature points and weights. |
-| `cubature_points` | function | Spherical-radial cubature points and weights. |
+| `gauss_hermite_points` | function | Tensor-product Gauss-Hermite points and weights for a standard Gaussian. |
+| `cubature_points` | function | Spherical-radial cubature points and weights, 2 D_x of them. |
 | `fifth_order_cubature_points` | function | Fifth-order fully symmetric cubature points and weights. |
-| `sigma_points` | function | Unscented transform sigma points and weights. |
+| `sigma_points` | function | Scaled unscented sigma points and weights, 2 D_x + 1 of them. |
 
 ### Likelihoods
 
@@ -596,7 +596,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `moment_match` | function | EP moment matching: tilted log-normaliser and its first two derivatives. |
-| `MomentMatchResult` | class | Tilted log-normaliser and its derivatives w.r.t. the cavity mean. |
+| `MomentMatchResult` | class | Tilted log-normaliser and its derivatives with respect to the cavity mean. |
 | `statistical_linear_regression` | function | Moment-match a nonlinear conditional to a linear-Gaussian surrogate. |
 | `SLRResult` | class | Linear-Gaussian surrogate produced by statistical linear regression. |
 

@@ -22,30 +22,60 @@ def _tilted_weights(
     w_m: Float[Array, " P"],
     power: float,
 ) -> tuple[Float[Array, " P"], Float[Array, ""]]:
-    """Shifted tilted weights ``w_i p(y | f_i)^a / exp(shift)``.
+    """Shifted tilted weights of a point-based rule.
 
-    Shared by `moment_match` and `gaussx.ep_tilted_moments`. The shift is
-    the largest ``a log p(y | f_i)``; it cancels in every normalised ratio
-    and is differentiated as a constant. Weights keep the rule's sign.
+        w̃ᵢ = wᵢ p(y ∣ fᵢ)ᵃ / exp(s),    s = maxᵢ a log p(y ∣ fᵢ)
+
+    Shared by `moment_match` and `gaussx.ep_tilted_moments`. The shift s
+    cancels in every normalised ratio and is differentiated as a constant.
+    Weights keep the rule's sign.
+
+    Args:
+        log_lik_fn: Maps a latent f to the scalar log-likelihood log p(y ∣ f).
+        chi: Points fᵢ of the rule.
+        w_m: Mean weights wᵢ of the rule.
+        power: Power-EP exponent a.
+
+    Returns:
+        Tuple ``(tilted_weights, shift)`` holding w̃ᵢ and s.
+
+    Raises:
+        ValueError: If ``log_lik_fn`` does not return a scalar per point.
     """
-    log_p = power * jax.vmap(log_lik_fn)(chi)  # (P,)
-    if log_p.ndim != 1:
+    log_likelihoods = jax.vmap(log_lik_fn)(chi)
+    # a log p(y ∣ fᵢ)
+    tempered = power * log_likelihoods
+    if tempered.ndim != 1:
         msg = (
             f"log_lik_fn must return a scalar per point, got trailing "
-            f"shape {log_p.shape[1:]}."
+            f"shape {tempered.shape[1:]}."
         )
         raise ValueError(msg)
-    shift = jax.lax.stop_gradient(jnp.max(log_p))
-    return w_m * jnp.exp(log_p - shift), shift
+    # s = maxᵢ a log p(y ∣ fᵢ)
+    shift = jax.lax.stop_gradient(jnp.max(tempered))
+    # p(y ∣ fᵢ)ᵃ / exp(s)
+    shifted_likelihoods = jnp.exp(tempered - shift)
+    # w̃ᵢ = wᵢ p(y ∣ fᵢ)ᵃ / exp(s)
+    return w_m * shifted_likelihoods, shift
 
 
 class MomentMatchResult(eqx.Module):
-    r"""Tilted log-normaliser and its derivatives w.r.t. the cavity mean.
+    """Tilted log-normaliser and its derivatives with respect to the cavity mean.
+
+        log Z,    g = ∂ log Z / ∂μ_cav,    H = ∂² log Z / ∂μ_cav²
 
     Attributes:
-        log_Z: Scalar tilted log-normaliser ``log Z``.
-        d_log_Z: Gradient ``∂ log Z / ∂m``, shape ``(D,)``.
-        d2_log_Z: Hessian ``∂² log Z / ∂m²``, shape ``(D, D)``.
+        log_Z: Tilted log-normaliser log Z.
+        d_log_Z: Gradient g.
+        d2_log_Z: Hessian H.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> result = MomentMatchResult(
+        ...     log_Z=jnp.zeros(()), d_log_Z=jnp.zeros(2), d2_log_Z=jnp.eye(2)
+        ... )
+        >>> result.d2_log_Z.shape
+        (2, 2)
     """
 
     log_Z: Float[Array, ""]
@@ -60,54 +90,34 @@ def moment_match(
     *,
     power: float = 1.0,
 ) -> MomentMatchResult:
-    r"""EP moment matching: tilted log-normaliser and its first two derivatives.
+    """EP moment matching: tilted log-normaliser and its first two derivatives.
 
-    Computes the log normaliser of the tilted distribution,
+        log Z = log ∫ p(y ∣ f)ᵃ 𝒩(f ∣ μ_cav, Σ_cav) df
+        g = ∂ log Z / ∂μ_cav = Σ_cav⁻¹ 𝔼_tilt[f − μ_cav]
+        H = ∂² log Z / ∂μ_cav² = Σ_cav⁻¹ (Σ_tilt − Σ_cav) Σ_cav⁻¹
 
-    $$
-    \log Z = \log \int p(y \mid f)^{a}\, \mathcal{N}(f \mid m, C)\, df,
-    $$
-
-    together with
-
-    $$
-    \partial_m \log Z = C^{-1} \mathbb{E}_{\mathrm{tilt}}[f - m],
-    \qquad
-    \partial^2_m \log Z
-        = C^{-1}\big(\mathrm{Cov}_{\mathrm{tilt}}[f] - C\big) C^{-1}.
-    $$
-
-    This is the EP quantity, *not* ``E_q[log p(y|f)]`` (which is what
+    This is the EP quantity, *not* 𝔼_q[log p(y ∣ f)] (which is what
     variational inference needs — see `gaussx.expected_log_likelihood`).
 
-    Writing ``g = d_log_Z`` and ``H = d2_log_Z``, the tilted moments follow
-    directly from the two derivatives:
+    The tilted moments follow directly from the two derivatives:
 
-    $$
-    m_{\mathrm{tilt}} = m + C g, \qquad
-    C_{\mathrm{tilt}} = C + C H C.
-    $$
+        μ_tilt = μ_cav + Σ_cav g,    Σ_tilt = Σ_cav + Σ_cav H Σ_cav
 
     The Gaussian site is the natural-parameter *difference* between the
     tilted distribution and the cavity, which reduces to
 
-    $$
-    \Lambda_{\mathrm{site}} = C_{\mathrm{tilt}}^{-1} - C^{-1}
-        = -(I + H C)^{-1} H,
-    \qquad
-    \lambda_{\mathrm{site}} = C_{\mathrm{tilt}}^{-1} m_{\mathrm{tilt}}
-        - C^{-1} m = (I + H C)^{-1} (g - H m),
-    $$
+        Λ_site = Σ_tilt⁻¹ − Σ_cav⁻¹ = −(I + H Σ_cav)⁻¹ H
+        Λμ_site = Σ_tilt⁻¹ μ_tilt − Σ_cav⁻¹ μ_cav
+                = (I + H Σ_cav)⁻¹ (g − H μ_cav)
 
     in the same ``nat2 = +Λ`` convention `gaussx.cavity_distribution` uses.
-    That site approximates ``p(y | f) ** power``, so divide both naturals by
-    ``power`` to recover the site for ``p(y | f)`` itself.
+    That site approximates p(y ∣ f)ᵃ, so divide both naturals by a to recover
+    the site for p(y ∣ f) itself.
 
-    Do **not** feed ``(g, -H)`` in as the site: it drops the ``-H m`` term
-    and the ``(I + H C)^{-1}`` factor. Nor is `gaussx.newton_update` the
-    right conversion here — it yields ``(g - H m, -H)``, which is the
-    local-Newton site, i.e. only the first-order approximation to the EP
-    site above.
+    Do **not** feed (g, −H) in as the site: it drops the −H μ_cav term and
+    the (I + H Σ_cav)⁻¹ factor. Nor is `gaussx.newton_update` the right
+    conversion here — it yields (g − H μ_cav, −H), which is the local-Newton
+    site, i.e. only the first-order approximation to the EP site above.
 
     All three outputs come from a **single** pass over the quadrature
     points: applying Stein's lemma to the derivatives of the Gaussian
@@ -119,19 +129,25 @@ def moment_match(
     likelihoods that underflow in the raw scale are handled. Note that
     quadrature weights may be negative (the scaled unscented transform and
     the degree-5 cubature rule both have negative weights in places), so
-    ``Z`` is not guaranteed positive for a badly matched rule; prefer a
-    rule whose points cover the likelihood's mass.
+    Z is not guaranteed positive for a badly matched rule; prefer a rule
+    whose points cover the likelihood's mass.
+
+    Algorithm:
+        1. Tilt and shift the rule's weights: w̃ᵢ.
+        2. Normalise: log Z = s + log ∑ᵢ w̃ᵢ.
+        3. Precision-weight the points: uᵢ = Σ_cav⁻¹ (fᵢ − μ_cav).
+        4. Reweight for g and H.
 
     Args:
-        log_lik_fn: Maps a latent ``f`` of shape ``(D,)`` to the scalar
-            log-likelihood ``log p(y | f)``.
-        state: Cavity distribution ``N(m, C)``. Its covariance must be
+        log_lik_fn: Maps a latent f to the scalar log-likelihood
+            log p(y ∣ f).
+        state: Cavity distribution 𝒩(μ_cav, Σ_cav). Its covariance must be
             symmetric.
         integrator: Point-based rule supplying the points and weights,
             e.g. `gaussx.FifthOrderCubatureIntegrator`.
-        power: Power-EP exponent ``a``. ``1.0`` is standard EP; ``a < 1``
-            corresponds to fractional EP / alpha-divergence minimisation.
-            Documented for ``a`` in ``(0, 1]``.
+        power: Power-EP exponent a. ``1.0`` is standard EP; a < 1 corresponds
+            to fractional EP / alpha-divergence minimisation. Documented for
+            a in (0, 1].
 
     Returns:
         `MomentMatchResult` with ``log_Z``, ``d_log_Z``, ``d2_log_Z``.
@@ -139,31 +155,62 @@ def moment_match(
     Raises:
         NotImplementedError: If ``integrator`` is not point-based.
         ValueError: If ``log_lik_fn`` does not return a scalar per point.
+
+    Examples:
+        A flat likelihood has Z = 1 and no curvature:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> covariance = lx.MatrixLinearOperator(
+        ...     jnp.eye(2), lx.positive_semidefinite_tag
+        ... )
+        >>> state = gaussx.GaussianState(jnp.zeros(2), covariance)
+        >>> result = moment_match(
+        ...     lambda f: 0.0 * jnp.sum(f), state, gaussx.CubatureIntegrator()
+        ... )
+        >>> bool(jnp.allclose(result.log_Z, 0.0, atol=1e-5))
+        True
+        >>> result.d2_log_Z.shape
+        (2, 2)
     """
-    chi, w_m, _ = integrator.points_and_weights(state)
-    p_tilde, shift = _tilted_weights(log_lik_fn, chi, w_m, power)  # (P,), signed
-    Z_tilde = jnp.sum(p_tilde)
+    points, mean_weights, _ = integrator.points_and_weights(state)
+    # w̃ᵢ = wᵢ p(y ∣ fᵢ)ᵃ / exp(s), signed
+    tilted_weights, shift = _tilted_weights(log_lik_fn, points, mean_weights, power)
+    # ∑ᵢ w̃ᵢ
+    shifted_normaliser = jnp.sum(tilted_weights)
 
-    log_Z = shift + jnp.log(Z_tilde)
+    # log Z = s + log ∑ᵢ w̃ᵢ
+    log_normaliser = shift + jnp.log(shifted_normaliser)
 
-    # u_i = C^{-1} (f_i − m); C is symmetric so a row-wise solve suffices.
-    dx = chi - state.mean[None, :]  # (P, D)
-    U = solve_rows(state.cov, dx)  # (P, D)
+    # jnp, not einx, for the broadcasts and reductions below: einx cannot
+    # resolve an empty latent (D = 0), which returns empty derivatives here today.
+    # fᵢ − μ_cav
+    anomalies = points - state.mean[None, :]
+    # uᵢ = Σ_cav⁻¹ (fᵢ − μ_cav), row by row since Σ_cav is symmetric
+    precision_weighted = solve_rows(state.cov, anomalies)
 
-    # ∂_m log Z = Z^{-1} Σ w_i u_i p_i
-    d_log_Z = jnp.sum(p_tilde[:, None] * U, axis=0) / Z_tilde
+    # g = ∑ᵢ w̃ᵢ uᵢ / ∑ᵢ w̃ᵢ
+    gradient = (
+        jnp.sum(tilted_weights[:, None] * precision_weighted, axis=0)
+        / shifted_normaliser
+    )
 
-    # Z^{-1} ∂²_m Z = Z^{-1} Σ w_i (u_i u_iᵀ − C^{-1}) p_i
-    second = (
+    # ∑ᵢ w̃ᵢ uᵢ uᵢᵀ / ∑ᵢ w̃ᵢ
+    second_moment = (
         jnp.sum(
-            p_tilde[:, None, None] * (U[:, :, None] * U[:, None, :]),
+            tilted_weights[:, None, None]
+            * (precision_weighted[:, :, None] * precision_weighted[:, None, :]),
             axis=0,
         )
-        / Z_tilde
+        / shifted_normaliser
     )
-    cov_inv = inv(state.cov).as_matrix()
+    # Σ_cav⁻¹
+    cavity_precision = inv(state.cov).as_matrix()
 
-    # ∂²_m log Z = Z^{-1} ∂²_m Z − (∂_m log Z)(∂_m log Z)ᵀ
-    d2_log_Z = symmetrize(second - cov_inv - jnp.outer(d_log_Z, d_log_Z))
+    # H = ∑ᵢ w̃ᵢ uᵢ uᵢᵀ / ∑ᵢ w̃ᵢ − Σ_cav⁻¹ − g gᵀ
+    hessian = symmetrize(
+        second_moment - cavity_precision - jnp.outer(gradient, gradient)
+    )
 
-    return MomentMatchResult(log_Z=log_Z, d_log_Z=d_log_Z, d2_log_Z=d2_log_Z)
+    return MomentMatchResult(log_Z=log_normaliser, d_log_Z=gradient, d2_log_Z=hessian)
