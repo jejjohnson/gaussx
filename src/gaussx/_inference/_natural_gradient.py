@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Literal
 
 import jax
+import jax.flatten_util
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, PyTree
@@ -205,12 +206,14 @@ def gauss_newton_operator(
     `gauss_newton_precision` for a state too large for a dense Jacobian.
 
     Algorithm:
-        1. Linearise r at θ\* with `lineax.linearise` of a
+        1. With ``jac="fwd"``, linearise r at θ\* with `lineax.linearise` of a
            `lineax.JacobianLinearOperator`, so each matvec costs one J_r and one
            J_rᵀ product and one Λ_ε apply, and no Jacobian is formed.
-           ``jac="bwd"`` is for an r that defines only a VJP (a ``custom_vjp``
-           ODE solver, say).
-        2. Wrap v ↦ Λ_θ v + J_rᵀ (Λ_ε (J_r v)) as a PSD-tagged operator.
+        2. With ``jac="bwd"``, for an r that defines only a VJP (a ``custom_vjp``
+           ODE solver, say), form J_r once by `jax.jacrev`, at one reverse pass
+           per residual entry. J_r v cannot come from transposing the VJP, as
+           that fails on a reverse pass that runs a ``while_loop``.
+        3. Wrap v ↦ Λ_θ v + J_rᵀ (Λ_ε (J_r v)) as a PSD-tagged operator.
 
     Args:
         residual_fn: The residual θ ↦ r(θ).
@@ -252,20 +255,19 @@ def gauss_newton_operator(
     """
     if jac not in ("fwd", "bwd"):
         raise ValueError(f"jac must be 'fwd' or 'bwd', got {jac!r}.")
-    # J_r, cached at θ*: lineax runs the residual here and not at every matvec
-    jacobian = lx.linearise(
-        lx.JacobianLinearOperator(lambda theta, _: residual_fn(theta), point, jac=jac)
+    tangent, adjoint = (
+        _matrix_free_jacobian(residual_fn, point)
+        if jac == "fwd"
+        else _dense_jacobian(residual_fn, point)
     )
-    # J_rᵀ
-    jacobian_adjoint = jacobian.T
 
     def matvec(direction: PyTree) -> PyTree:
         # J_r v
-        observed = jacobian.mv(direction)
+        observed = tangent(direction)
         # Λ_ε J_r v
         weighted = _apply_precision(noise_precision, observed)
         # J_rᵀ Λ_ε J_r v
-        data_term = jacobian_adjoint.mv(weighted)
+        data_term = adjoint(weighted)
         if prior_precision is None:
             return data_term
         # Λ_θ v
@@ -279,6 +281,60 @@ def gauss_newton_operator(
     return as_linear_operator(
         matvec, in_structure=structure, positive_semidefinite=True
     )
+
+
+def _matrix_free_jacobian(
+    residual_fn: Callable[[PyTree], Float[Array, "*obs"]],
+    point: PyTree,
+) -> tuple[Callable[[PyTree], Array], Callable[[Array], PyTree]]:
+    """The tangent v ↦ J_r v and adjoint w ↦ J_rᵀ w, by forward-mode linearisation.
+
+    Args:
+        residual_fn: The residual θ ↦ r(θ).
+        point: The linearisation point θ\\*.
+
+    Returns:
+        The pair ``(tangent, adjoint)``, which lineax caches at θ\\*.
+    """
+    jacobian = lx.linearise(
+        lx.JacobianLinearOperator(lambda theta, _: residual_fn(theta), point, jac="fwd")
+    )
+    return jacobian.mv, jacobian.T.mv
+
+
+def _dense_jacobian(
+    residual_fn: Callable[[PyTree], Float[Array, "*obs"]],
+    point: PyTree,
+) -> tuple[Callable[[PyTree], Array], Callable[[Array], PyTree]]:
+    """The tangent v ↦ J_r v and adjoint w ↦ J_rᵀ w, from a J_r by `jax.jacrev`.
+
+    Args:
+        residual_fn: The residual θ ↦ r(θ).
+        point: The linearisation point θ\\*.
+
+    Returns:
+        The pair ``(tangent, adjoint)``.
+    """
+    flat_point, unravel_point = jax.flatten_util.ravel_pytree(point)
+    _, unravel_residual = jax.flatten_util.ravel_pytree(residual_fn(point))
+
+    def flat_residual(flat: Float[Array, " D"]) -> Float[Array, " M"]:
+        # vec r(θ)
+        return jnp.ravel(residual_fn(unravel_point(flat)))
+
+    # J_r = ∂ vec r / ∂ vec θ, one reverse pass per residual entry
+    jacobian = jax.jacrev(flat_residual)(flat_point)
+
+    def tangent(direction: PyTree) -> Array:
+        flat_direction, _ = jax.flatten_util.ravel_pytree(direction)
+        # J_r v
+        return unravel_residual(jacobian @ flat_direction)
+
+    def adjoint(weighted: Array) -> PyTree:
+        # J_rᵀ w, jnp and not einx: an empty residual leaves an empty axis
+        return unravel_point(jnp.ravel(weighted) @ jacobian)
+
+    return tangent, adjoint
 
 
 def _apply_precision(
