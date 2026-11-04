@@ -1,4 +1,10 @@
-"""KL divergence between Gaussian distributions."""
+"""KL divergence of a Cholesky-parameterised q(f_ℐ) from the GP prior p(f_ℐ).
+
+Each of the R outputs, indexed by r, has the variational distribution
+q(f_ℐ,r) = 𝒩(μ_ℐ,r, L_ℐ,r L_ℐ,rᵀ) over the N_ℐ inducing values, and the
+prior is p(f_ℐ) = 𝒩(0, K_ℐℐ) with K_ℐℐ = L_ℐℐ L_ℐℐᵀ, or 𝒩(0, I) for the
+whitened values z_ℐ = L_ℐℐ⁻¹ f_ℐ.
+"""
 
 from __future__ import annotations
 
@@ -26,117 +32,236 @@ def gauss_kl(
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
-    r"""KL(first ‖ second): ``KL[q(u) || p(u)]`` with ``p(u) = N(0, K)``.
+    """KL(first ‖ second): KL[q(f_ℐ) ‖ p(f_ℐ)] with p(f_ℐ) = 𝒩(0, K_ℐℐ).
 
-    Cholesky-parameterised variant of
-    `gaussian_kl` designed for
-    GP/SVGP models.  The Cholesky representation avoids explicit covariance
-    matrix construction and supports both full and diagonal ``q_sqrt``.
-    For lineax-operator covariances, use
-    `gaussian_kl` instead.
+        KL[q ‖ p] = ½ ∑_r (tr(K_ℐℐ⁻¹ L_ℐ,r L_ℐ,rᵀ) + μ_ℐ,rᵀ K_ℐℐ⁻¹ μ_ℐ,r
+                           − N_ℐ + log det K_ℐℐ − log det(L_ℐ,r L_ℐ,rᵀ))
 
-    Computes the KL divergence where:
+    with q(f_ℐ,r) = 𝒩(μ_ℐ,r, L_ℐ,r L_ℐ,rᵀ) for each output r. Without
+    ``K`` the prior is the whitened 𝒩(0, I), and every K_ℐℐ above is I.
 
-    - ``q = N(q_mu, q_sqrt @ q_sqrt^T)``
-    - ``p = N(0, K)`` or ``p = N(0, I)`` if ``K is None`` (white prior)
+    This is the Cholesky-parameterised variant of `gaussian_kl` for GP and
+    SVGP models: it never builds a covariance, and takes the roots L_ℐ,r
+    either full or diagonal.
 
-    Handles both full and diagonal ``q_sqrt``:
+    - **Full** ``q_sqrt``: one lower-triangular root L_ℐ,r per output,
+      stacked over outputs first.
+    - **Diagonal** ``q_sqrt``: the diagonals of L_ℐ,r, the standard
+      deviations of q(f_ℐ,r), one column per output.
 
-    - **Full** ``q_sqrt``: shape ``(R, M, M)`` — lower-triangular Cholesky
-      factors of the variational covariance per output dimension.
-    - **Diagonal** ``q_sqrt``: shape ``(M, R)`` — diagonal standard
-      deviations.
+    For lineax-operator covariances, use `gaussian_kl` instead.
+
+    Algorithm:
+        1. Factorise K_ℐℐ = L_ℐℐ L_ℐℐᵀ with `gaussx.cholesky` (structured
+           where possible), unless the prior is whitened.
+        2. Diagonal roots: take the quadratic term ‖L_ℐℐ⁻¹ μ_ℐ,r‖², the trace
+           ∑_i [L_ℐ,r]_ii² [K_ℐℐ⁻¹]_ii from diag(K_ℐℐ⁻¹), and the
+           log-determinants from the factors, summed over outputs.
+        3. Full roots: per output, take the quadratic term ‖L_ℐℐ⁻¹ μ_ℐ,r‖²,
+           the trace ‖L_ℐℐ⁻¹ L_ℐ,r‖_F² and the log-determinants, then sum
+           over outputs.
 
     Args:
-        q_mu: Variational mean, shape ``(M, R)``.
-        q_sqrt: Variational Cholesky factor or diagonal std devs.
-        K: Prior covariance, ``(M, M)`` array or PSD operator (a
+        q_mu: Variational means μ_ℐ,r, one column per output.
+        q_sqrt: Variational roots L_ℐ,r, full (stacked over outputs first)
+            or diagonal (one column per output).
+        K: Prior covariance K_ℐℐ, as a dense array or a PSD operator (a
             `Kronecker` / `BlockDiag` operator is factorised per factor).
-            If ``None``, uses white prior (identity).
+            ``None`` uses the whitened prior 𝒩(0, I).
         solver: Deprecated and ignored (the Cholesky factorisation takes
             no solver); passing one warns. Removed in gaussx
             0.7.0.
 
     Returns:
-        Scalar KL divergence summed over all ``R`` output dimensions.
+        The scalar KL[q(f_ℐ) ‖ p(f_ℐ)], summed over the R outputs.
+
+    Examples:
+        q equal to the whitened prior has zero divergence:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> q_mu = jnp.zeros((3, 2))
+        >>> q_sqrt = jnp.broadcast_to(jnp.eye(3), (2, 3, 3))
+        >>> kl = gaussx.gauss_kl(q_mu, q_sqrt)
+        >>> kl.shape, bool(jnp.allclose(kl, 0.0))
+        ((), True)
+
+        Diagonal roots agree with the matching full roots:
+
+        >>> K = jnp.array([[2.0, 0.5, 0.0], [0.5, 1.0, 0.2], [0.0, 0.2, 1.5]])
+        >>> q_mu = jnp.array([[0.5, -1.0], [0.0, 0.3], [1.0, 0.2]])
+        >>> q_diag = jnp.array([[0.5, 0.8], [1.0, 0.4], [0.3, 0.6]])
+        >>> q_full = jnp.stack([jnp.diag(q_diag[:, 0]), jnp.diag(q_diag[:, 1])])
+        >>> diagonal = gaussx.gauss_kl(q_mu, q_diag, K)
+        >>> full = gaussx.gauss_kl(q_mu, q_full, K)
+        >>> bool(jnp.allclose(diagonal, full, atol=1e-5))
+        True
+
+        One output matches `gaussx.gaussian_kl` on dense covariances:
+
+        >>> import lineax as lx
+        >>> q_cov = lx.MatrixLinearOperator(
+        ...     jnp.diag(q_diag[:, 0] ** 2), lx.positive_semidefinite_tag
+        ... )
+        >>> p_cov = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+        >>> reference = gaussx.gaussian_kl(q_mu[:, 0], q_cov, jnp.zeros(3), p_cov)
+        >>> single = gaussx.gauss_kl(q_mu[:, :1], q_diag[:, :1], K)
+        >>> bool(jnp.allclose(single, reference, atol=1e-5))
+        True
 
     See Also:
-        `gaussian_kl`: General KL
-        between two multivariate normals with lineax covariance operators.
+        `gaussian_kl`: KL between two multivariate normals with lineax
+        covariance operators.
     """
     if solver is not None:
         warn_deprecated(
             "gauss_kl(solver=...) is ignored and deprecated; it will be "
             "removed in gaussx 0.7.0."
         )
-    M = q_mu.shape[0]
-    R = q_mu.shape[1]
+    inducing_size = q_mu.shape[0]
+    num_outputs = q_mu.shape[1]
 
     is_diagonal = q_sqrt.ndim == 2
 
-    # Prior Cholesky factor (structured where gaussx.cholesky preserves it)
-    L_K = cholesky(_as_psd_operator(K)) if K is not None else None
+    # K_ℐℐ = L_ℐℐ L_ℐℐᵀ, structured where gaussx.cholesky preserves it
+    prior_factor = cholesky(_as_psd_operator(K)) if K is not None else None
 
     if is_diagonal:
-        # q_sqrt shape: (M, R) — diagonal standard deviations
-        q_var = q_sqrt**2  # (M, R)
+        # [L_ℐ,r]_ii², the variances of q(f_ℐ,r)
+        q_variance = q_sqrt**2
 
-        if L_K is not None:
-            # alpha = L_K^{-1} q_mu  ->  Mahalanobis term
-            alpha = solve_columns(L_K, q_mu)  # (M, R)
-            mahal = jnp.sum(alpha**2)
+        if prior_factor is not None:
+            # L_ℐℐ⁻¹ μ_ℐ,r
+            whitened_mean = solve_columns(prior_factor, q_mu)
+            # (L_ℐℐ⁻¹ μ_ℐ,r)²
+            whitened_mean_squared = whitened_mean**2
+            # ∑_r μ_ℐ,rᵀ K_ℐℐ⁻¹ μ_ℐ,r = ∑_r ‖L_ℐℐ⁻¹ μ_ℐ,r‖²
+            mahalanobis = jnp.sum(whitened_mean_squared)
 
-            # tr(K^{-1} diag(q_var_r)) = sum_i q_var[i,r] * (K^{-1})_{ii}
-            # diag(K^{-1}) = diag(L_K^{-T} L_K^{-1}) via cho_solve on
-            # each standard basis vector — but that's O(M^2) total.
-            # More efficient: solve L_K x_i = e_i for each i, then
-            # diag(K^{-1})_i = ||x_i||^2.  Use a single batched solve:
-            Kinv_diag = reduce(
-                solve_columns(L_K, jnp.eye(M, dtype=q_mu.dtype)) ** 2,
-                "i j -> j",
-                "sum",
-            )  # (M,)
-            trace_term = jnp.sum(einx.multiply("m r, m -> m r", q_var, Kinv_diag))
+            # [K_ℐℐ⁻¹]_jj = ‖L_ℐℐ⁻¹ e_j‖², from one batched triangular solve
+            # against I, with no inverse formed
+            identity = jnp.eye(inducing_size, dtype=q_mu.dtype)
+            # L_ℐℐ⁻¹
+            inverse_factor = solve_columns(prior_factor, identity)
+            # [L_ℐℐ⁻¹]²
+            inverse_factor_squared = inverse_factor**2
+            # [K_ℐℐ⁻¹]_jj = ∑_i [L_ℐℐ⁻¹]_ij²
+            inverse_diagonal = reduce(inverse_factor_squared, "row col -> col", "sum")
+            # [L_ℐ,r]_ii² [K_ℐℐ⁻¹]_ii
+            weighted_variance = einx.multiply(
+                "inducing output, inducing -> inducing output",
+                q_variance,
+                inverse_diagonal,
+            )
+            # ∑_r tr(K_ℐℐ⁻¹ L_ℐ,r L_ℐ,rᵀ)
+            trace_term = jnp.sum(weighted_variance)
 
-            # log|K| − log|S|
-            logdet_K = _factor_logdet(L_K)
-            logdet_S = jnp.sum(jnp.log(q_var))
-            logdet_diff = R * logdet_K - logdet_S
+            # log det K_ℐℐ
+            prior_logdet = _factor_logdet(prior_factor)
+            # log [L_ℐ,r]_ii²
+            log_q_variance = jnp.log(q_variance)
+            # ∑_r log det(L_ℐ,r L_ℐ,rᵀ)
+            q_logdet = jnp.sum(log_q_variance)
+            # R log det K_ℐℐ
+            total_prior_logdet = num_outputs * prior_logdet
+            # ∑_r (log det K_ℐℐ − log det(L_ℐ,r L_ℐ,rᵀ))
+            logdet_difference = total_prior_logdet - q_logdet
         else:
-            # White prior: K = I
-            mahal = jnp.sum(q_mu**2)
-            trace_term = jnp.sum(q_var)
-            logdet_diff = -jnp.sum(jnp.log(q_var))
+            # whitened prior, K_ℐℐ = I
+            # μ_ℐ,r²
+            q_mu_squared = q_mu**2
+            # ∑_r ‖μ_ℐ,r‖²
+            mahalanobis = jnp.sum(q_mu_squared)
+            # ∑_r tr(L_ℐ,r L_ℐ,rᵀ)
+            trace_term = jnp.sum(q_variance)
+            # log [L_ℐ,r]_ii²
+            log_q_variance = jnp.log(q_variance)
+            # ∑_r log det(L_ℐ,r L_ℐ,rᵀ)
+            q_logdet = jnp.sum(log_q_variance)
+            # −∑_r log det(L_ℐ,r L_ℐ,rᵀ)
+            logdet_difference = -q_logdet
 
-        return 0.5 * (logdet_diff - M * R + trace_term + mahal)
+        # ∑_r (log det K_ℐℐ − log det(L_ℐ,r L_ℐ,rᵀ)) − R N_ℐ
+        kl_terms = logdet_difference - inducing_size * num_outputs
+        # … + ∑_r tr(K_ℐℐ⁻¹ L_ℐ,r L_ℐ,rᵀ)
+        kl_terms = kl_terms + trace_term
+        # … + ∑_r μ_ℐ,rᵀ K_ℐℐ⁻¹ μ_ℐ,r
+        kl_terms = kl_terms + mahalanobis
+        # KL[q ‖ p] = ½ (…)
+        return 0.5 * kl_terms
 
-    # q_sqrt shape: (R, M, M) — full lower-triangular Cholesky factors
-    # Hoist prior-only quantities outside the per-output computation.
-    logdet_K = _factor_logdet(L_K) if L_K is not None else 0.0
+    # Full roots, stacked over outputs. The prior log-determinant is the
+    # same for every output, so it is taken once, outside the vmap.
+    # log det K_ℐℐ
+    prior_logdet = _factor_logdet(prior_factor) if prior_factor is not None else 0.0
 
-    def _kl_single(
-        q_mu_r: Float[Array, " M"], L_q_r: Float[Array, "M M"]
+    def _kl_one_output(
+        q_mu_r: Float[Array, " M"], q_sqrt_r: Float[Array, "M M"]
     ) -> Float[Array, ""]:
-        logdet_q = cholesky_logdet(L_q_r)
+        # log det(L_ℐ,r L_ℐ,rᵀ)
+        q_logdet = cholesky_logdet(q_sqrt_r)
 
-        if L_K is not None:
-            alpha = solve(L_K, q_mu_r)
-            mahal_r = jnp.sum(alpha**2)
-            L_K_inv_L_q = solve_columns(L_K, L_q_r)
-            trace_r = jnp.sum(L_K_inv_L_q**2)
-            logdet_diff_r = logdet_K - logdet_q
+        if prior_factor is not None:
+            # L_ℐℐ⁻¹ μ_ℐ,r
+            whitened_mean = solve(prior_factor, q_mu_r)
+            # (L_ℐℐ⁻¹ μ_ℐ,r)²
+            whitened_mean_squared = whitened_mean**2
+            # μ_ℐ,rᵀ K_ℐℐ⁻¹ μ_ℐ,r = ‖L_ℐℐ⁻¹ μ_ℐ,r‖²
+            mahalanobis = jnp.sum(whitened_mean_squared)
+            # L_ℐℐ⁻¹ L_ℐ,r
+            whitened_root = solve_columns(prior_factor, q_sqrt_r)
+            # (L_ℐℐ⁻¹ L_ℐ,r)²
+            whitened_root_squared = whitened_root**2
+            # tr(K_ℐℐ⁻¹ L_ℐ,r L_ℐ,rᵀ) = ‖L_ℐℐ⁻¹ L_ℐ,r‖_F²
+            trace_term = jnp.sum(whitened_root_squared)
+            # log det K_ℐℐ − log det(L_ℐ,r L_ℐ,rᵀ)
+            logdet_difference = prior_logdet - q_logdet
         else:
-            mahal_r = jnp.sum(q_mu_r**2)
-            trace_r = jnp.sum(L_q_r**2)
-            logdet_diff_r = -logdet_q
+            # whitened prior, K_ℐℐ = I
+            # μ_ℐ,r²
+            q_mu_squared = q_mu_r**2
+            # ‖μ_ℐ,r‖²
+            mahalanobis = jnp.sum(q_mu_squared)
+            # L_ℐ,r²
+            q_sqrt_squared = q_sqrt_r**2
+            # tr(L_ℐ,r L_ℐ,rᵀ) = ‖L_ℐ,r‖_F²
+            trace_term = jnp.sum(q_sqrt_squared)
+            # −log det(L_ℐ,r L_ℐ,rᵀ)
+            logdet_difference = -q_logdet
 
-        return 0.5 * (logdet_diff_r - M + trace_r + mahal_r)
+        # log det K_ℐℐ − log det(L_ℐ,r L_ℐ,rᵀ) − N_ℐ
+        kl_terms = logdet_difference - inducing_size
+        # … + tr(K_ℐℐ⁻¹ L_ℐ,r L_ℐ,rᵀ)
+        kl_terms = kl_terms + trace_term
+        # … + μ_ℐ,rᵀ K_ℐℐ⁻¹ μ_ℐ,r
+        kl_terms = kl_terms + mahalanobis
+        # KL[q(f_ℐ,r) ‖ p(f_ℐ)] = ½ (…)
+        return 0.5 * kl_terms
 
-    # vmap over R output dimensions: q_mu.T -> (R, M), q_sqrt -> (R, M, M)
-    kl_per_output = jax.vmap(_kl_single)(rearrange(q_mu, "m r -> r m"), q_sqrt)
+    # μ_ℐ,r stacked over outputs first, to match L_ℐ,r
+    q_mu_by_output = rearrange(q_mu, "inducing output -> output inducing")
+    # KL[q(f_ℐ,r) ‖ p(f_ℐ)], one per output
+    kl_per_output = jax.vmap(_kl_one_output)(q_mu_by_output, q_sqrt)
+    # KL[q ‖ p] = ∑_r KL[q(f_ℐ,r) ‖ p(f_ℐ)]
     return jnp.sum(kl_per_output)
 
 
-def _factor_logdet(L: lx.AbstractLinearOperator) -> Float[Array, ""]:
-    """``log|L Lᵀ| = 2 Σ log diag(L)`` for a (structured) Cholesky factor."""
-    return 2.0 * jnp.sum(jnp.log(diag(L)))
+def _factor_logdet(factor: lx.AbstractLinearOperator) -> Float[Array, ""]:
+    """Log-determinant from a Cholesky factor, structured or dense.
+
+        log det(L Lᵀ) = 2 ∑_i log [L]_ii
+
+    Args:
+        factor: Lower Cholesky factor L, as an operator.
+
+    Returns:
+        The scalar log det(L Lᵀ).
+    """
+    # diag(L)
+    factor_diagonal = diag(factor)
+    # log [L]_ii
+    log_diagonal = jnp.log(factor_diagonal)
+    # ∑_i log [L]_ii
+    half_logdet = jnp.sum(log_diagonal)
+    # log det(L Lᵀ) = 2 ∑_i log [L]_ii
+    return 2.0 * half_logdet
