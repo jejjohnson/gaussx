@@ -6,6 +6,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
+from jax.typing import DTypeLike
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from gaussx._inference._ensemble_stats import (
@@ -110,7 +111,7 @@ def _perturbations(
     factor: lx.AbstractLinearOperator,
     key: Array,
     num_members: int,
-    dtype: object,
+    dtype: DTypeLike,
 ) -> Float[Array, "J M"]:
     """Perturbations eps_j = L n_j, n_j ~ N(0, I), flattened per member.
 
