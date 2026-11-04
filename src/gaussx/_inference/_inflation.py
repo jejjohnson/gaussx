@@ -10,20 +10,49 @@ def inflate_multiplicative(
     ensemble: Float[Array, "J N"],
     factor: float | Float[Array, ""],
 ) -> Float[Array, "J N"]:
-    r"""Multiplicative ensemble inflation about the mean.
+    """Multiplicative ensemble inflation about the sample mean.
 
-    Restores ensemble spread lost to sampling error / model collapse by scaling
-    perturbations: ``x_j <- x_bar + factor (x_j - x_bar)``.
+        x⁽ᵉ⁾ ← x̄ + ζ (x⁽ᵉ⁾ − x̄)
+
+    Restores the spread lost to sampling error or model collapse by scaling
+    the anomalies.
+
+    Algorithm:
+        1. Take the sample mean x̄ over the members.
+        2. Scale each anomaly x⁽ᵉ⁾ − x̄ by ζ and add x̄ back.
 
     Args:
-        ensemble: Ensemble of shape ``(J, N)``.
-        factor: Inflation factor ``>= 1`` (e.g. ``1.02``-``1.10``).
+        ensemble: Ensemble members x⁽ᵉ⁾, one row per member.
+        factor: Inflation factor ζ ≥ 1, e.g. 1.02 to 1.10.
 
     Returns:
-        Inflated ensemble, shape ``(J, N)``. The mean is unchanged.
+        The inflated ensemble, with the same sample mean.
+
+    Examples:
+        Doubling the spread of two scalar members:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> ensemble = jnp.array([[0.0], [2.0]])
+        >>> gaussx.inflate_multiplicative(ensemble, 2.0).tolist()
+        [[-1.0], [3.0]]
+
+        A factor of one changes nothing:
+
+        >>> inflated = gaussx.inflate_multiplicative(ensemble, 1.0)
+        >>> bool(jnp.allclose(inflated, ensemble))
+        True
     """
+    # jnp, not einx: an empty |ℰ| or D_x returns an empty ensemble here today,
+    # and einx raises AxisSizeError on a zero-length axis.
+    # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
     mean = jnp.mean(ensemble, axis=0, keepdims=True)
-    return mean + factor * (ensemble - mean)
+    # x̃⁽ᵉ⁾ = x⁽ᵉ⁾ − x̄
+    anomalies = ensemble - mean
+    # ζ x̃⁽ᵉ⁾
+    scaled_anomalies = factor * anomalies
+    # x⁽ᵉ⁾ ← x̄ + ζ x̃⁽ᵉ⁾
+    return mean + scaled_anomalies
 
 
 def inflate_rtpp(
@@ -31,25 +60,59 @@ def inflate_rtpp(
     prior: Float[Array, "J N"],
     alpha: float | Float[Array, ""],
 ) -> Float[Array, "J N"]:
-    r"""Relaxation to prior perturbations (RTPP; Zhang et al. 2004).
+    """Relaxation to prior perturbations (RTPP).
 
-    Relaxes posterior perturbations toward the prior perturbations while keeping
-    the posterior mean: ``x'^a <- (1 - alpha) x'^a + alpha x'^f``, where the
-    perturbations are taken about each ensemble's own mean.
+        x̃⁽ᵉ⁾_t|t ← (1 − α) x̃⁽ᵉ⁾_t|t + α x̃⁽ᵉ⁾_t|t−1
+
+    Relaxes the posterior anomalies toward the prior ones while keeping the
+    posterior mean. Each anomaly is taken about its own ensemble's sample mean.
+
+    Algorithm:
+        1. Take the anomalies of each ensemble about its own sample mean.
+        2. Blend them with weights 1 − α and α.
+        3. Add the blend to the posterior sample mean.
 
     Args:
-        posterior: Analysis ensemble, shape ``(J, N)``.
-        prior: Forecast ensemble, shape ``(J, N)``.
-        alpha: Relaxation weight in ``[0, 1]``.
+        posterior: Analysis ensemble x⁽ᵉ⁾_t|t.
+        prior: Forecast ensemble x⁽ᵉ⁾_t|t−1.
+        alpha: Relaxation weight α ∈ [0, 1].
 
     Returns:
-        Relaxed analysis ensemble, shape ``(J, N)``. The posterior mean is
-        preserved.
+        The relaxed analysis ensemble, with the posterior's sample mean.
+
+    Examples:
+        Halfway back to a wider prior:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> posterior = jnp.array([[0.0], [2.0]])
+        >>> prior = jnp.array([[-3.0], [3.0]])
+        >>> gaussx.inflate_rtpp(posterior, prior, 0.5).tolist()
+        [[-1.0], [3.0]]
+
+        A weight of zero keeps the posterior:
+
+        >>> relaxed = gaussx.inflate_rtpp(posterior, prior, 0.0)
+        >>> bool(jnp.allclose(relaxed, posterior))
+        True
+
+    References:
+        Zhang et al. (2004).
     """
-    post_mean = jnp.mean(posterior, axis=0, keepdims=True)
-    post_pert = posterior - post_mean
-    prior_pert = prior - jnp.mean(prior, axis=0, keepdims=True)
-    return post_mean + (1.0 - alpha) * post_pert + alpha * prior_pert
+    # jnp, not einx: an empty |ℰ| or D_x returns an empty ensemble here today,
+    # and einx raises AxisSizeError on a zero-length axis.
+    # x̄_t|t = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾_t|t
+    posterior_mean = jnp.mean(posterior, axis=0, keepdims=True)
+    # x̃⁽ᵉ⁾_t|t = x⁽ᵉ⁾_t|t − x̄_t|t
+    posterior_anomalies = posterior - posterior_mean
+    # x̃⁽ᵉ⁾_t|t−1 = x⁽ᵉ⁾_t|t−1 − x̄_t|t−1
+    prior_anomalies = prior - jnp.mean(prior, axis=0, keepdims=True)
+    # (1 − α) x̃⁽ᵉ⁾_t|t
+    kept_anomalies = (1.0 - alpha) * posterior_anomalies
+    # x̄_t|t + (1 − α) x̃⁽ᵉ⁾_t|t
+    relaxed = posterior_mean + kept_anomalies
+    # x⁽ᵉ⁾ ← x̄_t|t + (1 − α) x̃⁽ᵉ⁾_t|t + α x̃⁽ᵉ⁾_t|t−1
+    return relaxed + alpha * prior_anomalies
 
 
 def inflate_rtps(
@@ -58,26 +121,63 @@ def inflate_rtps(
     beta: float | Float[Array, ""],
     eps: float = 1e-12,
 ) -> Float[Array, "J N"]:
-    r"""Relaxation to prior spread (RTPS; Whitaker & Hamill 2012).
+    """Relaxation to prior spread (RTPS).
 
-    Scales each posterior perturbation, per coordinate, so the analysis spread
-    relaxes back toward the prior spread:
-    ``x'^a <- x'^a [ (1 - beta) + beta sigma^f / sigma^a ]``, with ``sigma`` the
-    per-coordinate ensemble standard deviation.
+        x̃⁽ᵉ⁾_t|t ← x̃⁽ᵉ⁾_t|t ((1 − β) + β σ_x,t|t−1 / σ_x,t|t)
+
+    Scales each posterior anomaly, per coordinate, so the analysis spread
+    relaxes back toward the prior spread. σ_x is the per-coordinate ensemble
+    standard deviation with the 1 / |ℰ| divisor.
+
+    Algorithm:
+        1. Take the posterior sample mean and anomalies.
+        2. Take the per-coordinate spread of both ensembles.
+        3. Form the scale (1 − β) + β σ_x,t|t−1 / (σ_x,t|t + floor).
+        4. Scale the anomalies and add the posterior sample mean back.
 
     Args:
-        posterior: Analysis ensemble, shape ``(J, N)``.
-        prior: Forecast ensemble, shape ``(J, N)``.
-        beta: Relaxation weight in ``[0, 1]``.
-        eps: Floor on the posterior std to avoid division by zero.
+        posterior: Analysis ensemble x⁽ᵉ⁾_t|t.
+        prior: Forecast ensemble x⁽ᵉ⁾_t|t−1.
+        beta: Relaxation weight β ∈ [0, 1].
+        eps: Floor added to σ_x,t|t to avoid division by zero.
 
     Returns:
-        Spread-restored analysis ensemble, shape ``(J, N)``. The posterior mean
-        is preserved.
+        The spread-restored analysis ensemble, with the posterior's sample
+        mean.
+
+    Examples:
+        Halfway back to a spread three times wider:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> posterior = jnp.array([[-1.0], [1.0]])
+        >>> prior = jnp.array([[-3.0], [3.0]])
+        >>> relaxed = gaussx.inflate_rtps(posterior, prior, 0.5)
+        >>> bool(jnp.allclose(relaxed, jnp.array([[-2.0], [2.0]])))
+        True
+
+        A weight of zero keeps the posterior:
+
+        >>> relaxed = gaussx.inflate_rtps(posterior, prior, 0.0)
+        >>> bool(jnp.allclose(relaxed, posterior))
+        True
+
+    References:
+        Whitaker & Hamill (2012).
     """
-    post_mean = jnp.mean(posterior, axis=0, keepdims=True)
-    post_pert = posterior - post_mean
-    sigma_post = jnp.std(posterior, axis=0)
-    sigma_prior = jnp.std(prior, axis=0)
-    scale = (1.0 - beta) + beta * sigma_prior / (sigma_post + eps)
-    return post_mean + post_pert * scale[None, :]
+    # jnp, not einx: an empty |ℰ| or D_x returns an empty ensemble here today,
+    # and einx raises AxisSizeError on a zero-length axis.
+    # x̄_t|t = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾_t|t
+    posterior_mean = jnp.mean(posterior, axis=0, keepdims=True)
+    # x̃⁽ᵉ⁾_t|t = x⁽ᵉ⁾_t|t − x̄_t|t
+    posterior_anomalies = posterior - posterior_mean
+    # σ_x,t|t
+    posterior_spread = jnp.std(posterior, axis=0)
+    # σ_x,t|t−1
+    prior_spread = jnp.std(prior, axis=0)
+    # (1 − β) + β σ_x,t|t−1 / (σ_x,t|t + floor)
+    scale = (1.0 - beta) + beta * prior_spread / (posterior_spread + eps)
+    # x̃⁽ᵉ⁾_t|t ((1 − β) + β σ_x,t|t−1 / (σ_x,t|t + floor))
+    scaled_anomalies = posterior_anomalies * scale[None, :]
+    # x⁽ᵉ⁾ ← x̄_t|t + scaled anomaly
+    return posterior_mean + scaled_anomalies

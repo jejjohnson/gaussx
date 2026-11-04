@@ -757,7 +757,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `ensemble_covariance` | function | Empirical covariance from an ensemble as a low-rank operator. |
-| `ensemble_cross_covariance` | function | Cross-covariance between two ensemble sets. |
+| `ensemble_cross_covariance` | function | Cross-covariance between two ensembles with the same members. |
 | `ensemble_kalman_gain` | function | Kalman gain from an ensemble and its image in observation space. |
 | `enkf_analysis` | function | Stochastic (perturbed-observation) ensemble Kalman analysis step. |
 | `etkf_transform` | function | Ensemble Transform Kalman Filter (ETKF) analysis weights. |
@@ -774,18 +774,18 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `localization_matrix` | function | Pairwise Gaspari-Cohn taper ``rho(dist(a_i, b_j); c)``. |
+| `localization_matrix` | function | Pairwise Gaspari-Cohn taper ρ(d(aₙ, bₘ); c). |
 | `localized_kalman_gain` | function | Ensemble Kalman gain with Hadamard (Schur-product) localization. |
-| `gaspari_cohn` | function | Gaspari-Cohn (1999) fifth-order compactly-supported taper. |
-| `inflate_multiplicative` | function | Multiplicative ensemble inflation about the mean. |
-| `inflate_rtpp` | function | Relaxation to prior perturbations (RTPP; Zhang et al. 2004). |
-| `inflate_rtps` | function | Relaxation to prior spread (RTPS; Whitaker & Hamill 2012). |
+| `gaspari_cohn` | function | Gaspari-Cohn (1999) fifth-order compactly supported taper. |
+| `inflate_multiplicative` | function | Multiplicative ensemble inflation about the sample mean. |
+| `inflate_rtpp` | function | Relaxation to prior perturbations (RTPP). |
+| `inflate_rtps` | function | Relaxation to prior spread (RTPS). |
 
 ### Distances
 
 | Name | Kind | What it does |
 |---|---|---|
-| `euclidean_distance` | function | Pairwise Euclidean distances ``\|\|a_i - b_j\|\|``. |
+| `euclidean_distance` | function | Pairwise Euclidean distances ‖aₙ − bₘ‖₂. |
 | `haversine_distance` | function | Pairwise great-circle (haversine) distances on a sphere. |
 
 <!-- upstream -->
