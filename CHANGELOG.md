@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.7](https://github.com/jejjohnson/gaussx/compare/v0.6.6...v0.6.7) (2026-11-04)
+
+
+### Bug Fixes
+
+* **inference:** form J in gauss_newton_operator(jac="bwd"), for reverse passes with a while_loop ([#739](https://github.com/jejjohnson/gaussx/issues/739)) ([3897952](https://github.com/jejjohnson/gaussx/commit/38979520eae5c22a57f5de8f12f9c5d0e3150fd8))
+
 ## [0.6.6](https://github.com/jejjohnson/gaussx/compare/v0.6.5...v0.6.6) (2026-11-04)
 
 
