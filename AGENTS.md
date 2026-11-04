@@ -231,7 +231,7 @@ Read the test's docstring before changing what it checks.
 | `tests/test_dtype_preservation.py` | float32 stays float32 under x64 |
 | `tests/test_einx_convention.py` + ruff `TID251` | The einx convention |
 | `tests/test_lazy_imports.py` | In-function imports only on the import-cycle edges in `ALLOWED_LAZY_IMPORTS`, each with a `# lazy import, cycle: …` comment |
-| `tests/test_code_size.py` | Functions ≤ 150 lines, modules ≤ 800 (listed exceptions may only shrink) |
+| `tests/test_code_size.py` | Functions ≤ 150 lines, modules ≤ 800 (listed exceptions may only shrink, except `__init__.py`, the re-export list, whose ceiling rises only with new exports) |
 | `tests/test_makefile.py`, `tests/test_readme.py`, `tests/test_notebooks_in_sync.py` | Every Make target is `.PHONY`; README examples run; notebook `.py` / `.ipynb` pairs agree |
 
 ## Recipes
