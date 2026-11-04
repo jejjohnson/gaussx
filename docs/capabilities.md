@@ -471,21 +471,21 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `sparse_conditional` | function | Sparse-GP conditional ``q(f_x) = \int p(f_x \| u) q(u) du``. |
-| `build_prediction_cache` | function | Solve ``K_y alpha = y`` and cache the result. |
-| `PredictionCache` | class | Cached training solve (and factor) for amortized predictions. |
-| `predict_mean` | function | Predictive mean: ``mu* = K_*f @ alpha``. |
-| `predict_variance` | function | Predictive variance ``sigma^2_* = k_** - diag(K_*f K_y^{-1} K_f*)``. |
-| `conditional_interpolate` | function | Two-filter fusion at ``t`` from a filtered state and a backward message. |
-| `rts_interpolate` | function | Smoothed marginal at an unobserved ``t`` from filtered and smoothed states. |
-| `kronecker_posterior_predictive` | function | Posterior mean and variance for a Kronecker GP at test points. |
-| `kronecker_mll` | function | Exact marginal log-likelihood for a Kronecker-structured GP. |
+| `sparse_conditional` | function | Sparse-GP conditional q(f_X) = ∫ p(f_X ∣ f_ℐ) q(f_ℐ) df_ℐ, per output r. |
+| `build_prediction_cache` | function | Solve Σ_y α = y and cache the result. |
+| `PredictionCache` | class | Cached training solve α = Σ_y⁻¹ y (and factor L_y) for amortized predictions. |
+| `predict_mean` | function | Predictive mean of a GP at the test inputs, from a prediction cache. |
+| `predict_variance` | function | Predictive variance of a GP at the test inputs, from a prediction cache. |
+| `conditional_interpolate` | function | Two-filter fusion at t from a filtered state and a backward message. |
+| `rts_interpolate` | function | Smoothed marginal at an unobserved step t from filtered and smoothed states. |
+| `kronecker_posterior_predictive` | function | Posterior mean and variance of a Kronecker GP at grid test inputs. |
+| `kronecker_mll` | function | Exact marginal log-likelihood log p(y) of a Kronecker-structured GP. |
 
 ### Pathwise sampling
 
 | Name | Kind | What it does |
 |---|---|---|
-| `matheron_update` | function | Posterior samples via Matheron's-rule correction. |
+| `matheron_update` | function | Posterior draws of x_A ∣ x_B = β from joint prior draws, by Matheron's rule. |
 
 ### Whitening
 
@@ -510,11 +510,11 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `love_cache` | function | Precompute a Lanczos approximation of ``K^{-1}`` for fast variance. |
-| `love_variance` | function | Approximate ``k_*^\top K^{-1} k_*`` from a LOVE cache. |
+| `love_cache` | function | Precompute a Lanczos approximation of Σ_y⁻¹ for fast GP variances. |
+| `love_variance` | function | Approximate the variance reduction ``k_X*ᵀ Σ_y⁻¹ k_X*`` from a LOVE cache. |
 | `love_residual` | function | Relative solve residual of a LOVE cache for one cross-covariance. |
 | `love_variance_error_bound` | function | Upper bound on the variance over-estimate of a LOVE cache. |
-| `LOVECache` | class | Cached rank-``k`` Lanczos approximation of ``K^{-1}``. |
+| `LOVECache` | class | Cached rank-k Lanczos approximation Q diag(θ)⁻¹ Qᵀ of Σ_y⁻¹. |
 | `leave_one_out_cv` | function | LOO-CV via the bordered-system identity. |
 | `LOOResult` | class | Result of leave-one-out cross-validation. |
 

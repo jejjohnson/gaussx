@@ -1,8 +1,11 @@
 """Prediction cache: solve once, predict many.
 
-Caches the training solve ``alpha = K_y^{-1} y`` and, where it is cheap to
-keep, the Cholesky factor of ``K_y``, so that predictions at multiple test
-sets reuse the same factorisation for both the mean and the variance.
+Caches the training solve α = Σ_y⁻¹ y and, where it is cheap to keep, the
+lower Cholesky factor L_y of Σ_y = L_y L_yᵀ, so that predictions at several
+test sets reuse one factorisation for both the mean and the variance. Here
+Σ_y is the N × N covariance of the training targets y (K_XX + σ_ε² I for a
+GP), K_*X the M × N cross-covariance between the M test inputs and the
+training inputs, and K_** the prior kernel matrix at the test inputs.
 """
 
 from __future__ import annotations
@@ -37,19 +40,19 @@ _FACTORABLE = (
 
 
 class PredictionCache(eqx.Module):
-    """Cached training solve (and factor) for amortized predictions.
+    """Cached training solve α = Σ_y⁻¹ y (and factor L_y) for amortized predictions.
 
     A cache is tied to the operator it was built from: rebuild it whenever
-    the kernel hyperparameters (and so ``K_y``) change.
+    the kernel hyperparameters (and so Σ_y) change.
 
     Attributes:
-        alpha: Solved weights ``K_y^{-1} y``, shape ``(N,)``.
-        operator: The training covariance ``K_y`` the cache was built
-            from, or ``None`` for a cache constructed from ``alpha`` alone.
-        factor: Lower Cholesky factor ``L`` of ``K_y`` (structured where
-            `gaussx.cholesky` preserves structure), or ``None`` when
-            ``K_y`` is not factorised (iterative solvers, structured
-            operators with their own solve).
+        alpha: Solved weights α = Σ_y⁻¹ y, one per training target.
+        operator: The training covariance Σ_y the cache was built from, or
+            ``None`` for a cache constructed from ``alpha`` alone.
+        factor: Lower Cholesky factor L_y of Σ_y (structured where
+            `gaussx.cholesky` preserves structure), or ``None`` when Σ_y is
+            not factorised (iterative solvers, structured operators with
+            their own solve).
     """
 
     alpha: Float[Array, " N"]
@@ -63,33 +66,70 @@ def build_prediction_cache(
     *,
     solver: AbstractSolveStrategy | None = None,
 ) -> PredictionCache:
-    """Solve ``K_y alpha = y`` and cache the result.
+    """Solve Σ_y α = y and cache the result.
+
+        α = Σ_y⁻¹ y = L_y⁻ᵀ L_y⁻¹ y,   Σ_y = L_y L_yᵀ
 
     For a PSD dense, diagonal, `Kronecker` or `BlockDiag` operator with
-    ``solver`` ``None`` or `DenseSolver`, computes ``L = cholesky(K_y)``
-    once, solves ``alpha = L^{-T} L^{-1} y`` through it and stores ``L``
-    so that `predict_variance` needs only triangular solves. Otherwise
-    (iterative strategies, other structured operators) ``alpha`` comes
-    from ``solver`` and ``factor`` is ``None``.
+    ``solver`` ``None`` or `DenseSolver`, the factor L_y is computed once,
+    α comes from two triangular solves with it, and L_y is stored so that
+    `predict_variance` needs only triangular solves. Otherwise (iterative
+    strategies, other structured operators) α comes from ``solver`` and
+    ``factor`` is ``None``.
+
+    Algorithm:
+        1. If Σ_y is factorable, PSD and the solver is dense, factorise
+           Σ_y = L_y L_yᵀ with `gaussx.cholesky`.
+        2. Solve L_y w = y, then L_yᵀ α = w, and keep L_y.
+        3. Otherwise solve Σ_y α = y with ``solver`` and keep no factor.
 
     Args:
-        operator: Training covariance operator ``K_y``, shape ``(N, N)``.
-        y: Training targets, shape ``(N,)``.
+        operator: Training covariance Σ_y.
+        y: Training targets y.
         solver: Optional solve strategy. When ``None``, falls back
             to structural-dispatch `gaussx.solve`.
 
     Returns:
-        A `PredictionCache` holding ``alpha``, ``K_y`` and, where
-        available, its Cholesky factor.
+        A `PredictionCache` holding α, Σ_y and, where available, its
+        Cholesky factor L_y.
+
+    Examples:
+        A dense PSD Σ_y keeps its Cholesky factor:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> covariance = lx.MatrixLinearOperator(
+        ...     jnp.diag(jnp.array([2.0, 4.0])), lx.positive_semidefinite_tag
+        ... )
+        >>> cache = gaussx.build_prediction_cache(covariance, jnp.array([2.0, 4.0]))
+        >>> bool(jnp.allclose(cache.alpha, 1.0)), cache.factor is not None
+        (True, True)
+
+        An iterative solver gives the same weights without a factor:
+
+        >>> iterative = gaussx.build_prediction_cache(
+        ...     covariance, jnp.array([2.0, 4.0]), solver=gaussx.CGSolver()
+        ... )
+        >>> bool(jnp.allclose(iterative.alpha, 1.0)), iterative.factor is None
+        (True, True)
     """
     if (
         isinstance(operator, _FACTORABLE)
         and lx.is_positive_semidefinite(operator)
         and (solver is None or isinstance(solver, DenseSolver))
     ):
-        L = cholesky(operator)
-        alpha = solve(L.transpose(), solve(L, y))
-        return PredictionCache(alpha=alpha, operator=operator, factor=L)
+        # Σ_y = L_y L_yᵀ
+        factor = cholesky(operator)
+        # L_yᵀ, taken before the first solve so the traced order (and with
+        # it the order in which gradients accumulate) is unchanged
+        factor_t = factor.transpose()
+        # w = L_y⁻¹ y
+        forward = solve(factor, y)
+        # α = L_y⁻ᵀ w = Σ_y⁻¹ y
+        alpha = solve(factor_t, forward)
+        return PredictionCache(alpha=alpha, operator=operator, factor=factor)
+    # α = Σ_y⁻¹ y
     alpha = dispatch_solve(operator, y, solver)
     return PredictionCache(alpha=alpha, operator=operator)
 
@@ -98,15 +138,30 @@ def predict_mean(
     cache: PredictionCache,
     K_cross: Float[Array, "Nt N"],
 ) -> Float[Array, " Nt"]:
-    """Predictive mean: ``mu* = K_*f @ alpha``.
+    """Predictive mean of a GP at the test inputs, from a prediction cache.
+
+        μ_* = K_*X Σ_y⁻¹ y = K_*X α
 
     Args:
-        cache: Prediction cache from `build_prediction_cache`.
-        K_cross: Cross-covariance matrix, shape ``(Nt, N)``.
+        cache: Prediction cache from `build_prediction_cache`, holding α.
+        K_cross: Cross-covariance ``K_*X`` between the test inputs and the
+            training inputs.
 
     Returns:
-        Predictive mean, shape ``(Nt,)``.
+        The predictive means ``μ_*``, one per test input.
+
+    Examples:
+        Weights α = (1, 1) and three test inputs:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> cache = gaussx.PredictionCache(alpha=jnp.ones(2))
+        >>> K_cross = jnp.array([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+        >>> mean = gaussx.predict_mean(cache, K_cross)
+        >>> bool(jnp.allclose(mean, jnp.array([1.0, 1.0, 2.0])))
+        True
     """
+    # μ_* = K_*X α
     return K_cross @ cache.alpha
 
 
@@ -118,37 +173,81 @@ def predict_variance(
     operator: lx.AbstractLinearOperator | None = None,
     solver: AbstractSolveStrategy | None = None,
 ) -> Float[Array, " Nt"]:
-    r"""Predictive variance ``sigma^2_* = k_** - diag(K_*f K_y^{-1} K_f*)``.
+    """Predictive variance of a GP at the test inputs, from a prediction cache.
+
+        σ²_m = [K_**]_mm − [K_*X Σ_y⁻¹ K_X*]_mm
+             = [K_**]_mm − ∑_n [V]_nm²,   V = L_y⁻¹ K_X*
 
     Call as ``predict_variance(cache, K_cross, K_test_diag)``, with the
-    cache first as in `predict_mean`. With a cached factor ``L``:
-
-    $$
-    V = L^{-1} K_{*f}^\top, \qquad
-    \sigma^2_{*,i} = k_{**,i} - \sum_n V_{ni}^2,
-    $$
-
-    triangular solves only (no refactorisation of ``K_y``). Without a
-    factor, solves ``K_y v_i = K_cross[i, :]`` for each test row with
-    ``solver`` and returns ``k_{**,i} - K_cross[i, :] v_i``.
+    cache first as in `predict_mean`. With a cached factor L_y it takes
+    triangular solves only, with no refactorisation of Σ_y. Without a
+    factor it solves Σ_y v_m = k_mX for each test row k_mX of ``K_*X`` with
+    ``solver`` and returns ``[K_**]_mm − k_mXᵀ v_m``.
 
     The old order ``predict_variance(K_cross, K_test_diag, operator)``
     (or ``operator=`` as a keyword) still works for one release, emits a
-    `DeprecationWarning`, and refactorises ``K_y`` on every call.
+    `DeprecationWarning`, and refactorises Σ_y on every call.
+
+    Algorithm:
+        1. Route the deprecated call forms to one solve per test row
+           against ``operator``.
+        2. With a cached factor, whiten ``V = L_y⁻¹ K_X*`` and subtract the
+           column sums of V² from the prior variances.
+        3. Without one, solve Σ_y⁻¹ k_mX row by row with ``solver`` and
+           subtract k_mXᵀ Σ_y⁻¹ k_mX.
 
     Args:
         cache: Prediction cache from `build_prediction_cache`.
-        K_cross: Cross-covariance matrix, shape ``(Nt, N)``.
-        K_test_diag: Prior variance at test points, shape ``(Nt,)``.
-        operator: Deprecated; only for the old call form.
+        K_cross: Cross-covariance ``K_*X`` between the test inputs and the
+            training inputs.
+        K_test_diag: Prior variances ``[K_**]_mm`` at the test inputs, the
+            diagonal of ``K_**``.
+        operator: Deprecated; only for the old call form, where it is Σ_y.
         solver: Optional solve strategy for the no-factor path. When
             ``None``, falls back to structural-dispatch `gaussx.solve`.
 
     Returns:
-        Predictive variance, shape ``(Nt,)``.
+        The predictive variances σ²_m, one per test input.
 
     Raises:
+        TypeError: If the old call form has no operator, or ``operator`` is
+            passed alongside a cache.
         ValueError: If the cache holds neither a factor nor an operator.
+
+    Examples:
+        Σ_y = 2 I and two test inputs, each seeing one training input:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> covariance = lx.MatrixLinearOperator(
+        ...     2.0 * jnp.eye(2), lx.positive_semidefinite_tag
+        ... )
+        >>> cache = gaussx.build_prediction_cache(covariance, jnp.ones(2))
+        >>> K_cross = jnp.eye(2)
+        >>> K_test_diag = jnp.full(2, 2.0)
+        >>> variance = gaussx.predict_variance(cache, K_cross, K_test_diag)
+        >>> bool(jnp.allclose(variance, 1.5))
+        True
+
+        An iterative cache solves per test row and agrees:
+
+        >>> iterative = gaussx.build_prediction_cache(
+        ...     covariance, jnp.ones(2), solver=gaussx.CGSolver()
+        ... )
+        >>> solved = gaussx.predict_variance(iterative, K_cross, K_test_diag)
+        >>> bool(jnp.allclose(solved, variance, atol=1e-5))
+        True
+
+        A cache built from α alone cannot predict variances:
+
+        >>> bare = gaussx.PredictionCache(alpha=jnp.ones(2))
+        >>> gaussx.predict_variance(
+        ...     bare, K_cross, K_test_diag
+        ... )  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        ValueError: This PredictionCache holds only alpha; ...
     """
 
     if not isinstance(cache, PredictionCache):
@@ -159,31 +258,57 @@ def predict_variance(
             "predict_variance(cache, K_cross, K_test_diag), which reuses the "
             "cached factorisation."
         )
-        if operator is None:  # all positional: (K_cross, K_test_diag, operator)
-            old = (cache, K_cross, K_test_diag)
-        elif cache is not None:  # (K_cross, [K_test_diag], operator=...)
-            old = (cache, K_cross if K_test_diag is None else K_test_diag, operator)
-        else:  # all keywords
-            old = (K_cross, K_test_diag, operator)
-        if not isinstance(old[2], lx.AbstractLinearOperator):
+        if operator is None:
+            # all positional: (K_cross, K_test_diag, operator)
+            legacy = (cache, K_cross, K_test_diag)
+        elif cache is not None:
+            # (K_cross, [K_test_diag], operator=...)
+            legacy = (cache, K_cross if K_test_diag is None else K_test_diag, operator)
+        else:
+            # all keywords
+            legacy = (K_cross, K_test_diag, operator)
+        legacy_cross, legacy_prior, legacy_operator = legacy
+        if not isinstance(legacy_operator, lx.AbstractLinearOperator):
             msg = "predict_variance needs a PredictionCache or an operator."
             raise TypeError(msg)
-        Kc, kd = cast(Array, old[0]), cast(Array, old[1])
-        V = solve_rows(old[2], Kc, solver=solver)
-        return kd - reduce(Kc * V, "t n -> t", "sum")
+        cross_covariance = cast(Array, legacy_cross)
+        prior_variance = cast(Array, legacy_prior)
+        # K_*X Σ_y⁻¹, one solve per test row
+        solved_cross = solve_rows(legacy_operator, cross_covariance, solver=solver)
+        # k_mX ⊙ Σ_y⁻¹ k_mX
+        products = cross_covariance * solved_cross
+        # [K_*X Σ_y⁻¹ K_X*]_mm
+        explained = reduce(products, "test sample -> test", "sum")
+        # σ²_m = [K_**]_mm − [K_*X Σ_y⁻¹ K_X*]_mm
+        return prior_variance - explained
 
     if operator is not None:
         msg = "operator= is only for the deprecated call form; the cache holds K_y."
         raise TypeError(msg)
-    Kc, kd = cast(Array, K_cross), cast(Array, K_test_diag)
+    cross_covariance = cast(Array, K_cross)
+    prior_variance = cast(Array, K_test_diag)
     if cache.factor is not None:
-        V = solve_columns(cache.factor, rearrange(Kc, "t n -> n t"))
-        return kd - reduce(V**2, "n t -> t", "sum")
+        # K_X* = K_*Xᵀ
+        cross_covariance_t = rearrange(cross_covariance, "test sample -> sample test")
+        # V = L_y⁻¹ K_X*
+        whitened_cross = solve_columns(cache.factor, cross_covariance_t)
+        # V²
+        whitened_cross_squared = whitened_cross**2
+        # [K_*X Σ_y⁻¹ K_X*]_mm = ∑_n [V]_nm²
+        explained = reduce(whitened_cross_squared, "sample test -> test", "sum")
+        # σ²_m = [K_**]_mm − ∑_n [V]_nm²
+        return prior_variance - explained
     if cache.operator is None:
         msg = (
             "This PredictionCache holds only alpha; build it with "
             "build_prediction_cache(operator, y) to predict variances."
         )
         raise ValueError(msg)
-    V = solve_rows(cache.operator, Kc, solver=solver)
-    return kd - reduce(Kc * V, "t n -> t", "sum")
+    # K_*X Σ_y⁻¹, one solve per test row
+    solved_cross = solve_rows(cache.operator, cross_covariance, solver=solver)
+    # k_mX ⊙ Σ_y⁻¹ k_mX
+    products = cross_covariance * solved_cross
+    # [K_*X Σ_y⁻¹ K_X*]_mm
+    explained = reduce(products, "test sample -> test", "sum")
+    # σ²_m = [K_**]_mm − [K_*X Σ_y⁻¹ K_X*]_mm
+    return prior_variance - explained
