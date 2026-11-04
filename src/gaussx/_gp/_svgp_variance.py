@@ -76,7 +76,9 @@ def svgp_variance_adjustment(
     inverse_covariance_op = lx.MatrixLinearOperator(inverse_covariance_product)
     inducing_size = K_zz_op.out_structure().shape[0]
     # −I
-    negative_identity = lx.DiagonalLinearOperator(-jnp.ones(inducing_size))
+    negative_identity = lx.DiagonalLinearOperator(
+        -jnp.ones(inducing_size, dtype=inverse_covariance_product.dtype)
+    )
     # K_ℐℐ⁻¹ Σ_ℐ − I
     shifted = lx.AddLinearOperator(inverse_covariance_op, negative_identity)
     # Q = (K_ℐℐ⁻¹ Σ_ℐ − I) K_ℐℐ⁻¹

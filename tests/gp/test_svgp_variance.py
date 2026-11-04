@@ -78,6 +78,17 @@ class TestSVGPVarianceAdjustment:
         expected = (K_inv @ S_u @ K_inv - K_inv) @ v
         assert jnp.allclose(result, expected, atol=1e-4)
 
+    def test_float32_inputs_with_x64_enabled(self):
+        """Float32 inputs should produce a float32 operator when x64 is enabled."""
+        K_zz = jnp.array([[2.0, 0.5], [0.5, 1.0]], dtype=jnp.float32)
+        S_u = jnp.eye(2, dtype=jnp.float32)
+        K_zz_op = lx.MatrixLinearOperator(K_zz, lx.positive_semidefinite_tag)
+        S_u_op = lx.MatrixLinearOperator(S_u, lx.positive_semidefinite_tag)
+
+        Q = svgp_variance_adjustment(K_zz_op, S_u_op)
+
+        assert Q.as_matrix().dtype == jnp.float32
+
     def test_jit(self):
         """Should be JIT-compatible."""
         M = 3
