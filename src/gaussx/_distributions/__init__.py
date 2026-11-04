@@ -8,7 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from gaussx._distributions._conditional import conditional
+from gaussx._distributions._conditional import (
+    LinearGaussianPosterior,
+    conditional,
+    linear_gaussian_update,
+)
 from gaussx._distributions._gaussian import (
     add_jitter,
     gaussian_entropy,
@@ -30,6 +34,7 @@ __all__ = [
     "GaussianMRF",
     "IntrinsicGMRF",
     "LGSSMFactory",
+    "LinearGaussianPosterior",
     "MarkovGaussian",
     "MaskedLGSSM",
     "MultivariateNormal",
@@ -41,6 +46,7 @@ __all__ = [
     "gaussian_log_prob",
     "joseph_update",
     "kl_standard_normal",
+    "linear_gaussian_update",
     "project",
     "quadratic_form",
     "sample_joint_conditional",

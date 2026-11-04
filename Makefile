@@ -147,6 +147,7 @@ NO_X64_TESTS := tests/primitives \
 	tests/operators \
 	tests/linalg \
 	tests/inference/test_natural_gradient.py \
+	tests/distributions/test_conditional.py \
 	tests/distributions/test_mvn.py \
 	tests/distributions/test_mvn_prec.py \
 	tests/distributions/test_mvn_base.py \

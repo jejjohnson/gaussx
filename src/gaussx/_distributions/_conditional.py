@@ -3,6 +3,10 @@
 The joint x ~ 𝒩(μ, Σ) splits into the free entries x_A, indexed by A, and the
 observed entries x_B, indexed by B, with observed values b. The blocks of μ
 and Σ follow the index sets: μ_A, μ_B, Σ_AA, Σ_AB, Σ_BB and Σ_BA = Σ_ABᵀ.
+
+`linear_gaussian_update` conditions instead on a linear observation
+y = H x + ε, with prior 𝒩(x_b, B) and noise ε ~ 𝒩(0, R), keeping H, B and R as
+operators.
 """
 
 from __future__ import annotations
@@ -17,8 +21,110 @@ from jaxtyping import Array, Float, Int
 from gaussx._linalg._linalg import solve_matrix
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._primitives._submatrix import submatrix
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._solve_frontend import as_linear_operator
+from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
 from gaussx._strategies._dispatch import dispatch_solve
+
+
+class LinearGaussianPosterior(eqx.Module):
+    """Posterior 𝒩(x_a, P_a) of `linear_gaussian_update`.
+
+    Attributes:
+        mean: The posterior mean x_a.
+        cov: The lazy posterior covariance P_a, a PSD-tagged N × N operator.
+    """
+
+    mean: Float[Array, "*state"]
+    cov: lx.AbstractLinearOperator
+
+
+def linear_gaussian_update(
+    prior_mean: Float[Array, "*state"],
+    prior_cov: lx.AbstractLinearOperator,
+    obs_operator: lx.AbstractLinearOperator,
+    obs_cov: lx.AbstractLinearOperator,
+    obs: Float[Array, "*obs"],
+    *,
+    solver: lx.AbstractLinearSolver | AbstractSolveStrategy | None = None,
+) -> LinearGaussianPosterior:
+    """Matrix-free posterior of a linear-Gaussian observation.
+
+        S = H B Hᵀ + R
+        x_a = x_b + B Hᵀ S⁻¹ (y − H x_b)
+        P_a = B − B Hᵀ S⁻¹ H B
+
+    This is the best linear unbiased estimate of Lorenc (1986), "Analysis
+    methods for numerical weather prediction", *Q. J. R. Meteorol. Soc.* 112,
+    1177-1194, doi:10.1002/qj.49711247414. Each P_a matvec costs two B
+    matvecs, one H and one Hᵀ matvec and one S solve, and B⁻¹ is never
+    applied, so a smooth B that CG cannot invert is fine. For masked
+    observations, pass a masked H and `gaussx.masked_obs_covariance` as R.
+
+    `gaussx.kalman_gain` and `gaussx.schur_complement` are the dense paths.
+
+    Algorithm:
+        1. Compose S = H B Hᵀ + R lazily, tagged positive semidefinite.
+        2. Solve S v = y − H x_b, and set x_a = x_b + B Hᵀ v.
+        3. Wrap P_a as a lazy operator that solves against S per matvec.
+
+    Args:
+        prior_mean: The prior mean x_b, in the shape B acts on.
+        prior_cov: The prior covariance B, N × N.
+        obs_operator: The linear observation operator H, M × N.
+        obs_cov: The noise covariance R, M × M.
+        obs: The observation y, in the shape R acts on.
+        solver: How to solve against S. Default ``None`` is `gaussx.solve`,
+            which materialises S; pass `gaussx.CGSolver` to stay matrix-free.
+
+    Returns:
+        The posterior mean and lazy covariance. P_a is symmetric only up to
+        the tolerance of the S solve, and is tagged PSD regardless.
+
+    Examples:
+        One observed entry with unit prior and noise halves its variance:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> B = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> H = lx.MatrixLinearOperator(jnp.array([[1.0, 0.0]]))
+        >>> R = lx.DiagonalLinearOperator(jnp.ones(1))
+        >>> posterior = gaussx.linear_gaussian_update(
+        ...     jnp.zeros(2), B, H, R, jnp.array([1.0])
+        ... )
+        >>> [round(float(v), 4) for v in posterior.mean]
+        [0.5, 0.0]
+        >>> [round(float(v), 4) for v in gaussx.diag(posterior.cov)]
+        [0.5, 1.0]
+    """
+    adjoint = obs_operator.T
+    # S = H B Hᵀ + R
+    innovation_cov = lx.TaggedLinearOperator(
+        obs_operator @ prior_cov @ adjoint + obs_cov, lx.positive_semidefinite_tag
+    )
+    # d = y − H x_b
+    innovation = obs - obs_operator.mv(prior_mean)
+    # v = S⁻¹ d
+    weights = dispatch_solve(innovation_cov, innovation, solver)
+    # x_a = x_b + B Hᵀ v
+    mean = prior_mean + prior_cov.mv(adjoint.mv(weights))
+
+    def posterior_mv(direction: Float[Array, "*state"]) -> Float[Array, "*state"]:
+        # B v
+        prior_direction = prior_cov.mv(direction)
+        # S⁻¹ H B v
+        solved = dispatch_solve(
+            innovation_cov, obs_operator.mv(prior_direction), solver
+        )
+        # B v − B Hᵀ S⁻¹ H B v
+        return prior_direction - prior_cov.mv(adjoint.mv(solved))
+
+    cov = as_linear_operator(
+        posterior_mv,
+        in_structure=prior_cov.in_structure(),
+        positive_semidefinite=True,
+    )
+    return LinearGaussianPosterior(mean=mean, cov=cov)
 
 
 def conditional(

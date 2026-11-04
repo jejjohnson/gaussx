@@ -6,7 +6,11 @@ __version__ = "0.6.5"
 # ``from gaussx._distributions import ...`` so the optional numpyro guard
 # at the bottom of this file remains the single entry point that handles
 # missing numpyro.
-from gaussx._distributions._conditional import conditional as conditional
+from gaussx._distributions._conditional import (
+    LinearGaussianPosterior as LinearGaussianPosterior,
+    conditional as conditional,
+    linear_gaussian_update as linear_gaussian_update,
+)
 from gaussx._distributions._gaussian import (
     add_jitter as add_jitter,
     gaussian_entropy as gaussian_entropy,
@@ -454,6 +458,7 @@ __all__ = [
     "LOOResult",
     "LOVECache",
     "LSMRSolver",
+    "LinearGaussianPosterior",
     "LinearizedSDE",
     "LineaxSolver",
     "LowRankUpdate",
@@ -618,6 +623,7 @@ __all__ = [
     "kronecker_sum_tag",
     "kronecker_tag",
     "leave_one_out_cv",
+    "linear_gaussian_update",
     "linear_solve",
     "linearize_sde",
     "localization_matrix",
