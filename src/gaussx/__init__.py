@@ -18,6 +18,10 @@ from gaussx._distributions._gaussian import (
     kl_standard_normal as kl_standard_normal,
     quadratic_form as quadratic_form,
 )
+from gaussx._distributions._information import (
+    InformationDiagnostics as InformationDiagnostics,
+    information_diagnostics as information_diagnostics,
+)
 from gaussx._distributions._joseph import joseph_update as joseph_update
 from gaussx._distributions._kl import gaussian_kl as gaussian_kl
 from gaussx._distributions._project import project as project
@@ -448,6 +452,7 @@ __all__ = [
     "GaussianState",
     "HeteroscedasticGaussianLikelihood",
     "IndefiniteSLQLogdet",
+    "InformationDiagnostics",
     "IntegratedWienerSDE",
     "InterpolatedOperator",
     "JacobiPreconditioner",
@@ -596,6 +601,7 @@ __all__ = [
     "inflate_multiplicative",
     "inflate_rtpp",
     "inflate_rtps",
+    "information_diagnostics",
     "inv",
     "inv_quad_logdet",
     "is_block_diagonal",

@@ -227,7 +227,7 @@ covariance update.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [gaussian_log_prob, gaussian_entropy, quadratic_form, kl_standard_normal, gaussian_kl, conditional, linear_gaussian_update, LinearGaussianPosterior, joseph_update, add_jitter, project]
+      members: [gaussian_log_prob, gaussian_entropy, quadratic_form, kl_standard_normal, gaussian_kl, conditional, linear_gaussian_update, LinearGaussianPosterior, information_diagnostics, InformationDiagnostics, joseph_update, add_jitter, project]
 
 ## Structured sampling
 
