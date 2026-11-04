@@ -10,7 +10,6 @@ sandwich and addition sites.
 
 from __future__ import annotations
 
-import einx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -20,6 +19,7 @@ from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, repeat
 from gaussx._linalg._linalg import sandwich
 from gaussx._operators._low_rank_update import LowRankUpdate
+from gaussx._operators._masked import _masked_dense_covariance
 
 
 def _materialise(
@@ -246,10 +246,8 @@ def _masked_obs_inputs(
     masked_obs_operator = jnp.where(
         row_mask, obs_operator, jnp.zeros_like(obs_operator)
     )
-    # keep entry (i, j) of Σ_ε,t where channels i and j are both observed
-    pair_mask = einx.logical_and("row, col -> row col", mask, mask)
-    identity = jnp.eye(obs_size, dtype=obs_noise_covariance.dtype)
-    masked_obs_noise_covariance = jnp.where(pair_mask, obs_noise_covariance, identity)
+    # Σ̃_ε,t = M Σ_ε,t M + (I − M)
+    masked_obs_noise_covariance = _masked_dense_covariance(obs_noise_covariance, mask)
     masked_obs = jnp.where(mask, obs, jnp.zeros_like(obs))
     # N_missing = D_y − ∑_i mask_i
     n_missing = obs_size - jnp.sum(mask.astype(obs.dtype))
