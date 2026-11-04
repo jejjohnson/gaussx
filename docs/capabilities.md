@@ -720,31 +720,31 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `blr_full_update` | function | Full-rank natural parameter BLR update step. |
-| `blr_diag_update` | function | Diagonal natural parameter BLR update step. |
-| `log_marginal_likelihood` | function | GP log marginal likelihood. |
-| `gaussian_expected_log_lik` | function | Expected log-likelihood ``E_q[log N(y \| f, R)]``. |
+| `blr_full_update` | function | Damped BLR step on the natural parameters of a full-rank Gaussian. |
+| `blr_diag_update` | function | Damped BLR step on the natural parameters of a diagonal Gaussian. |
+| `log_marginal_likelihood` | function | GP log marginal likelihood, by way of `gaussx.gaussian_log_prob`. |
+| `gaussian_expected_log_lik` | function | Expected Gaussian log-likelihood under q(x), the data term of an ELBO. |
 
 ### Newton & natural-gradient updates
 
 | Name | Kind | What it does |
 |---|---|---|
-| `newton_update` | function | Convert a Newton step to natural pseudo-likelihood parameters. |
-| `damped_natural_update` | function | Damped update in natural parameter space. |
+| `newton_update` | function | Convert a Newton step into the natural parameters of a site. |
+| `damped_natural_update` | function | Damped update in natural-parameter space. |
 | `gauss_newton_operator` | function | Matrix-free Gauss-Newton precision of a residual function. |
-| `gauss_newton_precision` | function | Gauss-Newton precision matrix ``J^T J``, optionally plus a prior. |
-| `ggn_diagonal` | function | Generalized Gauss-Newton diagonal approximation. |
-| `hutchinson_hessian_diag` | function | Stochastic Hessian diagonal via Hutchinson with Rademacher probes. |
+| `gauss_newton_precision` | function | Gauss-Newton precision J_rᵀ J_r, optionally plus a prior precision. |
+| `ggn_diagonal` | function | Diagonal of the generalized Gauss-Newton matrix J_hᵀ J_h. |
+| `hutchinson_hessian_diag` | function | Stochastic Hessian diagonal by Hutchinson with Rademacher probes. |
 | `riemannian_psd_correction` | function | Riemannian gradient correction for PSD precision updates. |
-| `cavity_distribution` | function | Compute EP cavity distribution by removing a site. |
-| `trace_correction` | function | Trace term in Titsias collapsed ELBO. |
+| `cavity_distribution` | function | EP cavity distribution: remove a fraction α of a site from the marginal. |
+| `trace_correction` | function | Trace term of the Titsias collapsed ELBO, the Nyström approximation error. |
 
 ### Precision-form Laplace (INLA)
 
 | Name | Kind | What it does |
 |---|---|---|
 | `laplace_mode` | function | Mode, Hessian and log-marginal of the Laplace approximation, in precision form. |
-| `LaplaceResult` | class | The Gaussian approximation $\mathcal N(\hat x, H^{-1})$ at the mode. |
+| `LaplaceResult` | class | The Gaussian approximation 𝒩(x̂, Λ_x\|y⁻¹) at the mode. |
 
 ### Low-rank VB mean correction (INLA)
 

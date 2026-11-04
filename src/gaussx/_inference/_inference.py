@@ -1,4 +1,9 @@
-"""Inference sugar: expected log-lik, trace correction, cavity, Newton update."""
+"""Inference sugar: expected log-likelihood, trace correction, cavity, Newton sites.
+
+Sites use the positive-precision convention (Λμ_site, Λ_site): `cavity_distribution`
+removes a site from the marginal, and `newton_update` builds one from derivatives
+of the log-likelihood. Natural parameters are never written η, which is model noise.
+"""
 
 from __future__ import annotations
 
@@ -22,23 +27,26 @@ def log_marginal_likelihood(
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
-    """GP log marginal likelihood.
+    """GP log marginal likelihood, by way of `gaussx.gaussian_log_prob`.
 
-    Computes:
-
-        log p(y) = -0.5 * (y-mu)^T K^{-1} (y-mu) - 0.5 * log|K| - N/2 * log(2pi)
-
-    Delegates to `gaussx.gaussian_log_prob`.
+        log p(y) = −½ (y − μ_y)ᵀ Σ_y⁻¹ (y − μ_y) − ½ log det Σ_y − (N / 2) log 2π
 
     Args:
-        loc: Prior mean, shape ``(N,)``.
-        cov_operator: Covariance operator K, shape ``(N, N)``.
-        y: Observations, shape ``(N,)``.
-        solver: Optional solver strategy. When ``None``, uses
-            structural dispatch.
+        loc: Prior mean μ_y.
+        cov_operator: Covariance Σ_y of the observations.
+        y: Observations y.
+        solver: Solver strategy for Σ_y; ``None`` uses structural dispatch.
 
     Returns:
-        Scalar log marginal likelihood.
+        The log marginal likelihood log p(y).
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> covariance = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> value = log_marginal_likelihood(jnp.zeros(2), covariance, jnp.zeros(2))
+        >>> bool(jnp.allclose(value, -jnp.log(2.0 * jnp.pi)))
+        True
     """
     return gaussian_log_prob(loc, cov_operator, y, solver=solver)
 
@@ -51,36 +59,53 @@ def gaussian_expected_log_lik(
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
-    r"""Expected log-likelihood ``E_q[log N(y | f, R)]``.
+    """Expected Gaussian log-likelihood under q(x), the data term of an ELBO.
 
-    Computes:
+        𝔼_q[log 𝒩(y ∣ x, Σ_ε)] = log 𝒩(y ∣ μ_q, Σ_ε) − ½ tr(Σ_ε⁻¹ Σ_q)
 
-        E_q[log N(y|f,R)] = log N(y | q_mu, R) - 0.5 * tr(R^{-1} q_cov)
-
-    Core to variational inference ELBO computation.
+    Algorithm:
+        1. Solve Σ_ε⁻¹ r for the residual r = y − μ_q and form rᵀ Σ_ε⁻¹ r.
+        2. Take log det Σ_ε and the trace correction tr(Σ_ε⁻¹ Σ_q).
+        3. Add the terms and the constant.
 
     Args:
-        y: Observations, shape ``(N,)``.
-        q_mu: Variational mean, shape ``(N,)``.
-        q_cov: Variational covariance operator, shape ``(N, N)``.
-        noise: Noise covariance operator R, shape ``(N, N)``.
-        solver: Optional solver strategy. When ``None``, uses
-            structural dispatch.
+        y: Observations y.
+        q_mu: Variational mean μ_q.
+        q_cov: Variational covariance Σ_q.
+        noise: Observation-error covariance Σ_ε.
+        solver: Solver strategy for the solve and log-determinant of Σ_ε;
+            ``None`` uses structural dispatch.
 
     Returns:
-        Scalar expected log-likelihood.
+        The expected log-likelihood.
+
+    Examples:
+        With y = μ_q and Σ_ε = Σ_q = I only the constant and the trace remain:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> unit = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> value = gaussian_expected_log_lik(jnp.zeros(2), jnp.zeros(2), unit, unit)
+        >>> bool(jnp.allclose(value, -jnp.log(2.0 * jnp.pi) - 1.0))
+        True
     """
-    N = y.shape[-1]
+    obs_size = y.shape[-1]
+    # r = y − μ_q
     residual = y - q_mu
-    alpha = dispatch_solve(noise, residual, solver)
-    quad = residual @ alpha
-    ld = dispatch_logdet(noise, solver)
+    # Σ_ε⁻¹ r
+    precision_residual = dispatch_solve(noise, residual, solver)
+    # rᵀ Σ_ε⁻¹ r
+    quadratic = residual @ precision_residual
+    # log det Σ_ε
+    log_det_noise = dispatch_logdet(noise, solver)
 
-    # Trace correction: tr(R^{-1} q_cov)
-    R_inv = inv(noise)
-    tr_term = trace_product(R_inv, q_cov)
+    # Σ_ε⁻¹
+    noise_precision = inv(noise)
+    # tr(Σ_ε⁻¹ Σ_q)
+    trace_term = trace_product(noise_precision, q_cov)
 
-    return -0.5 * (N * _LOG_2PI + ld + quad + tr_term)
+    # −½ (N log 2π + log det Σ_ε + rᵀ Σ_ε⁻¹ r + tr(Σ_ε⁻¹ Σ_q))
+    return -0.5 * (obs_size * _LOG_2PI + log_det_noise + quadratic + trace_term)
 
 
 def trace_correction(
@@ -90,34 +115,46 @@ def trace_correction(
     *,
     solver: AbstractSolveStrategy | None = None,
 ) -> Float[Array, ""]:
-    """Trace term in Titsias collapsed ELBO.
+    """Trace term of the Titsias collapsed ELBO, the Nyström approximation error.
 
-    Computes:
+        tr(K_XX − K_Xℐ K_ℐℐ⁻¹ K_ℐX) = tr(K_XX) − ∑ₙₘ [K_Xℐ]ₙₘ [K_Xℐ K_ℐℐ⁻¹]ₙₘ
 
-        tr(K_xx) - tr(K_xz^T K_zz^{-1} K_xz)
-
-    This is the "trace correction" that penalizes the Nystrom
-    approximation error.
+    Algorithm:
+        1. Take tr(K_XX).
+        2. Solve K_Xℐ K_ℐℐ⁻¹ row by row.
+        3. Contract it with K_Xℐ and subtract.
 
     Args:
-        K_xx: Full covariance, shape ``(N, N)``.
-        K_xz: Cross-covariance, shape ``(N, M)``.
-        K_zz: Inducing covariance, shape ``(M, M)``.
-        solver: Optional solve strategy. When ``None``, uses
-            structural dispatch.
+        K_xx: Prior kernel matrix K_XX.
+        K_xz: Cross-covariance K_Xℐ.
+        K_zz: Inducing kernel matrix K_ℐℐ.
+        solver: Solve strategy for K_ℐℐ; ``None`` uses structural dispatch.
 
     Returns:
-        Scalar trace correction.
+        The trace correction.
+
+    Examples:
+        One inducing point explains one of two independent inputs:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> gram_train = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> gram_inducing = lx.DiagonalLinearOperator(jnp.ones(1))
+        >>> cross = jnp.array([[1.0], [0.0]])
+        >>> value = trace_correction(gram_train, cross, gram_inducing)
+        >>> bool(jnp.allclose(value, 1.0))
+        True
     """
-    tr_full = trace(K_xx)
+    # tr(K_XX)
+    trace_full = trace(K_xx)
 
-    # tr(K_xz^T K_zz^{-1} K_xz) = sum_ij W_ij * K_xz_ij
-    # where W = K_zz^{-1} K_xz^T reshaped, but easier:
-    # tr(A^T B) = sum(A * B), so tr(K_xz^T W) where W_col = K_zz^{-1} K_xz_col
-    W = solve_rows(K_zz, K_xz, solver=solver)  # (N, M)
-    tr_approx = jnp.sum(K_xz * W)
+    # K_Xℐ K_ℐℐ⁻¹
+    solved_rows = solve_rows(K_zz, K_xz, solver=solver)
+    # jnp, not einx: einx cannot resolve an empty inducing set (N_ℐ = 0).
+    # tr(K_Xℐ K_ℐℐ⁻¹ K_ℐX) = ∑ₙₘ [K_Xℐ]ₙₘ [K_Xℐ K_ℐℐ⁻¹]ₙₘ
+    trace_nystrom = jnp.sum(K_xz * solved_rows)
 
-    return tr_full - tr_approx
+    return trace_full - trace_nystrom
 
 
 def cavity_distribution(
@@ -129,86 +166,121 @@ def cavity_distribution(
     *,
     precision_floor: float | None = None,
 ) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator | Float[Array, " N"]]:
-    r"""Compute EP cavity distribution by removing a site.
+    """EP cavity distribution: remove a fraction α of a site from the marginal.
 
-    Computes:
+        Λ_cav = Σ_marg⁻¹ − α Λ_site
+        Σ_cav = Λ_cav⁻¹
+        μ_cav = Σ_cav (Σ_marg⁻¹ μ_marg − α Λμ_site)
 
-        cav_prec = post_prec - power * site_nat2
-        cav_cov  = inv(cav_prec)
-        cav_mean = cav_cov @ (post_prec @ post_mean - power * site_nat1)
+    Two forms are dispatched on the argument types. Operators for ``post_cov``
+    and ``site_nat2`` take the full-covariance path. ``(N,)`` arrays for both,
+    the marginal variances σ²_marg and site precisions of N scalar latents as
+    site-based EP over GPs represents them, take an elementwise path costing
+    O(N) rather than the O(N²) of a `lineax.DiagonalLinearOperator`:
 
-    Two forms are dispatched on the argument types. Passing ``post_cov``
-    and ``site_nat2`` as operators takes the full-covariance path. Passing
-    both as ``(N,)`` arrays — the marginal variances and per-site
-    precisions of ``N`` scalar latents, as site-based EP over GPs
-    represents them — takes an elementwise fast path costing ``O(N)``
-    rather than the ``O(N²)`` of wrapping them in a
-    `lineax.DiagonalLinearOperator`:
+        1 / σ²_cav = 1 / σ²_marg − α Λ_site
+        μ_cav = σ²_cav (μ_marg / σ²_marg − α Λμ_site)
 
-    $$
-    v_{\mathrm{cav}}^{-1} = v^{-1} - \alpha \lambda_2, \qquad
-    m_{\mathrm{cav}} = v_{\mathrm{cav}}
-        \left( \frac{m}{v} - \alpha \lambda_1 \right).
-    $$
+    Both forms use the positive-precision convention of `gaussx.newton_update`.
+    `gaussx.mean_cov_to_natural`, `gaussx.natural_to_mean_cov` and the default
+    of `gaussx.blr_diag_update` and `gaussx.blr_full_update` use −½ Λ_x instead:
+    multiply by −2, or call the BLR updates with ``convention="precision"``.
+    `gaussx.damped_natural_update` works in either.
 
-    Note:
-        Both forms use the ``nat2 = +Λ`` (positive precision) convention,
-        matching `gaussx.newton_update`. This differs from
-        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov` and the
-        default of `gaussx.blr_diag_update` / `gaussx.blr_full_update`, which
-        use the exponential-family convention ``η₂ = −Λ/2``; convert with
-        ``nat2 = −2 η₂``, or call the BLR updates with
-        ``convention="precision"``. `gaussx.damped_natural_update` is
-        convention-agnostic.
+    Algorithm:
+        1. Subtract α Λ_site from the marginal precision.
+        2. On the diagonal path, floor the result if asked.
+        3. Invert it and take the mean from the remaining information vector.
 
     Args:
-        post_mean: Posterior mean, shape ``(N,)``.
-        post_cov: Posterior covariance operator, or ``(N,)`` marginal
-            variances for the diagonal path.
-        site_nat1: Site natural parameter (precision-weighted mean),
-            shape ``(N,)``.
-        site_nat2: Site natural parameter (precision) as an operator, or
-            ``(N,)`` per-site precisions for the diagonal path.
-        power: Power EP fraction (default 1.0 for standard EP).
-        precision_floor: Optional lower bound on the cavity precision,
-            applied only on the diagonal path. A site that has absorbed
-            more precision than the posterior holds leaves a negative
-            cavity precision, which EP loops guard against by clipping;
-            ``None`` (the default) returns the raw cavity, whose negative
-            variances `ep_tilted_moments` treats as invalid and passes
-            through unchanged (a zero site update). The operator
-            path ignores it, since flooring a matrix would require an
-            eigendecomposition — the same split as `newton_update`.
+        post_mean: Marginal mean μ_marg.
+        post_cov: Marginal covariance Σ_marg as an operator, or marginal
+            variances σ²_marg for the diagonal path.
+        site_nat1: Site information vector Λμ_site.
+        site_nat2: Site precision Λ_site as an operator, or per-site precisions
+            for the diagonal path.
+        power: Power-EP fraction α; 1 is standard EP.
+        precision_floor: Lower bound on Λ_cav, on the diagonal path only. A site
+            that has absorbed more precision than the marginal holds leaves a
+            negative cavity precision, which EP loops guard against by clipping.
+            ``None`` returns the raw cavity, whose negative variances
+            `ep_tilted_moments` treats as invalid and passes through unchanged
+            (a zero site update). The operator path ignores it, since flooring
+            a matrix would need an eigendecomposition, the same split as
+            `newton_update`.
 
     Returns:
-        Tuple ``(cav_mean, cav_cov)``. ``cav_cov`` is an operator for the
-        operator path and an ``(N,)`` array of variances for the diagonal
-        path.
+        Tuple ``(cav_mean, cav_cov)`` holding μ_cav and Σ_cav. Σ_cav is an
+        operator on the operator path and an array of variances σ²_cav on the
+        diagonal path.
 
     Raises:
-        TypeError: If ``post_cov`` and ``site_nat2`` are not both arrays
-            or both operators.
+        TypeError: If ``post_cov`` and ``site_nat2`` are not both arrays or both
+            operators.
+
+    Examples:
+        The elementwise path:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> mean, variance = jnp.array([0.0, 1.0]), jnp.array([0.5, 0.5])
+        >>> site_info, site_precision = jnp.array([0.0, 1.0]), jnp.ones(2)
+        >>> cav_mean, cav_var = cavity_distribution(
+        ...     mean, variance, site_info, site_precision
+        ... )
+        >>> bool(jnp.allclose(cav_mean, mean)), bool(jnp.allclose(cav_var, 1.0))
+        (True, True)
+
+        The operator path agrees with it:
+
+        >>> cav_mean, cav_cov = cavity_distribution(
+        ...     mean,
+        ...     lx.DiagonalLinearOperator(variance),
+        ...     site_info,
+        ...     lx.DiagonalLinearOperator(site_precision),
+        ... )
+        >>> bool(jnp.allclose(cav_mean, mean))
+        True
+        >>> bool(jnp.allclose(cav_cov.as_matrix(), jnp.eye(2)))
+        True
+
+        Mixing an array with an operator is rejected:
+
+        >>> cavity_distribution(
+        ...     mean, variance, site_info, lx.DiagonalLinearOperator(site_precision)
+        ... )  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        TypeError: post_cov and site_nat2 must both be arrays or both be operators
     """
     if isinstance(post_cov, jax.Array) and isinstance(site_nat2, jax.Array):
-        cav_prec = 1.0 / post_cov - power * site_nat2
+        # 1 / σ²_cav = 1 / σ²_marg − α Λ_site
+        cavity_precision = 1.0 / post_cov - power * site_nat2
         if precision_floor is not None:
-            cav_prec = jnp.maximum(cav_prec, precision_floor)
-        cav_var = 1.0 / cav_prec
-        cav_mean = cav_var * (post_mean / post_cov - power * site_nat1)
-        return cav_mean, cav_var
+            cavity_precision = jnp.maximum(cavity_precision, precision_floor)
+        # σ²_cav
+        cavity_variance = 1.0 / cavity_precision
+        # μ_cav = σ²_cav (μ_marg / σ²_marg − α Λμ_site)
+        cavity_mean = cavity_variance * (post_mean / post_cov - power * site_nat1)
+        return cavity_mean, cavity_variance
     if isinstance(post_cov, jax.Array) or isinstance(site_nat2, jax.Array):
         msg = "post_cov and site_nat2 must both be arrays or both be operators"
         raise TypeError(msg)
 
-    post_prec = inv(post_cov)
-    cav_prec_mat = post_prec.as_matrix() - power * site_nat2.as_matrix()
-    cav_prec = lx.MatrixLinearOperator(cav_prec_mat)
-    cav_cov = inv(cav_prec)
+    # Λ_marg = Σ_marg⁻¹
+    marginal_precision = inv(post_cov)
+    # Λ_cav = Λ_marg − α Λ_site
+    cavity_matrix = marginal_precision.as_matrix() - power * site_nat2.as_matrix()
+    cavity_precision_op = lx.MatrixLinearOperator(cavity_matrix)
+    # Σ_cav = Λ_cav⁻¹
+    cavity_covariance = inv(cavity_precision_op)
 
-    eta1_cav = post_prec.mv(post_mean) - power * site_nat1
-    cav_mean = cav_cov.mv(eta1_cav)
+    # Λ_marg μ_marg − α Λμ_site
+    cavity_information = marginal_precision.mv(post_mean) - power * site_nat1
+    # μ_cav = Σ_cav (Λ_marg μ_marg − α Λμ_site)
+    cavity_mean = cavity_covariance.mv(cavity_information)
 
-    return cav_mean, cav_cov
+    return cavity_mean, cavity_covariance
 
 
 def newton_update(
@@ -218,59 +290,70 @@ def newton_update(
     *,
     precision_floor: float = 1e-6,
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"] | Float[Array, " N"]]:
-    r"""Convert a Newton step to natural pseudo-likelihood parameters.
+    """Convert a Newton step into the natural parameters of a site.
 
-    Computes:
+        Λ_site = −∇²_x
+        Λμ_site = g + Λ_site x
 
-        nat1 = jacobian - hessian @ mean
-        nat2 = -hessian
+    with g and ∇²_x the gradient and Hessian of the log-likelihood at x. Used in
+    Laplace and Newton inference to turn function-space derivatives into a site.
 
-    Used in Laplace/Newton-based approximate inference to convert
-    function-space derivatives into site natural parameters.
+    An ``(N,)`` array of per-site second derivatives h, the shape site-based EP
+    and Laplace inference over N scalar latents actually has, takes an
+    elementwise O(N) path instead of the (N, N) matrix product:
 
-    Passing ``hessian`` as an ``(N,)`` array of per-site second
-    derivatives — the shape site-based EP / Laplace inference over ``N``
-    scalar latents actually has — takes an elementwise ``O(N)`` path
-    instead of forming the ``(N, N)`` matrix product:
+        Λ_site = max(−h, tol)
+        Λμ_site = g + Λ_site ⊙ x
 
-    $$
-    \Lambda = \max(-h, \varepsilon), \qquad
-    \lambda_1 = g + \Lambda f, \qquad
-    \lambda_2 = \Lambda.
-    $$
-
-    Note:
-        Both forms use the ``nat2 = +Λ`` (positive precision) convention,
-        matching `gaussx.cavity_distribution`. This differs from
-        `gaussx.mean_cov_to_natural` / `gaussx.natural_to_mean_cov` and the
-        default of `gaussx.blr_diag_update` / `gaussx.blr_full_update`, which
-        use the exponential-family convention ``η₂ = −Λ/2``; convert with
-        ``nat2 = −2 η₂``, or call the BLR updates with
-        ``convention="precision"``. `gaussx.damped_natural_update` is
-        convention-agnostic.
+    Both forms use the positive-precision convention of
+    `gaussx.cavity_distribution`. `gaussx.mean_cov_to_natural`,
+    `gaussx.natural_to_mean_cov` and the default of `gaussx.blr_diag_update` and
+    `gaussx.blr_full_update` use −½ Λ_x instead: multiply by −2, or call the BLR
+    updates with ``convention="precision"``. `gaussx.damped_natural_update`
+    works in either.
 
     Args:
-        mean: Current mean, shape ``(N,)`` or ``(D,)``.
-        jacobian: Gradient (first derivative) of the log-likelihood with
-            respect to the latent, shape ``(N,)``. The name is historical; it
-            is a gradient, not a Jacobian matrix.
-        hessian: Second derivative (negative definite), either the full
-            ``(N, N)`` matrix or an ``(N,)`` diagonal.
-        precision_floor: Lower bound on the returned precision, applied
-            only on the diagonal path. Keeps sites from a non-log-concave
-            likelihood (positive ``hessian`` entries) from producing a
-            negative precision. The full-matrix path returns
-            ``-hessian`` unmodified, since flooring it would require an
-            eigendecomposition.
+        mean: Current point x.
+        jacobian: Gradient g of the log-likelihood in x. The name is historical;
+            it is a gradient, not a Jacobian matrix.
+        hessian: Second derivative, negative definite where the likelihood is
+            log-concave: the full ∇²_x or its diagonal h.
+        precision_floor: Lower bound tol on the returned precision, on the
+            diagonal path only. It keeps sites of a non-log-concave likelihood
+            (positive entries of h) from producing a negative precision. The
+            full-matrix path returns −∇²_x unmodified, since flooring it would
+            need an eigendecomposition.
 
     Returns:
-        Tuple ``(nat1, nat2)`` — site natural parameters. ``nat2`` matches
-        the shape of ``hessian``.
+        Tuple ``(nat1, nat2)`` holding Λμ_site and Λ_site, which matches the
+        shape of ``hessian``.
+
+    Examples:
+        The two paths agree on a diagonal Hessian:
+
+        >>> import jax.numpy as jnp
+        >>> mean, gradient = jnp.array([1.0, 2.0]), jnp.zeros(2)
+        >>> info, precision = newton_update(mean, gradient, -2.0 * jnp.ones(2))
+        >>> bool(jnp.allclose(info, 2.0 * mean)), bool(jnp.allclose(precision, 2.0))
+        (True, True)
+        >>> info, precision = newton_update(mean, gradient, -2.0 * jnp.eye(2))
+        >>> bool(jnp.allclose(info, 2.0 * mean)), precision.shape
+        (True, (2, 2))
+
+        A positive second derivative is floored on the diagonal path:
+
+        >>> _, precision = newton_update(mean, gradient, jnp.ones(2))
+        >>> bool(jnp.all(precision > 0.0))
+        True
     """
     if hessian.ndim == 1:
+        # Λ_site = max(−h, tol)
         precision = jnp.maximum(-hessian, precision_floor)
+        # Λμ_site = g + Λ_site ⊙ x
         return jacobian + precision * mean, precision
 
-    nat1 = jacobian - hessian @ mean
-    nat2 = -hessian
-    return nat1, nat2
+    # Λμ_site = g − ∇²_x x
+    site_information = jacobian - hessian @ mean
+    # Λ_site = −∇²_x
+    site_precision = -hessian
+    return site_information, site_precision

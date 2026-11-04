@@ -1,11 +1,9 @@
-r"""Low-rank variational-Bayes mean correction of the Laplace approximation.
+"""Low-rank variational-Bayes mean correction of the Laplace approximation.
 
-Van Niekerk & Rue (2024): keep the Laplace covariance $H^{-1}$ and move the
-mean within a $p$-dimensional subspace,
-$q_\delta = \mathcal N(\hat x + H^{-1}S\delta,\ H^{-1})$, choosing $\delta$ to
-maximise $\mathbb E_q[\log p(y\mid\eta)] - \mathrm{KL}(q\,\|\,\pi)$. Only the
-linear predictor's marginal variances $\operatorname{diag}(AH^{-1}A^\top)$
-and $p$ solves with the Laplace factor are needed.
+Van Niekerk & Rue (2024): keep the Laplace covariance Λ_x|y⁻¹ and move the mean
+within a p-dimensional subspace, q_δ = 𝒩(x̂ + Λ_x|y⁻¹ S δ, Λ_x|y⁻¹), choosing δ to
+maximise 𝔼_q[log p(y ∣ η)] − KL(q ‖ π). Only the linear predictor's marginal
+variances diag(A Λ_x|y⁻¹ Aᵀ) and p solves with the Laplace factor are needed.
 """
 
 from __future__ import annotations
@@ -46,76 +44,114 @@ _GAUSS_HERMITE_20 = GaussHermiteIntegrator(order=20)
 def _pair_plan(
     projector: SparsityPattern, selected: SparsityPattern
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
-    """Host plan for ``v_k = Σ_{a,b} A_ka A_kb Σ_ab`` over each row's pairs.
+    """Host plan for the predictor variances over each row's pairs of entries.
 
-    Returns ``(row, entry_a, entry_b, position)``: the pair's row, its two
-    entries in ``A``'s full (row-major) layout, and the position of
-    ``Σ_ab`` in the symmetric (lower) ``selected`` pattern. ``None`` if some
-    pair is missing from ``selected``; for the ``H = Q + AᵀWA`` of
-    `laplace_mode` none is, since each row of ``A`` is a clique of ``AᵀWA``.
+        v_m = ∑_a,b [A]_m,a [A]_m,b [Σ]_a,b
+
+    Args:
+        projector: Sparsity pattern of A.
+        selected: Symmetric (lower) pattern of the selected inverse Σ.
+
+    Returns:
+        ``(row, entry_a, entry_b, position)``: the pair's row, its two entries in
+        A's full (row-major) layout, and the position of [Σ]_a,b in ``selected``.
+        ``None`` if some pair is missing from ``selected``; for the
+        Λ_x|y = Λ_x + Aᵀ Λ_site A of `laplace_mode` none is, since each row of A
+        is a clique of Aᵀ Λ_site A.
     """
     rows, cols, _ = projector._full
-    m = projector.shape[0]
-    counts = np.bincount(rows, minlength=m)
+    num_rows = projector.shape[0]
+    counts = np.bincount(rows, minlength=num_rows)
     starts = np.cumsum(counts) - counts
     slot = np.arange(rows.shape[0]) - starts[rows]
-    table = np.full((m, max(int(counts.max(initial=0)), 1)), -1)
+    table = np.full((num_rows, max(int(counts.max(initial=0)), 1)), -1)
     table[rows, slot] = np.arange(rows.shape[0])
     width = table.shape[1]
     first = np.repeat(np.arange(width), width)
     second = np.tile(np.arange(width), width)
-    ea, eb = table[:, first], table[:, second]
-    keep = (ea >= 0) & (eb >= 0)
+    entry_a, entry_b = table[:, first], table[:, second]
+    keep = (entry_a >= 0) & (entry_b >= 0)
     row = np.nonzero(keep)[0]
-    ea, eb = ea[keep], eb[keep]
-    i = np.maximum(cols[ea], cols[eb]).astype(np.int64)
-    j = np.minimum(cols[ea], cols[eb]).astype(np.int64)
-    n = selected.shape[1]
-    keys = selected.rows.astype(np.int64) * n + selected.cols
-    wanted = i * n + j
+    entry_a, entry_b = entry_a[keep], entry_b[keep]
+    upper_index = np.maximum(cols[entry_a], cols[entry_b]).astype(np.int64)
+    lower_index = np.minimum(cols[entry_a], cols[entry_b]).astype(np.int64)
+    num_cols = selected.shape[1]
+    keys = selected.rows.astype(np.int64) * num_cols + selected.cols
+    wanted = upper_index * num_cols + lower_index
     position = np.minimum(np.searchsorted(keys, wanted), keys.shape[0] - 1)
     if not np.array_equal(keys[position], wanted):
         return None
     as_int = ft.partial(np.asarray, dtype=np.int32)
-    return as_int(row), as_int(ea), as_int(eb), as_int(position)
+    return as_int(row), as_int(entry_a), as_int(entry_b), as_int(position)
 
 
-def _diag_inverse(H: lx.AbstractLinearOperator, factor: Any) -> Array | None:
-    """``diag(H⁻¹)`` by Takahashi or a structured selected inverse, if any."""
+def _diag_inverse(hessian: lx.AbstractLinearOperator, factor: Any) -> Array | None:
+    """Diagonal of Λ_x|y⁻¹ by Takahashi or a structured selected inverse, if any.
+
+    Args:
+        hessian: The operator Λ_x|y.
+        factor: Its factorisation.
+
+    Returns:
+        diag(Λ_x|y⁻¹), or ``None`` when no selected inverse covers the class.
+    """
     if isinstance(factor, SparseCholeskyFactor):
         return factor.diag_inv()
-    if isinstance(H, BlockTriDiag):
-        return diag_inv(H)
-    if isinstance(H, lx.DiagonalLinearOperator):
-        return 1.0 / H.diagonal
+    if isinstance(hessian, BlockTriDiag):
+        return diag_inv(hessian)
+    if isinstance(hessian, lx.DiagonalLinearOperator):
+        return 1.0 / hessian.diagonal
     return None
 
 
 def _unconstrained_variances(model: _Model, result: LaplaceResult) -> Array:
-    """``diag(A H⁻¹ Aᵀ)``, from the selected inverse whenever it suffices."""
-    A, H, factor = model.projector, result.hessian, result.factor
-    if A is None or _is_selection(A):
-        d = _diag_inverse(H, factor)
-        if d is not None:
-            if A is None:
-                return d
-            assert isinstance(A, SparseOperator)
-            rows, cols, _ = A.pattern._full
-            v = jnp.zeros(A.pattern.shape[0], dtype=d.dtype)
-            return v.at[rows].set(A._full_values() ** 2 * d[cols])
-    elif isinstance(A, SparseOperator) and isinstance(factor, SparseCholeskyFactor):
-        plan = _pair_plan(A.pattern, factor.symbolic.inverse_plan[0])
+    """Predictor variances diag(A Λ_x|y⁻¹ Aᵀ), from a selected inverse if it suffices.
+
+    Args:
+        model: The model, which holds A.
+        result: The Laplace fit, which holds Λ_x|y and its factor.
+
+    Returns:
+        The marginal variance of each site of the linear predictor.
+    """
+    projector, hessian, factor = model.projector, result.hessian, result.factor
+    if projector is None or _is_selection(projector):
+        # diag(Λ_x|y⁻¹)
+        marginals = _diag_inverse(hessian, factor)
+        if marginals is not None:
+            if projector is None:
+                return marginals
+            assert isinstance(projector, SparseOperator)
+            rows, cols, _ = projector.pattern._full
+            variances = jnp.zeros(projector.pattern.shape[0], dtype=marginals.dtype)
+            # v_m = [A]²_m,d [Λ_x|y⁻¹]_d,d
+            return variances.at[rows].set(
+                projector._full_values() ** 2 * marginals[cols]
+            )
+    elif isinstance(projector, SparseOperator) and isinstance(
+        factor, SparseCholeskyFactor
+    ):
+        plan = _pair_plan(projector.pattern, factor.symbolic.inverse_plan[0])
         if plan is not None:
-            row, ea, eb, position = plan
-            Z = factor.selected_inverse().values
-            a = A._full_values()
-            terms = a[ea] * a[eb] * Z[position]
-            return jax.ops.segment_sum(terms, row, num_segments=A.pattern.shape[0])
+            row, entry_a, entry_b, position = plan
+            selected_inverse = factor.selected_inverse().values
+            values = projector._full_values()
+            # [A]_m,a [A]_m,b [Σ]_a,b, one term per pair
+            terms = values[entry_a] * values[entry_b] * selected_inverse[position]
+            # v_m = ∑_a,b [A]_m,a [A]_m,b [Σ]_a,b
+            return jax.ops.segment_sum(
+                terms, row, num_segments=projector.pattern.shape[0]
+            )
     # No selected inverse covers A's rows: one solve per row of A.
-    n = result.mode.shape[0]
-    rows = jnp.eye(n, dtype=result.mode.dtype) if A is None else A.as_matrix()
-    solved = jax.vmap(factor.solve)(rows)
-    return einsum(rows, solved, "m n, m n -> m")
+    state_size = result.mode.shape[0]
+    if projector is None:
+        rows_dense = jnp.eye(state_size, dtype=result.mode.dtype)
+    else:
+        rows_dense = projector.as_matrix()
+    # Λ_x|y⁻¹ Aᵀ, one row per site
+    solved = jax.vmap(factor.solve)(rows_dense)
+    # v_m = [A]_m,· [Λ_x|y⁻¹ Aᵀ]_·,m
+    return einsum(rows_dense, solved, "obs state, obs state -> obs")
 
 
 # ---------------------------------------------------------------------------
@@ -124,19 +160,34 @@ def _unconstrained_variances(model: _Model, result: LaplaceResult) -> Array:
 
 
 def _basis(
-    subspace: Int[ArrayLike, " p"] | Float[ArrayLike, "N p"], n: int, dtype: Any
+    subspace: Int[ArrayLike, " p"] | Float[ArrayLike, "N p"],
+    state_size: int,
+    dtype: Any,
 ) -> Float[Array, "p N"]:
-    """``Sᵀ``: unit rows for an index array, else the dense basis transposed."""
-    s = jnp.asarray(subspace)
-    if jnp.issubdtype(s.dtype, jnp.integer):
-        if s.ndim != 1:
-            raise ValueError(f"an index subspace must be 1-D, got shape {s.shape}.")
-        return jax.nn.one_hot(s, n, dtype=dtype)
-    if s.ndim != 2 or s.shape[0] != n:
+    """Subspace basis Sᵀ: unit rows for an index array, else the basis transposed.
+
+    Args:
+        subspace: Integer indices of the columns of I, or a dense basis S.
+        state_size: Length D_x of the latent field.
+        dtype: Floating dtype of the result.
+
+    Returns:
+        Sᵀ, one row per direction.
+
+    Raises:
+        ValueError: If ``subspace`` has the wrong shape.
+    """
+    basis = jnp.asarray(subspace)
+    if jnp.issubdtype(basis.dtype, jnp.integer):
+        if basis.ndim != 1:
+            raise ValueError(f"an index subspace must be 1-D, got shape {basis.shape}.")
+        return jax.nn.one_hot(basis, state_size, dtype=dtype)
+    if basis.ndim != 2 or basis.shape[0] != state_size:
         raise ValueError(
-            f"a dense subspace must have shape ({n}, p), got {tuple(s.shape)}."
+            f"a dense subspace must have shape ({state_size}, p), "
+            f"got {tuple(basis.shape)}."
         )
-    return rearrange(s.astype(dtype), "n p -> p n")
+    return rearrange(basis.astype(dtype), "state dir -> dir state")
 
 
 def vb_mean_correction(
@@ -150,184 +201,258 @@ def vb_mean_correction(
     n_iter: int = 5,
     integrator: AbstractIntegrator = _GAUSS_HERMITE_20,
 ) -> Float[Array, " N"]:
-    r"""Low-rank VB correction of the Laplace mean (Van Niekerk & Rue, 2024).
+    """Low-rank VB correction of the Laplace mean (Van Niekerk & Rue, 2024).
 
-    The Laplace approximation $\mathcal N(\hat x, H^{-1})$ is centred at the
-    mode, which under a skewed likelihood (Poisson with small counts,
-    Bernoulli) is a biased estimate of the posterior mean. Keeping the
-    covariance $H^{-1}$, shift the mean within the span of $S$ (``subspace``,
-    $N\times p$),
+        x̄(δ) = x̂ + Σ S δ,   δ⋆ = argmax_δ ELBO(δ)
 
-    $$
-    q_\delta = \mathcal N\big(\bar x(\delta),\ H^{-1}\big),\qquad
-    \bar x(\delta) = \hat x + H^{-1}S\delta,
-    $$
+    The Laplace approximation 𝒩(x̂, Λ_x|y⁻¹) is centred at the mode, which under a
+    skewed likelihood (Poisson with small counts, Bernoulli) is a biased estimate of
+    the posterior mean. Keeping the covariance Σ = Λ_x|y⁻¹, shift the mean within
+    the span of S (``subspace``, D_x × p), so q_δ = 𝒩(x̄(δ), Σ), and choose δ to
+    maximise the evidence lower bound, whose covariance terms do not depend on δ:
 
-    and choose $\delta$ to maximise the evidence lower bound, whose
-    covariance terms do not depend on $\delta$:
+        ELBO(δ) = ∑ₘ 𝔼_{ηₘ ~ 𝒩(μ_η,m(δ), vₘ)}[log p(yₘ ∣ ηₘ)]
+            − ½ (x̄(δ) − μ_x)ᵀ Λ_x (x̄(δ) − μ_x)
 
-    $$
-    \mathcal L(\delta) = \sum_i\mathbb E_{\eta_i\sim\mathcal N(m_i(\delta),\,v_i)}
-        \big[\log p(y_i\mid\eta_i)\big]
-        - \tfrac12\big(\bar x(\delta)-\mu\big)^\top Q\big(\bar x(\delta)-\mu\big),
-    $$
+    with μ_η(δ) = A x̄(δ) + o and vₘ = [A Σ Aᵀ]ₘₘ. With U = Σ S, B = A U and the site
+    expectations ḡₘ = 𝔼[∇_η log p(yₘ ∣ ηₘ)], h̄ₘ = 𝔼[∇²_η log p(yₘ ∣ ηₘ)] (1-D
+    quadrature by ``integrator`` on each site), ``n_iter`` Newton steps on the
+    p-dimensional δ, from δ = 0, use
 
-    with $m(\delta) = A\bar x(\delta) + o$ and $v_i = [AH^{-1}A^\top]_{ii}$.
-    With $U = H^{-1}S$, $B = AU$ and the site expectations
-    $\bar g_i = \mathbb E[\partial_\eta\log p(y_i\mid\eta_i)]$,
-    $\bar h_i = \mathbb E[\partial^2_\eta\log p(y_i\mid\eta_i)]$ (1-D
-    quadrature by ``integrator`` on each site), ``n_iter`` Newton steps
-    on the $p$-dimensional $\delta$ (from $\delta = 0$) use
+        ∇_δ ELBO = Bᵀ ḡ − Uᵀ Λ_x (x̄ − μ_x)
+        ∇²_δ ELBO = Bᵀ diag(h̄) B − Uᵀ Λ_x U
 
-    $$
-    \nabla\mathcal L = B^\top\bar g - U^\top Q(\bar x-\mu),\qquad
-    \nabla^2\mathcal L = B^\top\operatorname{diag}(\bar h)B - U^\top QU.
-    $$
+    For a Gaussian likelihood the mode is the exact posterior mean and the correction
+    is zero.
 
-    For a Gaussian likelihood the mode is the exact posterior mean and the
-    correction is zero.
+    **Cost.** p solves with ``result.factor`` (plus D_c for a hard constraint), then
+    p-dimensional Newton steps whose site expectations are ``order × M`` likelihood
+    derivatives. The predictor variances come from the selected inverse, not from
+    solves: for an identity or row-selection projector they are [A]²_m,d [Σ]_d,d (a
+    `BlockTriDiag`, sparse or diagonal Λ_x|y), and for a general sparse projector (a
+    FEM projector, fixed-effect columns) every pair of nodes in a row of A is coupled
+    in Aᵀ Λ_site A, so each [Σ]_a,b needed lies in Takahashi's pattern(L + Lᵀ). A
+    dense A or Λ_x|y costs one solve per row of A. The Newton step is the minimum-norm
+    one, so directions of S that do not move x̄ (dependent columns, or ones in the
+    constrained-out span of V) are harmless.
 
-    **Cost.** $p$ solves with ``result.factor`` (plus $c$ for a hard
-    constraint), then $p$-dimensional Newton steps whose site expectations
-    are ``order × M`` likelihood derivatives. The predictor variances come
-    from the selected inverse, not from solves: for an identity or
-    row-selection projector they are $A_{ij}^2\Sigma_{jj}$ (a
-    `BlockTriDiag`, sparse or diagonal $H$), and for a general sparse
-    projector (a FEM projector, fixed-effect columns) every pair of nodes
-    in a row of $A$ is coupled in $A^\top WA$, so each $\Sigma_{ab}$ needed
-    lies in Takahashi's ``pattern(L + Lᵀ)``. A dense $A$ or $H$ costs one
-    solve per row of $A$. The Newton step is the minimum-norm one, so
-    directions of $S$ that do not move $\bar x$ (dependent columns, or
-    ones in the constrained-out span of $V$) are harmless.
+    **Intrinsic priors.** With ``constraint="hard"`` both the covariance and the shift
+    are those of the constrained approximation, kriged onto Vᵀ x = 0:
+    Σ = Λ_x|y⁻¹ − Λ_x|y⁻¹ V (Vᵀ Λ_x|y⁻¹ V)⁻¹ Vᵀ Λ_x|y⁻¹ and x̄(δ) = x̂ + Σ S δ.
 
-    **Intrinsic priors.** With ``constraint="hard"`` both the covariance
-    and the shift are those of the constrained approximation, kriged onto
-    $V^\top x = 0$: $\Sigma = H^{-1} - H^{-1}V(V^\top H^{-1}V)^{-1}V^\top H^{-1}$
-    and $\bar x(\delta) = \hat x + \Sigma S\delta$.
+    **Gradients.** The result is an ordinary JAX function of the arrays in ``result``,
+    ``prior``, ``likelihood`` and ``projector``, so it can be differentiated in reverse
+    mode (through ``laplace_mode``'s implicit mode and the factor's solves); ``n_iter``
+    fixed Newton steps are differentiated as unrolled.
 
-    **Gradients.** The result is an ordinary JAX function of the arrays in
-    ``result``, ``prior``, ``likelihood`` and ``projector``, so it can be
-    differentiated in reverse mode (through ``laplace_mode``'s implicit
-    mode and the factor's solves); ``n_iter`` fixed Newton steps are
-    differentiated as unrolled.
+    Algorithm:
+        1. Build the model and the basis Sᵀ.
+        2. Take the predictor variances and the p solves U = Σ S.
+        3. Run ``n_iter`` minimum-norm Newton steps on δ.
+        4. Return x̂ + U δ.
 
     Args:
         result: `laplace_mode`'s output for the same model.
         prior: The latent field passed to `laplace_mode`.
-        likelihood: The site-factorising likelihood passed to `laplace_mode`
-            (it holds $y$).
-        subspace: The span of the mean shift: an integer index array
-            (``S`` is those columns of the identity, e.g. the fixed effects'
-            nodes) or a dense basis of shape ``(N, p)``.
-        projector: $A$ as passed to `laplace_mode`; ``None`` is the identity.
-        offset: $o$ as passed to `laplace_mode`.
-        n_iter: Newton steps on $\delta$.
-        integrator: A point-based 1-D rule for the site expectations; its
-            points and weights for $\mathcal N(0, 1)$ are reused for every
-            site.
+        likelihood: The site-factorising likelihood passed to `laplace_mode`, which
+            holds y.
+        subspace: The span of the mean shift S: an integer index array (those columns
+            of the identity, e.g. the fixed effects' nodes) or a dense basis of shape
+            (D_x, p).
+        projector: The projector A as passed to `laplace_mode`; ``None`` is the
+            identity.
+        offset: The offset o as passed to `laplace_mode`.
+        n_iter: Newton steps on δ.
+        integrator: A point-based 1-D rule for the site expectations; its points and
+            weights for 𝒩(0, 1) are reused for every site.
 
     Returns:
-        The corrected mean $\bar x(\delta)$, shape ``(N,)``.
+        The corrected mean x̄(δ).
 
     Raises:
         ValueError: If ``subspace`` has the wrong shape.
 
     Examples:
-        ```python
-        import jax.numpy as jnp
-        import numpy as np
-        import gaussx as gx
+        Rare detections along a transect: logit pₙ = β₀ + uₙ, with u an RW2 under
+        ∑ uₙ = ∑ (tₙ − t̄) uₙ = 0, β₀ ~ 𝒩(0, 10³) and latent x = (u, β₀):
 
-        # Rare detections along a transect: logit p_i = β₀ + u_i, u an RW2
-        # under Σu = Σ(t − t̄)u = 0 and β₀ ~ N(0, 10³), latent x = (u, β₀).
-        n = 40
-        t = np.arange(n, dtype=float)
-        p_true = 1 / (1 + np.exp(2 - np.sin(t / 5)))
-        detected = jnp.asarray(np.random.default_rng(0).random(n) < p_true, float)
-        R = np.asarray(gx.rw2_structure(n).as_matrix())
-        rows, cols = np.nonzero(np.tril(R))
-        Q = gx.SparseOperator.from_coo(
-            np.r_[rows, n], np.r_[cols, n], jnp.r_[2.0 * R[rows, cols], 1e-3],
-            (n + 1, n + 1), symmetric=True,
-        )
-        V = jnp.zeros((n + 1, 2)).at[:n, 0].set(1.0).at[:n, 1].set(t - t.mean())
-        prior = gx.IntrinsicGMRF(jnp.zeros(n + 1), 1.0, Q, V)
-        A = gx.SparseOperator.from_coo(  # η = u + β₀
-            np.r_[np.arange(n), np.arange(n)], np.r_[np.arange(n), np.full(n, n)],
-            jnp.ones(2 * n), (n, n + 1),
-        )
-        lik = gx.BernoulliLikelihood(detected)
+        >>> import jax.numpy as jnp
+        >>> import numpy as np
+        >>> import gaussx
+        >>> n = 20
+        >>> times = np.arange(n, dtype=float)
+        >>> p_true = 1 / (1 + np.exp(2 - np.sin(times / 5)))
+        >>> detected = np.random.default_rng(0).random(n) < p_true
+        >>> detected = jnp.asarray(detected, dtype=jnp.zeros(()).dtype)
+        >>> structure = np.asarray(gaussx.rw2_structure(n).as_matrix())
+        >>> rows, cols = np.nonzero(np.tril(structure))
+        >>> values = jnp.r_[2.0 * structure[rows, cols], 1e-3]
+        >>> precision = gaussx.SparseOperator.from_coo(
+        ...     np.r_[rows, n], np.r_[cols, n], values, (n + 1, n + 1), symmetric=True
+        ... )
+        >>> null_space = jnp.zeros((n + 1, 2)).at[:n, 0].set(1.0)
+        >>> null_space = null_space.at[:n, 1].set(times - times.mean())
+        >>> prior = gaussx.IntrinsicGMRF(jnp.zeros(n + 1), 1.0, precision, null_space)
+        >>> projector = gaussx.SparseOperator.from_coo(
+        ...     np.r_[np.arange(n), np.arange(n)],
+        ...     np.r_[np.arange(n), np.full(n, n)],
+        ...     jnp.ones(2 * n),
+        ...     (n, n + 1),
+        ... )
+        >>> likelihood = gaussx.BernoulliLikelihood(detected)
+        >>> fit = gaussx.laplace_mode(prior, likelihood, projector=projector)
+        >>> mean = gaussx.vb_mean_correction(
+        ...     fit, prior, likelihood, projector=projector, subspace=jnp.array([n])
+        ... )
+        >>> mean.shape, bool(jnp.all(jnp.isfinite(mean)))
+        ((21,), True)
 
-        res = gx.laplace_mode(prior, lik, projector=A)
-        fixed_effect_idx = jnp.array([n])
-        mean_vb = gx.vb_mean_correction(
-            res, prior, lik, projector=A, subspace=fixed_effect_idx
-        )
-        ```
+        A dense subspace must have D_x rows:
+
+        >>> gaussx.vb_mean_correction(
+        ...     fit, prior, likelihood, projector=projector, subspace=jnp.ones((2, 1))
+        ... )  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        ValueError: a dense subspace must have shape (21, p), got (2, 1).
     """
     model = _model(prior, likelihood, projector, offset)
-    St = _basis(subspace, result.mode.shape[0], result.mode.dtype)
-    return _correct(model, result, St, n_iter, integrator)
+    subspace_rows = _basis(subspace, result.mode.shape[0], result.mode.dtype)
+    return _correct(model, result, subspace_rows, n_iter, integrator)
 
 
 @eqx.filter_jit
 def _correct(
     model: _Model,
     result: LaplaceResult,
-    St: Float[Array, "p N"],
+    subspace_rows: Float[Array, "p N"],
     n_iter: int,
     integrator: AbstractIntegrator,
 ) -> Float[Array, " N"]:
-    """``x̂ + Σ S δ`` after ``n_iter`` Newton steps on the VB objective."""
+    """Run ``n_iter`` Newton steps on the VB objective and return x̂ + Σ S δ.
+
+    Algorithm:
+        1. Take the predictor variances and, under a hard constraint, subtract the
+           kriging reduction and build the constrained solve.
+        2. Form U = Σ S, B = A U and Uᵀ Λ_x U.
+        3. Get the standard-normal quadrature rule, reused for every site.
+        4. Take minimum-norm Newton steps on δ.
+
+    Args:
+        model: The model.
+        result: The Laplace fit.
+        subspace_rows: The basis Sᵀ, one row per direction.
+        n_iter: Newton steps on δ.
+        integrator: A point-based 1-D quadrature rule.
+
+    Returns:
+        The corrected mean x̄(δ).
+    """
     mode, factor = result.mode, result.factor
     dtype = mode.dtype
 
-    # Constrained solves Σb = H⁻¹b − W C⁻¹ Vᵀ H⁻¹b, W = H⁻¹V, C = VᵀW.
+    # --- constrained solves ---
+    # Σ b = Λ_x|y⁻¹ b − W S_V⁻¹ Vᵀ Λ_x|y⁻¹ b, W = Λ_x|y⁻¹ V, S_V = Vᵀ W
     variances = _unconstrained_variances(model, result)
     if model.null_space is None:
         cov_solve = factor.solve
     else:
-        Vt = rearrange(model.null_space, "n c -> c n")
-        Wt = jax.vmap(factor.solve)(Vt)
-        C = einsum(Vt, Wt, "c n, d n -> c d")
+        # Vᵀ
+        null_rows = rearrange(model.null_space, "state con -> con state")
+        # Wᵀ, one row per constraint
+        solved_rows = jax.vmap(factor.solve)(null_rows)
+        # S_V = Vᵀ W
+        schur = einsum(null_rows, solved_rows, "con state, other state -> con other")
 
-        def cov_solve(b: Array) -> Array:
-            u = factor.solve(b)
-            coeffs = jnp.linalg.solve(C, einsum(Vt, u, "c n, n -> c"))
-            return u - einsum(coeffs, Wt, "c, c n -> n")
+        def cov_solve(rhs: Array) -> Array:
+            # Λ_x|y⁻¹ b
+            solved = factor.solve(rhs)
+            # Vᵀ Λ_x|y⁻¹ b
+            projection = einsum(null_rows, solved, "con state, state -> con")
+            # S_V⁻¹ Vᵀ Λ_x|y⁻¹ b
+            coeffs = jnp.linalg.solve(schur, projection)
+            # W S_V⁻¹ Vᵀ Λ_x|y⁻¹ b
+            correction = einsum(coeffs, solved_rows, "con, con state -> state")
+            return solved - correction
 
-        AW = jax.vmap(model.project)(Wt)
-        reduction = einsum(AW, jnp.linalg.solve(C, AW), "c m, c m -> m")
+        # (A W)ᵀ, one row per constraint
+        projected_rows = jax.vmap(model.project)(solved_rows)
+        # S_V⁻¹ (A W)ᵀ
+        solved_projected = jnp.linalg.solve(schur, projected_rows)
+        # diag(A W S_V⁻¹ Wᵀ Aᵀ)
+        reduction = einsum(projected_rows, solved_projected, "con obs, con obs -> obs")
+        # vₘ ← vₘ − [A W S_V⁻¹ Wᵀ Aᵀ]ₘₘ
         variances = variances - reduction
 
-    U = jax.vmap(cov_solve)(St)  # (p, N)
-    B = jax.vmap(model.project)(U)  # (p, M)
-    QU = jax.vmap(model.precision.mv)(U)
-    UQU = einsum(U, QU, "k n, l n -> k l")
+    # --- the subspace ---
+    # U = Σ S, one row per direction
+    shift_rows = jax.vmap(cov_solve)(subspace_rows)
+    # B = A U
+    predictor_rows = jax.vmap(model.project)(shift_rows)
+    # Λ_x U
+    precision_rows = jax.vmap(model.precision.mv)(shift_rows)
+    # Uᵀ Λ_x U
+    prior_curvature = einsum(
+        shift_rows, precision_rows, "dir state, other state -> dir other"
+    )
+    # √vₘ
     scale = jnp.sqrt(jnp.maximum(variances, 0.0))
-    eta_hat = model.project(mode) + model.offset
+    # η̂ = A x̂ + o
+    predictor_mode = model.project(mode) + model.offset
 
+    # --- standard-normal quadrature ---
     standard = GaussianState(
         jnp.zeros(1, dtype=dtype),
         lx.IdentityLinearOperator(jax.ShapeDtypeStruct((1,), dtype)),
     )
     points, weights, _ = integrator.points_and_weights(standard)
-    z = rearrange(points, "q 1 -> q")
+    nodes = rearrange(points, "point 1 -> point")
 
-    def step(_: int, delta: Array) -> Array:
-        x = mode + einsum(delta, U, "k, k n -> n")
-        m = eta_hat + einsum(delta, B, "k, k m -> m")
-        eta = einx.add("m, q m -> q m", m, einx.multiply("m, q -> q m", scale, z))
-        g, h = jax.vmap(model.likelihood.site_derivatives)(eta)
-        g_bar = einsum(weights, g, "q, q m -> m")
-        h_bar = einsum(weights, h, "q, q m -> m")
-        grad = einsum(B, g_bar, "k m, m -> k") - einsum(
-            QU, x - model.loc, "k n, n -> k"
+    def step(_: int, shift: Array) -> Array:
+        # x̄ = x̂ + U δ
+        mean = mode + einsum(shift, shift_rows, "dir, dir state -> state")
+        # μ_η = η̂ + B δ
+        predictor_mean = predictor_mode + einsum(
+            shift, predictor_rows, "dir, dir obs -> obs"
         )
-        curv = einsum(B, einx.multiply("l m, m -> l m", B, h_bar), "k m, l m -> k l")
-        # Min-norm step: Sδ in span(V) (a hard constraint) or dependent
+        # √vₘ z_q
+        spread = einx.multiply("obs, point -> point obs", scale, nodes)
+        # ηₘ = μ_η,m + √vₘ z_q
+        predictor = einx.add("obs, point obs -> point obs", predictor_mean, spread)
+        # ∇_η log p and ∇²_η log p at each node
+        site_gradients, site_hessians = jax.vmap(model.likelihood.site_derivatives)(
+            predictor
+        )
+        # ḡₘ = ∑_q w_q ∇_η log p(yₘ ∣ η_q,m)
+        expected_gradient = einsum(weights, site_gradients, "point, point obs -> obs")
+        # h̄ₘ = ∑_q w_q ∇²_η log p(yₘ ∣ η_q,m)
+        expected_hessian = einsum(weights, site_hessians, "point, point obs -> obs")
+        # Bᵀ ḡ
+        data_gradient = einsum(predictor_rows, expected_gradient, "dir obs, obs -> dir")
+        # Uᵀ Λ_x (x̄ − μ_x)
+        prior_gradient = einsum(
+            precision_rows, mean - model.loc, "dir state, state -> dir"
+        )
+        # ∇_δ ELBO = Bᵀ ḡ − Uᵀ Λ_x (x̄ − μ_x)
+        gradient = data_gradient - prior_gradient
+        # diag(h̄) B
+        weighted_rows = einx.multiply(
+            "other obs, obs -> other obs", predictor_rows, expected_hessian
+        )
+        # Bᵀ diag(h̄) B
+        data_curvature = einsum(
+            predictor_rows, weighted_rows, "dir obs, other obs -> dir other"
+        )
+        # Min-norm step: S δ in span(V) (a hard constraint) or dependent
         # columns of S leave x̄ unchanged and make the matrix singular.
-        return delta - jnp.linalg.pinv(curv - UQU, hermitian=True) @ grad
+        # (∇²_δ ELBO)⁺
+        pseudo_inverse = jnp.linalg.pinv(
+            data_curvature - prior_curvature, hermitian=True
+        )
+        # δ ← δ − (∇²_δ ELBO)⁺ ∇_δ ELBO
+        return shift - pseudo_inverse @ gradient
 
-    delta = jax.lax.fori_loop(0, n_iter, step, jnp.zeros(U.shape[0], dtype=dtype))
-    return mode + einsum(delta, U, "k, k n -> n")
+    initial_shift = jnp.zeros(shift_rows.shape[0], dtype=dtype)
+    shift = jax.lax.fori_loop(0, n_iter, step, initial_shift)
+    # x̄ = x̂ + U δ
+    return mode + einsum(shift, shift_rows, "dir, dir state -> state")
