@@ -115,6 +115,23 @@ def test_identity_of_the_averaging_kernel():
     )
 
 
+def test_a_strongly_observed_retrieval_keeps_its_prior():
+    """K = [1e4, 1e4] in float32: K̃ᵀ K̃ would round the unit prior away.
+
+    With unit noise and prior, σ² = 2e8, so d_s ≈ 1, H = ½ ln(1 + 2e8) and Ŝ
+    has diagonal ≈ ½.
+    """
+    identity = lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32))
+    prior = lx.DiagonalLinearOperator(jnp.ones(2, jnp.float32))
+    actual = gaussx.information_diagnostics(
+        jnp.array([[1e4, 1e4]], jnp.float32), identity, prior
+    )
+    assert actual.posterior_cov.dtype == jnp.float32
+    assert jnp.allclose(jnp.diag(actual.posterior_cov), 0.5, rtol=1e-3)
+    assert jnp.allclose(actual.dofs, 1.0, rtol=1e-3)
+    assert jnp.allclose(actual.information_content, 9.557, rtol=1e-3)
+
+
 def test_structured_covariances_are_not_materialised():
     """A diagonal S_ε and a Kronecker S_a match the dense result, undensified."""
     jacobian = jr.normal(jr.key(0), (8, 6), _float())
