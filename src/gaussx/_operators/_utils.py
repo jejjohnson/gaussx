@@ -8,14 +8,75 @@ gaussx operator registers them here through
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array
+from jaxtyping import Array, PyTree
 
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._low_rank_update import LowRankUpdate
+
+
+class _ShapedDiagonal(lx.DiagonalLinearOperator):
+    """A diagonal with a shaped or pytree store that also takes a flat vector.
+
+    `lineax.DiagonalLinearOperator` acts only on vectors shaped like its store,
+    while gaussx's composites (`BlockDiag`, `Kronecker`, a low-rank update) and
+    samplers hand their operators flat vectors. Keeping a shaped diagonal's
+    root or inverse usable by both means accepting both.
+    """
+
+    def mv(self, vector: PyTree[Array]) -> PyTree[Array]:
+        """Apply diag(a), in the shape of ``vector``.
+
+        Args:
+            vector: A vector shaped like the store, or flattened.
+
+        Returns:
+            a ⊙ vector, in the shape of ``vector``.
+        """
+        if eqx.is_array(vector) and vector.ndim == 1:
+            # a flat vector meets the flattened diagonal
+            return lx.diagonal(self) * vector
+        return super().mv(vector)
+
+    def __matmul__(self, other: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
+        """Compose, keeping a product of diagonals flat-tolerant.
+
+        lineax merges a composition of two diagonals into a plain
+        ``DiagonalLinearOperator`` at its first matvec.
+
+        Args:
+            other: The operator applied first.
+
+        Returns:
+            The composition.
+        """
+        if isinstance(other, lx.DiagonalLinearOperator) and (
+            self.in_structure() == other.in_structure()
+        ):
+            # diag(a) diag(b) = diag(a ⊙ b)
+            return _ShapedDiagonal(
+                jax.tree.map(jnp.multiply, self.diagonal, other.diagonal)
+            )
+        return super().__matmul__(other)
+
+
+def diagonal_like(diagonal: PyTree[Array]) -> lx.DiagonalLinearOperator:
+    """A diagonal operator on ``diagonal``'s store, usable by flat callers too.
+
+    Args:
+        diagonal: The diagonal a, as an array or a pytree of arrays.
+
+    Returns:
+        A plain ``DiagonalLinearOperator`` for a 1-D array, otherwise one that
+        takes a vector either in the store's shape or flattened.
+    """
+    if eqx.is_array(diagonal) and diagonal.ndim == 1:
+        return lx.DiagonalLinearOperator(diagonal)
+    return _ShapedDiagonal(diagonal)
 
 
 def lineax_diagonal(operator: lx.AbstractLinearOperator) -> Array:

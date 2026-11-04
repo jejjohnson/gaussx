@@ -72,6 +72,58 @@ def test_square_roots_act_on_the_shape(operator, factor):
     _assert_close(gaussx.solve(root, vector), vector / jnp.sqrt(_diagonal()))
 
 
+@pytest.mark.parametrize("operator", _operators())
+@pytest.mark.parametrize("factor", [gaussx.sqrt, gaussx.cholesky, gaussx.inv])
+def test_factors_still_take_a_flat_vector(operator, factor):
+    """Composites and samplers hand their operators flat vectors."""
+    vector = jnp.arange(1.0, 7.0, dtype=_diagonal().dtype)
+    applied = factor(operator).mv(vector)
+    assert applied.shape == (6,)
+    rtol, atol = default_tolerances(applied)
+    dense = factor(operator).as_matrix() @ vector
+    assert jnp.allclose(applied, dense, rtol=rtol, atol=atol)
+
+
+def test_a_product_of_factors_still_takes_a_flat_vector():
+    """lineax would merge this composition into a plain, shape-only diagonal."""
+    operator = lx.DiagonalLinearOperator(_diagonal())
+    root = gaussx.sqrt(operator)
+    vector = jnp.ones(6, dtype=_diagonal().dtype)
+    _assert_close((root @ root).mv(vector), jnp.ravel(_diagonal()))
+    composition = gaussx.inv(operator @ operator)
+    _assert_close(composition.mv(vector), 1.0 / jnp.ravel(_diagonal()) ** 2)
+
+
+def _composites():
+    small = lx.DiagonalLinearOperator(
+        jnp.array([1.0, 2.0], dtype=jnp.result_type(float))
+    )
+    shaped = lx.DiagonalLinearOperator(_diagonal())
+    return [
+        pytest.param(gaussx.BlockDiag(shaped, small), id="block_diag"),
+        pytest.param(gaussx.Kronecker(shaped, small), id="kronecker"),
+        pytest.param(gaussx.Kronecker(small, shaped), id="kronecker_right"),
+    ]
+
+
+@pytest.mark.parametrize("composite", _composites())
+def test_factors_of_composites_act_on_flat_vectors(composite):
+    """R = F Fᵀ for a composite whose child is a shaped diagonal, and inv(R) R = I."""
+    vector = jnp.arange(1.0, 13.0, dtype=_diagonal().dtype)[: composite.in_size()]
+    for factor in (gaussx.cholesky, gaussx.sqrt):
+        root = factor(composite)
+        through_root = root.mv(root.T.mv(vector))
+        rtol, atol = default_tolerances(through_root)
+        expected = composite.as_matrix() @ vector
+        assert jnp.allclose(through_root, expected, rtol=rtol, atol=10 * atol)
+    round_trip = gaussx.inv(composite).as_matrix() @ composite.as_matrix()
+    rtol, atol = default_tolerances(round_trip)
+    identity = jnp.eye(composite.in_size(), dtype=round_trip.dtype)
+    assert jnp.allclose(round_trip, identity, rtol=rtol, atol=10 * atol)
+    applied = gaussx.inv(composite).mv(composite.as_matrix() @ vector)
+    assert jnp.allclose(applied, vector, rtol=10 * rtol, atol=10 * atol)
+
+
 def test_scale_factor_keeps_the_shape():
     scaled = scale_factor(lx.DiagonalLinearOperator(_diagonal()), 2.0)
     assert scaled.in_structure().shape == (2, 3)

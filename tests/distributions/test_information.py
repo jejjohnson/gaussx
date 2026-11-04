@@ -19,11 +19,7 @@ import pytest
 
 import gaussx
 from gaussx._einx import einsum
-from gaussx._testing import (
-    default_tolerances,
-    random_kronecker_pd,
-    random_pd_operator,
-)
+from gaussx._testing import random_kronecker_pd, random_pd_operator
 
 
 def _float():
@@ -57,6 +53,18 @@ def _oracle(jacobian, noise_matrix, prior_matrix):
     }
 
 
+def _tolerance(posterior_cov):
+    """Bound on the forward error of a backward-stable QR: c ε κ(Ŝ).
+
+    QR is normwise backward stable, so a computed diagnostic is off by about
+    ε κ(Ŝ); c = 100 covers the dimension-dependent constants of these small
+    problems.
+    """
+    eigenvalues = jnp.linalg.eigvalsh(posterior_cov)
+    condition = jnp.max(eigenvalues) / jnp.min(eigenvalues)
+    return 100 * jnp.finfo(posterior_cov.dtype).eps * condition
+
+
 def _problem(n_obs, n_state):
     jacobian = jr.normal(jr.key(0), (n_obs, n_state), _float())
     noise = lx.DiagonalLinearOperator(0.2 + jr.uniform(jr.key(1), (n_obs,), _float()))
@@ -71,10 +79,13 @@ def test_matches_the_singular_value_oracle(n_obs, n_state):
     jacobian, noise, prior = _problem(n_obs, n_state)
     actual = gaussx.information_diagnostics(jacobian, noise, prior)
     expected = _oracle(jacobian, noise.as_matrix(), prior.as_matrix())
+    tolerance = _tolerance(actual.posterior_cov)
     for name, value in expected.items():
-        rtol, atol = default_tolerances(value)
         assert jnp.allclose(
-            getattr(actual, name), value, rtol=1000 * rtol, atol=1000 * atol
+            getattr(actual, name),
+            value,
+            rtol=tolerance,
+            atol=tolerance * jnp.max(jnp.abs(value)),
         ), name
 
 
@@ -95,9 +106,8 @@ def test_information_is_the_entropy_difference():
         actual.posterior_cov, lx.positive_semidefinite_tag
     )
     difference = gaussx.gaussian_entropy(prior) - gaussx.gaussian_entropy(posterior)
-    rtol, atol = default_tolerances(difference)
     assert jnp.allclose(
-        actual.information_content, difference, rtol=1000 * rtol, atol=1000 * atol
+        actual.information_content, difference, rtol=_tolerance(actual.posterior_cov)
     )
 
 
@@ -109,9 +119,12 @@ def test_identity_of_the_averaging_kernel():
     expected = jnp.eye(3) - einsum(
         actual.posterior_cov, prior_inverse, "i k, k j -> i j"
     )
-    rtol, atol = default_tolerances(expected)
+    tolerance = _tolerance(actual.posterior_cov)
     assert jnp.allclose(
-        actual.averaging_kernel, expected, rtol=1000 * rtol, atol=1000 * atol
+        actual.averaging_kernel,
+        expected,
+        rtol=tolerance,
+        atol=tolerance * jnp.max(jnp.abs(expected)),
     )
 
 
@@ -130,6 +143,25 @@ def test_a_strongly_observed_retrieval_keeps_its_prior():
     assert jnp.allclose(jnp.diag(actual.posterior_cov), 0.5, rtol=1e-3)
     assert jnp.allclose(actual.dofs, 1.0, rtol=1e-3)
     assert jnp.allclose(actual.information_content, 9.557, rtol=1e-3)
+    # the kernel attributes the signal to both states equally
+    assert jnp.allclose(actual.averaging_kernel, 0.5, rtol=1e-3)
+
+
+def test_sparse_covariances_are_whitened_through_their_dense_form():
+    dtype = _float()
+    matrix = jnp.array([[2.0, 0.5, 0.0], [0.5, 2.0, 0.5], [0.0, 0.5, 2.0]], dtype)
+    rows, columns = jnp.nonzero(matrix)
+    sparse = gaussx.SparseOperator.from_coo(
+        rows, columns, matrix[rows, columns], (3, 3), tags=lx.positive_semidefinite_tag
+    )
+    dense = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+    jacobian = jr.normal(jr.key(0), (4, 3), dtype)
+    noise = lx.DiagonalLinearOperator(jnp.ones(4, dtype))
+    with pytest.warns(gaussx.DenseFallbackWarning, match="SparseOperator"):
+        actual = gaussx.information_diagnostics(jacobian, noise, sparse)
+    reference = gaussx.information_diagnostics(jacobian, noise, dense)
+    assert jnp.array_equal(actual.posterior_cov, reference.posterior_cov)
+    assert jnp.array_equal(actual.dofs, reference.dofs)
 
 
 def test_structured_covariances_are_not_materialised():
@@ -152,18 +184,15 @@ def test_structured_covariances_are_not_materialised():
         ),
     ):
         actual = gaussx.information_diagnostics(jacobian, noise, prior)
-    rtol, atol = default_tolerances(reference.posterior_cov)
+    tolerance = _tolerance(reference.posterior_cov)
     assert jnp.allclose(
         actual.posterior_cov,
         reference.posterior_cov,
-        rtol=1000 * rtol,
-        atol=1000 * atol,
+        rtol=tolerance,
+        atol=tolerance * jnp.max(jnp.abs(reference.posterior_cov)),
     )
     assert jnp.allclose(
-        actual.information_content,
-        reference.information_content,
-        rtol=1000 * rtol,
-        atol=1000 * atol,
+        actual.information_content, reference.information_content, rtol=tolerance
     )
 
 
@@ -181,5 +210,9 @@ def test_gradient_in_the_jacobian():
         lambda matrix: gaussx.information_diagnostics(matrix, noise, prior).dofs
     )(jacobian)
     expected = jax.grad(dense_dofs)(jacobian)
-    rtol, atol = default_tolerances(expected)
-    assert jnp.allclose(actual, expected, rtol=1000 * rtol, atol=1000 * atol)
+    # the gradient loses one more factor of κ(Ŝ) than the diagnostics do
+    posterior = gaussx.information_diagnostics(jacobian, noise, prior).posterior_cov
+    tolerance = 10 * _tolerance(posterior)
+    assert jnp.allclose(
+        actual, expected, rtol=tolerance, atol=tolerance * jnp.max(jnp.abs(expected))
+    )
