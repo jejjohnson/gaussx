@@ -842,3 +842,25 @@ class TestNoiseFactorDispatch:
         with warnings.catch_warnings():
             warnings.simplefilter("error", DenseFallbackWarning)
             _noise_factor(operator, allow_dense=True)
+
+
+@pytest.mark.parametrize("dense_innovation", [False, True])
+def test_a_shaped_diagonal_noise_draws_stochastic_perturbations(
+    getkey, dense_innovation
+):
+    """A (2, 3) diagonal R gives the factor that shape; observations stay flat."""
+    dtype = jnp.result_type(float)
+    prior = jr.normal(getkey(), (32, 4), dtype)
+    obs_prior = jr.normal(getkey(), (32, 6), dtype)
+    y = jr.normal(getkey(), (6,), dtype)
+    variances = jnp.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype)
+    analysis = enkf_analysis(
+        prior,
+        obs_prior,
+        y,
+        lx.DiagonalLinearOperator(variances),
+        key=getkey(),
+        dense_innovation=dense_innovation,
+    )
+    assert analysis.shape == prior.shape
+    assert jnp.all(jnp.isfinite(analysis))
