@@ -333,13 +333,11 @@ def _factor_draws(
     Returns:
         The draws L z, one row per draw.
     """
-    # the factor's own shape: a dense fallback of a shaped Σ acts on flat z
-    shape = factor.in_structure().shape
     dtype = covariance.in_structure().dtype
-    # z ~ 𝒩(0, I), one draw per leading index
-    noise = jr.normal(key, (num_draws, *shape), dtype=dtype)
-    # L z, flattened to one row per draw for a shaped diagonal
-    return jax.vmap(lambda draw: jnp.ravel(factor.mv(draw)))(noise)
+    # z ~ 𝒩(0, I), one row per draw
+    noise = jr.normal(key, (num_draws, covariance.in_size()), dtype=dtype)
+    # L z
+    return jax.vmap(factor.mv)(noise)
 
 
 def _all_square(operators: tuple[lx.AbstractLinearOperator, ...]) -> bool:

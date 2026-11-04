@@ -1014,7 +1014,7 @@ added here, not inline in one caller.
 | `gaussx._einx` | Typed einx adapters for tensor reshaping and contraction. | `rearrange`, `repeat`, `reduce`, `einsum` |
 | `gaussx._testing` | Test utilities for gaussx. | `default_tolerances`, `tree_allclose`, `_resolve_dtype`, `key_sequence`, `random_pd_matrix`, `random_pd_operator`, `psd_operator`, `random_kronecker_pd`, `random_block_diag_pd`, `random_low_rank_update`, `random_sum_of_kroneckers_pd`, `random_spd_block_tridiag`, `empirical_moments`, `dense_solve`, `dense_logdet`, `dense_inv`, `dense_diag`, `dense_trace`, `assert_sample_moments` |
 | `gaussx._deprecation` | gaussx's own deprecation warning category and helper (gh-332). | `GaussxDeprecationWarning`, `renamed_attribute`, `warn_deprecated`, `renamed_kwargs` |
-| `gaussx._operators._utils` | Lineax structure functions shared by every gaussx operator A. | `lineax_diagonal`, `_square_components`, `lineax_conj`, `register_lineax_structure_functions`, `_identity` |
+| `gaussx._operators._utils` | Lineax structure functions shared by every gaussx operator A. | `_ShapedDiagonal`, `diagonal_like`, `lineax_diagonal`, `_square_components`, `lineax_conj`, `register_lineax_structure_functions`, `_identity` |
 | `gaussx._strategies._dispatch` | Route x = A⁻¹ b and log \|det A\| through a strategy, or structural dispatch. | `dispatch_solve`, `dispatch_logdet` |
 | `gaussx._strategies._tolerances` | Dtype-aware default tolerances for the iterative strategies (gh-327). | `operator_dtype`, `resolve_tolerance`, `rhs_scaling` |
 | `gaussx._strategies._lineax` | Adapter from a lineax solver to a gaussx solve strategy (gh-376). | `LineaxSolver`, `as_solve_strategy` |

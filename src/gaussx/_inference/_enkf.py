@@ -6,7 +6,6 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
-from jax.typing import DTypeLike
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from gaussx._inference._ensemble_stats import (
@@ -105,31 +104,6 @@ def ensemble_kalman_gain(
     innovation_cov = ensemble_covariance(obs_particles, bessel=bessel)
     innovation_cov = LowRankUpdate(obs_noise, innovation_cov.U)
     return solve_rows(innovation_cov, cross_cov, solver=solver)
-
-
-def _perturbations(
-    factor: lx.AbstractLinearOperator,
-    key: Array,
-    num_members: int,
-    dtype: DTypeLike,
-) -> Float[Array, "J M"]:
-    """Perturbations eps_j = L n_j, n_j ~ N(0, I), flattened per member.
-
-    The noise takes the factor's own shape, as the factor of a shaped diagonal
-    R acts on that shape while the ensemble's observations are flat.
-
-    Args:
-        factor: The factor L of the noise covariance.
-        key: PRNG key.
-        num_members: The ensemble size J.
-        dtype: The dtype of the noise.
-
-    Returns:
-        The perturbations, one row per member.
-    """
-    shape = factor.in_structure().shape
-    noise = jr.normal(key, (num_members, *shape), dtype=dtype)
-    return jax.vmap(lambda draw: jnp.ravel(factor.mv(draw)))(noise)
 
 
 def _noise_factor(
@@ -529,8 +503,8 @@ def enkf_analysis(
         factor = _noise_factor(
             obs_noise, allow_dense=use_dense or localization is not None
         )
-        perturbation = _perturbations(factor, key, n_ens, particles.dtype)  # (J, M)
-        perturbed = observation[None, :] + perturbation  # (J, M)
+        noise = jr.normal(key, (n_ens, n_obs), dtype=particles.dtype)  # (J, M)
+        perturbed = observation[None, :] + jax.vmap(factor.mv)(noise)  # (J, M)
     else:
         perturbed = perturbed_obs
         if perturbed is None or perturbed.shape != (n_ens, n_obs):
