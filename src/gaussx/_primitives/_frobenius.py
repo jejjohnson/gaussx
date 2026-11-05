@@ -202,6 +202,11 @@ def _frobenius_low_rank(
 
         ‖A‖_F² = ‖A₀‖_F² + 2 ∑_k d_k u_kᵀ A₀ v_k + tr(UᵀU D VᵀV D)
 
+    The Gram matrices are formed after moving each mode's scale into its weight,
+    since U and V can have scales whose squares leave the floating-point range
+    while u_k d_k v_kᵀ does not. A scale changes nothing about the update, so it
+    is a constant to the derivative.
+
     Args:
         operator: The update A = A₀ + U D Vᵀ.
         base_squared: ‖A₀‖_F².
@@ -209,10 +214,18 @@ def _frobenius_low_rank(
     Returns:
         The Frobenius norm ‖A‖_F, clamped at zero before the root.
     """
-    left, weights, right = operator.U, operator.d, operator.V
     # A rank-0 update is its base, and einx rejects a zero-length axis.
-    if left.shape[1] == 0:
+    if operator.U.shape[1] == 0:
         return jnp.sqrt(base_squared)
+    # s_k = max_i |U_ik|, and t_k likewise for V
+    left_scale = _mode_scale(operator.U)
+    right_scale = _mode_scale(operator.V)
+    # U S⁻¹
+    left = einx.divide("row mode, mode -> row mode", operator.U, left_scale)
+    # V T⁻¹
+    right = einx.divide("col mode, mode -> col mode", operator.V, right_scale)
+    # D S T
+    weights = operator.d * (left_scale * right_scale)
     # U D
     weighted_left = einx.multiply("row mode, mode -> row mode", left, weights)
     # V D
@@ -231,6 +244,19 @@ def _frobenius_low_rank(
     norm_squared = base_squared + 2.0 * cross + update_squared
     # max(‖A‖_F², 0), which rounding could undershoot when A₀ cancels the update
     return jnp.sqrt(jnp.maximum(norm_squared, 0.0))
+
+
+def _mode_scale(factor: Float[Array, "rows modes"]) -> Float[Array, " modes"]:
+    """The largest magnitude in each mode of a factor, with a zero mode as 1.
+
+    Args:
+        factor: The low-rank factor, one column per mode.
+
+    Returns:
+        A positive scale per mode, constant to the derivative.
+    """
+    largest = jax.lax.stop_gradient(einx.max("[row] mode", jnp.abs(factor)))
+    return jnp.where(largest > 0.0, largest, 1.0)
 
 
 def _frobenius_stochastic(
