@@ -239,6 +239,34 @@ class TestFrobeniusLowRank:
         assert jnp.all(jnp.isfinite(gradient))
         assert tree_allclose(gradient, jax.grad(dense)(zeros))
 
+    @pytest.mark.parametrize("scale", [1e30, 1e20, 1e10])
+    def test_opposite_factor_scales_stay_in_range(self, scale):
+        # U and V have squares out of float32 range, while U Vᵀ is near one.
+        update = LowRankUpdate(
+            lx.DiagonalLinearOperator(jnp.zeros(1, dtype=jnp.float32)),
+            jnp.array([[scale]], dtype=jnp.float32),
+            jnp.ones(1, dtype=jnp.float32),
+            jnp.array([[1.0 / scale]], dtype=jnp.float32),
+        )
+        assert jnp.allclose(frobenius_norm(update), 1.0, rtol=1e-5)
+
+    def test_each_mode_is_balanced_separately(self):
+        scales = jnp.array([1e25, 1.0, 1e-25])
+        left = jr.normal(jr.key(0), (6, 3)) * scales
+        right = jr.normal(jr.key(1), (6, 3)) / scales
+        weights = jr.normal(jr.key(2), (3,))
+        expected = jnp.array(0.0)
+        for mode in range(3):
+            for other in range(3):
+                # Each pair of modes in units where its entries are near one
+                left_gram = jnp.sum(left[:, mode] / scales[mode] * left[:, other])
+                right_gram = jnp.sum(right[:, mode] * scales[mode] * right[:, other])
+                expected += weights[mode] * weights[other] * left_gram * right_gram
+        update = LowRankUpdate(
+            lx.DiagonalLinearOperator(jnp.zeros(6)), left, weights, right
+        )
+        assert tree_allclose(frobenius_norm(update), jnp.sqrt(expected), rtol=1e-4)
+
     def test_jit_and_vmap_match_a_loop(self, getkey):
         ensembles = jr.normal(getkey(), (3, 6, 4))
 
