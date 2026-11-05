@@ -203,7 +203,19 @@ def _check_ensemble_size(ensemble_size: int, bessel: bool) -> None:
 
 
 def _check_obs_noise_shape(obs_size: int, obs_noise: lx.AbstractLinearOperator) -> None:
-    """Check that observation noise matches the observation-space dimension."""
+    """Check that Σ_ε is the (D_y, D_y) operator the observation ensemble needs.
+
+    Without this check a wrong-sized operator broadcasts against the (D_y, D_y)
+    sample covariance instead of raising: a (1, 1) Σ_ε against D_y = 3 adds the
+    scalar to every entry and yields a plausible, wrong gain.
+
+    Args:
+        obs_size: Observation length D_y.
+        obs_noise: Observation-error covariance Σ_ε.
+
+    Raises:
+        ValueError: If ``obs_noise`` is not (D_y, D_y).
+    """
     if (obs_noise.in_size(), obs_noise.out_size()) != (obs_size, obs_size):
         raise ValueError(
             f"obs_noise must be ({obs_size}, {obs_size}) to match obs_particles, "
