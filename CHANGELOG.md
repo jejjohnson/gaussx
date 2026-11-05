@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.9](https://github.com/jejjohnson/gaussx/compare/v0.6.8...v0.6.9) (2026-11-05)
+
+
+### Features
+
+* **inference:** add etkf_analysis and a rank-M route to etkf_transform ([0d285ad](https://github.com/jejjohnson/gaussx/commit/0d285adf7bab974915a09139d1714fa41a1c2b32))
+
+
+### Bug Fixes
+
+* **ssm:** keep square_root=True means accurate in float32 ([a5e6dd5](https://github.com/jejjohnson/gaussx/commit/a5e6dd5b2cf1852d5ca557d45923c019fc91db0a))
+
 ## [0.6.8](https://github.com/jejjohnson/gaussx/compare/v0.6.7...v0.6.8) (2026-11-05)
 
 
