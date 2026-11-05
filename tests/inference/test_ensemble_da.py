@@ -789,3 +789,56 @@ def test_etkf_low_rank_takes_one_small_eigh():
     )
     assert counts.get("eigh", 0) == 1
     assert counts.get("qr", 0) + counts.get("householder_product", 0) >= 1
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4, 1e5])
+def test_low_rank_float32_means_match_a_float64_reference(scale):
+    """gh-747 review: the mean weights must not subtract a prior baseline.
+
+    b = H̃ Σ_ε⁻¹ r̄ lies in the span of U, so Σ_w b = U diag(1 / γ) Uᵀ b.
+    Writing it as b / c + U diag(1 / γ − 1 / c) Uᵀ b cancels once λ / c reaches
+    about 1 / ε. The scale sets λ / c, from about 1e4 to 1e10. The bound is in
+    units of the analysis spread, which that form missed by 0.09, 5.8, 121 and
+    3e4 sd here, while the direct form stays within 1e-5 sd.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_particles = scale * _apply_map(particles, obs_map)
+    reference = gaussx.etkf_analysis(
+        particles, obs_particles, y, lx.DiagonalLinearOperator(jnp.ones(3))
+    )
+    single = gaussx.etkf_analysis(
+        particles.astype(jnp.float32),
+        obs_particles.astype(jnp.float32),
+        y.astype(jnp.float32),
+        lx.DiagonalLinearOperator(jnp.ones(3, jnp.float32)),
+    )
+    assert single.dtype == jnp.float32
+    reference_mean = reduce(reference, "member state -> state", "mean")
+    single_mean = reduce(single, "member state -> state", "mean")
+    anomalies = einx.subtract(
+        "member state, state -> member state", reference, reference_mean
+    )
+    spread = jnp.sqrt(reduce(anomalies**2, "member state -> state", "sum") / 19.0)
+    assert jnp.max(jnp.abs(single_mean - reference_mean) / spread) < 0.01
+    # X̃_t|t, which has no such subtraction, stays accurate relative to X̃
+    single_anomalies = einx.subtract(
+        "member state, state -> member state", single, single_mean
+    )
+    assert jnp.max(jnp.abs(single_anomalies - anomalies)) < 1e-3
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_mean_of_a_strongly_informative_observation():
+    """One observation with a spread of 1e4 and unit noise moves the mean to it."""
+    obs_particles = 1e4 * jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    analysis = gaussx.etkf_analysis(
+        obs_particles,
+        obs_particles,
+        jnp.ones(1, jnp.float32),
+        lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32)),
+    )
+    # x̄_t|t = 0 + (1e8 / 3) / (1e8 / 3 + 1) (1 − 0) ≈ 1
+    assert jnp.allclose(
+        reduce(analysis, "member state -> state", "mean"), 1.0, atol=1e-3
+    )

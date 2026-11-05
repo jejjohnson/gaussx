@@ -54,8 +54,9 @@ def etkf_transform(
 
     Λ_w exceeds its prior term by rank at most D_y, so with D_y < |ℰ| the
     default replaces that (|ℰ|, |ℰ|) eigendecomposition with a thin QR of H̃ and
-    a (D_y, D_y) one. The two routes agree to round-off. Use `etkf_analysis` to
-    avoid forming W at all.
+    a (D_y, D_y) one. The two routes agree to round-off, and in float32 the
+    low-rank route stays accurate where the other turns non-finite. Use
+    `etkf_analysis` to avoid forming W at all.
 
     Algorithm:
         1. Centre the observation ensemble: H̃ and r̄ = y − h̄.
@@ -561,6 +562,31 @@ def _low_rank_spectrum(
     return basis, jnp.maximum(excess, 0.0)
 
 
+def _span_apply(
+    basis: Float[Array, "J R"],
+    mode_values: Float[Array, " R"],
+    rhs: Float[Array, " J"],
+) -> Float[Array, " J"]:
+    """f(Λ_w) b = U diag(f(c + λ)) Uᵀ b, for b in the span of U.
+
+    `_low_rank_apply` would give the same b in exact arithmetic, but its prior
+    baseline cancels once λ / c reaches about 1 / ε, and that loses the mean
+    update of a strongly informative observation in float32.
+
+    Args:
+        basis: Orthonormal U.
+        mode_values: f(c + λ) on each mode.
+        rhs: Right-hand side b, in the span of U.
+
+    Returns:
+        f(Λ_w) b.
+    """
+    # Uᵀ b
+    projected = einsum(basis, rhs, "member mode, member -> mode")
+    # U diag(f(c + λ)) Uᵀ b
+    return einsum(basis, mode_values * projected, "member mode, mode -> member")
+
+
 def _low_rank_apply(
     basis: Float[Array, "J R"],
     prior_value: Float[Array, ""],
@@ -608,7 +634,7 @@ def _low_rank_matmul(
         obs_anomalies: Observation anomalies H̃, stacked as rows.
         whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
         prior_precision: The prior term c = (|ℰ| − 1) / ζ.
-        weight_rhs: Right-hand side b of Σ_w.
+        weight_rhs: Right-hand side b of Σ_w, in the span of H̃.
         anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
 
     Returns:
@@ -617,16 +643,11 @@ def _low_rank_matmul(
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
     # γ = c + λ
     precision = prior_precision + excess
-    weights = _low_rank_apply(
-        basis,
-        1.0 / prior_precision,
-        1.0 / precision,
-        rearrange(weight_rhs, "member -> member 1"),
-    )
+    weights = _span_apply(basis, 1.0 / precision, weight_rhs)
     inverse_sqrt_rhs = _low_rank_apply(
         basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), anomaly_rhs
     )
-    return rearrange(weights, "member 1 -> member"), inverse_sqrt_rhs
+    return weights, inverse_sqrt_rhs
 
 
 def _inverse_difference(
@@ -718,7 +739,7 @@ def _low_rank_matmul_jvp(primals, tangents):
     d_basis = d_precision(basis)
     rotated = einsum(basis, d_basis, "member mode, member other -> mode other")
 
-    def tangent(difference, rhs):
+    def tangent(difference, rhs, *, in_span=False):
         # D, d and f′(c)
         block_modes = difference(
             rearrange(precision, "mode -> mode 1"),
@@ -726,10 +747,8 @@ def _low_rank_matmul_jvp(primals, tangents):
         )
         block_mixed = difference(precision, prior_precision)
         block_prior = difference(prior_precision, prior_precision)
-        # Uᵀ B and P B
+        # Uᵀ B
         projected = einsum(basis, rhs, "member mode, member col -> mode col")
-        perpendicular = complement(rhs)
-        d_perpendicular = d_precision(perpendicular)
         # U (D ⊙ Uᵀ dΛ_w U) Uᵀ B
         mode_block = einsum(
             basis,
@@ -737,6 +756,20 @@ def _low_rank_matmul_jvp(primals, tangents):
             projected,
             "member mode, mode other, other col -> member col",
         )
+        # P dΛ_w U diag(d) Uᵀ B
+        mixed_right = complement(
+            einsum(
+                d_basis,
+                einx.multiply("mode, mode col -> mode col", block_mixed, projected),
+                "member mode, mode col -> member col",
+            )
+        )
+        if in_span:
+            # P B = 0
+            return mode_block + mixed_right
+        # P B
+        perpendicular = complement(rhs)
+        d_perpendicular = d_precision(perpendicular)
         # U diag(d) Uᵀ dΛ_w P B
         mixed_left = einsum(
             basis,
@@ -747,14 +780,6 @@ def _low_rank_matmul_jvp(primals, tangents):
             ),
             "member mode, mode col -> member col",
         )
-        # P dΛ_w U diag(d) Uᵀ B
-        mixed_right = complement(
-            einsum(
-                d_basis,
-                einx.multiply("mode, mode col -> mode col", block_mixed, projected),
-                "member mode, mode col -> member col",
-            )
-        )
         # f′(c) P dΛ_w P B
         prior_block = block_prior * complement(d_perpendicular)
         return mode_block + mixed_left + mixed_right + prior_block
@@ -762,7 +787,8 @@ def _low_rank_matmul_jvp(primals, tangents):
     weight_matrix = rearrange(weight_rhs, "member -> member 1")
     d_weight_matrix = rearrange(d_weight_rhs, "member -> member 1")
     # dΣ_w b + Σ_w db
-    d_weights = tangent(_inverse_difference, weight_matrix) + _low_rank_apply(
+    d_weights = tangent(_inverse_difference, weight_matrix, in_span=True)
+    d_weights = d_weights + _low_rank_apply(
         basis, 1.0 / prior_precision, 1.0 / precision, d_weight_matrix
     )
     # dΛ_w^−½ B + Λ_w^−½ dB
