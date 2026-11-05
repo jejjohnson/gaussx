@@ -1382,6 +1382,25 @@ def test_ledoit_wolf_float32_matches_float64(J, N):
     assert jnp.allclose(single, reference, rtol=1e-3, atol=1e-5)
 
 
+@pytest.mark.parametrize("magnitude", [1e-25, 1e-12, 1e10, 1e18])
+def test_ledoit_wolf_shrinkage_does_not_depend_on_the_ensemble_scale(magnitude):
+    # Fourth powers of these members leave the float32 range; λ has no units.
+    members = jnp.array(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 2.0], [0.0, -2.0]], dtype=jnp.float32
+    )
+    _, shrinkage = gaussx.ledoit_wolf_shrinkage(magnitude * members)
+    assert jnp.allclose(shrinkage, 85.0 / 144.0, rtol=1e-5)
+
+
+def test_ledoit_wolf_of_a_zero_ensemble_is_finite():
+    def shrinkage(state):
+        return gaussx.ledoit_wolf_shrinkage(state)[1]
+
+    state = jnp.zeros((4, 2))
+    assert shrinkage(state) == 1.0
+    assert jnp.isfinite(jax.grad(shrinkage)(state)).all()
+
+
 def test_ledoit_wolf_rejects_a_single_member_for_the_bessel_divisor():
     with pytest.raises(ValueError, match="J >= 2"):
         gaussx.ledoit_wolf_shrinkage(jnp.zeros((1, 3)))
