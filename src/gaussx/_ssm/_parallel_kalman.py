@@ -272,9 +272,9 @@ def parallel_kalman_filter(
             covariances that are PSD by construction use ``square_root``.
         square_root: Run the factor-propagating square-root filter of
             Yaghoobi, Corenflos, Hassan & Särkkä (2022, §III): covariances
-            are PSD by construction and stay accurate in float32. See
-            `gaussx._ssm._parallel_kalman_factor` for the method. Supports
-            both mask ranks; not combinable with ``psd_project`` or
+            are PSD by construction, and they and the means stay accurate in
+            float32. See `gaussx._ssm._parallel_kalman_factor` for the method.
+            Supports both mask ranks; not combinable with ``psd_project`` or
             ``woodbury_innovation``.
 
     Raises:

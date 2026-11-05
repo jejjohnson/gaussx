@@ -431,7 +431,7 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
     (I + Λ_lik,j Σ_cond,i)⁻¹ Λ_lik,j = Ξ₂₂ Ξ₂₂ᵀ. Then
 
         F_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ F_cond,i
-        μ_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
+        μ_cond,ij = F_cond,j ((I + Σ_cond,i Λ_lik,j)⁻¹ μ_cond,i + W Wᵀ Λμ_lik,j)
                     + μ_cond,j
         L_cond,ij = tria([F_cond,j W, L_cond,j])
         Λμ_lik,ij = F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ (Λμ_lik,j − Λ_lik,j μ_cond,i)
@@ -440,7 +440,10 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
 
     after Yaghoobi et al. (2022). V replaces the original's Pₓ. Every
     inverse is a triangular solve against Ξ₁₁ or Γ, whose stacks contain an
-    identity block and so are never singular.
+    identity block and so are never singular. The shift Σ_cond,i Λμ_lik,j takes
+    W Wᵀ instead of the push-through inverse: at Σ_cond,i Λ_lik,j near 1 / ε that
+    inverse subtracts nearly equal terms, and on a shift that large the rounding
+    would swamp the mean (gh-746).
 
     Args:
         elem_i: Element i, ``(F_cond, μ_cond, L_cond, Λμ_lik, L_lik)``.
@@ -503,12 +506,12 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
     cond_transition = einsum(
         cond_transition_j, solved_transition, "next state, state prev -> next prev"
     )
-    # L_cond,iᵀ Λμ_lik,j
-    projected_information = cond_factor_i_transpose @ lik_information_j
-    # Σ_cond,i Λμ_lik,j = L_cond,i L_cond,iᵀ Λμ_lik,j
-    information_shift = cond_factor_i @ projected_information
+    # Wᵀ Λμ_lik,j
+    projected_information = weight_transpose @ lik_information_j
+    # (I + Σ_cond,i Λ_lik,j)⁻¹ Σ_cond,i Λμ_lik,j = W Wᵀ Λμ_lik,j
+    information_shift = weight @ projected_information
     # (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
-    solved_mean = forward_inverse(cond_mean_i + information_shift)
+    solved_mean = forward_inverse(cond_mean_i) + information_shift
     # F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
     propagated_mean = cond_transition_j @ solved_mean
     # μ_cond,ij = … + μ_cond,j
