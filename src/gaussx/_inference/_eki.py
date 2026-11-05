@@ -240,7 +240,7 @@ def eki_step(
         # give the mean update too, and no separate solve for the gain is needed.
         # X̃ᵀ w̄ and W X̃ at Σ_ε / Δt
         mean_increment, transformed_anomalies = _etkf_increments(
-            particles, obs_particles, observation, tempered_noise, 1.0, solver, None
+            particles, obs_particles, observation, tempered_noise, 1.0, solver, True
         )
         # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
         particle_mean = reduce(particles, "member state -> state", "mean")

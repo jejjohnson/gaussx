@@ -25,7 +25,7 @@ def etkf_transform(
     *,
     inflation: float | Float[Array, ""] = 1.0,
     solver: AbstractSolverStrategy | None = None,
-    low_rank: bool | None = None,
+    low_rank: bool = True,
 ) -> tuple[Float[Array, " J"], Float[Array, "J J"]]:
     """Ensemble Transform Kalman Filter (ETKF) analysis weights.
 
@@ -58,8 +58,11 @@ def etkf_transform(
     Λ_w exceeds its prior term by rank at most D_y, so with D_y < |ℰ| the
     default replaces that (|ℰ|, |ℰ|) eigendecomposition with a thin QR of H̃ and
     a (D_y, D_y) one. The two routes agree to round-off, and in float32 the
-    low-rank route stays accurate where the other turns non-finite. Use
-    `etkf_analysis` to avoid forming W at all.
+    low-rank route stays finite where the other can turn non-finite. Use
+    `etkf_analysis` to avoid forming W at all. First derivatives assume a tangent of
+    Σ_ε that is symmetric, as a covariance's must be. Second derivatives on the
+    low-rank route need H̃ of full rank with distinct λ; both routes can be wrong or
+    NaN otherwise.
 
     Algorithm:
         1. Centre the observation ensemble: H̃ and r̄ = y − h̄.
@@ -75,8 +78,8 @@ def etkf_transform(
             prior term (|ℰ| − 1) / ζ.
         solver: Solver strategy for the Σ_ε⁻¹ solves; ``None`` uses structural
             dispatch.
-        low_rank: Use the rank-D_y route. ``None`` chooses by shape, low rank
-            when D_y < |ℰ|; ``True`` / ``False`` force a route.
+        low_rank: Use the rank-D_y route when D_y < |ℰ|, where it exists.
+            ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
 
     Returns:
         Tuple ``(w_mean, transform)`` holding w̄ and W. With state anomalies
@@ -176,7 +179,7 @@ def etkf_analysis(
     *,
     inflation: float | Float[Array, ""] = 1.0,
     solver: AbstractSolverStrategy | None = None,
-    low_rank: bool | None = None,
+    low_rank: bool = True,
 ) -> Float[Array, "J N"]:
     """ETKF analysis ensemble, without forming the (|ℰ|, |ℰ|) transform.
 
@@ -187,7 +190,8 @@ def etkf_analysis(
     `etkf_transform` followed by those two products, with w̄ and W as defined
     there. On the rank-D_y route W is applied by matrix-vector products, so with
     D_y < |ℰ| one analysis costs O(|ℰ| D_y² + |ℰ| D_y D_x) and no (|ℰ|, |ℰ|) array
-    exists, which is what makes a large ensemble with few observations cheap.
+    exists, which is what makes a large ensemble with few observations cheap. See
+    `etkf_transform` for what its derivatives assume.
 
     Algorithm:
         1. Centre both ensembles: X̃, H̃ and r̄ = y − h̄.
@@ -204,8 +208,8 @@ def etkf_analysis(
             prior term (|ℰ| − 1) / ζ.
         solver: Solver strategy for the Σ_ε⁻¹ solves; ``None`` uses structural
             dispatch.
-        low_rank: Use the rank-D_y route. ``None`` chooses by shape, low rank
-            when D_y < |ℰ|; ``True`` / ``False`` force a route.
+        low_rank: Use the rank-D_y route when D_y < |ℰ|, where it exists.
+            ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
 
     Returns:
         The analysis ensemble.
@@ -268,7 +272,7 @@ def _etkf_increments(
     obs_noise: lx.AbstractLinearOperator,
     inflation: float | Float[Array, ""],
     solver: AbstractSolverStrategy | None,
-    low_rank: bool | None,
+    low_rank: bool,
 ) -> tuple[Float[Array, " N"], Float[Array, "J N"]]:
     """Mean increment X̃ᵀ w̄ and analysis anomalies W X̃, by either route.
 
@@ -281,7 +285,7 @@ def _etkf_increments(
         obs_noise: Observation-error covariance Σ_ε.
         inflation: Multiplicative covariance inflation ζ.
         solver: Solver strategy for the Σ_ε⁻¹ solves.
-        low_rank: Route; ``None`` chooses by shape.
+        low_rank: Use the rank-D_y route when D_y < |ℰ|.
 
     Returns:
         Tuple ``(mean_increment, analysis_anomalies)``.
@@ -355,8 +359,8 @@ def _check_etkf_inputs(
         inflation: Multiplicative covariance inflation ζ.
 
     Raises:
-        ValueError: If |ℰ| < 2, if ``y`` or ``obs_noise`` do not match D_y, or
-            if a concrete ``inflation`` is not positive.
+        ValueError: If |ℰ| < 2, if ``y`` or ``obs_noise`` do not match D_y, if
+            ``inflation`` is not a scalar, or if a concrete one is not positive.
     """
     _check_observation_shapes(obs_particles, y, obs_noise, observation_name="y")
     ensemble_size = obs_particles.shape[0]
@@ -365,22 +369,24 @@ def _check_etkf_inputs(
             "The ETKF requires J >= 2 ensemble members (the prior term "
             f"is (J - 1) / inflation); got J={ensemble_size}."
         )
+    if jnp.ndim(inflation) != 0:
+        raise ValueError(f"inflation must be a scalar, got {jnp.shape(inflation)}.")
     if isinstance(inflation, (int, float)) and inflation <= 0:
         raise ValueError(f"inflation must be positive, got {inflation}.")
 
 
-def _use_low_rank(low_rank: bool | None, ensemble_size: int, obs_size: int) -> bool:
-    """Whether to take the rank-D_y route; by default when D_y < |ℰ|.
+def _use_low_rank(low_rank: bool, ensemble_size: int, obs_size: int) -> bool:
+    """Whether to take the rank-D_y route, which exists only when D_y < |ℰ|.
 
     Args:
-        low_rank: The caller's choice, or ``None`` to choose by shape.
+        low_rank: The caller's choice.
         ensemble_size: Ensemble size |ℰ|.
         obs_size: Observation size D_y.
 
     Returns:
         ``True`` for the rank-D_y route.
     """
-    return obs_size < ensemble_size if low_rank is None else low_rank
+    return low_rank and obs_size < ensemble_size
 
 
 def _whiten(
@@ -731,15 +737,82 @@ def _low_rank_matmul(
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
     # γ = c + λ
     precision = prior_precision + excess
-    # H̃ Σ_ε⁻¹ r̄, in the span of U by construction
-    projected_residual = einsum(
-        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    # α = Uᵀ H̃ Σ_ε⁻¹ r̄
+    mode_residual, _ = _deflate_strong_modes(
+        obs_anomalies,
+        whitened_anomalies,
+        prior_precision,
+        whitened_residual,
+        basis,
+        excess,
     )
-    weights = _span_apply(basis, 1.0 / precision, projected_residual)
+    # w̄ = U diag(1 / γ) α
+    weights = einsum(basis, mode_residual / precision, "member mode, mode -> member")
     inverse_sqrt_rhs = _low_rank_apply(
         basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), anomaly_rhs
     )
     return weights, inverse_sqrt_rhs
+
+
+def _deflate_strong_modes(
+    obs_anomalies: Float[Array, "J M"],
+    whitened_anomalies: Float[Array, "J M"],
+    prior_precision: Float[Array, ""],
+    whitened_residual: Float[Array, " M"],
+    basis: Float[Array, "J R"],
+    excess: Float[Array, " R"],
+) -> tuple[Float[Array, " R"], Float[Array, " M"]]:
+    """α = a ρ and the remainder of ρ, reading the modes from the strongest down.
+
+    With a = Uᵀ H̃ (rows aᵢ), q = Uᵀ Σ_ε⁻¹ H̃ᵀ (rows qᵢ) and ρ = Σ_ε⁻¹ r̄, the rows
+    satisfy aᵢᵀ qⱼ = λᵢ δᵢⱼ. Reading α = a ρ directly fails when the channels'
+    precisions differ widely: a weak aᵢ carries rounding of about ε ‖aⱼ‖ from a
+    strong mode, and meets the large part of ρ. So each strong mode (λᵢ > c) is read
+    in turn and removed by the oblique projection v ← v − qᵢ (aᵢᵀ v) / λᵢ, which is
+    repeated to remove what rounding leaves. Weak modes read what remains.
+
+    Args:
+        obs_anomalies: Observation anomalies H̃, stacked as rows.
+        whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
+        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
+        whitened_residual: ρ = Σ_ε⁻¹ r̄.
+        basis: Orthonormal U.
+        excess: λ, ascending, with H̃ Σ_ε⁻¹ H̃ᵀ = U diag(λ) Uᵀ.
+
+    Returns:
+        Tuple ``(mode_residual, remainder)`` holding α and ρ less its strong modes.
+    """
+    # a = Uᵀ H̃
+    mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
+    # q = Uᵀ Σ_ε⁻¹ H̃ᵀ
+    mode_whitened = einsum(
+        basis, whitened_anomalies, "member mode, member obs -> mode obs"
+    )
+    # A mode that needs removing; λ > c > 0 there, so dividing by λ is safe.
+    strong = excess > prior_precision
+    safe_excess = jnp.where(strong, excess, 1.0)
+
+    def _remove_mode(values, mode):
+        row, whitened_row, is_strong, scale = mode
+        # (aᵢᵀ v) / λᵢ on a strong mode
+        coefficient = jnp.where(is_strong, (row @ values) / scale, 0.0)
+        # v ← v − qᵢ (aᵢᵀ v) / λᵢ
+        return values - coefficient * whitened_row, coefficient
+
+    modes = (mode_obs, mode_whitened, strong, safe_excess)
+    remainder = whitened_residual
+    coefficients = jnp.zeros_like(excess)
+    # Three passes: T is idempotent, and each removes what rounding left of the last.
+    for _ in range(3):
+        # `eigh` sorts λ upward, so `reverse` takes the strongest first.
+        remainder, pass_coefficients = jax.lax.scan(
+            _remove_mode, remainder, modes, reverse=True
+        )
+        coefficients = coefficients + pass_coefficients
+    # Weak modes read the remainder; a strong one has read all it needs.
+    weak_residual = einsum(mode_obs, remainder, "mode obs, obs -> mode")
+    mode_residual = jnp.where(strong, coefficients * excess, weak_residual)
+    return mode_residual, remainder
 
 
 def _analysis_residual(
@@ -752,18 +825,13 @@ def _analysis_residual(
 ) -> Float[Array, " M"]:
     """ρₐ = Σ_ε⁻¹ (r̄ − H̃ᵀ w̄), without subtracting nearly equal vectors.
 
-    With ρ = Σ_ε⁻¹ r̄, a = Uᵀ H̃ (rows aᵢ), q = Uᵀ Σ_ε⁻¹ H̃ᵀ (rows qᵢ) and
-    α = a ρ, the plain form is ρₐ = ρ − ∑ᵢ qᵢ αᵢ / γᵢ, which cancels on a mode with
-    λᵢ ≫ c. Since aᵢᵀ qⱼ = λᵢ δᵢⱼ, the part of ρ along those modes is removed by the
-    oblique projection T = ∑ᵢ qᵢ aᵢᵀ / λᵢ, which leaves the small remainder in
-    closed form:
+    With α and the remainder from `_deflate_strong_modes`, the plain form
+    ρₐ = ρ − ∑ᵢ qᵢ αᵢ / γᵢ cancels on a mode with λᵢ ≫ c, and
+    1 / λᵢ − 1 / γᵢ = c / (λᵢ γᵢ) leaves the small part in closed form:
 
-        1 / λᵢ − 1 / γᵢ = c / (λᵢ γᵢ)
+        ρₐ = remainder + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
 
-        ρₐ = (I − T)² ρ + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
-
-    with i over λᵢ > c and j over the rest, where there is nothing to cancel. T is
-    idempotent, and applying it twice removes the rounding that one pass leaves.
+    with i over λᵢ > c and j over the rest, where there is nothing to cancel.
 
     Args:
         obs_anomalies: Observation anomalies H̃, stacked as rows.
@@ -776,34 +844,27 @@ def _analysis_residual(
     Returns:
         ρₐ.
     """
-    # a = Uᵀ H̃
-    mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
+    mode_residual, remainder = _deflate_strong_modes(
+        obs_anomalies,
+        whitened_anomalies,
+        prior_precision,
+        whitened_residual,
+        basis,
+        excess,
+    )
     # q = Uᵀ Σ_ε⁻¹ H̃ᵀ
     mode_whitened = einsum(
         basis, whitened_anomalies, "member mode, member obs -> mode obs"
     )
     # γ = c + λ
     precision = prior_precision + excess
-    # a mode that cancels; λ > c > 0 there, so dividing by λ is safe
     strong = excess > prior_precision
     safe_excess = jnp.where(strong, excess, 1.0)
-
-    def _remove_strong_modes(values: Float[Array, " M"]) -> Float[Array, " M"]:
-        # a v
-        projected = einsum(mode_obs, values, "mode obs, obs -> mode")
-        # v − ∑ᵢ qᵢ (a v)ᵢ / λᵢ
-        coefficients = jnp.where(strong, projected / safe_excess, 0.0)
-        return values - einsum(mode_whitened, coefficients, "mode obs, mode -> obs")
-
-    # (I − T)² ρ
-    remainder = _remove_strong_modes(_remove_strong_modes(whitened_residual))
-    # α = a ρ
-    mode_residual = einsum(mode_obs, whitened_residual, "mode obs, obs -> mode")
     # c / (λᵢ γᵢ) on strong modes, −1 / γⱼ on the rest
     coefficients = jnp.where(
         strong, prior_precision / (safe_excess * precision), -1.0 / precision
     )
-    # (I − T)² ρ + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
+    # remainder + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
     return remainder + einsum(
         mode_whitened, coefficients * mode_residual, "mode obs, mode -> obs"
     )
@@ -856,7 +917,7 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     (γᵢ, c). With dΛ_w = dc I + dH̃ Wᵀ + H̃ dWᵀ and W = Σ_ε⁻¹ H̃ᵀ, the identities
     P H̃ = 0 and Wᵀ P = 0 reduce those blocks, before any is evaluated, to
 
-        Uᵀ dΛ_w P = Uᵀ H̃ dWᵀ P,   P dΛ_w U = P dH̃ Wᵀ U,   P dΛ_w P = dc P
+        Uᵀ dΛ_w P = Uᵀ H̃ Σ_ε⁻¹ dH̃ᵀ P,   P dΛ_w U = P dH̃ Wᵀ U,   P dΛ_w P = dc P
 
     so no term of about ε ‖W‖ meets the large f′(c), which grew as ε (λ / c).
 
@@ -918,7 +979,10 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     # --- what moves through Σ_ε ---
     noise = eqx.combine(noise_arrays, noise_static)
     # r_a = Σ_ε ρₐ, so that Σ_ε⁻¹ r_a keeps the accuracy of ρₐ
-    analysis_mismatch = noise.mv(analysis_residual)
+    # guarded, because at Δt = 0 the tempered Σ_ε is infinite and ρₐ is zero
+    analysis_mismatch = jnp.where(
+        jnp.any(analysis_residual != 0), noise.mv(analysis_residual), 0.0
+    )
 
     def solve_with_noise(arrays):
         # Σ_ε⁻¹ [H̃ᵀ, r_a], by the primal's own solve
@@ -938,8 +1002,10 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     solved = solve_rows(
         noise, jnp.vstack([d_obs, d_mean_residual - moved_obs]), solver=solver
     )
+    # Σ_ε⁻¹ dH̃ᵀ
+    d_obs_whitened = solved[:-1]
     # dW = Σ_ε⁻¹ dH̃ᵀ + dΣ_ε⁻¹ H̃ᵀ
-    d_whitened = solved[:-1] + d_noise_solved[:-1]
+    d_whitened = d_obs_whitened + d_noise_solved[:-1]
     # dρ − dWᵀ w̄ = Σ_ε⁻¹ (dr̄ − dH̃ᵀ w̄) + dΣ_ε⁻¹ r_a
     moved_residual = solved[-1] + d_noise_solved[-1]
 
@@ -978,11 +1044,11 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
             projected,
             "member mode, mode other, other col -> member col",
         )
-        # dWᵀ P B
+        # (Σ_ε⁻¹ dH̃ᵀ)ᵀ P B; dΣ_ε⁻¹ H̃ᵀ contributes nothing, because H̃ᵀ P = 0
         d_whitened_perp = einsum(
-            d_whitened, perpendicular, "member obs, member col -> obs col"
+            d_obs_whitened, perpendicular, "member obs, member col -> obs col"
         )
-        # Uᵀ dΛ_w P B = Uᵀ H̃ dWᵀ P B
+        # Uᵀ dΛ_w P B = Uᵀ H̃ Σ_ε⁻¹ dH̃ᵀ P B
         mode_perp = einsum(mode_obs, d_whitened_perp, "mode obs, obs col -> mode col")
         # U diag(d) Uᵀ H̃ dWᵀ P B
         mixed_left = einsum(
