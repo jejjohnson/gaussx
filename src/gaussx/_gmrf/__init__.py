@@ -1,4 +1,9 @@
-"""Precision builders for latent Gaussian models (INLA components)."""
+"""Precision builders for latent Gaussian models (INLA components).
+
+Each builder returns a structure matrix R or a precision Λ as the structured
+operator that sends the solves, log-determinants and marginal variances to their
+cheapest exact path.
+"""
 
 from gaussx._gmrf._areal import (
     besag_structure,
