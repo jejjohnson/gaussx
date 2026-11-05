@@ -1012,3 +1012,51 @@ def test_low_rank_second_derivative_matches_finite_differences():
     step = 1e-5
     central = (first(1.0 + step) - first(1.0 - step)) / (2.0 * step)
     assert jnp.allclose(jax.grad(first)(1.0), central, rtol=1e-6)
+
+
+@pytest.mark.x64_only(reason="derivatives compared with the full route to 1e-8")
+@pytest.mark.parametrize(
+    "make_noise",
+    [
+        pytest.param(lambda S: psd_operator(S), id="matrix"),
+        pytest.param(
+            lambda S: lx.TaggedLinearOperator(
+                lx.MatrixLinearOperator(S), lx.positive_semidefinite_tag
+            ),
+            id="tagged",
+        ),
+        pytest.param(lambda S: 2.0 * psd_operator(S), id="scaled"),
+        pytest.param(
+            lambda S: gaussx.BlockDiag(
+                psd_operator(S[:2, :2]), lx.DiagonalLinearOperator(jnp.ones(1))
+            ),
+            id="block",
+        ),
+    ],
+)
+def test_low_rank_noise_tangent_means_what_it_means_to_the_solver(make_noise):
+    """A non-symmetric tangent: a factorisation responds only to its symmetric part.
+
+    The rule must agree with the full route through any wrapper or nested factor,
+    or a covariance parameterisation that isn't exactly symmetric gets wrong gradients.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    base = random_pd_matrix(jr.key(3), 3, jitter=0.5)
+    tangent = jr.normal(jr.key(4), (3, 3))
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def directional(low_rank):
+        def loss(noise_matrix):
+            analysis = gaussx.etkf_analysis(
+                particles,
+                obs_particles,
+                y,
+                make_noise(noise_matrix),
+                low_rank=low_rank,
+            )
+            return jnp.sum(weights * analysis)
+
+        return jax.jvp(loss, (base,), (tangent,))[1]
+
+    assert jnp.allclose(directional(True), directional(False), rtol=1e-8, atol=1e-8)

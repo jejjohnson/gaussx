@@ -665,8 +665,9 @@ def _low_rank_route(
 ) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
     """`_low_rank_matmul`, with Σ_ε split into its arrays and the rest.
 
-    The custom JVP takes dΣ_ε itself, and reads only the primal values of the
-    whitened arrays, because their tangents have already lost it to rounding.
+    The custom JVP differentiates the solve at Σ_ε itself, and reads only the primal
+    values of the whitened arrays, because their tangents have already lost it to
+    rounding.
 
     Args:
         obs_noise: Observation-error covariance Σ_ε.
@@ -865,12 +866,12 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
 
         dw̄ = dΣ_w H̃ ρ + Σ_w dH̃ ρ + Σ_w H̃ dρ
            = Σ_w dH̃ ρₐ + Σ_w (H̃ (dρ − dWᵀ w̄) − dc w̄)
-        dρ − dWᵀ w̄ = Σ_ε⁻¹ (dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ)
+        dρ − dWᵀ w̄ = Σ_ε⁻¹ (dr̄ − dH̃ᵀ w̄) + dΣ_ε⁻¹ r_a,   r_a = Σ_ε ρₐ
 
     where ρₐ = ρ − Wᵀ w̄ comes from `_analysis_residual`, and the second term of
-    dw̄ acts on a vector known to lie in the span of U. dW comes from dΣ_ε in the
-    same way, because the tangents of Σ_ε⁻¹ r̄ and Σ_ε⁻¹ H̃ᵀ would already have lost
-    this to rounding.
+    dw̄ acts on a vector known to lie in the span of U. dΣ_ε⁻¹ comes from
+    differentiating the solve at Σ_ε, because the tangents of Σ_ε⁻¹ r̄ and
+    Σ_ε⁻¹ H̃ᵀ would already have lost this to rounding.
 
     Args:
         primals: The arguments of `_low_rank_matmul`.
@@ -915,37 +916,32 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     )
 
     # --- what moves through Σ_ε ---
-    # A factorisation of a symmetric-tagged matrix sees only the symmetric part of
-    # a raw tangent, and the tagged operator's own transpose is a no-op.
     noise = eqx.combine(noise_arrays, noise_static)
-    if isinstance(noise, lx.MatrixLinearOperator) and lx.is_symmetric(noise):
-        d_noise_arrays = eqx.tree_at(
-            lambda operator: operator.matrix,
-            d_noise_arrays,
-            symmetrize(d_noise_arrays.matrix),
+    # r_a = Σ_ε ρₐ, so that Σ_ε⁻¹ r_a keeps the accuracy of ρₐ
+    analysis_mismatch = noise.mv(analysis_residual)
+
+    def solve_with_noise(arrays):
+        # Σ_ε⁻¹ [H̃ᵀ, r_a], by the primal's own solve
+        return solve_rows(
+            eqx.combine(arrays, noise_static),
+            jnp.vstack([obs_anomalies, analysis_mismatch]),
+            solver=solver,
         )
 
-    def d_noise_matvec(vector: Float[Array, " M"]) -> Float[Array, " M"]:
-        # dΣ_ε v
-        def noise_matvec(arrays):
-            return eqx.combine(arrays, noise_static).mv(vector)
-
-        return jax.jvp(noise_matvec, (noise_arrays,), (d_noise_arrays,))[1]
-
+    # dΣ_ε⁻¹ [H̃ᵀ, r_a], differentiating that solve so that the tangent means what
+    # it means to the solver: a factorisation sees only a symmetric part, through
+    # any wrapper or nested factor.
+    _, d_noise_solved = jax.jvp(solve_with_noise, (noise_arrays,), (d_noise_arrays,))
     # dH̃ᵀ w̄
     moved_obs = einsum(d_obs, weights, "member obs, member -> obs")
-    # dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ
-    residual_rhs = d_mean_residual - moved_obs - d_noise_matvec(analysis_residual)
-    # dH̃ᵀ − dΣ_ε W, as rows
-    anomaly_rhs_rows = d_obs - jax.vmap(d_noise_matvec)(whitened_anomalies)
-    # Σ_ε⁻¹ [dH̃ᵀ − dΣ_ε W, dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ], in one solve
+    # Σ_ε⁻¹ [dH̃ᵀ, dr̄ − dH̃ᵀ w̄]
     solved = solve_rows(
-        noise,
-        jnp.vstack([anomaly_rhs_rows, residual_rhs]),
-        solver=solver,
+        noise, jnp.vstack([d_obs, d_mean_residual - moved_obs]), solver=solver
     )
-    # dW = Σ_ε⁻¹ (dH̃ᵀ − dΣ_ε W) and dρ − dWᵀ w̄
-    d_whitened, moved_residual = solved[:-1], solved[-1]
+    # dW = Σ_ε⁻¹ dH̃ᵀ + dΣ_ε⁻¹ H̃ᵀ
+    d_whitened = solved[:-1] + d_noise_solved[:-1]
+    # dρ − dWᵀ w̄ = Σ_ε⁻¹ (dr̄ − dH̃ᵀ w̄) + dΣ_ε⁻¹ r_a
+    moved_residual = solved[-1] + d_noise_solved[-1]
 
     # a = Uᵀ H̃
     mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
