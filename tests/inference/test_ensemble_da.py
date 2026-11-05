@@ -544,3 +544,626 @@ def test_etkf_rejects_non_positive_inflation():
     H = jr.normal(jr.key(1), (4, 2))
     with pytest.raises(ValueError, match="inflation must be positive"):
         etkf_transform(H, _Y2, _R2, inflation=0.0)
+
+
+# ----------------------------------------------------------------
+# The rank-D_y route (gh-747)
+# ----------------------------------------------------------------
+
+
+def _rank_route_problem(J, M, noise="diagonal", N=4):
+    nextkey = key_sequence(747)
+    particles = jr.normal(nextkey(), (J, N))
+    obs_map = jr.normal(nextkey(), (M, N))
+    y = jr.normal(nextkey(), (M,))
+    if noise == "diagonal":
+        R_op = lx.DiagonalLinearOperator(0.2 + jnp.arange(M) / M)
+    else:
+        R_op = psd_operator(random_pd_matrix(nextkey(), M, jitter=0.5))
+    return particles, obs_map, y, R_op
+
+
+def _apply_map(particles, obs_map):
+    return einsum(particles, obs_map, "member state, obs state -> member obs")
+
+
+# (J, M), covering M = 1, M = J - 1, and M >= J, where only one route exists.
+_RANK_SHAPES = [(20, 3), (50, 1), (12, 10), (8, 7), (2, 1), (4, 6)]
+
+
+@pytest.mark.x64_only(reason="parity checked to 1e-10")
+@pytest.mark.parametrize("noise", ["diagonal", "dense"])
+@pytest.mark.parametrize("inflation", [1.0, 1.5])
+@pytest.mark.parametrize(("J", "M"), _RANK_SHAPES)
+def test_low_rank_route_matches_the_full_route(J, M, inflation, noise):
+    particles, obs_map, y, R_op = _rank_route_problem(J, M, noise)
+    obs_particles = _apply_map(particles, obs_map)
+    kwargs = {"inflation": inflation}
+    w_low, t_low = etkf_transform(obs_particles, y, R_op, low_rank=True, **kwargs)
+    w_full, t_full = etkf_transform(obs_particles, y, R_op, low_rank=False, **kwargs)
+    assert jnp.allclose(w_low, w_full, rtol=1e-10, atol=1e-10)
+    assert jnp.allclose(t_low, t_full, rtol=1e-10, atol=1e-10)
+    analysis_low = gaussx.etkf_analysis(
+        particles, obs_particles, y, R_op, low_rank=True, **kwargs
+    )
+    analysis_full = gaussx.etkf_analysis(
+        particles, obs_particles, y, R_op, low_rank=False, **kwargs
+    )
+    assert jnp.allclose(analysis_low, analysis_full, rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.x64_only(reason="parity checked to 1e-10")
+def test_etkf_analysis_equals_the_transform_products():
+    """x̄ + X̃ᵀ w̄ + W X̃ from `etkf_transform`, by the default route of each."""
+    particles, obs_map, y, R_op = _rank_route_problem(20, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    w_mean, transform = etkf_transform(obs_particles, y, R_op)
+    mean = reduce(particles, "member state -> state", "mean")
+    anomalies = einx.subtract("member state, state -> member state", particles, mean)
+    expected = einx.add(
+        "state, member state -> member state",
+        mean + einsum(w_mean, anomalies, "member, member state -> state"),
+        einsum(transform, anomalies, "member other, other state -> member state"),
+    )
+    analysis = gaussx.etkf_analysis(particles, obs_particles, y, R_op)
+    assert jnp.allclose(analysis, expected, rtol=1e-10, atol=1e-10)
+
+
+def test_etkf_analysis_matches_the_kalman_posterior():
+    """Linear H and J > D_x: the analysis moments are the Kalman moments."""
+    J, M, N = 12, 2, 3
+    particles, obs_map, y, R_op = _rank_route_problem(J, M, N=N)
+    analysis = gaussx.etkf_analysis(particles, _apply_map(particles, obs_map), y, R_op)
+    prior_mean = reduce(particles, "member state -> state", "mean")
+    prior_anomalies = einx.subtract(
+        "member state, state -> member state", particles, prior_mean
+    )
+    prior_cov = einsum(
+        prior_anomalies, prior_anomalies, "member a, member b -> a b"
+    ) / (J - 1)
+    post_mean, post_cov = _kf_update(
+        prior_mean, prior_cov, obs_map, R_op.as_matrix(), y
+    )
+    new_mean = reduce(analysis, "member state -> state", "mean")
+    new_anomalies = einx.subtract(
+        "member state, state -> member state", analysis, new_mean
+    )
+    new_cov = einsum(new_anomalies, new_anomalies, "member a, member b -> a b") / (
+        J - 1
+    )
+    rtol, atol = default_tolerances(analysis)
+    assert jnp.allclose(new_mean, post_mean, rtol=100 * rtol, atol=100 * atol)
+    assert jnp.allclose(new_cov, post_cov, rtol=100 * rtol, atol=100 * atol)
+    # 𝟙ᵀ X̃_t|t = 0
+    assert jnp.allclose(
+        reduce(new_anomalies, "member state -> state", "sum"), 0.0, atol=100 * atol
+    )
+
+
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+@pytest.mark.parametrize("noise", ["diagonal", "dense"])
+@pytest.mark.parametrize(
+    ("J", "M"),
+    [
+        (20, 3),
+        pytest.param(12, 10, marks=pytest.mark.slow),
+        pytest.param(2, 1, marks=pytest.mark.slow),
+        pytest.param(4, 6, marks=pytest.mark.slow),
+    ],
+)
+def test_low_rank_gradients_match_the_full_route(J, M, noise):
+    """Reverse and forward mode, through values, weights, R and the inflation."""
+    particles, obs_map, y, R_op = _rank_route_problem(J, M, noise)
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def loss(state, inflation, low_rank):
+        analysis = gaussx.etkf_analysis(
+            state,
+            _apply_map(state, obs_map),
+            y,
+            R_op,
+            inflation=inflation,
+            low_rank=low_rank,
+        )
+        return jnp.sum(weights * analysis) + jnp.sum(analysis**2)
+
+    grad = jax.grad(loss, argnums=(0, 1))
+    grad_low = grad(particles, jnp.asarray(1.2), True)
+    grad_full = grad(particles, jnp.asarray(1.2), False)
+    assert tree_allclose(grad_low, grad_full, rtol=1e-8, atol=1e-8)
+
+    direction = jr.normal(jr.key(2), particles.shape)
+    _, forward_low = jax.jvp(
+        lambda x: loss(x, jnp.asarray(1.2), True), (particles,), (direction,)
+    )
+    assert jnp.allclose(forward_low, jnp.sum(grad_full[0] * direction), rtol=1e-8)
+
+
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+@pytest.mark.parametrize(("J", "M"), [(20, 3), (4, 6)])
+def test_low_rank_gradient_through_the_noise_matches_the_full_route(J, M):
+    """dW and dρ both move with Σ_ε, with a dense and a scaled covariance."""
+    particles, obs_map, y, _ = _rank_route_problem(J, M)
+    obs_particles = _apply_map(particles, obs_map)
+    base = random_pd_matrix(jr.key(3), M, jitter=0.5)
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def loss(noise_matrix, low_rank):
+        analysis = gaussx.etkf_analysis(
+            particles,
+            obs_particles,
+            y,
+            psd_operator(noise_matrix),
+            low_rank=low_rank,
+        )
+        return jnp.sum(weights * analysis)
+
+    grad_low = jax.grad(loss)(base, True)
+    grad_full = jax.grad(loss)(base, False)
+    assert jnp.allclose(grad_low, grad_full, rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4])
+def test_low_rank_float32_anomaly_gradient_matches_float64(scale):
+    """gh-747 review: P dΛ_w P = dc P, so no rounding meets the large f′(c)."""
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_map = scale * obs_map
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def gradient(dtype):
+        noise = lx.DiagonalLinearOperator(jnp.ones(3, dtype))
+
+        def loss(state):
+            analysis = gaussx.etkf_analysis(
+                state, _apply_map(state, obs_map.astype(dtype)), y.astype(dtype), noise
+            )
+            return jnp.sum(weights.astype(dtype) * analysis)
+
+        return jax.grad(loss)(particles.astype(dtype))
+
+    reference = gradient(jnp.float64)
+    single = gradient(jnp.float32)
+    assert jnp.max(jnp.abs(single - reference)) < 1e-2 * jnp.max(jnp.abs(reference))
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+def test_low_rank_gradient_through_a_transformed_identity():
+    """`etkf_transform`'s dense W on the rank route has the full route's gradient."""
+    particles, obs_map, y, R_op = _rank_route_problem(9, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    weights = jr.normal(jr.key(1), (9, 9))
+
+    def loss(obs, low_rank):
+        w_mean, transform = etkf_transform(obs, y, R_op, low_rank=low_rank)
+        return jnp.sum(w_mean**2) + jnp.sum(weights * transform)
+
+    grad_low = jax.grad(loss)(obs_particles, True)
+    grad_full = jax.grad(loss)(obs_particles, False)
+    assert jnp.allclose(grad_low, grad_full, rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+@pytest.mark.parametrize("channel", ["duplicated", "constant"])
+def test_low_rank_gradient_is_finite_for_a_rank_deficient_ensemble(channel):
+    """QR's own derivative needs full column rank; this route does not use it."""
+    particles, obs_map, y, R_op = _rank_route_problem(20, 4)
+    if channel == "duplicated":
+        obs_map = obs_map.at[1].set(obs_map[0])
+    else:
+        obs_map = obs_map.at[2].set(0.0)
+
+    def loss(state, low_rank):
+        analysis = gaussx.etkf_analysis(
+            state, _apply_map(state, obs_map), y, R_op, low_rank=low_rank
+        )
+        return jnp.sum(analysis**2)
+
+    value_low = gaussx.etkf_analysis(
+        particles, _apply_map(particles, obs_map), y, R_op, low_rank=True
+    )
+    value_full = gaussx.etkf_analysis(
+        particles, _apply_map(particles, obs_map), y, R_op, low_rank=False
+    )
+    assert jnp.allclose(value_low, value_full, rtol=1e-10, atol=1e-10)
+    grad_low = jax.grad(loss)(particles, True)
+    grad_full = jax.grad(loss)(particles, False)
+    assert jnp.all(jnp.isfinite(grad_low))
+    assert jnp.allclose(grad_low, grad_full, rtol=1e-8, atol=1e-8)
+
+
+def test_etkf_analysis_forms_no_ensemble_sized_matrix():
+    """The rank-D_y route must scale past the point where (J, J) stops fitting."""
+    J = 50
+    particles = jnp.zeros((J, 4))
+    obs_particles = jnp.zeros((J, 3))
+    y = jnp.zeros(3)
+    R_op = lx.DiagonalLinearOperator(jnp.ones(3))
+    forms = {"forward": gaussx.etkf_analysis}
+
+    def reverse(*args):
+        return jax.grad(lambda x: jnp.sum(gaussx.etkf_analysis(x, *args[1:]) ** 2))(
+            args[0]
+        )
+
+    forms["reverse"] = reverse
+    for form in forms.values():
+        jaxpr = str(jax.make_jaxpr(form)(particles, obs_particles, y, R_op))
+        assert f"[{J},{J}]" not in jaxpr
+    # the check can fail: the transform's route does form the matrix
+    full = jax.make_jaxpr(lambda *a: gaussx.etkf_analysis(*a, low_rank=False))
+    assert f"[{J},{J}]" in str(full(particles, obs_particles, y, R_op))
+
+
+def test_etkf_analysis_jit_and_vmap_agree_with_a_loop():
+    particles, obs_map, y, R_op = _rank_route_problem(10, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    observations = jnp.stack([y, y + 1.0, y - 1.0])
+
+    def run(obs):
+        return gaussx.etkf_analysis(particles, obs_particles, obs, R_op)
+
+    looped = jnp.stack([run(obs) for obs in observations])
+    rtol, atol = default_tolerances(looped)
+    assert tree_allclose(jax.vmap(run)(observations), looped, rtol=rtol, atol=atol)
+    assert tree_allclose(jax.jit(run)(y), looped[0], rtol=rtol, atol=atol)
+
+
+def test_etkf_analysis_does_not_materialise_structured_noise(monkeypatch):
+    particles, obs_map, y, _ = _rank_route_problem(10, 4)
+    R_op = lx.DiagonalLinearOperator(0.5 * jnp.ones(4))
+    obs_particles = _apply_map(particles, obs_map)
+    _forbid_as_matrix(monkeypatch, lx.DiagonalLinearOperator)
+    analysis = gaussx.etkf_analysis(particles, obs_particles, y, R_op)
+    assert jnp.all(jnp.isfinite(analysis))
+
+
+def test_etkf_analysis_rejects_mismatched_and_degenerate_ensembles():
+    R_op = lx.DiagonalLinearOperator(jnp.ones(2))
+    y = jnp.zeros(2)
+    with pytest.raises(ValueError, match="same ensemble size"):
+        gaussx.etkf_analysis(jnp.zeros((5, 3)), jnp.zeros((4, 2)), y, R_op)
+    with pytest.raises(ValueError, match="J >= 2"):
+        gaussx.etkf_analysis(jnp.zeros((1, 3)), jnp.zeros((1, 2)), y, R_op)
+
+
+def test_etkf_low_rank_takes_one_small_eigh():
+    """One (D_y, D_y) eigh and no (J, J) one, on the default route when D_y < J."""
+    particles, obs_map, y, R_op = _rank_route_problem(30, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    counts = _primitive_counts(
+        lambda o, yy: gaussx.etkf_analysis(particles, o, yy, R_op), obs_particles, y
+    )
+    assert counts.get("eigh", 0) == 1
+    assert counts.get("qr", 0) + counts.get("householder_product", 0) >= 1
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4, 1e5])
+def test_low_rank_float32_means_match_a_float64_reference(scale):
+    """gh-747 review: the mean weights must not subtract a prior baseline.
+
+    b = H̃ Σ_ε⁻¹ r̄ lies in the span of U, so Σ_w b = U diag(1 / γ) Uᵀ b.
+    Writing it as b / c + U diag(1 / γ − 1 / c) Uᵀ b cancels once λ / c reaches
+    about 1 / ε. The scale sets λ / c, from about 1e4 to 1e10. The bound is in
+    units of the analysis spread, which that form missed by 0.09, 5.8, 121 and
+    3e4 sd here, while the direct form stays within 1e-5 sd.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_particles = scale * _apply_map(particles, obs_map)
+    reference = gaussx.etkf_analysis(
+        particles, obs_particles, y, lx.DiagonalLinearOperator(jnp.ones(3))
+    )
+    single = gaussx.etkf_analysis(
+        particles.astype(jnp.float32),
+        obs_particles.astype(jnp.float32),
+        y.astype(jnp.float32),
+        lx.DiagonalLinearOperator(jnp.ones(3, jnp.float32)),
+    )
+    assert single.dtype == jnp.float32
+    reference_mean = reduce(reference, "member state -> state", "mean")
+    single_mean = reduce(single, "member state -> state", "mean")
+    anomalies = einx.subtract(
+        "member state, state -> member state", reference, reference_mean
+    )
+    spread = jnp.sqrt(reduce(anomalies**2, "member state -> state", "sum") / 19.0)
+    assert jnp.max(jnp.abs(single_mean - reference_mean) / spread) < 0.01
+    # X̃_t|t, which has no such subtraction, stays accurate relative to X̃
+    single_anomalies = einx.subtract(
+        "member state, state -> member state", single, single_mean
+    )
+    assert jnp.max(jnp.abs(single_anomalies - anomalies)) < 1e-3
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_mean_of_a_strongly_informative_observation():
+    """One observation with a spread of 1e4 and unit noise moves the mean to it."""
+    obs_particles = 1e4 * jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    analysis = gaussx.etkf_analysis(
+        obs_particles,
+        obs_particles,
+        jnp.ones(1, jnp.float32),
+        lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32)),
+    )
+    # x̄_t|t = 0 + (1e8 / 3) / (1e8 / 3 + 1) (1 − 0) ≈ 1
+    assert jnp.allclose(
+        reduce(analysis, "member state -> state", "mean"), 1.0, atol=1e-3
+    )
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4])
+def test_low_rank_float32_observation_gradient_matches_float64(scale):
+    """gh-747 review: d x̄ / d y acts on H̃ d(Σ_ε⁻¹ r̄), in the span of U.
+
+    A prior baseline in the derivative lost this gradient once λ / c reached about
+    1 / ε, as it did the mean update itself. The bound is relative.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_particles = scale * _apply_map(particles, obs_map)
+
+    def gradient(dtype):
+        noise = lx.DiagonalLinearOperator(jnp.ones(3, dtype))
+
+        def mean_sum(obs):
+            analysis = gaussx.etkf_analysis(
+                particles.astype(dtype), obs_particles.astype(dtype), obs, noise
+            )
+            return jnp.sum(analysis) / 20.0
+
+        return jax.grad(mean_sum)(y.astype(dtype))
+
+    reference = gradient(jnp.float64)
+    single = gradient(jnp.float32)
+    assert jnp.max(jnp.abs(single - reference)) < 1e-2 * jnp.max(jnp.abs(reference))
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_observation_gradient_of_a_strong_observation():
+    """d x̄ / d y ≈ 1 for one observation with a spread of 1e4 and unit noise."""
+    obs_particles = 1e4 * jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    noise = lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32))
+
+    def mean(obs):
+        analysis = gaussx.etkf_analysis(obs_particles, obs_particles, obs, noise)
+        return jnp.sum(analysis) / 4.0
+
+    gradient = jax.grad(mean)(jnp.ones(1, jnp.float32))
+    assert jnp.allclose(gradient, 1.0, atol=1e-3)
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_gradient_of_a_changing_observation_span():
+    """gh-747 review: d w̄ / d t when the span of H̃ itself moves.
+
+    H̃(t) = 1e4 u + t v with u ⟂ v and unit noise, so vᵀ d w̄ / d t = vᵀ v / (4e8 + 3)
+    comes only from Σ_w dH̃ ρₐ, whose terms cancel if they are evaluated apart.
+    """
+    u = jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    v = jnp.array([[1.0], [-1.0], [1.0], [-1.0]], jnp.float32)
+    noise = lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32))
+    y = jnp.ones(1, jnp.float32)
+
+    def projected_weights(t):
+        w_mean, _ = etkf_transform(1e4 * u + t * v, y, noise)
+        return jnp.sum(w_mean * v[:, 0])
+
+    gradient = jax.grad(projected_weights)(jnp.zeros((), jnp.float32))
+    assert jnp.allclose(gradient, 4.0 / (4e8 + 3.0), rtol=1e-3, atol=0.0)
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_gradient_of_a_strong_observation_noise():
+    """gh-747 review: d w̄ / d R when dρ and dWᵀ w̄ nearly cancel.
+
+    With H̃ = 1e4 u and uᵀ u = 4, uᵀ w̄ = 4e4 / (3 R + 4e8), whose derivative at
+    R = 1 is −1.2e5 / (4e8 + 3)², about −7.5e-13.
+    """
+    u = jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    y = jnp.ones(1, jnp.float32)
+
+    def projected_weights(variance):
+        noise = lx.DiagonalLinearOperator(variance * jnp.ones(1, jnp.float32))
+        w_mean, _ = etkf_transform(1e4 * u, y, noise)
+        return jnp.sum(w_mean * u[:, 0])
+
+    gradient = jax.grad(projected_weights)(jnp.ones((), jnp.float32))
+    assert jnp.allclose(gradient, -1.2e5 / (4e8 + 3.0) ** 2, rtol=1e-3, atol=0.0)
+
+
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+def test_low_rank_gradient_keeps_a_kronecker_noise_structured(monkeypatch):
+    """The derivative applies dΣ_ε by its own matvec, not by forming Σ_ε."""
+    nextkey = key_sequence(748)
+    left = lx.DiagonalLinearOperator(jnp.array([0.5, 1.5]))
+    right = lx.DiagonalLinearOperator(jnp.array([0.4, 0.8, 1.2]))
+    obs_particles = jr.normal(nextkey(), (8, 6))
+    particles = jr.normal(nextkey(), (8, 3))
+    y = jr.normal(nextkey(), (6,))
+
+    def loss(obs, scale, low_rank):
+        noise = gaussx.Kronecker(
+            left, lx.DiagonalLinearOperator(scale * right.diagonal)
+        )
+        analysis = gaussx.etkf_analysis(particles, obs, y, noise, low_rank=low_rank)
+        return jnp.sum(analysis**2)
+
+    argnums = (0, 1)
+    expected = jax.grad(loss, argnums=argnums)(obs_particles, 1.0, False)
+    _forbid_as_matrix(monkeypatch, gaussx.Kronecker)
+    gradient = jax.grad(loss, argnums=argnums)(obs_particles, 1.0, True)
+    assert tree_allclose(gradient, expected, rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="finite differences need float64")
+def test_low_rank_second_derivative_matches_finite_differences():
+    """The custom JVP's own derivative, including through the whitened arrays."""
+    particles, obs_map, y, R_op = _rank_route_problem(8, 2, N=3)
+
+    def loss(scale):
+        state = scale * particles
+        analysis = gaussx.etkf_analysis(
+            state, _apply_map(state, obs_map), y, R_op, low_rank=True
+        )
+        return jnp.sum(analysis**2)
+
+    first = jax.grad(loss)
+    step = 1e-5
+    central = (first(1.0 + step) - first(1.0 - step)) / (2.0 * step)
+    assert jnp.allclose(jax.grad(first)(1.0), central, rtol=1e-6)
+
+
+@pytest.mark.x64_only(reason="derivatives compared with the full route to 1e-8")
+@pytest.mark.parametrize(
+    "make_noise",
+    [
+        pytest.param(lambda S: psd_operator(S), id="matrix"),
+        pytest.param(
+            lambda S: lx.TaggedLinearOperator(
+                lx.MatrixLinearOperator(S), lx.positive_semidefinite_tag
+            ),
+            id="tagged",
+        ),
+        pytest.param(lambda S: 2.0 * psd_operator(S), id="scaled"),
+        pytest.param(
+            lambda S: gaussx.BlockDiag(
+                psd_operator(S[:2, :2]), lx.DiagonalLinearOperator(jnp.ones(1))
+            ),
+            id="block",
+        ),
+    ],
+)
+def test_low_rank_noise_tangent_means_what_it_means_to_the_solver(make_noise):
+    """A non-symmetric tangent: a factorisation responds only to its symmetric part.
+
+    The rule must agree with the full route through any wrapper or nested factor,
+    or a covariance parameterisation that isn't exactly symmetric gets wrong gradients.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    base = random_pd_matrix(jr.key(3), 3, jitter=0.5)
+    tangent = jr.normal(jr.key(4), (3, 3))
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def directional(low_rank):
+        def loss(noise_matrix):
+            analysis = gaussx.etkf_analysis(
+                particles,
+                obs_particles,
+                y,
+                make_noise(noise_matrix),
+                low_rank=low_rank,
+            )
+            return jnp.sum(weights * analysis)
+
+        return jax.jvp(loss, (base,), (tangent,))[1]
+
+    assert jnp.allclose(directional(True), directional(False), rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("variance", [1e-6, 1e-8, 1e-10, 1e-12])
+def test_low_rank_float32_mean_survives_mixed_precision_channels(variance):
+    """A weak mode must not read the large part of ρ through its rounding.
+
+    Reading α = a ρ directly left the mean far outside the prior spread at a
+    variance of 1e-10, while the anomalies looked healthy.
+    """
+    nextkey = key_sequence(749)
+    particles = jr.normal(nextkey(), (8, 3))
+    obs_particles = _apply_map(particles, jr.normal(nextkey(), (2, 3)))
+    y = jnp.array([0.3, -0.4])
+    variances = jnp.array([variance, 1.0])
+    reference = gaussx.etkf_analysis(
+        particles, obs_particles, y, lx.DiagonalLinearOperator(variances)
+    )
+    single = gaussx.etkf_analysis(
+        particles.astype(jnp.float32),
+        obs_particles.astype(jnp.float32),
+        y.astype(jnp.float32),
+        lx.DiagonalLinearOperator(variances.astype(jnp.float32)),
+    )
+    assert jnp.allclose(single, reference, atol=1e-4)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e6, 1e8])
+def test_low_rank_float32_gradients_at_uniformly_strong_observations(scale):
+    """Both the ensemble and the noise, beyond where one projection pass suffices."""
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_particles = scale * _apply_map(particles, obs_map)
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def gradients(dtype):
+        def loss(obs, variances):
+            analysis = gaussx.etkf_analysis(
+                particles.astype(dtype),
+                obs,
+                y.astype(dtype),
+                lx.DiagonalLinearOperator(variances),
+            )
+            return jnp.sum(weights.astype(dtype) * analysis)
+
+        return jax.grad(loss, argnums=(0, 1))(
+            obs_particles.astype(dtype), jnp.ones(3, dtype)
+        )
+
+    reference = gradients(jnp.float64)
+    single = gradients(jnp.float32)
+    for approximate, exact in zip(single, reference, strict=True):
+        assert jnp.max(jnp.abs(approximate - exact)) < 1e-2 * jnp.max(jnp.abs(exact))
+
+
+def test_deterministic_eki_derivatives_are_finite_at_zero_step():
+    """At Δt = 0 the tempered Σ_ε is infinite and ρₐ is zero: no inf × 0."""
+    particles, obs_map, y, R_op = _rank_route_problem(8, 3)
+    obs_particles = _apply_map(particles, obs_map)
+
+    def step(state, obs):
+        return gaussx.eki_step(state, obs, y, R_op, dt=0.0, deterministic=True)
+
+    by_obs = jax.jacfwd(step, argnums=1)(particles, obs_particles)
+    assert jnp.all(jnp.isfinite(by_obs))
+    by_state = jax.jacfwd(step)(particles, obs_particles)
+    num_members, state_size = particles.shape
+    identity = einsum(
+        jnp.eye(num_members),
+        jnp.eye(state_size),
+        "member other, state col -> member state other col",
+    )
+    assert jnp.allclose(by_state, identity, atol=1e-5)
+
+    def by_noise(variances):
+        analysis = gaussx.eki_step(
+            particles,
+            obs_particles,
+            y,
+            lx.DiagonalLinearOperator(variances),
+            dt=0.0,
+            deterministic=True,
+        )
+        return jnp.sum(jnp.sin(analysis))
+
+    assert jnp.all(jnp.isfinite(jax.grad(by_noise)(0.5 * jnp.ones(3))))
+
+
+def test_etkf_rejects_a_non_scalar_inflation():
+    particles = jnp.zeros((4, 2))
+    noise = lx.DiagonalLinearOperator(jnp.ones(2))
+    with pytest.raises(ValueError, match="inflation must be a scalar"):
+        gaussx.etkf_analysis(
+            particles, particles, jnp.zeros(2), noise, inflation=jnp.ones(2)
+        )
+
+
+def test_low_rank_needs_fewer_observations_than_members():
+    """With M >= J the rank-M route does not exist, so both settings take one route."""
+    particles, obs_map, y, R_op = _rank_route_problem(4, 6)
+    obs_particles = _apply_map(particles, obs_map)
+
+    def run(*args):
+        return etkf_transform(*args, low_rank=True)
+
+    counts = _primitive_counts(run, obs_particles, y, R_op)
+    assert counts.get("qr", 0) == 0
