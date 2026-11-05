@@ -8,11 +8,12 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
+import gaussx
 from gaussx import diag as gaussx_diag, frobenius_norm, trace, trace_and_diag
-from gaussx._operators import BlockDiag, Kronecker
+from gaussx._operators import BlockDiag, Kronecker, LowRankUpdate
 from gaussx._primitives._root import root_decomposition
 from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet, SLQLogdet
-from gaussx._testing import random_pd_matrix, tree_allclose
+from gaussx._testing import default_tolerances, random_pd_matrix, tree_allclose
 
 
 @pytest.fixture
@@ -105,6 +106,115 @@ class TestFrobeniusNorm:
         mat = jr.normal(getkey(), (5, 5))
         op = lx.MatrixLinearOperator(mat)
         assert tree_allclose(frobenius_norm(op), jnp.linalg.norm(mat))
+
+
+class TestFrobeniusLowRank:
+    """‖A₀ + U D Vᵀ‖_F against the dense norm, by the k × k Gram route (gh-694)."""
+
+    @staticmethod
+    def _bases(key, size=6):
+        return {
+            "zero": lx.DiagonalLinearOperator(jnp.zeros(size)),
+            "diagonal": lx.DiagonalLinearOperator(jr.normal(key, (size,))),
+            "identity": lx.IdentityLinearOperator(
+                jax.eval_shape(lambda: jnp.zeros(size))
+            ),
+            "scaled_identity": 2.5
+            * lx.IdentityLinearOperator(jax.eval_shape(lambda: jnp.zeros(size))),
+            "dense": lx.MatrixLinearOperator(jr.normal(key, (size, size))),
+        }
+
+    @pytest.mark.parametrize(
+        "base_name", ["zero", "diagonal", "identity", "scaled_identity", "dense"]
+    )
+    @pytest.mark.parametrize("update", ["symmetric", "weighted", "non_symmetric"])
+    def test_matches_the_dense_norm(self, getkey, base_name, update):
+        base = self._bases(getkey())[base_name]
+        left = jr.normal(getkey(), (6, 3))
+        weights = jr.normal(getkey(), (3,)) if update != "symmetric" else None
+        right = jr.normal(getkey(), (6, 3)) if update == "non_symmetric" else None
+        op = LowRankUpdate(base, left, weights, right)
+        rtol, atol = default_tolerances(left)
+        assert tree_allclose(
+            frobenius_norm(op),
+            jnp.linalg.norm(op.as_matrix()),
+            rtol=100 * rtol,
+            atol=100 * atol,
+        )
+
+    def test_rectangular_update(self, getkey):
+        base = lx.MatrixLinearOperator(jr.normal(getkey(), (6, 4)))
+        op = LowRankUpdate(
+            base, jr.normal(getkey(), (6, 2)), V=jr.normal(getkey(), (4, 2))
+        )
+        assert tree_allclose(frobenius_norm(op), jnp.linalg.norm(op.as_matrix()))
+
+    def test_rank_zero_is_the_base(self, getkey):
+        base = lx.DiagonalLinearOperator(jr.normal(getkey(), (5,)))
+        op = LowRankUpdate(base, jnp.zeros((5, 0)))
+        assert tree_allclose(frobenius_norm(op), frobenius_norm(base))
+
+    def test_an_ensemble_covariance_forms_no_state_sized_matrix(self):
+        """No N × N array in the jaxpr, value or gradient, for N = 1e4."""
+        size = 10_000
+        particles = jnp.zeros((5, size))
+
+        def norm(state):
+            return frobenius_norm(gaussx.ensemble_covariance(state, bessel=True))
+
+        for form in (norm, jax.grad(norm)):
+            assert f"[{size},{size}]" not in str(jax.make_jaxpr(form)(particles))
+
+    def test_structured_base_is_not_materialised(self, getkey, monkeypatch):
+        base = BlockDiag(
+            lx.DiagonalLinearOperator(jr.normal(getkey(), (2,))),
+            lx.DiagonalLinearOperator(jr.normal(getkey(), (2,))),
+        )
+        op = LowRankUpdate(base, jr.normal(getkey(), (4, 2)))
+        expected = jnp.linalg.norm(op.as_matrix())
+
+        def forbidden(self):
+            raise AssertionError("the operator was materialised")
+
+        monkeypatch.setattr(BlockDiag, "as_matrix", forbidden)
+        monkeypatch.setattr(LowRankUpdate, "as_matrix", forbidden)
+        assert tree_allclose(frobenius_norm(op), expected)
+
+    def test_stochastic_base_is_estimated_not_materialised(self, psd_op, getkey):
+        """A matrix-free base keeps its probes; the update stays exact."""
+        left = jr.normal(getkey(), (psd_op.in_size(), 2))
+        matrix_free = LowRankUpdate(_matvec_only(psd_op), left)
+        exact = jnp.linalg.norm(LowRankUpdate(psd_op, left).as_matrix())
+        estimate = frobenius_norm(matrix_free, stochastic=True, num_probes=400)
+        assert jnp.abs(estimate - exact) / exact < 0.1
+
+    def test_gradient_matches_the_dense_norm(self, getkey):
+        particles = jr.normal(getkey(), (6, 4))
+
+        def structured(state):
+            return frobenius_norm(gaussx.ensemble_covariance(state, bessel=True))
+
+        def dense(state):
+            matrix = gaussx.ensemble_covariance(state, bessel=True).as_matrix()
+            return jnp.linalg.norm(matrix)
+
+        rtol, atol = default_tolerances(particles)
+        assert tree_allclose(
+            jax.grad(structured)(particles),
+            jax.grad(dense)(particles),
+            rtol=1000 * rtol,
+            atol=1000 * atol,
+        )
+
+    def test_jit_and_vmap_match_a_loop(self, getkey):
+        ensembles = jr.normal(getkey(), (3, 6, 4))
+
+        def norm(state):
+            return frobenius_norm(gaussx.ensemble_covariance(state, bessel=True))
+
+        looped = jnp.stack([norm(state) for state in ensembles])
+        assert tree_allclose(jax.vmap(norm)(ensembles), looped)
+        assert tree_allclose(jax.jit(norm)(ensembles[0]), looped[0])
 
 
 class TestSLQErrorBars:
