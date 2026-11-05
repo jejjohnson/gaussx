@@ -11,6 +11,7 @@ U M × k, V N × k and D = diag(d). The stochastic estimator averages
 from __future__ import annotations
 
 import functools as ft
+from collections.abc import Callable
 
 import einx
 import jax
@@ -142,7 +143,7 @@ def frobenius_norm(
         # ‖A_1 ⊗ … ⊗ A_D‖_F = ∏_d ‖A_d‖_F
         return ft.reduce(jnp.multiply, recurse_each(operator.operators))
     if isinstance(operator, LowRankUpdate):
-        return _frobenius_low_rank(operator, recurse(operator.base))
+        return _frobenius_low_rank(operator, _squared_norm(operator.base, recurse))
     if isinstance(operator, lx.TaggedLinearOperator):
         return recurse(operator.operator)
     if isinstance(operator, lx.MulLinearOperator):
@@ -163,16 +164,47 @@ def frobenius_norm(
     return jnp.sqrt(jnp.sum(squared_magnitudes))
 
 
-def _frobenius_low_rank(
-    operator: LowRankUpdate, base_norm: Float[Array, ""]
+def _squared_norm(
+    operator: lx.AbstractLinearOperator,
+    norm: Callable[[lx.AbstractLinearOperator], Array],
 ) -> Float[Array, ""]:
-    """‖A₀ + U D Vᵀ‖_F from the norm of A₀, without forming the update.
+    """‖A‖_F², with no root where the common operators don't need one.
+
+    The root of a zero norm has an infinite slope, so squaring ‖A‖_F gives a NaN
+    gradient at A = 0, the base of an ensemble covariance, even when the operator
+    A is added to has a nonzero norm.
+
+    Args:
+        operator: The operator A.
+        norm: The Frobenius norm, for any operator without a rule here.
+
+    Returns:
+        ‖A‖_F².
+    """
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return jnp.sum(jnp.abs(lx.diagonal(operator)) ** 2)
+    if isinstance(operator, lx.MatrixLinearOperator):
+        return jnp.sum(jnp.abs(operator.as_matrix()) ** 2)
+    if isinstance(operator, lx.TaggedLinearOperator | lx.NegLinearOperator):
+        return _squared_norm(operator.operator, norm)
+    if isinstance(operator, lx.MulLinearOperator):
+        return jnp.abs(operator.scalar) ** 2 * _squared_norm(operator.operator, norm)
+    if isinstance(operator, lx.DivLinearOperator):
+        return _squared_norm(operator.operator, norm) / jnp.abs(operator.scalar) ** 2
+    root = norm(operator)
+    return root * root
+
+
+def _frobenius_low_rank(
+    operator: LowRankUpdate, base_squared: Float[Array, ""]
+) -> Float[Array, ""]:
+    """‖A₀ + U D Vᵀ‖_F from the squared norm of A₀, without forming the update.
 
         ‖A‖_F² = ‖A₀‖_F² + 2 ∑_k d_k u_kᵀ A₀ v_k + tr(UᵀU D VᵀV D)
 
     Args:
         operator: The update A = A₀ + U D Vᵀ.
-        base_norm: ‖A₀‖_F.
+        base_squared: ‖A₀‖_F².
 
     Returns:
         The Frobenius norm ‖A‖_F, clamped at zero before the root.
@@ -180,7 +212,7 @@ def _frobenius_low_rank(
     left, weights, right = operator.U, operator.d, operator.V
     # A rank-0 update is its base, and einx rejects a zero-length axis.
     if left.shape[1] == 0:
-        return base_norm
+        return jnp.sqrt(base_squared)
     # U D
     weighted_left = einx.multiply("row mode, mode -> row mode", left, weights)
     # V D
@@ -196,7 +228,7 @@ def _frobenius_low_rank(
     # ∑_k d_k u_kᵀ A₀ v_k
     cross = einsum(weighted_left, base_right, "row mode, row mode ->")
     # ‖A‖_F²
-    norm_squared = base_norm * base_norm + 2.0 * cross + update_squared
+    norm_squared = base_squared + 2.0 * cross + update_squared
     # max(‖A‖_F², 0), which rounding could undershoot when A₀ cancels the update
     return jnp.sqrt(jnp.maximum(norm_squared, 0.0))
 

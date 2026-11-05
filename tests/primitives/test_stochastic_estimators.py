@@ -206,6 +206,39 @@ class TestFrobeniusLowRank:
             atol=1000 * atol,
         )
 
+    @pytest.mark.parametrize(
+        "make_base",
+        [
+            pytest.param(lx.DiagonalLinearOperator, id="diagonal"),
+            pytest.param(
+                lambda x: lx.MatrixLinearOperator(jnp.diag(x)),
+                id="dense",
+            ),
+            pytest.param(lambda x: 2.0 * lx.DiagonalLinearOperator(x), id="scaled"),
+            pytest.param(lambda x: lx.DiagonalLinearOperator(x) / 2.0, id="divided"),
+            pytest.param(
+                lambda x: lx.TaggedLinearOperator(
+                    lx.DiagonalLinearOperator(x), lx.diagonal_tag
+                ),
+                id="tagged",
+            ),
+        ],
+    )
+    def test_gradient_through_a_zero_base_matches_the_dense_norm(self, make_base):
+        """The update's norm is nonzero, so a zero base must not give NaN."""
+        factor = jnp.ones((2, 1))
+
+        def structured(values):
+            return frobenius_norm(LowRankUpdate(make_base(values), factor))
+
+        def dense(values):
+            return jnp.linalg.norm(LowRankUpdate(make_base(values), factor).as_matrix())
+
+        zeros = jnp.zeros(2)
+        gradient = jax.grad(structured)(zeros)
+        assert jnp.all(jnp.isfinite(gradient))
+        assert tree_allclose(gradient, jax.grad(dense)(zeros))
+
     def test_jit_and_vmap_match_a_loop(self, getkey):
         ensembles = jr.normal(getkey(), (3, 6, 4))
 
