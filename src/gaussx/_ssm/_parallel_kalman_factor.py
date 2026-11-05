@@ -9,9 +9,9 @@ Corenflos, Hassan & Särkkä (2022, §III) carries (F_cond, μ_cond, L_cond,
 U → L_cond, η → Λμ_lik and Z → L_lik. Every element and every combination
 propagates its factors through QR decompositions (``tria``) of stacked
 factors, so every returned covariance is a Gram matrix L Lᵀ, PSD by
-construction. The means alone take a dense LU of I + Σ_cond Λ_lik, assembled
-from those factors, because its push-through form cancels in float32
-(gh-746). This is the filter behind
+construction. The conditional transitions, means and information vectors take
+a dense LU of I + Σ_cond Λ_lik, assembled from those factors, because its
+push-through form cancels in float32 (gh-746). This is the filter behind
 ``parallel_kalman_filter(..., square_root=True)`` (gh-454).
 
 A factor takes the subscript of the matrix it factors: L_η, L_ε and L_x,0
@@ -440,7 +440,7 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
 
     after Yaghoobi et al. (2022). The factors L_cond,ij and L_lik,ij need only
     triangular solves against Ξ₁₁ or Γ, whose stacks contain an identity block
-    and so are never singular. The means and information vectors instead take
+    and so are never singular. F_cond,ij, μ_cond,ij and Λμ_lik,ij instead take
     one LU of I + Σ_cond,i Λ_lik,j, formed from the factors. Yaghoobi et al.'s
     I − W Vᵀ L_lik,jᵀ, with V = L_lik,jᵀ W, is the same inverse, but it subtracts
     two nearly equal terms when Σ_cond,i Λ_lik,j is large (gh-746).
