@@ -665,6 +665,66 @@ def test_square_root_float32_chain_is_psd_and_accurate():
 
 
 @pytest.mark.slow
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize(
+    ("process_var", "obs_var", "prior_var", "max_mean_error", "max_loglik_error"),
+    [
+        (1e-8, 1e-6, 1.0, 0.1, 0.1),
+        (1e-10, 1e-8, 1.0, 1.0, 0.1),
+        (1e-12, 1e-10, 100.0, 10.0, 2.0),
+    ],
+)
+def test_square_root_float32_means_match_a_float64_reference(
+    process_var, obs_var, prior_var, max_mean_error, max_loglik_error
+):
+    """gh-746: float32 means and log-likelihood, not only PSD covariances.
+
+    A constant-velocity model with data drawn from the model. Inverting
+    I + Σ_cond Λ_lik by subtraction cancels once Σ_cond Λ_lik reaches about
+    1 / ε, which left these means thousands of standard deviations off while
+    the covariances looked healthy. The bounds sit far below that form's
+    errors on this data (4.3, 2481 and 6.5e9 sd).
+    """
+    num_steps = 64
+    transition = jnp.array([[1.0, 0.1], [0.0, 1.0]])
+    obs_model = jnp.array([[1.0, 0.0]])
+    process_noise = process_var * jnp.eye(2)
+    obs_noise = obs_var * jnp.eye(1)
+    prior_cov = prior_var * jnp.eye(2)
+
+    # --- data from the model ---
+    state_key, noise_key, obs_key = jr.split(jr.key(0), 3)
+    state = jnp.sqrt(prior_var) * jr.normal(state_key, (2,))
+    observations = []
+    for step in range(num_steps):
+        process_draw = jr.normal(jr.fold_in(noise_key, step), (2,))
+        state = transition @ state + jnp.sqrt(process_var) * process_draw
+        obs_draw = jr.normal(jr.fold_in(obs_key, step), (1,))
+        observations.append(obs_model @ state + jnp.sqrt(obs_var) * obs_draw)
+    args = (
+        transition,
+        obs_model,
+        process_noise,
+        obs_noise,
+        jnp.stack(observations),
+        jnp.zeros(2),
+        prior_cov,
+    )
+
+    reference = kalman_filter(*args)
+    single = parallel_kalman_filter(
+        *[x.astype(jnp.float32) for x in args], square_root=True
+    )
+    assert single.filtered_means.dtype == jnp.float32
+
+    # Σ_x,t|t diagonal, the scale of the mean error
+    variances = jnp.stack([reference.filtered_covs[:, i, i] for i in range(2)], -1)
+    mean_error = jnp.abs(single.filtered_means - reference.filtered_means)
+    assert jnp.max(mean_error / jnp.sqrt(variances)) < max_mean_error
+    assert jnp.abs(single.log_likelihood - reference.log_likelihood) < max_loglik_error
+    assert jnp.min(jnp.linalg.eigvalsh(single.filtered_covs)) > 0.0
+
+
 def test_square_root_more_observations_than_states():
     """M = 3 > N = 2 compresses the information factor Z by QR."""
     k = jr.split(jr.key(1), 3)
