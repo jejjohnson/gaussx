@@ -842,3 +842,44 @@ def test_low_rank_recovers_the_mean_of_a_strongly_informative_observation():
     assert jnp.allclose(
         reduce(analysis, "member state -> state", "mean"), 1.0, atol=1e-3
     )
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4])
+def test_low_rank_float32_observation_gradient_matches_float64(scale):
+    """gh-747 review: d x̄ / d y acts on H̃ d(Σ_ε⁻¹ r̄), in the span of U.
+
+    A prior baseline in the derivative lost this gradient once λ / c reached about
+    1 / ε, as it did the mean update itself. The bound is relative.
+    """
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_particles = scale * _apply_map(particles, obs_map)
+
+    def gradient(dtype):
+        noise = lx.DiagonalLinearOperator(jnp.ones(3, dtype))
+
+        def mean_sum(obs):
+            analysis = gaussx.etkf_analysis(
+                particles.astype(dtype), obs_particles.astype(dtype), obs, noise
+            )
+            return jnp.sum(analysis) / 20.0
+
+        return jax.grad(mean_sum)(y.astype(dtype))
+
+    reference = gradient(jnp.float64)
+    single = gradient(jnp.float32)
+    assert jnp.max(jnp.abs(single - reference)) < 1e-2 * jnp.max(jnp.abs(reference))
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_observation_gradient_of_a_strong_observation():
+    """d x̄ / d y ≈ 1 for one observation with a spread of 1e4 and unit noise."""
+    obs_particles = 1e4 * jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    noise = lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32))
+
+    def mean(obs):
+        analysis = gaussx.etkf_analysis(obs_particles, obs_particles, obs, noise)
+        return jnp.sum(analysis) / 4.0
+
+    gradient = jax.grad(mean)(jnp.ones(1, jnp.float32))
+    assert jnp.allclose(gradient, 1.0, atol=1e-3)

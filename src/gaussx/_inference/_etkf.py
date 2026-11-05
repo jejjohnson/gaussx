@@ -118,10 +118,6 @@ def etkf_transform(
     obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
         obs_particles, y, obs_noise, solver
     )
-    # H̃ Σ_ε⁻¹ r̄
-    projected_residual = einsum(
-        obs_anomalies, whitened_residual, "member obs, obs -> member"
-    )
     # √(|ℰ| − 1)
     root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=obs_anomalies.dtype))
     identity = jnp.eye(ensemble_size, dtype=obs_anomalies.dtype)
@@ -136,7 +132,7 @@ def etkf_transform(
             obs_anomalies,
             whitened_anomalies,
             prior_precision,
-            projected_residual,
+            whitened_residual,
             identity,
         )
         # W = √(|ℰ| − 1) Λ_w^−½
@@ -153,6 +149,10 @@ def etkf_transform(
     # Σ_w = Λ_w⁻¹ and Λ_w^−½
     weight_covariance, inverse_sqrt = _inverse_and_inverse_sqrt(weight_precision)
 
+    # H̃ Σ_ε⁻¹ r̄
+    projected_residual = einsum(
+        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    )
     # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄
     w_mean = einsum(
         weight_covariance, projected_residual, "member other, other -> member"
@@ -298,10 +298,6 @@ def _etkf_increments(
         obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
             obs_particles, y, obs_noise, solver
         )
-        # H̃ Σ_ε⁻¹ r̄
-        projected_residual = einsum(
-            obs_anomalies, whitened_residual, "member obs, obs -> member"
-        )
         # (|ℰ| − 1) / ζ
         prior_precision = jnp.asarray(
             (ensemble_size - 1) / inflation, dtype=obs_anomalies.dtype
@@ -311,7 +307,7 @@ def _etkf_increments(
             obs_anomalies,
             whitened_anomalies,
             prior_precision,
-            projected_residual,
+            whitened_residual,
             anomalies,
         )
         # W X̃ = √(|ℰ| − 1) Λ_w^−½ X̃
@@ -569,9 +565,9 @@ def _span_apply(
 ) -> Float[Array, " J"]:
     """f(Λ_w) b = U diag(f(c + λ)) Uᵀ b, for b in the span of U.
 
-    `_low_rank_apply` would give the same b in exact arithmetic, but its prior
-    baseline cancels once λ / c reaches about 1 / ε, and that loses the mean
-    update of a strongly informative observation in float32.
+    Without the complement of `_low_rank_apply`, nothing of the prior term can
+    leak into a mean update, which matters most for a strongly informative
+    observation in float32.
 
     Args:
         basis: Orthonormal U.
@@ -587,13 +583,44 @@ def _span_apply(
     return einsum(basis, mode_values * projected, "member mode, mode -> member")
 
 
+def _complement(
+    basis: Float[Array, "J R"],
+    rhs: Float[Array, "J C"],
+) -> Float[Array, "J C"]:
+    """P B = (I − U Uᵀ)² B, projected twice.
+
+    One pass leaves a component of about ε ‖B‖ in the span of U when B lies
+    mostly in that span. f(c) then amplifies it past the true f(c + λ) on that
+    span, so a second pass removes it.
+
+    Args:
+        basis: Orthonormal U.
+        rhs: Right-hand sides B, one per column.
+
+    Returns:
+        P B.
+    """
+
+    def _project_out(values: Float[Array, "J C"]) -> Float[Array, "J C"]:
+        # Uᵀ B
+        projected = einsum(basis, values, "member mode, member col -> mode col")
+        # B − U Uᵀ B
+        return values - einsum(basis, projected, "member mode, mode col -> member col")
+
+    return _project_out(_project_out(rhs))
+
+
 def _low_rank_apply(
     basis: Float[Array, "J R"],
     prior_value: Float[Array, ""],
     mode_values: Float[Array, " R"],
     rhs: Float[Array, "J C"],
 ) -> Float[Array, "J C"]:
-    """f(Λ_w) B = f(c) B + U diag(f(c + λ) − f(c)) Uᵀ B, no (|ℰ|, |ℰ|) array.
+    """f(Λ_w) B = U diag(f(c + λ)) Uᵀ B + f(c) P B, no (|ℰ|, |ℰ|) array.
+
+    The two components are applied apart: f(c) B + U diag(f(c + λ) − f(c)) Uᵀ B
+    is the same in exact arithmetic, but it cancels once λ / c reaches about
+    1 / ε.
 
     Args:
         basis: Orthonormal U.
@@ -606,14 +633,12 @@ def _low_rank_apply(
     """
     # Uᵀ B
     projected = einsum(basis, rhs, "member mode, member col -> mode col")
-    # diag(f(c + λ) − f(c)) Uᵀ B
-    scaled = einx.multiply(
-        "mode, mode col -> mode col", mode_values - prior_value, projected
-    )
-    # f(c) B + U diag(f(c + λ) − f(c)) Uᵀ B
-    return prior_value * rhs + einsum(
+    # diag(f(c + λ)) Uᵀ B
+    scaled = einx.multiply("mode, mode col -> mode col", mode_values, projected)
+    # U diag(f(c + λ)) Uᵀ B + f(c) P B
+    return einsum(
         basis, scaled, "member mode, mode col -> member col"
-    )
+    ) + prior_value * _complement(basis, rhs)
 
 
 @jax.custom_jvp
@@ -621,10 +646,10 @@ def _low_rank_matmul(
     obs_anomalies: Float[Array, "J M"],
     whitened_anomalies: Float[Array, "J M"],
     prior_precision: Float[Array, ""],
-    weight_rhs: Float[Array, " J"],
+    whitened_residual: Float[Array, " M"],
     anomaly_rhs: Float[Array, "J C"],
 ) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
-    """Σ_w b and Λ_w^−½ B for Λ_w = c I + H̃ Σ_ε⁻¹ H̃ᵀ, from one spectrum.
+    """w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ B for Λ_w = c I + H̃ Σ_ε⁻¹ H̃ᵀ, from one spectrum.
 
     The custom JVP exists because JAX's QR rule needs H̃ to have full column
     rank, which a constant or duplicated observation channel breaks. See
@@ -634,16 +659,20 @@ def _low_rank_matmul(
         obs_anomalies: Observation anomalies H̃, stacked as rows.
         whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
         prior_precision: The prior term c = (|ℰ| − 1) / ζ.
-        weight_rhs: Right-hand side b of Σ_w, in the span of H̃.
+        whitened_residual: Σ_ε⁻¹ r̄.
         anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
 
     Returns:
-        Tuple ``(weights, inverse_sqrt_rhs)`` holding Σ_w b and Λ_w^−½ B.
+        Tuple ``(weights, inverse_sqrt_rhs)`` holding w̄ and Λ_w^−½ B.
     """
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
     # γ = c + λ
     precision = prior_precision + excess
-    weights = _span_apply(basis, 1.0 / precision, weight_rhs)
+    # H̃ Σ_ε⁻¹ r̄, in the span of U by construction
+    projected_residual = einsum(
+        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    )
+    weights = _span_apply(basis, 1.0 / precision, projected_residual)
     inverse_sqrt_rhs = _low_rank_apply(
         basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), anomaly_rhs
     )
@@ -683,7 +712,7 @@ def _inverse_sqrt_difference(
 
 @_low_rank_matmul.defjvp
 def _low_rank_matmul_jvp(primals, tangents):
-    """Daleckii-Krein derivative of Σ_w b and Λ_w^−½ B in the basis [U, U⊥].
+    """Daleckii-Krein derivative of w̄ and Λ_w^−½ B in the basis [U, U⊥].
 
     The same rule as `_inverse_and_inverse_sqrt_jvp`, written in blocks so that
     U⊥ is never formed: I − U Uᵀ applies it, and every eigenvalue on U⊥ equals c.
@@ -694,7 +723,9 @@ def _low_rank_matmul_jvp(primals, tangents):
                     + f′(c) P dΛ_w P B
 
     with P = I − U Uᵀ, Dᵢⱼ the divided difference at (γᵢ, γⱼ) and dᵢ the one at
-    (γᵢ, c). dΛ_w is applied by matrix-vector products only.
+    (γᵢ, c). dΛ_w is applied by matrix-vector products only. In
+    dw̄ = dΣ_w b + Σ_w dH̃ Σ_ε⁻¹ r̄ + Σ_w H̃ d(Σ_ε⁻¹ r̄), with b = H̃ Σ_ε⁻¹ r̄, the
+    first and last terms act on vectors known to lie in the span of U.
 
     Args:
         primals: The arguments of `_low_rank_matmul`.
@@ -703,10 +734,14 @@ def _low_rank_matmul_jvp(primals, tangents):
     Returns:
         Tuple ``(primal_out, tangent_out)``.
     """
-    obs_anomalies, whitened_anomalies, prior_precision, weight_rhs, anomaly_rhs = (
-        primals
-    )
-    d_obs, d_whitened, d_prior, d_weight_rhs, d_anomaly_rhs = tangents
+    (
+        obs_anomalies,
+        whitened_anomalies,
+        prior_precision,
+        whitened_residual,
+        anomaly_rhs,
+    ) = primals
+    d_obs, d_whitened, d_prior, d_residual, d_anomaly_rhs = tangents
     primal_out = _low_rank_matmul(*primals)
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
     # γ = c + λ
@@ -731,9 +766,7 @@ def _low_rank_matmul_jvp(primals, tangents):
         return d_prior * rhs + 0.5 * terms
 
     def complement(rhs: Float[Array, "J C"]) -> Float[Array, "J C"]:
-        # P B = B − U Uᵀ B
-        projected = einsum(basis, rhs, "member mode, member col -> mode col")
-        return rhs - einsum(basis, projected, "member mode, mode col -> member col")
+        return _complement(basis, rhs)
 
     # dΛ_w U and Uᵀ dΛ_w U
     d_basis = d_precision(basis)
@@ -784,15 +817,36 @@ def _low_rank_matmul_jvp(primals, tangents):
         prior_block = block_prior * complement(d_perpendicular)
         return mode_block + mixed_left + mixed_right + prior_block
 
-    weight_matrix = rearrange(weight_rhs, "member -> member 1")
-    d_weight_matrix = rearrange(d_weight_rhs, "member -> member 1")
-    # dΣ_w b + Σ_w db
-    d_weights = tangent(_inverse_difference, weight_matrix, in_span=True)
-    d_weights = d_weights + _low_rank_apply(
-        basis, 1.0 / prior_precision, 1.0 / precision, d_weight_matrix
+    # b = H̃ Σ_ε⁻¹ r̄
+    projected_residual = einsum(
+        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    )
+    # dΣ_w b
+    d_weights = tangent(
+        _inverse_difference,
+        rearrange(projected_residual, "member -> member 1"),
+        in_span=True,
+    )
+    d_weights = rearrange(d_weights, "member 1 -> member")
+    # dH̃ Σ_ε⁻¹ r̄
+    moved_anomalies = einsum(d_obs, whitened_residual, "member obs, obs -> member")
+    # Σ_w dH̃ Σ_ε⁻¹ r̄
+    moved_term = _low_rank_apply(
+        basis,
+        1.0 / prior_precision,
+        1.0 / precision,
+        rearrange(moved_anomalies, "member -> member 1"),
+    )
+    # H̃ d(Σ_ε⁻¹ r̄), in the span of U by construction
+    moved_residual = einsum(obs_anomalies, d_residual, "member obs, obs -> member")
+    # dw̄ = dΣ_w b + Σ_w dH̃ Σ_ε⁻¹ r̄ + Σ_w H̃ d(Σ_ε⁻¹ r̄)
+    d_weights = (
+        d_weights
+        + rearrange(moved_term, "member 1 -> member")
+        + _span_apply(basis, 1.0 / precision, moved_residual)
     )
     # dΛ_w^−½ B + Λ_w^−½ dB
     d_inverse_sqrt = tangent(_inverse_sqrt_difference, anomaly_rhs) + _low_rank_apply(
         basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), d_anomaly_rhs
     )
-    return primal_out, (rearrange(d_weights, "member 1 -> member"), d_inverse_sqrt)
+    return primal_out, (d_weights, d_inverse_sqrt)
