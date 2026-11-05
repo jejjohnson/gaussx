@@ -1,4 +1,4 @@
-"""Likelihood objects for analytical dispatch in expected log-likelihood."""
+"""Likelihood objects for analytical dispatch in the expected log-likelihood."""
 
 from __future__ import annotations
 
@@ -17,10 +17,20 @@ from gaussx._primitives._trace import trace
 class AbstractLikelihood(eqx.Module):
     """Base class for likelihood functions with optional analytical ELL.
 
-    Subclasses that support closed-form expected log-likelihood under
-    a Gaussian variational distribution should override
-    ``has_analytical_ell`` to return ``True`` and implement
-    ``analytical_expected_log_likelihood``.
+        log p(y ∣ f),    𝔼_q[log p(y ∣ f)]
+
+    Subclasses that support a closed-form expected log-likelihood under a
+    Gaussian variational distribution should override ``has_analytical_ell``
+    to return ``True`` and implement ``analytical_expected_log_likelihood``.
+
+    Examples:
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> likelihood = gaussx.PoissonLikelihood(jnp.array([1.0, 2.0]))
+        >>> isinstance(likelihood, AbstractLikelihood)
+        True
+        >>> likelihood.has_analytical_ell()
+        False
     """
 
     @abc.abstractmethod
@@ -28,13 +38,13 @@ class AbstractLikelihood(eqx.Module):
         self,
         f: Float[Array, " N"],
     ) -> Float[Array, ""]:
-        """Evaluate ``log p(y | f)`` for fixed observations.
+        """Evaluate log p(y ∣ f) for fixed observations.
 
         Args:
-            f: Latent function values, shape ``(N,)``.
+            f: Latent function values f.
 
         Returns:
-            Scalar log-likelihood.
+            The scalar log-likelihood.
         """
         ...
 
@@ -42,28 +52,50 @@ class AbstractLikelihood(eqx.Module):
         self,
         f: Float[Array, " N"],
     ) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
-        r"""Per-site gradient and Hessian diagonal of ``log p(y | f)`` in ``f``.
+        """Per-site gradient and Hessian diagonal of log p(y ∣ f) in f.
 
-        For a likelihood that factorises over sites,
-        $\log p(y\mid f) = \sum_i \log p(y_i\mid f_i)$, the Hessian is
-        diagonal and this returns ``(∂ log p / ∂f_i, ∂² log p / ∂f_i²)``, the
-        inputs of `gaussx.newton_update`'s diagonal path and of
-        `gaussx.laplace_mode`. The default differentiates ``log_prob``: one
-        reverse pass for the gradient and one forward pass of it along
-        ``1`` for the diagonal (exact only when the Hessian is diagonal, so
-        not for `SoftmaxLikelihood` or `HeteroscedasticGaussianLikelihood`).
-        Subclasses may override it with closed forms.
+            log p(y ∣ f) = ∑ᵢ log p(yᵢ ∣ fᵢ)
+
+        For a likelihood that factorises over sites the Hessian is diagonal and
+        this returns (∂ log p / ∂fᵢ, ∂² log p / ∂fᵢ²), the inputs of
+        `gaussx.newton_update`'s diagonal path and of `gaussx.laplace_mode`. The
+        default differentiates ``log_prob``: one reverse pass for the gradient
+        and one forward pass of it along ``1`` for the diagonal (exact only when
+        the Hessian is diagonal, so not for `SoftmaxLikelihood` or
+        `HeteroscedasticGaussianLikelihood`). Subclasses may override it with
+        closed forms.
 
         Args:
-            f: Latent function values, shape ``(N,)``.
+            f: Latent function values f.
 
         Returns:
-            Tuple ``(gradient, hessian_diagonal)``, each shape ``(N,)``.
+            Tuple ``(gradient, hessian_diagonal)`` holding the two site-wise
+            derivatives.
+
+        Examples:
+            A unit-variance Gaussian has gradient y − f and curvature −1:
+
+            >>> import jax.numpy as jnp
+            >>> import gaussx
+            >>> likelihood = gaussx.GaussianLikelihood(jnp.array([1.0, 2.0]), 1.0)
+            >>> gradient, hessian_diagonal = likelihood.site_derivatives(jnp.zeros(2))
+            >>> bool(jnp.allclose(gradient, jnp.array([1.0, 2.0])))
+            True
+            >>> bool(jnp.allclose(hessian_diagonal, -jnp.ones(2)))
+            True
         """
-        return jax.jvp(jax.grad(self.log_prob), (f,), (jnp.ones_like(f),))
+        # ∂ log p / ∂f
+        gradient_fn = jax.grad(self.log_prob)
+        # The all-ones tangent reads off the Hessian diagonal
+        tangent = jnp.ones_like(f)
+        return jax.jvp(gradient_fn, (f,), (tangent,))
 
     def has_analytical_ell(self) -> bool:
-        """Whether this likelihood supports closed-form ELL."""
+        """Whether this likelihood supports a closed-form ELL.
+
+        Returns:
+            ``True`` if ``analytical_expected_log_likelihood`` is implemented.
+        """
         return False
 
     def analytical_expected_log_likelihood(
@@ -71,34 +103,54 @@ class AbstractLikelihood(eqx.Module):
         q_mu: Float[Array, " N"],
         q_cov: lx.AbstractLinearOperator,
     ) -> Float[Array, ""]:
-        """Closed-form ``E_q[log p(y | f)]`` where ``q = N(q_mu, q_cov)``.
+        """Closed-form 𝔼_q[log p(y ∣ f)] where q(f) = 𝒩(μ_f, Σ_f).
 
         Args:
-            q_mu: Variational mean, shape ``(N,)``.
-            q_cov: Variational covariance operator, shape ``(N, N)``.
+            q_mu: Variational mean μ_f.
+            q_cov: Variational covariance Σ_f, as an operator.
 
         Returns:
-            Scalar expected log-likelihood.
+            The scalar expected log-likelihood.
 
         Raises:
             NotImplementedError: If no analytical form exists.
+
+        Examples:
+            >>> import jax.numpy as jnp
+            >>> import lineax as lx
+            >>> import gaussx
+            >>> likelihood = gaussx.PoissonLikelihood(jnp.ones(2))
+            >>> covariance = lx.DiagonalLinearOperator(jnp.ones(2))
+            >>> likelihood.analytical_expected_log_likelihood(jnp.zeros(2), covariance)
+            Traceback (most recent call last):
+            ...
+            NotImplementedError: PoissonLikelihood has no analytical ELL
         """
         msg = f"{type(self).__name__} has no analytical ELL"
         raise NotImplementedError(msg)
 
 
 class GaussianLikelihood(AbstractLikelihood):
-    r"""Gaussian likelihood ``log N(y | f, noise_var * I)``.
+    """Gaussian likelihood with isotropic noise, with a closed-form ELL.
 
-    Supports closed-form expected log-likelihood:
-
-        E_q[log N(y | f, \sigma^2 I)]
-            = log N(y | q_\mu, \sigma^2 I)
-              - 0.5 / \sigma^2 \cdot tr(q_{cov})
+        log p(y ∣ f) = log 𝒩(y; f, σ_ε² I)
+        𝔼_q[log p(y ∣ f)] = log 𝒩(y; μ_f, σ_ε² I) − tr(Σ_f) / (2 σ_ε²)
 
     Attributes:
-        y: Observed targets, shape ``(N,)``.
-        noise_var: Observation noise variance (scalar).
+        y: Observed targets y.
+        noise_var: Observation noise variance σ_ε².
+
+    Examples:
+        The ELL is the density at the mean less the trace correction:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> likelihood = GaussianLikelihood(jnp.zeros(2), 1.0)
+        >>> covariance = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> mean = jnp.zeros(2)
+        >>> ell = likelihood.analytical_expected_log_likelihood(mean, covariance)
+        >>> bool(jnp.allclose(ell, likelihood.log_prob(mean) - 1.0))
+        True
     """
 
     y: Float[Array, " N"]
@@ -108,17 +160,30 @@ class GaussianLikelihood(AbstractLikelihood):
         self,
         f: Float[Array, " N"],
     ) -> Float[Array, ""]:
-        """Evaluate ``log N(y | f, noise_var * I)``."""
-        N = self.y.shape[-1]
+        """Evaluate log 𝒩(y; f, σ_ε² I).
+
+        Args:
+            f: Latent function values f.
+
+        Returns:
+            The scalar log-likelihood.
+        """
+        obs_size = self.y.shape[-1]
+        # r = y − f
         residual = self.y - f
-        return -0.5 * (
-            N * _LOG_2PI
-            + N * jnp.log(self.noise_var)
-            + jnp.sum(residual**2) / self.noise_var
-        )
+        # D_y log 2π + D_y log σ_ε²
+        normaliser = obs_size * _LOG_2PI + obs_size * jnp.log(self.noise_var)
+        # ‖r‖₂² / σ_ε²
+        quadratic_term = jnp.sum(residual**2) / self.noise_var
+        # log 𝒩(y; f, σ_ε² I) = −½ (D_y log 2π + D_y log σ_ε² + ‖r‖₂² / σ_ε²)
+        return -0.5 * (normaliser + quadratic_term)
 
     def has_analytical_ell(self) -> bool:
-        """Gaussian likelihood has closed-form ELL."""
+        """Report the closed-form ELL of the Gaussian likelihood.
+
+        Returns:
+            Always ``True``.
+        """
         return True
 
     def analytical_expected_log_likelihood(
@@ -126,26 +191,34 @@ class GaussianLikelihood(AbstractLikelihood):
         q_mu: Float[Array, " N"],
         q_cov: lx.AbstractLinearOperator,
     ) -> Float[Array, ""]:
-        r"""Closed-form ``E_q[log N(y | f, \sigma^2 I)]``.
+        """Closed-form 𝔼_q[log 𝒩(y; f, σ_ε² I)] where q(f) = 𝒩(μ_f, Σ_f).
 
-        Uses:
+            𝔼_q[log p(y ∣ f)] = log 𝒩(y; μ_f, Σ_ε) − ½ tr(Σ_ε⁻¹ Σ_f)
 
-            E_q[log N(y|f,R)] = log N(y | q_mu, R) - 0.5 tr(R^{-1} q_cov)
+        with Σ_ε = σ_ε² I. Delegates the log-density term to
+        `gaussx.gaussian_log_prob` (which exploits the diagonal noise structure)
+        and computes the trace correction directly via the structural
+        ``trace(q_cov) / noise_var`` shortcut, so Kronecker/BlockDiag-structured
+        ``q_cov`` keeps its O(n) ``prod(trace_factor)`` / per-block ``trace``
+        fast paths instead of materializing through
+        ``trace_product(Σ_ε⁻¹, q_cov)``.
 
-        where ``R = noise_var * I``. Delegates the log-density term to
-        `gaussx.gaussian_log_prob` (which exploits the diagonal
-        noise structure) and computes the trace correction directly via
-        the structural ``trace(q_cov) / noise_var`` shortcut, so
-        Kronecker/BlockDiag-structured ``q_cov`` keeps its O(n)
-        ``prod(trace_factor)`` / per-block ``trace`` fast paths instead
-        of materializing through ``trace_product(R^{-1}, q_cov)``.
+        Args:
+            q_mu: Variational mean μ_f.
+            q_cov: Variational covariance Σ_f, as an operator.
+
+        Returns:
+            The scalar expected log-likelihood.
         """
-
-        N = self.y.shape[-1]
-        noise = lx.DiagonalLinearOperator(jnp.full(N, self.noise_var))
-        log_pdf = gaussian_log_prob(q_mu, noise, self.y)
-        # Structural fast path: tr(R^{-1} q_cov) = trace(q_cov) / noise_var
-        # for scalar isotropic noise. ``trace`` dispatches on operator
-        # structure (Kronecker, BlockDiag, …) via gaussx primitives.
-        tr_term = trace(q_cov) / self.noise_var
-        return log_pdf - 0.5 * tr_term
+        obs_size = self.y.shape[-1]
+        # Σ_ε = σ_ε² I
+        obs_noise_covariance = lx.DiagonalLinearOperator(
+            jnp.full(obs_size, self.noise_var)
+        )
+        # log 𝒩(y; μ_f, Σ_ε)
+        log_density = gaussian_log_prob(q_mu, obs_noise_covariance, self.y)
+        # tr(Σ_ε⁻¹ Σ_f) = tr(Σ_f) / σ_ε², with ``trace`` dispatching on the
+        # structure of Σ_f (Kronecker, BlockDiag, …) through gaussx primitives
+        trace_term = trace(q_cov) / self.noise_var
+        # 𝔼_q[log p(y ∣ f)] = log 𝒩(y; μ_f, Σ_ε) − ½ tr(Σ_ε⁻¹ Σ_f)
+        return log_density - 0.5 * trace_term

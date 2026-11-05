@@ -570,7 +570,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | Name | Kind | What it does |
 |---|---|---|
 | `AbstractLikelihood` | class | Base class for likelihood functions with optional analytical ELL. |
-| `GaussianLikelihood` | class | Gaussian likelihood ``log N(y \| f, noise_var * I)``. |
+| `GaussianLikelihood` | class | Gaussian likelihood with isotropic noise, with a closed-form ELL. |
 | `HeteroscedasticGaussianLikelihood` | class | Heteroscedastic Gaussian likelihood with input-dependent noise. |
 | `BernoulliLikelihood` | class | Bernoulli likelihood with logit link. |
 | `BinomialLikelihood` | class | Binomial likelihood with logit link. |
@@ -583,12 +583,12 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `elbo` | function | Evidence lower bound (ELBO). |
+| `elbo` | function | Evidence lower bound (ELBO) from a likelihood and a precomputed KL. |
 | `expected_log_likelihood` | function | Unified expected log-likelihood with analytical dispatch. |
-| `log_likelihood_expectation` | function | Compute ``E[log p(y_{obs} \| f(x))]`` where ``x ~ N(mu, Sigma)``. |
-| `mean_expectation` | function | Compute ``E[f(x)]`` where ``x ~ N(mu, Sigma)``. |
-| `gradient_expectation` | function | Compute ``E[nabla f(x)]`` via Stein's lemma. |
-| `cost_expectation` | function | Compute ``E[Cost(f(x), target)]`` where ``x ~ N(mu, Sigma)``. |
+| `log_likelihood_expectation` | function | Expected log-likelihood of a callable under a Gaussian, by integration. |
+| `mean_expectation` | function | Expectation of a map under a Gaussian: 𝔼[g(x)], x ~ 𝒩(μ_x, Σ_x). |
+| `gradient_expectation` | function | Expected gradient of a scalar map under a Gaussian, via Stein's lemma. |
+| `cost_expectation` | function | Expected cost of a prediction under an uncertain state. |
 | `ep_tilted_moments` | function | Moments of the scalar EP tilted distribution, elementwise over a batch. |
 
 ### Moment matching & linearisation
@@ -604,20 +604,20 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `theta_design` | function | Integration points and log-weights over hyperparameters $\theta$. |
+| `theta_design` | function | Integration points and log-weights over hyperparameters θ. |
 
 ### Kernel expectations & uncertain-input GPs
 
 | Name | Kind | What it does |
 |---|---|---|
-| `kernel_expectations` | function | Compute kernel expectations Psi_0, Psi_1, Psi_2 for uncertain inputs. |
+| `kernel_expectations` | function | Kernel expectations Ψ₀, Ψ₁ and Ψ₂ for an uncertain input. |
 | `compute_psi_statistics` | function | Compute Ψ statistics, dispatching to analytical or numerical. |
 | `AnalyticalPsiStatistics` | class | Protocol for kernels with closed-form Ψ statistics. |
-| `uncertain_gp_predict` | function | Predictive mean and variance for GP with uncertain inputs. |
-| `uncertain_gp_predict_mc` | function | Monte Carlo GP prediction with uncertain inputs. |
-| `uncertain_svgp_predict` | function | Predictive mean and variance for SVGP with uncertain inputs. |
-| `uncertain_vgp_predict` | function | Predictive mean and variance for dense VGP with uncertain inputs. |
-| `uncertain_bgplvm_predict` | function | Multi-output uncertain GP prediction for BGPLVM. |
+| `uncertain_gp_predict` | function | Predictive mean and variance of a GP at an uncertain input. |
+| `uncertain_gp_predict_mc` | function | Monte Carlo GP prediction at an uncertain input, by total variance. |
+| `uncertain_svgp_predict` | function | Predictive mean and variance of an SVGP at an uncertain input. |
+| `uncertain_vgp_predict` | function | Predictive mean and variance of a dense VGP at an uncertain input. |
+| `uncertain_bgplvm_predict` | function | Multi-output uncertain GP prediction for a Bayesian GP-LVM. |
 
 ## [State-Space Models & Kalman](api/ssm.md)
 
