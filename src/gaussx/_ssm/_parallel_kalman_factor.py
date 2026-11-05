@@ -7,11 +7,9 @@ Corenflos, Hassan & Särkkä (2022, §III) carries (F_cond, μ_cond, L_cond,
 Λμ_lik, L_lik) instead, with Σ_cond = L_cond L_condᵀ and
 Λ_lik = L_lik L_likᵀ; the papers' letters map as A → F_cond, b → μ_cond,
 U → L_cond, η → Λμ_lik and Z → L_lik. Every element and every combination
-propagates its factors through QR decompositions (``tria``) of stacked
-factors, so every returned covariance is a Gram matrix L Lᵀ, PSD by
-construction. The conditional transitions, means and information vectors take
-a dense LU of I + Σ_cond Λ_lik, assembled from those factors, because its
-push-through form cancels in float32 (gh-746). This is the filter behind
+is built from QR decompositions (``tria``) of stacked factors, so no
+covariance is formed inside the scan and every returned covariance is a
+Gram matrix L Lᵀ, PSD by construction. This is the filter behind
 ``parallel_kalman_filter(..., square_root=True)`` (gh-454).
 
 A factor takes the subscript of the matrix it factors: L_η, L_ε and L_x,0
@@ -424,26 +422,28 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
     """Combine an earlier factored element i with a later element j.
 
         Ξ₁₁ = tria([L_cond,iᵀ L_lik,j, I]),   Ξ₁₁ Ξ₁₁ᵀ = I + L_cond,iᵀ Λ_lik,j L_cond,i
-        W = L_cond,i Ξ₁₁⁻ᵀ
+        W = L_cond,i Ξ₁₁⁻ᵀ,   V = L_lik,jᵀ W
+        (I + Σ_cond,i Λ_lik,j)⁻¹ = I − W Vᵀ L_lik,jᵀ
+        (I + Λ_lik,j Σ_cond,i)⁻¹ = I − L_lik,j V Wᵀ
         Γ = tria([L_lik,jᵀ L_cond,i, I]),   Ξ₂₂ = L_lik,j Γ⁻ᵀ
 
     so that (I + Σ_cond,i Λ_lik,j)⁻¹ Σ_cond,i = W Wᵀ and
     (I + Λ_lik,j Σ_cond,i)⁻¹ Λ_lik,j = Ξ₂₂ Ξ₂₂ᵀ. Then
 
         F_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ F_cond,i
-        μ_cond,ij = F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
+        μ_cond,ij = F_cond,j ((I + Σ_cond,i Λ_lik,j)⁻¹ μ_cond,i + W Wᵀ Λμ_lik,j)
                     + μ_cond,j
         L_cond,ij = tria([F_cond,j W, L_cond,j])
         Λμ_lik,ij = F_cond,iᵀ (I + Λ_lik,j Σ_cond,i)⁻¹ (Λμ_lik,j − Λ_lik,j μ_cond,i)
                     + Λμ_lik,i
         L_lik,ij = tria([F_cond,iᵀ Ξ₂₂, L_lik,i])
 
-    after Yaghoobi et al. (2022). The factors L_cond,ij and L_lik,ij need only
-    triangular solves against Ξ₁₁ or Γ, whose stacks contain an identity block
-    and so are never singular. F_cond,ij, μ_cond,ij and Λμ_lik,ij instead take
-    one LU of I + Σ_cond,i Λ_lik,j, formed from the factors. Yaghoobi et al.'s
-    I − W Vᵀ L_lik,jᵀ, with V = L_lik,jᵀ W, is the same inverse, but it subtracts
-    two nearly equal terms when Σ_cond,i Λ_lik,j is large (gh-746).
+    after Yaghoobi et al. (2022). V replaces the original's Pₓ. Every
+    inverse is a triangular solve against Ξ₁₁ or Γ, whose stacks contain an
+    identity block and so are never singular. The shift Σ_cond,i Λμ_lik,j takes
+    W Wᵀ instead of the push-through inverse: at Σ_cond,i Λ_lik,j near 1 / ε that
+    inverse subtracts nearly equal terms, and on a shift that large the rounding
+    would swamp the mean (gh-746).
 
     Args:
         elem_i: Element i, ``(F_cond, μ_cond, L_cond, Λμ_lik, L_lik)``.
@@ -475,25 +475,30 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
     weight_transpose = _solve_lower(xi11, cond_factor_i_transpose)
     # W = L_cond,i Ξ₁₁⁻ᵀ
     weight = _t(weight_transpose)
-
-    # I + Σ_cond,i Λ_lik,j = I + L_cond,i (L_cond,iᵀ L_lik,j) L_lik,jᵀ
-    coupling = einsum(
-        cond_factor_i,
-        cross_factor,
-        lik_factor_j,
-        "state row, row col, other col -> state other",
-    )
-    # P A = L U, solved directly: the push-through form X − W Vᵀ L_lik,jᵀ X cancels
-    # once Σ_cond,i Λ_lik,j reaches about 1 / ε, and loses the means (gh-746)
-    coupled_system = jax.scipy.linalg.lu_factor(identity + coupling)
+    # V = L_lik,jᵀ W
+    projected_weight = einsum(lik_factor_j, weight, "state row, state col -> row col")
+    # Vᵀ
+    projected_weight_transpose = _t(projected_weight)
 
     def forward_inverse(rhs):
-        # (I + Σ_cond,i Λ_lik,j)⁻¹ X, X a vector or matrix
-        return jax.scipy.linalg.lu_solve(coupled_system, rhs)
+        # (I + Σ_cond,i Λ_lik,j)⁻¹ X = X − W Vᵀ L_lik,jᵀ X, X a vector or matrix
+        # L_lik,jᵀ X
+        projected = lik_factor_j_transpose @ rhs
+        # Vᵀ L_lik,jᵀ X
+        reweighted = projected_weight_transpose @ projected
+        # W Vᵀ L_lik,jᵀ X
+        correction = weight @ reweighted
+        return rhs - correction
 
     def backward_inverse(rhs):
-        # (I + Λ_lik,j Σ_cond,i)⁻¹ x = (I + Σ_cond,i Λ_lik,j)⁻ᵀ x
-        return jax.scipy.linalg.lu_solve(coupled_system, rhs, trans=1)
+        # (I + Λ_lik,j Σ_cond,i)⁻¹ x = x − L_lik,j V Wᵀ x
+        # Wᵀ x
+        projected = weight_transpose @ rhs
+        # V Wᵀ x
+        reweighted = projected_weight @ projected
+        # L_lik,j V Wᵀ x
+        correction = lik_factor_j @ reweighted
+        return rhs - correction
 
     # (I + Σ_cond,i Λ_lik,j)⁻¹ F_cond,i
     solved_transition = forward_inverse(cond_transition_i)
@@ -501,12 +506,12 @@ def _combine_one(elem_i: FactorElement, elem_j: FactorElement) -> FactorElement:
     cond_transition = einsum(
         cond_transition_j, solved_transition, "next state, state prev -> next prev"
     )
-    # L_cond,iᵀ Λμ_lik,j
-    projected_information = cond_factor_i_transpose @ lik_information_j
-    # Σ_cond,i Λμ_lik,j = L_cond,i L_cond,iᵀ Λμ_lik,j
-    information_shift = cond_factor_i @ projected_information
+    # Wᵀ Λμ_lik,j
+    projected_information = weight_transpose @ lik_information_j
+    # (I + Σ_cond,i Λ_lik,j)⁻¹ Σ_cond,i Λμ_lik,j = W Wᵀ Λμ_lik,j
+    information_shift = weight @ projected_information
     # (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
-    solved_mean = forward_inverse(cond_mean_i + information_shift)
+    solved_mean = forward_inverse(cond_mean_i) + information_shift
     # F_cond,j (I + Σ_cond,i Λ_lik,j)⁻¹ (μ_cond,i + Σ_cond,i Λμ_lik,j)
     propagated_mean = cond_transition_j @ solved_mean
     # μ_cond,ij = … + μ_cond,j
