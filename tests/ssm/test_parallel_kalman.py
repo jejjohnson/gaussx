@@ -679,11 +679,11 @@ def test_square_root_float32_means_match_a_float64_reference(
 ):
     """gh-746: float32 means and log-likelihood, not only PSD covariances.
 
-    A constant-velocity model with data drawn from the model. Inverting
-    I + Σ_cond Λ_lik by subtraction cancels once Σ_cond Λ_lik reaches about
-    1 / ε, which left these means thousands of standard deviations off while
-    the covariances looked healthy. The bounds sit far below that form's
-    errors on this data (4.3, 2481 and 6.5e9 sd).
+    A constant-velocity model with data drawn from the model. Passing the large
+    shift Σ_cond Λμ_lik through the push-through inverse subtracts nearly equal
+    terms once Σ_cond Λ_lik reaches about 1 / ε, which left these means thousands
+    of standard deviations off while the covariances looked healthy. The bounds
+    sit far below that form's errors on this data (4.3, 2481 and 6.5e9 sd).
     """
     num_steps = 64
     transition = jnp.array([[1.0, 0.1], [0.0, 1.0]])
@@ -723,6 +723,34 @@ def test_square_root_float32_means_match_a_float64_reference(
     assert jnp.max(mean_error / jnp.sqrt(variances)) < max_mean_error
     assert jnp.abs(single.log_likelihood - reference.log_likelihood) < max_loglik_error
     assert jnp.min(jnp.linalg.eigvalsh(single.filtered_covs)) > 0.0
+
+
+def test_square_root_rank_deficient_coupling_keeps_float32_means_finite():
+    """gh-755 review: no matrix may hold I + Σ_cond Λ_lik in float32.
+
+    Here Σ_cond Λ_lik has rank one and entries of about 1e10, so I rounds away
+    when added to it and the sum is singular. The observations are zero and
+    [1, 1] is orthogonal to the prior mean [1, −1], so the means must not move.
+    """
+    dtype = jnp.float32
+    transition = jnp.broadcast_to(jnp.eye(2, dtype=dtype), (2, 2, 2))
+    process_noise = jnp.zeros((2, 2, 2), dtype)
+    obs_model = jnp.asarray([[[0.0, 0.0]], [[1.0, 1.0]]], dtype)
+    obs_noise = jnp.broadcast_to(1e-10 * jnp.eye(1, dtype=dtype), (2, 1, 1))
+    observations = jnp.zeros((2, 1), dtype)
+    prior_mean = jnp.asarray([1.0, -1.0], dtype)
+    state = parallel_kalman_filter(
+        transition,
+        obs_model,
+        process_noise,
+        obs_noise,
+        observations,
+        prior_mean,
+        jnp.eye(2, dtype=dtype),
+        square_root=True,
+    )
+    expected = jnp.broadcast_to(prior_mean, (2, 2))
+    assert jnp.allclose(state.filtered_means, expected, atol=1e-3)
 
 
 def test_square_root_more_observations_than_states():
