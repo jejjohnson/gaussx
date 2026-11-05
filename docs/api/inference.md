@@ -252,7 +252,7 @@ analysis = new_mean + new_anomalies  # (J, N)
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [ensemble_covariance, ensemble_cross_covariance, ledoit_wolf_shrinkage, ensemble_kalman_gain, enkf_analysis, etkf_analysis, etkf_transform]
+      members: [ensemble_covariance, ensemble_cross_covariance, ledoit_wolf_shrinkage, ensemble_kalman_gain, enkf_analysis, etkf_analysis, etkf_transform, ensemble_rts_step]
 
 ## Ensemble Kalman inversion
 
