@@ -1254,3 +1254,122 @@ def test_taper_keeps_the_input_dtype_and_runs_under_transforms(taper):
     looped = jnp.stack([taper(row, 2.0) for row in jnp.ones((2, 3))])
     assert tree_allclose(jax.vmap(lambda r: taper(r, 2.0))(jnp.ones((2, 3))), looped)
     assert tree_allclose(jax.jit(lambda r: taper(r, 2.0))(jnp.ones(3)), looped[0])
+
+
+# ----------------------------------------------------------------
+# Ledoit-Wolf shrinkage (gh-693)
+# ----------------------------------------------------------------
+
+
+def _dense_ledoit_wolf(particles, bessel=True):
+    """The formulas of Ledoit & Wolf (2004) with every matrix formed."""
+    ensemble_size, state_size = particles.shape
+    anomalies = particles - reduce(particles, "member state -> state", "mean")
+    divisor = ensemble_size - 1 if bessel else ensemble_size
+    covariance = einsum(anomalies, anomalies, "member a, member b -> a b") / divisor
+    target_scale = jnp.trace(covariance) / state_size
+    identity = jnp.eye(state_size, dtype=particles.dtype)
+    distance = jnp.sum((covariance - target_scale * identity) ** 2)
+    outer = einx.multiply("member a, member b -> member a b", anomalies, anomalies)
+    deviation = jnp.sum((outer - covariance) ** 2) / ensemble_size**2
+    shrinkage = jnp.minimum(deviation / distance, 1.0)
+    return (
+        1.0 - shrinkage
+    ) * covariance + shrinkage * target_scale * identity, shrinkage
+
+
+@pytest.mark.parametrize("bessel", [True, False])
+@pytest.mark.parametrize(("J", "N"), [(30, 4), (10, 40), (5, 5), (3, 2)])
+def test_ledoit_wolf_matches_the_dense_formulas(J, N, bessel):
+    particles = jr.normal(jr.key(J + N), (J, N))
+    covariance, shrinkage = gaussx.ledoit_wolf_shrinkage(particles, bessel=bessel)
+    expected_covariance, expected_shrinkage = _dense_ledoit_wolf(particles, bessel)
+    rtol, atol = default_tolerances(particles)
+    assert jnp.allclose(shrinkage, expected_shrinkage, rtol=100 * rtol, atol=100 * atol)
+    assert jnp.allclose(
+        covariance.as_matrix(), expected_covariance, rtol=100 * rtol, atol=100 * atol
+    )
+
+
+def test_ledoit_wolf_covariance_stays_structured_and_positive_definite():
+    particles = jr.normal(jr.key(0), (8, 30))
+    covariance, _ = gaussx.ledoit_wolf_shrinkage(particles)
+    assert isinstance(covariance, gaussx.LowRankUpdate)
+    assert lx.is_positive_semidefinite(covariance)
+    matrix = covariance.as_matrix()
+    assert jnp.min(jnp.linalg.eigvalsh(matrix)) > 0.0
+    rhs = jr.normal(jr.key(1), (30,))
+    rtol, atol = default_tolerances(particles)
+    assert tree_allclose(
+        gaussx.solve(covariance, rhs),
+        jnp.linalg.solve(matrix, rhs),
+        rtol=1000 * rtol,
+        atol=1000 * atol,
+    )
+
+
+def test_ledoit_wolf_forms_no_state_sized_array():
+    """No (N, N) or (J, N, N) array in the jaxpr at N = 1e4, value or gradient."""
+    size = 10_000
+    particles = jnp.zeros((5, size))
+
+    def run(state):
+        return gaussx.ledoit_wolf_shrinkage(state)
+
+    def total(state):
+        return gaussx.ledoit_wolf_shrinkage(state)[1]
+
+    for form in (run, jax.grad(total)):
+        assert f"{size},{size}]" not in str(jax.make_jaxpr(form)(particles))
+
+
+def test_ledoit_wolf_returns_a_traced_shrinkage_under_transforms():
+    ensembles = jr.normal(jr.key(0), (3, 6, 4))
+
+    def shrinkage_of(state):
+        return gaussx.ledoit_wolf_shrinkage(state)[1]
+
+    looped = jnp.stack([shrinkage_of(state) for state in ensembles])
+    assert tree_allclose(jax.vmap(shrinkage_of)(ensembles), looped)
+    assert tree_allclose(jax.jit(shrinkage_of)(ensembles[0]), looped[0])
+
+
+@pytest.mark.parametrize("case", ["interior", "clipped_at_one", "isotropic"], ids=str)
+def test_ledoit_wolf_gradient_is_finite(case):
+    """A √(1 − λ) in the update would have an infinite slope where λ clips at 1."""
+    particles = jr.normal(jr.key(2), (4, 30))
+    if case == "interior":
+        particles = jr.normal(jr.key(2), (200, 5))
+    elif case == "isotropic":
+        # Orthogonal rows make the covariance exactly a multiple of its projector.
+        particles = jnp.concatenate([jnp.eye(5), -jnp.eye(5)])
+    probe = jr.normal(jr.key(3), (particles.shape[1],))
+
+    def loss(state):
+        covariance, _ = gaussx.ledoit_wolf_shrinkage(state)
+        return jnp.sum(covariance.mv(probe) ** 2)
+
+    assert jnp.all(jnp.isfinite(jax.grad(loss)(particles)))
+
+
+def test_ledoit_wolf_shrinks_an_exactly_isotropic_ensemble_fully():
+    particles = jnp.concatenate([jnp.eye(5), -jnp.eye(5)])
+    covariance, shrinkage = gaussx.ledoit_wolf_shrinkage(particles)
+    assert shrinkage == 1.0
+    assert jnp.allclose(covariance.as_matrix(), (2.0 / 9.0) * jnp.eye(5))
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize(("J", "N"), [(30, 4), (10, 40), (200, 5), (4000, 3)])
+def test_ledoit_wolf_float32_matches_float64(J, N):
+    """d² subtracts tr² / N from ‖P‖², which nearly cancels for large J / N."""
+    particles = jr.normal(jr.key(J), (J, N))
+    _, reference = gaussx.ledoit_wolf_shrinkage(particles)
+    _, single = gaussx.ledoit_wolf_shrinkage(particles.astype(jnp.float32))
+    assert single.dtype == jnp.float32
+    assert jnp.allclose(single, reference, rtol=1e-3, atol=1e-5)
+
+
+def test_ledoit_wolf_rejects_a_single_member_for_the_bessel_divisor():
+    with pytest.raises(ValueError, match="J >= 2"):
+        gaussx.ledoit_wolf_shrinkage(jnp.zeros((1, 3)))

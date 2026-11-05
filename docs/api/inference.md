@@ -218,7 +218,7 @@ the latent joint less Gaussian and do worse.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, enkf_analysis, etkf_analysis, etkf_transform]
+      members: [ensemble_covariance, ensemble_cross_covariance, ledoit_wolf_shrinkage, ensemble_kalman_gain, enkf_analysis, etkf_analysis, etkf_transform]
 
 ## Ensemble Kalman inversion
 

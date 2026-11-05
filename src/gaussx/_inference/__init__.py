@@ -17,6 +17,7 @@ from gaussx._inference._enkf import enkf_analysis, ensemble_kalman_gain
 from gaussx._inference._ensemble_stats import (
     ensemble_covariance,
     ensemble_cross_covariance,
+    ledoit_wolf_shrinkage,
 )
 from gaussx._inference._etkf import etkf_analysis, etkf_transform
 from gaussx._inference._inference import (
@@ -81,6 +82,7 @@ __all__ = [
     "inflate_rtpp",
     "inflate_rtps",
     "laplace_mode",
+    "ledoit_wolf_shrinkage",
     "localization_matrix",
     "localized_kalman_gain",
     "log_marginal_likelihood",
