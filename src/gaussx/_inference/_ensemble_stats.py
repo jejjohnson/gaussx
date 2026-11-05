@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
@@ -265,25 +266,31 @@ def ledoit_wolf_shrinkage(
     # c
     divisor = ensemble_size - 1 if bessel else ensemble_size
     scale = jnp.asarray(1.0 / divisor, dtype=particles.dtype)
-    # c G = Uᵀ U
+    # s = max |U|, constant to the derivative: λ does not depend on it, and the
+    # fourth powers below would leave the floating-point range without it.
+    largest = jax.lax.stop_gradient(jnp.max(jnp.abs(low_rank_factor)))
+    factor_scale = jnp.where(largest > 0.0, largest, 1.0)
+    # U / s
+    unit_factor = low_rank_factor / factor_scale
+    # c G / s² = (U / s)ᵀ (U / s)
     scaled_gram = einsum(
-        low_rank_factor, low_rank_factor, "state member, state other -> member other"
+        unit_factor, unit_factor, "state member, state other -> member other"
     )
-    # c Gₑₑ
+    # c Gₑₑ / s²
     scaled_diagonal = jnp.diagonal(scaled_gram)
-    # tr(Σ̂_x) = tr(Uᵀ U)
+    # tr(Σ̂_x) / s² = tr(Uᵀ U) / s²
     trace = jnp.sum(scaled_diagonal)
     # μ = tr(Σ̂_x) / D_x
-    target_scale = trace / state_size
-    # ‖Σ̂_x‖_F² = ‖Uᵀ U‖_F²
+    target_scale = factor_scale * (factor_scale * trace) / state_size
+    # ‖Σ̂_x‖_F² / s⁴ = ‖Uᵀ U‖_F² / s⁴
     covariance_squared = jnp.sum(scaled_gram * scaled_gram)
-    # d² = ‖Σ̂_x‖_F² − tr(Σ̂_x)² / D_x
+    # d² / s⁴ = (‖Σ̂_x‖_F² − tr(Σ̂_x)² / D_x) / s⁴
     distance_squared = covariance_squared - trace * trace / state_size
-    # ∑ₑ Gₑₑ²
+    # ∑ₑ Gₑₑ² / s⁴
     member_squared = jnp.sum(scaled_diagonal * scaled_diagonal) / (scale * scale)
-    # (|ℰ| c² − 2 c) ‖G‖_F², with ‖G‖_F² = ‖Σ̂_x‖_F² / c²
+    # (|ℰ| c² − 2 c) ‖G‖_F² / s⁴, with ‖G‖_F² = ‖Σ̂_x‖_F² / c²
     cross_squared = (ensemble_size - 2.0 / scale) * covariance_squared
-    # b² = (1 / |ℰ|²) (∑ₑ Gₑₑ² + (|ℰ| c² − 2 c) ‖G‖_F²)
+    # b² / s⁴ = (1 / |ℰ|²) (∑ₑ Gₑₑ² + (|ℰ| c² − 2 c) ‖G‖_F²) / s⁴
     deviation_squared = (member_squared + cross_squared) / ensemble_size**2
     # λ = 1 where b² ≥ d², decided first so that the division never meets d² = 0,
     # whose ∞ slope would give NaN gradients through the clipped branch.
