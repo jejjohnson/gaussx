@@ -13,11 +13,14 @@ from gaussx._einx import einsum, reduce
 from gaussx._inference._enkf import (
     _analysis_gain,
     _check_analysis_shapes,
-    _check_localization_shapes,
     _noise_factor,
 )
-from gaussx._inference._ensemble_stats import _check_ensemble_size
+from gaussx._inference._ensemble_stats import (
+    _check_ensemble_size,
+    _check_obs_noise_shape,
+)
 from gaussx._inference._etkf import etkf_transform
+from gaussx._inference._localization import _check_localization_shapes
 from gaussx._linalg._linalg import solve_rows
 from gaussx._operators._block_diag import BlockDiag
 from gaussx._operators._lazy_algebra import ScaledOperator
@@ -413,11 +416,7 @@ def tikhonov_augment(
             f"observation must have shape ({obs_size},) to match obs_particles, "
             f"got {observation.shape}."
         )
-    if (obs_noise.in_size(), obs_noise.out_size()) != (obs_size, obs_size):
-        raise ValueError(
-            f"obs_noise must be ({obs_size}, {obs_size}) to match obs_particles, "
-            f"got ({obs_noise.out_size()}, {obs_noise.in_size()})."
-        )
+    _check_obs_noise_shape(obs_size, obs_noise)
     if prior_mean.shape != (state_size,):
         raise ValueError(
             f"prior_mean must have shape ({state_size},) to match particles, got "
@@ -539,11 +538,7 @@ def discrepancy_step_size(
             f"observation must have shape ({obs_size},) to match obs_particles, "
             f"got {observation.shape}."
         )
-    if (obs_noise.in_size(), obs_noise.out_size()) != (obs_size, obs_size):
-        raise ValueError(
-            f"obs_noise must be ({obs_size}, {obs_size}) to match obs_particles, "
-            f"got ({obs_noise.out_size()}, {obs_noise.in_size()})."
-        )
+    _check_obs_noise_shape(obs_size, obs_noise)
 
     # jnp, not einx: an empty D_y returns a step here today, and einx raises
     # AxisSizeError on a zero-length axis.

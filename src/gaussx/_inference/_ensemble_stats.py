@@ -200,3 +200,12 @@ def _check_ensemble_size(ensemble_size: int, bessel: bool) -> None:
             f"got J={ensemble_size}. Pass bessel=False for a maximum-likelihood "
             "divisor."
         )
+
+
+def _check_obs_noise_shape(obs_size: int, obs_noise: lx.AbstractLinearOperator) -> None:
+    """Check that observation noise matches the observation-space dimension."""
+    if (obs_noise.in_size(), obs_noise.out_size()) != (obs_size, obs_size):
+        raise ValueError(
+            f"obs_noise must be ({obs_size}, {obs_size}) to match obs_particles, "
+            f"got ({obs_noise.out_size()}, {obs_noise.in_size()})."
+        )
