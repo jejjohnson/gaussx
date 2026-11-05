@@ -213,18 +213,18 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `iid_precision` | function | Precision ``τ I`` of ``n`` independent effects with variance ``1/τ``. |
-| `rw1_structure` | function | Structure matrix ``R = D₁ᵀ W D₁`` of a first-order random walk. |
-| `rw2_structure` | function | Structure matrix ``R = D₂ᵀ D₂`` of a second-order random walk. |
-| `ar1_precision` | function | Precision of a stationary AR(1) process with marginal precision ``τ``. |
+| `iid_precision` | function | Precision Λ = τ I of n independent effects with variance 1 / τ. |
+| `rw1_structure` | function | Structure matrix R = D₁ᵀ W D₁ of a first-order random walk. |
+| `rw2_structure` | function | Structure matrix R = D₂ᵀ D₂ of a second-order random walk. |
+| `ar1_precision` | function | Precision of a stationary AR(1) process with marginal precision τ. |
 | `besag_structure` | function | Validate a graph Laplacian as a Besag (ICAR) structure matrix. |
 | `generalized_variance_scale` | function | Generalized variance of an intrinsic GMRF (Sørbye & Rue, 2014). |
-| `bym2_precision` | function | Joint precision of the BYM2 pair ``(b, u*)`` (Riebler et al., 2016). |
-| `spde_precision` | function | SPDE precision ``Q_α = τ² K (C̃⁻¹K)^{α−1}`` with ``K = κ²C̃ + G``. |
+| `bym2_precision` | function | Joint precision Λ of the BYM2 pair (b, u*) (Riebler et al., 2016). |
+| `spde_precision` | function | SPDE precision Λ_α = τ² K (C̃⁻¹ K)^(α−1) with K = κ² C̃ + G. |
 | `spde_precision_grid` | function | SPDE precision on a regular grid: a function of a Kronecker sum. |
-| `matern_spde_params` | function | SPDE parameters ``(κ, τ, α)`` of a Matérn field. |
-| `fem_matrices` | function | Lumped mass ``C̃`` and stiffness ``G`` of P1 elements on a triangle mesh. |
-| `fem_projector` | function | Observation matrix ``A`` of P1 interpolation: ``(A w)_k = Σ_i ψ_i(s_k) w_i``. |
+| `matern_spde_params` | function | SPDE parameters (κ, τ, α) of a Matérn field. |
+| `fem_matrices` | function | Lumped mass C̃ and stiffness G of P1 elements on a triangle mesh. |
+| `fem_projector` | function | Observation matrix A of P1 interpolation: (A w)_k = ∑_i ψ_i(s_k) w_i. |
 
 ## [Solvers & Preconditioners](api/solvers.md)
 
