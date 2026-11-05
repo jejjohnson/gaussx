@@ -1,6 +1,6 @@
 """Structured linear algebra and Gaussian primitives for JAX."""
 
-__version__ = "0.6.8"
+__version__ = "0.6.9"
 
 # Import the non-numpyro helpers directly from submodules. Avoid
 # ``from gaussx._distributions import ...`` so the optional numpyro guard
