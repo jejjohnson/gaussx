@@ -251,8 +251,8 @@ def localization_matrix(
 
 
 def _check_localization_shapes(
-    n_state: int,
-    n_obs: int,
+    state_size: int,
+    obs_size: int,
     localization: Float[Array, "N M"] | None,
     obs_localization: Float[Array, "M M"] | None,
     *,
@@ -262,8 +262,8 @@ def _check_localization_shapes(
     """Check the taper shapes; ``obs_localization`` only counts with a taper.
 
     Args:
-        n_state: State length D_x.
-        n_obs: Observation length D_y.
+        state_size: State length D_x.
+        obs_size: Observation length D_y.
         localization: State-observation taper ρ_xy, or ``None``.
         obs_localization: Observation-observation taper ρ_yy, or ``None``.
         localization_name: Name used for the state-observation taper in errors.
@@ -275,16 +275,19 @@ def _check_localization_shapes(
     """
     if localization is None:
         return
-    # Broadcast-compatible but wrong shapes can produce a plausible, wrong gain.
-    if localization.shape != (n_state, n_obs):
+    # Broadcast-compatible but wrong shapes are the danger: a (D_x, 1) taper
+    # repeats one observation's taper across all D_y, and a (1, 1)
+    # obs_localization rescales the whole observation covariance. Both give a
+    # plausible, wrong gain rather than an error.
+    if localization.shape != (state_size, obs_size):
         raise ValueError(
-            f"{localization_name} must have shape ({n_state}, {n_obs}) to match "
-            f"particles and obs_particles, got {localization.shape}."
+            f"{localization_name} must have shape ({state_size}, {obs_size}) to "
+            f"match particles and obs_particles, got {localization.shape}."
         )
-    if obs_localization is not None and obs_localization.shape != (n_obs, n_obs):
+    if obs_localization is not None and obs_localization.shape != (obs_size, obs_size):
         raise ValueError(
-            f"{obs_localization_name} must have shape ({n_obs}, {n_obs}) to match "
-            f"obs_particles, got {obs_localization.shape}."
+            f"{obs_localization_name} must have shape ({obs_size}, {obs_size}) to "
+            f"match obs_particles, got {obs_localization.shape}."
         )
 
 
@@ -368,11 +371,11 @@ def localized_kalman_gain(
             "particles and obs_particles must share the same ensemble size, "
             f"got J={particles.shape[0]} and J={obs_particles.shape[0]}."
         )
-    n_state, n_obs = particles.shape[1], obs_particles.shape[1]
-    _check_obs_noise_shape(n_obs, obs_noise)
+    state_size, obs_size = particles.shape[1], obs_particles.shape[1]
+    _check_obs_noise_shape(obs_size, obs_noise)
     _check_localization_shapes(
-        n_state,
-        n_obs,
+        state_size,
+        obs_size,
         rho_xy,
         rho_yy,
         localization_name="rho_xy",
