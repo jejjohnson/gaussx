@@ -26,6 +26,7 @@ def etkf_transform(
     inflation: float | Float[Array, ""] = 1.0,
     solver: AbstractSolverStrategy | None = None,
     low_rank: bool = True,
+    obs_weights: Float[Array, " M"] | None = None,
 ) -> tuple[Float[Array, " J"], Float[Array, "J J"]]:
     """Ensemble Transform Kalman Filter (ETKF) analysis weights.
 
@@ -80,6 +81,10 @@ def etkf_transform(
             dispatch.
         low_rank: Use the rank-D_y route when D_y < |ℰ|, where it exists.
             ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
+        obs_weights: Per-observation weights ρ ∈ [0, 1], which replace Σ_ε⁻¹ by
+            D_ρ^½ Σ_ε⁻¹ D_ρ^½ with D_ρ = diag(ρ). ``None`` weights every
+            observation by 1. A derivative with respect to a weight of exactly
+            zero is taken as zero, since √ρ has no slope there.
 
     Returns:
         Tuple ``(w_mean, transform)`` holding w̄ and W. With state anomalies
@@ -91,9 +96,16 @@ def etkf_transform(
             Λ_w singular), if ``y`` or ``obs_noise`` do not match D_y, or if a
             concrete ``inflation`` is not positive.
 
+    With ``obs_weights`` this is R-localization (Hunt et al. 2007): a weight
+    of 1 keeps an observation, a weight of 0 removes it, and ρ = 0 everywhere
+    gives w̄ = 0 and W = √ζ I. For a diagonal Σ_ε the weight divides the variance,
+    ρₖ / Σ_ε,kk. Applying `etkf_transform` with one row of weights per grid point
+    is the local ETKF, as a `jax.vmap`.
+
     Examples:
         The transform has the all-ones eigenvector, so it preserves the mean:
 
+        >>> import jax
         >>> import jax.numpy as jnp
         >>> import jax.random as jr
         >>> import lineax as lx
@@ -116,13 +128,24 @@ def etkf_transform(
         >>> bool(jnp.allclose(inflated @ jnp.ones(5), 2.0 * jnp.ones(5), atol=1e-3))
         True
 
+        One row of localization weights per grid point is a local ETKF:
+
+        >>> rho = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0]])
+        >>> local_mean, local_transform = jax.vmap(
+        ...     lambda weights: gaussx.etkf_transform(
+        ...         obs_particles, jnp.zeros(2), obs_noise, obs_weights=weights
+        ...     )
+        ... )(rho)
+        >>> local_mean.shape, local_transform.shape
+        ((3, 5), (3, 5, 5))
+
     References:
         Bishop et al. (2001); Hunt et al. (2007).
     """
-    _check_etkf_inputs(obs_particles, y, obs_noise, inflation)
+    _check_etkf_inputs(obs_particles, y, obs_noise, inflation, obs_weights)
     ensemble_size, obs_size = obs_particles.shape
     obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
-        obs_particles, y, obs_noise, solver
+        obs_particles, y, obs_noise, solver, obs_weights
     )
     # √(|ℰ| − 1)
     root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=obs_anomalies.dtype))
@@ -180,6 +203,7 @@ def etkf_analysis(
     inflation: float | Float[Array, ""] = 1.0,
     solver: AbstractSolverStrategy | None = None,
     low_rank: bool = True,
+    obs_weights: Float[Array, " M"] | None = None,
 ) -> Float[Array, "J N"]:
     """ETKF analysis ensemble, without forming the (|ℰ|, |ℰ|) transform.
 
@@ -210,6 +234,10 @@ def etkf_analysis(
             dispatch.
         low_rank: Use the rank-D_y route when D_y < |ℰ|, where it exists.
             ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
+        obs_weights: Per-observation weights ρ ∈ [0, 1], which replace Σ_ε⁻¹ by
+            D_ρ^½ Σ_ε⁻¹ D_ρ^½ with D_ρ = diag(ρ). ``None`` weights every
+            observation by 1. A derivative with respect to a weight of exactly
+            zero is taken as zero, since √ρ has no slope there.
 
     Returns:
         The analysis ensemble.
@@ -253,7 +281,7 @@ def etkf_analysis(
         Bishop et al. (2001); Hunt et al. (2007).
     """
     mean_increment, analysis_anomalies = _etkf_increments(
-        particles, obs_particles, y, obs_noise, inflation, solver, low_rank
+        particles, obs_particles, y, obs_noise, inflation, solver, low_rank, obs_weights
     )
     # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
     particle_mean = reduce(particles, "member state -> state", "mean")
@@ -273,6 +301,7 @@ def _etkf_increments(
     inflation: float | Float[Array, ""],
     solver: AbstractSolverStrategy | None,
     low_rank: bool,
+    obs_weights: Float[Array, " M"] | None = None,
 ) -> tuple[Float[Array, " N"], Float[Array, "J N"]]:
     """Mean increment X̃ᵀ w̄ and analysis anomalies W X̃, by either route.
 
@@ -286,11 +315,12 @@ def _etkf_increments(
         inflation: Multiplicative covariance inflation ζ.
         solver: Solver strategy for the Σ_ε⁻¹ solves.
         low_rank: Use the rank-D_y route when D_y < |ℰ|.
+        obs_weights: Per-observation weights ρ, or ``None`` for 1.
 
     Returns:
         Tuple ``(mean_increment, analysis_anomalies)``.
     """
-    _check_etkf_inputs(obs_particles, y, obs_noise, inflation)
+    _check_etkf_inputs(obs_particles, y, obs_noise, inflation, obs_weights)
     ensemble_size, obs_size = obs_particles.shape
     if particles.shape[0] != ensemble_size:
         raise ValueError(
@@ -306,7 +336,7 @@ def _etkf_increments(
 
     if _use_low_rank(low_rank, ensemble_size, obs_size):
         obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
-            obs_particles, y, obs_noise, solver
+            obs_particles, y, obs_noise, solver, obs_weights
         )
         # (|ℰ| − 1) / ζ
         prior_precision = jnp.asarray(
@@ -334,6 +364,7 @@ def _etkf_increments(
             inflation=inflation,
             solver=solver,
             low_rank=False,
+            obs_weights=obs_weights,
         )
         # W X̃
         analysis_anomalies = einsum(
@@ -349,6 +380,7 @@ def _check_etkf_inputs(
     y: Float[Array, " M"],
     obs_noise: lx.AbstractLinearOperator,
     inflation: float | Float[Array, ""],
+    obs_weights: Float[Array, " M"] | None = None,
 ) -> None:
     """Static checks shared by `etkf_transform` and `etkf_analysis`.
 
@@ -357,10 +389,12 @@ def _check_etkf_inputs(
         y: Observation y.
         obs_noise: Observation-error covariance Σ_ε.
         inflation: Multiplicative covariance inflation ζ.
+        obs_weights: Per-observation weights ρ, or ``None`` for 1.
 
     Raises:
-        ValueError: If |ℰ| < 2, if ``y`` or ``obs_noise`` do not match D_y, if
-            ``inflation`` is not a scalar, or if a concrete one is not positive.
+        ValueError: If |ℰ| < 2, if ``y``, ``obs_noise`` or ``obs_weights`` do not
+            match D_y, if ``inflation`` is not a scalar, or if a concrete one is
+            not positive.
     """
     _check_observation_shapes(obs_particles, y, obs_noise, observation_name="y")
     ensemble_size = obs_particles.shape[0]
@@ -371,6 +405,12 @@ def _check_etkf_inputs(
         )
     if jnp.ndim(inflation) != 0:
         raise ValueError(f"inflation must be a scalar, got {jnp.shape(inflation)}.")
+    obs_size = obs_particles.shape[1]
+    if obs_weights is not None and jnp.shape(obs_weights) != (obs_size,):
+        raise ValueError(
+            f"obs_weights must have shape ({obs_size},) to match obs_particles, "
+            f"got {jnp.shape(obs_weights)}."
+        )
     if isinstance(inflation, (int, float)) and inflation <= 0:
         raise ValueError(f"inflation must be positive, got {inflation}.")
 
@@ -394,20 +434,26 @@ def _whiten(
     y: Float[Array, " M"],
     obs_noise: lx.AbstractLinearOperator,
     solver: AbstractSolverStrategy | None,
+    obs_weights: Float[Array, " M"] | None = None,
 ) -> tuple[
     Float[Array, "J M"], Float[Array, " M"], Float[Array, "J M"], Float[Array, " M"]
 ]:
     """H̃, r̄, Σ_ε⁻¹ H̃ᵀ as rows and Σ_ε⁻¹ r̄, from one structured solve.
+
+    Weights enter here and nowhere else. Replacing Σ_ε⁻¹ by D_ρ^½ Σ_ε⁻¹ D_ρ^½ is
+    the same as running the unweighted filter on H̃ D_ρ^½ and D_ρ^½ r̄, so both
+    routes and their derivatives see an ordinary problem.
 
     Args:
         obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
         y: Observation y.
         obs_noise: Observation-error covariance Σ_ε.
         solver: Solver strategy for the Σ_ε⁻¹ solves.
+        obs_weights: Per-observation weights ρ, or ``None`` for 1.
 
     Returns:
         Tuple ``(obs_anomalies, mean_residual, whitened_anomalies,
-        whitened_residual)``.
+        whitened_residual)``, the first two carrying D_ρ^½.
     """
     # h̄ = (1 / |ℰ|) ∑ₑ h⁽ᵉ⁾
     obs_mean = reduce(obs_particles, "member obs -> obs", "mean")
@@ -417,6 +463,18 @@ def _whiten(
     )
     # r̄ = y − h̄
     mean_residual = y - obs_mean
+    if obs_weights is not None:
+        # √ρ has an infinite slope at 0, so keep a zero weight out of the root.
+        positive = obs_weights > 0.0
+        safe_weights = jnp.where(positive, obs_weights, 1.0)
+        # D_ρ^½
+        root_weights = jnp.where(positive, jnp.sqrt(safe_weights), 0.0)
+        # H̃ D_ρ^½
+        obs_anomalies = einx.multiply(
+            "member obs, obs -> member obs", obs_anomalies, root_weights
+        )
+        # D_ρ^½ r̄
+        mean_residual = root_weights * mean_residual
     # [H̃, r̄]: all |ℰ| + 1 right-hand sides at once, so a dense Σ_ε is factored
     # once and a structured Σ_ε is never densified.
     right_hand_sides = jnp.vstack([obs_anomalies, mean_residual])
