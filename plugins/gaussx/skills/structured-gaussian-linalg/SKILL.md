@@ -133,7 +133,7 @@ means, covs = gaussx.rts_smoother(state, F)  # (T, N), (T, N, N)
 | A CG loop, a Lanczos loop, Hutchinson probes | `solver=gaussx.CGSolver()` / `BBMMSolver()`, `gaussx.SLQLogdet`, `gaussx.trace_and_diag`; `matfree` below them |
 | Gauss–Hermite / unscented / cubature points and weights | `gaussx.GaussHermiteIntegrator`, `UnscentedIntegrator`, `CubatureIntegrator`, `expected_log_likelihood` |
 | GP predictive mean / variance, a collapsed ELBO, whitening | `gaussx.build_prediction_cache` + `predict_mean` / `predict_variance`, `collapsed_elbo`, `whiten_covariance`, `love_cache` |
-| An EnKF / ETKF analysis, localisation, inflation | `gaussx.enkf_analysis`, `etkf_transform`, `localization_matrix`, `inflate_*` |
+| An EnKF / ETKF analysis, localisation, inflation | `gaussx.enkf_analysis`, `etkf_analysis`, `etkf_transform`, `localization_matrix`, `inflate_*` |
 | Natural ↔ mean parameter algebra | `gaussx.mean_cov_to_natural`, `natural_to_mean_cov`, `GaussianExpFam` |
 
 A dense `jnp.linalg` call is fine on a small matrix with no structure to

@@ -193,8 +193,8 @@ ensemble Kalman gain built from them, and the analysis step that applies it.
 
 The gain functions are the *pieces*; `enkf_analysis` is the *step* -- the
 stochastic (perturbed-observation) update that turns a prior ensemble and an
-observation into a posterior ensemble. `etkf_transform` is its deterministic
-square-root counterpart.
+observation into a posterior ensemble. `etkf_analysis` is its deterministic
+square-root counterpart, and `etkf_transform` returns that update's weights. With fewer observations than members, both take a rank-$D_y$ route that costs $O(|\mathcal{E}| D_y^2)$ rather than an $(|\mathcal{E}|, |\mathcal{E}|)$ eigendecomposition, and `etkf_analysis` also never forms the transform.
 
 A caveat worth stating up front: the Gaussian assumption in an ensemble Kalman
 filter is a property of the **coordinates**, not of the algorithm. Applied to a
@@ -218,7 +218,7 @@ the latent joint less Gaussian and do worse.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, enkf_analysis, etkf_transform]
+      members: [ensemble_covariance, ensemble_cross_covariance, ensemble_kalman_gain, enkf_analysis, etkf_analysis, etkf_transform]
 
 ## Ensemble Kalman inversion
 

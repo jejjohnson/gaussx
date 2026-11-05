@@ -9,7 +9,7 @@ import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from gaussx._einx import einsum, reduce
+from gaussx._einx import reduce
 from gaussx._inference._enkf import (
     _analysis_gain,
     _check_analysis_shapes,
@@ -19,7 +19,7 @@ from gaussx._inference._ensemble_stats import (
     _check_ensemble_size,
     _check_obs_noise_shape,
 )
-from gaussx._inference._etkf import etkf_transform
+from gaussx._inference._etkf import _etkf_increments
 from gaussx._inference._localization import _check_localization_shapes
 from gaussx._linalg._linalg import solve_rows
 from gaussx._operators._block_diag import BlockDiag
@@ -89,8 +89,8 @@ def eki_step(
 
     Algorithm:
         1. Check the arguments and scale Σ_ε to the lazy Σ_ε / Δt.
-        2. Deterministic variant: get w̄ and W from `etkf_transform`, turn them
-           into the mean and anomaly increments, apply α, and add both.
+        2. Deterministic variant: get the mean and anomaly increments from the
+           ETKF update behind `etkf_analysis`, apply α, and add both.
         3. Stochastic variant: form the gain G against Σ_ε / Δt.
         4. Draw y + ε⁽ᵉ⁾ / √Δt from ``key``, or take ``perturbed_obs`` as given.
         5. Add α G (y + ε⁽ᵉ⁾ / √Δt − h⁽ᵉ⁾) to each member.
@@ -238,21 +238,15 @@ def eki_step(
     if deterministic:
         # By the push-through identity G (y − h̄) = X̃ᵀ w̄, so the ETKF weights
         # give the mean update too, and no separate solve for the gain is needed.
+        # X̃ᵀ w̄ and W X̃ at Σ_ε / Δt
+        mean_increment, transformed_anomalies = _etkf_increments(
+            particles, obs_particles, observation, tempered_noise, 1.0, solver, None
+        )
         # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
         particle_mean = reduce(particles, "member state -> state", "mean")
         # x̃⁽ᵉ⁾ = x⁽ᵉ⁾ − x̄
         anomalies = einx.subtract(
             "member state, state -> member state", particles, particle_mean
-        )
-        # w̄ and W at Σ_ε / Δt
-        w_mean, transform = etkf_transform(
-            obs_particles, observation, tempered_noise, solver=solver
-        )
-        # X̃ᵀ w̄
-        mean_increment = einsum(w_mean, anomalies, "member, member state -> state")
-        # W X̃
-        transformed_anomalies = einsum(
-            transform, anomalies, "member other, other state -> member state"
         )
         # The increment, not the transformed anomalies: α acts on differences,
         # so α = I leaves W X̃ exactly.

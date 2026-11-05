@@ -18,7 +18,7 @@ from gaussx._inference._ensemble_stats import (
     ensemble_covariance,
     ensemble_cross_covariance,
 )
-from gaussx._inference._etkf import etkf_transform
+from gaussx._inference._etkf import etkf_analysis, etkf_transform
 from gaussx._inference._inference import (
     cavity_distribution,
     gaussian_expected_log_lik,
@@ -64,6 +64,7 @@ __all__ = [
     "ensemble_covariance",
     "ensemble_cross_covariance",
     "ensemble_kalman_gain",
+    "etkf_analysis",
     "etkf_transform",
     "euclidean_distance",
     "gaspari_cohn",

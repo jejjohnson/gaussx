@@ -22,6 +22,7 @@ def etkf_transform(
     *,
     inflation: float | Float[Array, ""] = 1.0,
     solver: AbstractSolverStrategy | None = None,
+    low_rank: bool | None = None,
 ) -> tuple[Float[Array, " J"], Float[Array, "J J"]]:
     """Ensemble Transform Kalman Filter (ETKF) analysis weights.
 
@@ -51,12 +52,16 @@ def etkf_transform(
     stays finite at the repeated prior eigenvalue (|ℰ| − 1) / ζ that has
     multiplicity |ℰ| − D_y whenever D_y < |ℰ|.
 
+    Λ_w exceeds its prior term by rank at most D_y, so with D_y < |ℰ| the
+    default replaces that (|ℰ|, |ℰ|) eigendecomposition with a thin QR of H̃ and
+    a (D_y, D_y) one. The two routes agree to round-off. Use `etkf_analysis` to
+    avoid forming W at all.
+
     Algorithm:
         1. Centre the observation ensemble: H̃ and r̄ = y − h̄.
         2. Solve Σ_ε⁻¹ against [H̃, r̄] in one call.
-        3. Assemble Λ_w and symmetrise it.
-        4. Eigendecompose Λ_w to read off Σ_w and Λ_w^−½.
-        5. Return w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and W = √(|ℰ| − 1) Λ_w^−½.
+        3. Read Σ_w and Λ_w^−½ off the spectrum of Λ_w, by either route.
+        4. Return w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and W = √(|ℰ| − 1) Λ_w^−½.
 
     Args:
         obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
@@ -66,6 +71,8 @@ def etkf_transform(
             prior term (|ℰ| − 1) / ζ.
         solver: Solver strategy for the Σ_ε⁻¹ solves; ``None`` uses structural
             dispatch.
+        low_rank: Use the rank-D_y route. ``None`` chooses by shape, low rank
+            when D_y < |ℰ|; ``True`` / ``False`` force a route.
 
     Returns:
         Tuple ``(w_mean, transform)`` holding w̄ and W. With state anomalies
@@ -105,23 +112,294 @@ def etkf_transform(
     References:
         Bishop et al. (2001); Hunt et al. (2007).
     """
+    _check_etkf_inputs(obs_particles, y, obs_noise, inflation)
+    ensemble_size, obs_size = obs_particles.shape
+    obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
+        obs_particles, y, obs_noise, solver
+    )
+    # H̃ Σ_ε⁻¹ r̄
+    projected_residual = einsum(
+        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    )
+    # √(|ℰ| − 1)
+    root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=obs_anomalies.dtype))
+    identity = jnp.eye(ensemble_size, dtype=obs_anomalies.dtype)
+    # (|ℰ| − 1) / ζ
+    prior_precision = jnp.asarray(
+        (ensemble_size - 1) / inflation, dtype=obs_anomalies.dtype
+    )
+
+    if _use_low_rank(low_rank, ensemble_size, obs_size):
+        # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ I
+        w_mean, inverse_sqrt = _low_rank_matmul(
+            obs_anomalies,
+            whitened_anomalies,
+            prior_precision,
+            projected_residual,
+            identity,
+        )
+        # W = √(|ℰ| − 1) Λ_w^−½
+        return w_mean, root_size * inverse_sqrt
+
+    # --- ensemble space ---
+    # H̃ Σ_ε⁻¹ H̃ᵀ
+    obs_precision = einsum(
+        obs_anomalies, whitened_anomalies, "member obs, other obs -> member other"
+    )
+    # Λ_w = ((|ℰ| − 1) / ζ) I + H̃ Σ_ε⁻¹ H̃ᵀ
+    weight_precision = prior_precision * identity + obs_precision
+    weight_precision = symmetrize(weight_precision)
+    # Σ_w = Λ_w⁻¹ and Λ_w^−½
+    weight_covariance, inverse_sqrt = _inverse_and_inverse_sqrt(weight_precision)
+
+    # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄
+    w_mean = einsum(
+        weight_covariance, projected_residual, "member other, other -> member"
+    )
+    # W = √(|ℰ| − 1) Λ_w^−½
+    transform = root_size * inverse_sqrt
+    return w_mean, transform
+
+
+def etkf_analysis(
+    particles: Float[Array, "J N"],
+    obs_particles: Float[Array, "J M"],
+    y: Float[Array, " M"],
+    obs_noise: lx.AbstractLinearOperator,
+    *,
+    inflation: float | Float[Array, ""] = 1.0,
+    solver: AbstractSolverStrategy | None = None,
+    low_rank: bool | None = None,
+) -> Float[Array, "J N"]:
+    """ETKF analysis ensemble, without forming the (|ℰ|, |ℰ|) transform.
+
+        x̄_t|t = x̄_t|t−1 + X̃ᵀ w̄,   X̃_t|t = W X̃
+        x⁽ᵉ⁾_t|t = x̄_t|t + x̃⁽ᵉ⁾_t|t
+
+    The deterministic counterpart of `enkf_analysis`, and the same update as
+    `etkf_transform` followed by those two products, with w̄ and W as defined
+    there. On the rank-D_y route W is applied by matrix-vector products, so with
+    D_y < |ℰ| one analysis costs O(|ℰ| D_y² + |ℰ| D_y D_x) and no (|ℰ|, |ℰ|) array
+    exists, which is what makes a large ensemble with few observations cheap.
+
+    Algorithm:
+        1. Centre both ensembles: X̃, H̃ and r̄ = y − h̄.
+        2. Solve Σ_ε⁻¹ against [H̃, r̄] in one call.
+        3. Apply Σ_w to H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ to X̃, by either route.
+        4. Assemble the mean and the anomalies.
+
+    Args:
+        particles: Forecast ensemble x⁽ᵉ⁾ in state space.
+        obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
+        y: Observation y.
+        obs_noise: Observation-error covariance Σ_ε.
+        inflation: Multiplicative covariance inflation ζ ≥ 1, applied to the
+            prior term (|ℰ| − 1) / ζ.
+        solver: Solver strategy for the Σ_ε⁻¹ solves; ``None`` uses structural
+            dispatch.
+        low_rank: Use the rank-D_y route. ``None`` chooses by shape, low rank
+            when D_y < |ℰ|; ``True`` / ``False`` force a route.
+
+    Returns:
+        The analysis ensemble.
+
+    Raises:
+        ValueError: If |ℰ| < 2, if ``particles`` and ``obs_particles`` disagree
+            on |ℰ|, if ``y`` or ``obs_noise`` do not match D_y, or if a concrete
+            ``inflation`` is not positive.
+
+    Examples:
+        A linear observation of the first two of three state components:
+
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> particles = jr.normal(jr.key(0), (20, 3))
+        >>> obs_particles = particles[:, :2]
+        >>> obs_noise = lx.DiagonalLinearOperator(0.1 * jnp.ones(2))
+        >>> analysis = gaussx.etkf_analysis(
+        ...     particles, obs_particles, jnp.zeros(2), obs_noise
+        ... )
+        >>> analysis.shape
+        (20, 3)
+
+        The observed components move towards the observation:
+
+        >>> before = jnp.abs(particles[:, :2].mean(0))
+        >>> bool(jnp.all(jnp.abs(analysis[:, :2].mean(0)) <= before))
+        True
+
+        Both routes give the same ensemble:
+
+        >>> full = gaussx.etkf_analysis(
+        ...     particles, obs_particles, jnp.zeros(2), obs_noise, low_rank=False
+        ... )
+        >>> bool(jnp.allclose(analysis, full, atol=1e-4))
+        True
+
+    References:
+        Bishop et al. (2001); Hunt et al. (2007).
+    """
+    mean_increment, analysis_anomalies = _etkf_increments(
+        particles, obs_particles, y, obs_noise, inflation, solver, low_rank
+    )
+    # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
+    particle_mean = reduce(particles, "member state -> state", "mean")
+    # x⁽ᵉ⁾_t|t = x̄ + X̃ᵀ w̄ + x̃⁽ᵉ⁾_t|t
+    return einx.add(
+        "state, member state -> member state",
+        particle_mean + mean_increment,
+        analysis_anomalies,
+    )
+
+
+def _etkf_increments(
+    particles: Float[Array, "J N"],
+    obs_particles: Float[Array, "J M"],
+    y: Float[Array, " M"],
+    obs_noise: lx.AbstractLinearOperator,
+    inflation: float | Float[Array, ""],
+    solver: AbstractSolverStrategy | None,
+    low_rank: bool | None,
+) -> tuple[Float[Array, " N"], Float[Array, "J N"]]:
+    """Mean increment X̃ᵀ w̄ and analysis anomalies W X̃, by either route.
+
+    Shared by `etkf_analysis` and `gaussx.eki_step`'s deterministic variant.
+
+    Args:
+        particles: Forecast ensemble x⁽ᵉ⁾ in state space.
+        obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
+        y: Observation y.
+        obs_noise: Observation-error covariance Σ_ε.
+        inflation: Multiplicative covariance inflation ζ.
+        solver: Solver strategy for the Σ_ε⁻¹ solves.
+        low_rank: Route; ``None`` chooses by shape.
+
+    Returns:
+        Tuple ``(mean_increment, analysis_anomalies)``.
+    """
+    _check_etkf_inputs(obs_particles, y, obs_noise, inflation)
+    ensemble_size, obs_size = obs_particles.shape
+    if particles.shape[0] != ensemble_size:
+        raise ValueError(
+            "particles and obs_particles must share the same ensemble size, "
+            f"got J={particles.shape[0]} and J={ensemble_size}."
+        )
+    # x̄ = (1 / |ℰ|) ∑ₑ x⁽ᵉ⁾
+    particle_mean = reduce(particles, "member state -> state", "mean")
+    # x̃⁽ᵉ⁾ = x⁽ᵉ⁾ − x̄
+    anomalies = einx.subtract(
+        "member state, state -> member state", particles, particle_mean
+    )
+
+    if _use_low_rank(low_rank, ensemble_size, obs_size):
+        obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
+            obs_particles, y, obs_noise, solver
+        )
+        # H̃ Σ_ε⁻¹ r̄
+        projected_residual = einsum(
+            obs_anomalies, whitened_residual, "member obs, obs -> member"
+        )
+        # (|ℰ| − 1) / ζ
+        prior_precision = jnp.asarray(
+            (ensemble_size - 1) / inflation, dtype=obs_anomalies.dtype
+        )
+        # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ X̃
+        w_mean, inverse_sqrt_anomalies = _low_rank_matmul(
+            obs_anomalies,
+            whitened_anomalies,
+            prior_precision,
+            projected_residual,
+            anomalies,
+        )
+        # W X̃ = √(|ℰ| − 1) Λ_w^−½ X̃
+        root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=anomalies.dtype))
+        analysis_anomalies = root_size * inverse_sqrt_anomalies
+    else:
+        w_mean, transform = etkf_transform(
+            obs_particles,
+            y,
+            obs_noise,
+            inflation=inflation,
+            solver=solver,
+            low_rank=False,
+        )
+        # W X̃
+        analysis_anomalies = einsum(
+            transform, anomalies, "member other, other state -> member state"
+        )
+    # X̃ᵀ w̄
+    mean_increment = einsum(w_mean, anomalies, "member, member state -> state")
+    return mean_increment, analysis_anomalies
+
+
+def _check_etkf_inputs(
+    obs_particles: Float[Array, "J M"],
+    y: Float[Array, " M"],
+    obs_noise: lx.AbstractLinearOperator,
+    inflation: float | Float[Array, ""],
+) -> None:
+    """Static checks shared by `etkf_transform` and `etkf_analysis`.
+
+    Args:
+        obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
+        y: Observation y.
+        obs_noise: Observation-error covariance Σ_ε.
+        inflation: Multiplicative covariance inflation ζ.
+
+    Raises:
+        ValueError: If |ℰ| < 2, if ``y`` or ``obs_noise`` do not match D_y, or
+            if a concrete ``inflation`` is not positive.
+    """
     _check_observation_shapes(obs_particles, y, obs_noise, observation_name="y")
     ensemble_size = obs_particles.shape[0]
     if ensemble_size < 2:
         raise ValueError(
-            "etkf_transform requires J >= 2 ensemble members (the prior term "
+            "The ETKF requires J >= 2 ensemble members (the prior term "
             f"is (J - 1) / inflation); got J={ensemble_size}."
         )
     if isinstance(inflation, (int, float)) and inflation <= 0:
         raise ValueError(f"inflation must be positive, got {inflation}.")
+
+
+def _use_low_rank(low_rank: bool | None, ensemble_size: int, obs_size: int) -> bool:
+    """Whether to take the rank-D_y route; by default when D_y < |ℰ|.
+
+    Args:
+        low_rank: The caller's choice, or ``None`` to choose by shape.
+        ensemble_size: Ensemble size |ℰ|.
+        obs_size: Observation size D_y.
+
+    Returns:
+        ``True`` for the rank-D_y route.
+    """
+    return obs_size < ensemble_size if low_rank is None else low_rank
+
+
+def _whiten(
+    obs_particles: Float[Array, "J M"],
+    y: Float[Array, " M"],
+    obs_noise: lx.AbstractLinearOperator,
+    solver: AbstractSolverStrategy | None,
+) -> tuple[Float[Array, "J M"], Float[Array, "J M"], Float[Array, " M"]]:
+    """H̃, Σ_ε⁻¹ H̃ᵀ as rows and Σ_ε⁻¹ r̄, from one structured solve.
+
+    Args:
+        obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
+        y: Observation y.
+        obs_noise: Observation-error covariance Σ_ε.
+        solver: Solver strategy for the Σ_ε⁻¹ solves.
+
+    Returns:
+        Tuple ``(obs_anomalies, whitened_anomalies, whitened_residual)``.
+    """
     # h̄ = (1 / |ℰ|) ∑ₑ h⁽ᵉ⁾
     obs_mean = reduce(obs_particles, "member obs -> obs", "mean")
     # h̃⁽ᵉ⁾ = h⁽ᵉ⁾ − h̄
     obs_anomalies = einx.subtract(
         "member obs, obs -> member obs", obs_particles, obs_mean
     )
-
-    # --- whiten ---
     # r̄ = y − h̄
     mean_residual = y - obs_mean
     # [H̃, r̄]: all |ℰ| + 1 right-hand sides at once, so a dense Σ_ε is factored
@@ -129,36 +407,7 @@ def etkf_transform(
     right_hand_sides = jnp.vstack([obs_anomalies, mean_residual])
     # Σ_ε⁻¹ [H̃, r̄]
     whitened = solve_rows(obs_noise, right_hand_sides, solver=solver)
-    whitened_anomalies, whitened_residual = whitened[:-1], whitened[-1]
-
-    # --- ensemble space ---
-    identity = jnp.eye(ensemble_size, dtype=whitened_anomalies.dtype)
-    # ((|ℰ| − 1) / ζ) I
-    prior_precision = (ensemble_size - 1) / inflation * identity
-    # H̃ Σ_ε⁻¹ H̃ᵀ
-    obs_precision = einsum(
-        obs_anomalies, whitened_anomalies, "member obs, other obs -> member other"
-    )
-    # Λ_w = ((|ℰ| − 1) / ζ) I + H̃ Σ_ε⁻¹ H̃ᵀ
-    weight_precision = prior_precision + obs_precision
-    weight_precision = symmetrize(weight_precision)
-    # Σ_w = Λ_w⁻¹ and Λ_w^−½
-    weight_covariance, inverse_sqrt = _inverse_and_inverse_sqrt(weight_precision)
-
-    # H̃ Σ_ε⁻¹ r̄
-    projected_residual = einsum(
-        obs_anomalies, whitened_residual, "member obs, obs -> member"
-    )
-    # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄
-    w_mean = einsum(
-        weight_covariance, projected_residual, "member other, other -> member"
-    )
-    # W = √(|ℰ| − 1) Λ_w^−½
-    transform = (
-        jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=inverse_sqrt.dtype))
-        * inverse_sqrt
-    )
-    return w_mean, transform
+    return obs_anomalies, whitened[:-1], whitened[-1]
 
 
 @jax.custom_jvp
@@ -279,3 +528,245 @@ def _inverse_and_inverse_sqrt_jvp(primals, tangents):
         )
 
     return primal_out, (_back(inverse_difference), _back(inverse_sqrt_difference))
+
+
+def _low_rank_spectrum(
+    obs_anomalies: Float[Array, "J M"],
+    whitened_anomalies: Float[Array, "J M"],
+) -> tuple[Float[Array, "J R"], Float[Array, " R"]]:
+    """U and λ with H̃ Σ_ε⁻¹ H̃ᵀ = U diag(λ) Uᵀ, from a thin QR and a small eigh.
+
+    Args:
+        obs_anomalies: Observation anomalies H̃, stacked as rows.
+        whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
+
+    Returns:
+        Tuple ``(basis, excess)`` holding orthonormal U and λ ≥ 0.
+    """
+    # H̃ = Q T
+    orthogonal, _ = jnp.linalg.qr(obs_anomalies)
+    # Qᵀ H̃
+    projected = einsum(orthogonal, obs_anomalies, "member mode, member obs -> mode obs")
+    # Qᵀ Σ_ε⁻¹ H̃ᵀ, as rows
+    projected_whitened = einsum(
+        orthogonal, whitened_anomalies, "member mode, member obs -> mode obs"
+    )
+    # Qᵀ H̃ Σ_ε⁻¹ H̃ᵀ Q
+    small = einsum(projected, projected_whitened, "mode obs, other obs -> mode other")
+    # Qᵀ H̃ Σ_ε⁻¹ H̃ᵀ Q = V diag(λ) Vᵀ
+    excess, rotation = jnp.linalg.eigh(symmetrize(small))
+    # U = Q V
+    basis = einsum(orthogonal, rotation, "member mode, mode other -> member other")
+    # H̃ Σ_ε⁻¹ H̃ᵀ is PSD, so a negative λ is round-off
+    return basis, jnp.maximum(excess, 0.0)
+
+
+def _low_rank_apply(
+    basis: Float[Array, "J R"],
+    prior_value: Float[Array, ""],
+    mode_values: Float[Array, " R"],
+    rhs: Float[Array, "J C"],
+) -> Float[Array, "J C"]:
+    """f(Λ_w) B = f(c) B + U diag(f(c + λ) − f(c)) Uᵀ B, no (|ℰ|, |ℰ|) array.
+
+    Args:
+        basis: Orthonormal U.
+        prior_value: f(c), for the prior term c = (|ℰ| − 1) / ζ.
+        mode_values: f(c + λ) on each mode.
+        rhs: Right-hand sides B, one per column.
+
+    Returns:
+        f(Λ_w) B.
+    """
+    # Uᵀ B
+    projected = einsum(basis, rhs, "member mode, member col -> mode col")
+    # diag(f(c + λ) − f(c)) Uᵀ B
+    scaled = einx.multiply(
+        "mode, mode col -> mode col", mode_values - prior_value, projected
+    )
+    # f(c) B + U diag(f(c + λ) − f(c)) Uᵀ B
+    return prior_value * rhs + einsum(
+        basis, scaled, "member mode, mode col -> member col"
+    )
+
+
+@jax.custom_jvp
+def _low_rank_matmul(
+    obs_anomalies: Float[Array, "J M"],
+    whitened_anomalies: Float[Array, "J M"],
+    prior_precision: Float[Array, ""],
+    weight_rhs: Float[Array, " J"],
+    anomaly_rhs: Float[Array, "J C"],
+) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
+    """Σ_w b and Λ_w^−½ B for Λ_w = c I + H̃ Σ_ε⁻¹ H̃ᵀ, from one spectrum.
+
+    The custom JVP exists because JAX's QR rule needs H̃ to have full column
+    rank, which a constant or duplicated observation channel breaks. See
+    `_low_rank_matmul_jvp` for the derivative, which uses neither QR's nor eigh's.
+
+    Args:
+        obs_anomalies: Observation anomalies H̃, stacked as rows.
+        whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
+        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
+        weight_rhs: Right-hand side b of Σ_w.
+        anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
+
+    Returns:
+        Tuple ``(weights, inverse_sqrt_rhs)`` holding Σ_w b and Λ_w^−½ B.
+    """
+    basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
+    # γ = c + λ
+    precision = prior_precision + excess
+    weights = _low_rank_apply(
+        basis,
+        1.0 / prior_precision,
+        1.0 / precision,
+        rearrange(weight_rhs, "member -> member 1"),
+    )
+    inverse_sqrt_rhs = _low_rank_apply(
+        basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), anomaly_rhs
+    )
+    return rearrange(weights, "member 1 -> member"), inverse_sqrt_rhs
+
+
+def _inverse_difference(
+    first: Float[Array, "*shape"], second: Float[Array, "*shape"]
+) -> Float[Array, "*shape"]:
+    """(a⁻¹ − b⁻¹) / (a − b) = −1 / (a b), finite at a = b.
+
+    Args:
+        first: Argument a.
+        second: Argument b.
+
+    Returns:
+        The divided difference of s ↦ s⁻¹.
+    """
+    return -1.0 / (first * second)
+
+
+def _inverse_sqrt_difference(
+    first: Float[Array, "*shape"], second: Float[Array, "*shape"]
+) -> Float[Array, "*shape"]:
+    """(a^−½ − b^−½) / (a − b) = −1 / (√(a b) (√a + √b)), finite at a = b.
+
+    Args:
+        first: Argument a.
+        second: Argument b.
+
+    Returns:
+        The divided difference of s ↦ s^−½.
+    """
+    root_first, root_second = jnp.sqrt(first), jnp.sqrt(second)
+    return -1.0 / (root_first * root_second * (root_first + root_second))
+
+
+@_low_rank_matmul.defjvp
+def _low_rank_matmul_jvp(primals, tangents):
+    """Daleckii-Krein derivative of Σ_w b and Λ_w^−½ B in the basis [U, U⊥].
+
+    The same rule as `_inverse_and_inverse_sqrt_jvp`, written in blocks so that
+    U⊥ is never formed: I − U Uᵀ applies it, and every eigenvalue on U⊥ equals c.
+
+        df(Λ_w) B = U (D ⊙ Uᵀ dΛ_w U) Uᵀ B
+                    + U diag(d) Uᵀ dΛ_w P B
+                    + P dΛ_w U diag(d) Uᵀ B
+                    + f′(c) P dΛ_w P B
+
+    with P = I − U Uᵀ, Dᵢⱼ the divided difference at (γᵢ, γⱼ) and dᵢ the one at
+    (γᵢ, c). dΛ_w is applied by matrix-vector products only.
+
+    Args:
+        primals: The arguments of `_low_rank_matmul`.
+        tangents: Their tangents.
+
+    Returns:
+        Tuple ``(primal_out, tangent_out)``.
+    """
+    obs_anomalies, whitened_anomalies, prior_precision, weight_rhs, anomaly_rhs = (
+        primals
+    )
+    d_obs, d_whitened, d_prior, d_weight_rhs, d_anomaly_rhs = tangents
+    primal_out = _low_rank_matmul(*primals)
+    basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
+    # γ = c + λ
+    precision = prior_precision + excess
+
+    def d_precision(rhs: Float[Array, "J C"]) -> Float[Array, "J C"]:
+        # dΛ_w B = dc B + ½ (dH̃ Wᵀ + H̃ dWᵀ + W dH̃ᵀ + dW H̃ᵀ) B, W = Σ_ε⁻¹ H̃ᵀ
+        def outer(left, right):
+            # L (Rᵀ B)
+            return einsum(
+                left,
+                einsum(right, rhs, "member obs, member col -> obs col"),
+                "member obs, obs col -> member col",
+            )
+
+        terms = (
+            outer(d_obs, whitened_anomalies)
+            + outer(obs_anomalies, d_whitened)
+            + outer(whitened_anomalies, d_obs)
+            + outer(d_whitened, obs_anomalies)
+        )
+        return d_prior * rhs + 0.5 * terms
+
+    def complement(rhs: Float[Array, "J C"]) -> Float[Array, "J C"]:
+        # P B = B − U Uᵀ B
+        projected = einsum(basis, rhs, "member mode, member col -> mode col")
+        return rhs - einsum(basis, projected, "member mode, mode col -> member col")
+
+    # dΛ_w U and Uᵀ dΛ_w U
+    d_basis = d_precision(basis)
+    rotated = einsum(basis, d_basis, "member mode, member other -> mode other")
+
+    def tangent(difference, rhs):
+        # D, d and f′(c)
+        block_modes = difference(
+            rearrange(precision, "mode -> mode 1"),
+            rearrange(precision, "other -> 1 other"),
+        )
+        block_mixed = difference(precision, prior_precision)
+        block_prior = difference(prior_precision, prior_precision)
+        # Uᵀ B and P B
+        projected = einsum(basis, rhs, "member mode, member col -> mode col")
+        perpendicular = complement(rhs)
+        d_perpendicular = d_precision(perpendicular)
+        # U (D ⊙ Uᵀ dΛ_w U) Uᵀ B
+        mode_block = einsum(
+            basis,
+            block_modes * rotated,
+            projected,
+            "member mode, mode other, other col -> member col",
+        )
+        # U diag(d) Uᵀ dΛ_w P B
+        mixed_left = einsum(
+            basis,
+            einx.multiply(
+                "mode, mode col -> mode col",
+                block_mixed,
+                einsum(basis, d_perpendicular, "member mode, member col -> mode col"),
+            ),
+            "member mode, mode col -> member col",
+        )
+        # P dΛ_w U diag(d) Uᵀ B
+        mixed_right = complement(
+            einsum(
+                d_basis,
+                einx.multiply("mode, mode col -> mode col", block_mixed, projected),
+                "member mode, mode col -> member col",
+            )
+        )
+        # f′(c) P dΛ_w P B
+        prior_block = block_prior * complement(d_perpendicular)
+        return mode_block + mixed_left + mixed_right + prior_block
+
+    weight_matrix = rearrange(weight_rhs, "member -> member 1")
+    d_weight_matrix = rearrange(d_weight_rhs, "member -> member 1")
+    # dΣ_w b + Σ_w db
+    d_weights = tangent(_inverse_difference, weight_matrix) + _low_rank_apply(
+        basis, 1.0 / prior_precision, 1.0 / precision, d_weight_matrix
+    )
+    # dΛ_w^−½ B + Λ_w^−½ dB
+    d_inverse_sqrt = tangent(_inverse_sqrt_difference, anomaly_rhs) + _low_rank_apply(
+        basis, 1.0 / jnp.sqrt(prior_precision), 1.0 / jnp.sqrt(precision), d_anomaly_rhs
+    )
+    return primal_out, (rearrange(d_weights, "member 1 -> member"), d_inverse_sqrt)

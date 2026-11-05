@@ -75,6 +75,14 @@ def _etkf_transform(dtype):
     return list(gaussx.etkf_transform(particles, jnp.zeros(3, dtype), noise))
 
 
+def _etkf_analysis(dtype):
+    particles = jr.normal(jr.key(2), (5, 3), dtype=jnp.float64).astype(dtype)
+    noise = lx.DiagonalLinearOperator(jnp.ones(2, dtype))
+    y = jnp.zeros(2, dtype)
+    obs_particles = particles[:, :2]
+    return [gaussx.etkf_analysis(particles, obs_particles, y, noise)]
+
+
 def _trace_stochastic(dtype):
     return [gaussx.trace(psd_operator(_pd(dtype)), stochastic=True, key=jr.key(3))]
 
@@ -116,6 +124,7 @@ CASES = [
     _schur_complement,
     _low_rank_update,
     _etkf_transform,
+    _etkf_analysis,
     _trace_stochastic,
     _diag_stochastic,
     _slq_logdet,

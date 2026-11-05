@@ -88,7 +88,7 @@ whether it exists:
 | A Kalman filter / RTS smoother, SDE → state space | `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `MaternSDE` and the other `SDEKernel`s, `discretize_mfd` |
 | Gauss-Hermite / unscented / cubature expectations | `GaussHermiteIntegrator`, `UnscentedIntegrator`, `CubatureIntegrator`, `expected_log_likelihood` |
 | GP predictive mean / variance, ELBOs, whitening | `predict_mean`, `predict_variance`, `collapsed_elbo`, `variational_elbo_gaussian`, `whiten_covariance`, `love_cache` |
-| EnKF / ETKF / localisation / inflation | `enkf_analysis`, `etkf_transform`, `localization_matrix`, `inflate_*` |
+| EnKF / ETKF / localisation / inflation | `enkf_analysis`, `etkf_analysis`, `etkf_transform`, `localization_matrix`, `inflate_*` |
 | A Newton / fixed-point iteration you need gradients through | `optimistix.root_find` / `fixed_point` |
 | `jnp.einsum`, `.reshape`, `.T` on arrays, `x[:, None]`, `axis=` reductions | `gaussx._einx` (`einsum`, `rearrange`, `reduce`, `repeat`) and `einx.add` / `einx.multiply` / … |
 | Random PD test matrices, dense references, moment checks (tests) | `gaussx._testing` (`random_pd_operator`, `random_kronecker_pd`, `dense_solve`, `assert_sample_moments`, …) |
