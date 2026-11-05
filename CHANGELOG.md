@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.8](https://github.com/jejjohnson/gaussx/compare/v0.6.7...v0.6.8) (2026-11-05)
+
+
+### Bug Fixes
+
+* preserve dtype in SVGP variance adjustment ([#743](https://github.com/jejjohnson/gaussx/issues/743)) ([d6433ed](https://github.com/jejjohnson/gaussx/commit/d6433ed0940abbb8708fe61a91134a07929c3576))
+* validate ensemble Kalman gain noise shapes ([#738](https://github.com/jejjohnson/gaussx/issues/738)) ([f8e25c2](https://github.com/jejjohnson/gaussx/commit/f8e25c22dbd14791ab94bb394b358ca762140f13))
+
 ## [0.6.7](https://github.com/jejjohnson/gaussx/compare/v0.6.6...v0.6.7) (2026-11-04)
 
 
