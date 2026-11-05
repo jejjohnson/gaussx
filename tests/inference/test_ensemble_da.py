@@ -1126,7 +1126,12 @@ def test_deterministic_eki_derivatives_are_finite_at_zero_step():
     by_obs = jax.jacfwd(step, argnums=1)(particles, obs_particles)
     assert jnp.all(jnp.isfinite(by_obs))
     by_state = jax.jacfwd(step)(particles, obs_particles)
-    identity = jnp.eye(particles.size).reshape(*particles.shape, *particles.shape)
+    num_members, state_size = particles.shape
+    identity = einsum(
+        jnp.eye(num_members),
+        jnp.eye(state_size),
+        "member other, state col -> member state other col",
+    )
     assert jnp.allclose(by_state, identity, atol=1e-5)
 
     def by_noise(variances):
