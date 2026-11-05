@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import functools
+
 import einx
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -115,7 +118,7 @@ def etkf_transform(
     """
     _check_etkf_inputs(obs_particles, y, obs_noise, inflation)
     ensemble_size, obs_size = obs_particles.shape
-    obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
+    obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
         obs_particles, y, obs_noise, solver
     )
     # √(|ℰ| − 1)
@@ -128,11 +131,14 @@ def etkf_transform(
 
     if _use_low_rank(low_rank, ensemble_size, obs_size):
         # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ I
-        w_mean, inverse_sqrt = _low_rank_matmul(
+        w_mean, inverse_sqrt = _low_rank_route(
+            obs_noise,
+            solver,
             obs_anomalies,
+            mean_residual,
             whitened_anomalies,
-            prior_precision,
             whitened_residual,
+            prior_precision,
             identity,
         )
         # W = √(|ℰ| − 1) Λ_w^−½
@@ -295,7 +301,7 @@ def _etkf_increments(
     )
 
     if _use_low_rank(low_rank, ensemble_size, obs_size):
-        obs_anomalies, whitened_anomalies, whitened_residual = _whiten(
+        obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
             obs_particles, y, obs_noise, solver
         )
         # (|ℰ| − 1) / ζ
@@ -303,11 +309,14 @@ def _etkf_increments(
             (ensemble_size - 1) / inflation, dtype=obs_anomalies.dtype
         )
         # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ X̃
-        w_mean, inverse_sqrt_anomalies = _low_rank_matmul(
+        w_mean, inverse_sqrt_anomalies = _low_rank_route(
+            obs_noise,
+            solver,
             obs_anomalies,
+            mean_residual,
             whitened_anomalies,
-            prior_precision,
             whitened_residual,
+            prior_precision,
             anomalies,
         )
         # W X̃ = √(|ℰ| − 1) Λ_w^−½ X̃
@@ -379,8 +388,10 @@ def _whiten(
     y: Float[Array, " M"],
     obs_noise: lx.AbstractLinearOperator,
     solver: AbstractSolverStrategy | None,
-) -> tuple[Float[Array, "J M"], Float[Array, "J M"], Float[Array, " M"]]:
-    """H̃, Σ_ε⁻¹ H̃ᵀ as rows and Σ_ε⁻¹ r̄, from one structured solve.
+) -> tuple[
+    Float[Array, "J M"], Float[Array, " M"], Float[Array, "J M"], Float[Array, " M"]
+]:
+    """H̃, r̄, Σ_ε⁻¹ H̃ᵀ as rows and Σ_ε⁻¹ r̄, from one structured solve.
 
     Args:
         obs_particles: Forecast ensemble h⁽ᵉ⁾ in observation space.
@@ -389,7 +400,8 @@ def _whiten(
         solver: Solver strategy for the Σ_ε⁻¹ solves.
 
     Returns:
-        Tuple ``(obs_anomalies, whitened_anomalies, whitened_residual)``.
+        Tuple ``(obs_anomalies, mean_residual, whitened_anomalies,
+        whitened_residual)``.
     """
     # h̄ = (1 / |ℰ|) ∑ₑ h⁽ᵉ⁾
     obs_mean = reduce(obs_particles, "member obs -> obs", "mean")
@@ -404,7 +416,7 @@ def _whiten(
     right_hand_sides = jnp.vstack([obs_anomalies, mean_residual])
     # Σ_ε⁻¹ [H̃, r̄]
     whitened = solve_rows(obs_noise, right_hand_sides, solver=solver)
-    return obs_anomalies, whitened[:-1], whitened[-1]
+    return obs_anomalies, mean_residual, whitened[:-1], whitened[-1]
 
 
 @jax.custom_jvp
@@ -641,12 +653,58 @@ def _low_rank_apply(
     ) + prior_value * _complement(basis, rhs)
 
 
-@jax.custom_jvp
-def _low_rank_matmul(
+def _low_rank_route(
+    obs_noise: lx.AbstractLinearOperator,
+    solver: AbstractSolverStrategy | None,
     obs_anomalies: Float[Array, "J M"],
+    mean_residual: Float[Array, " M"],
     whitened_anomalies: Float[Array, "J M"],
-    prior_precision: Float[Array, ""],
     whitened_residual: Float[Array, " M"],
+    prior_precision: Float[Array, ""],
+    anomaly_rhs: Float[Array, "J C"],
+) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
+    """`_low_rank_matmul`, with Σ_ε split into its arrays and the rest.
+
+    The custom JVP takes dΣ_ε itself, and reads only the primal values of the
+    whitened arrays, because their tangents have already lost it to rounding.
+
+    Args:
+        obs_noise: Observation-error covariance Σ_ε.
+        solver: Solver strategy for the Σ_ε⁻¹ solves.
+        obs_anomalies: Observation anomalies H̃, stacked as rows.
+        mean_residual: r̄.
+        whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
+        whitened_residual: Σ_ε⁻¹ r̄.
+        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
+        anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
+
+    Returns:
+        Tuple ``(weights, inverse_sqrt_rhs)`` holding w̄ and Λ_w^−½ B.
+    """
+    noise_arrays, noise_static = eqx.partition(obs_noise, eqx.is_inexact_array)
+    return _low_rank_matmul(
+        noise_static,
+        solver,
+        noise_arrays,
+        obs_anomalies,
+        mean_residual,
+        whitened_anomalies,
+        whitened_residual,
+        prior_precision,
+        anomaly_rhs,
+    )
+
+
+@functools.partial(jax.custom_jvp, nondiff_argnums=(0, 1))
+def _low_rank_matmul(
+    noise_static: lx.AbstractLinearOperator,
+    solver: AbstractSolverStrategy | None,
+    noise_arrays: lx.AbstractLinearOperator,
+    obs_anomalies: Float[Array, "J M"],
+    mean_residual: Float[Array, " M"],
+    whitened_anomalies: Float[Array, "J M"],
+    whitened_residual: Float[Array, " M"],
+    prior_precision: Float[Array, ""],
     anomaly_rhs: Float[Array, "J C"],
 ) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
     """w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ B for Λ_w = c I + H̃ Σ_ε⁻¹ H̃ᵀ, from one spectrum.
@@ -656,10 +714,14 @@ def _low_rank_matmul(
     `_low_rank_matmul_jvp` for the derivative, which uses neither QR's nor eigh's.
 
     Args:
+        noise_static: The non-array part of Σ_ε.
+        solver: Solver strategy for the Σ_ε⁻¹ solves in the derivative.
+        noise_arrays: The array part of Σ_ε.
         obs_anomalies: Observation anomalies H̃, stacked as rows.
+        mean_residual: r̄, read only by the derivative.
         whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
-        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
         whitened_residual: Σ_ε⁻¹ r̄.
+        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
         anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
 
     Returns:
@@ -778,7 +840,7 @@ def _inverse_sqrt_difference(
 
 
 @_low_rank_matmul.defjvp
-def _low_rank_matmul_jvp(primals, tangents):
+def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     """Daleckii-Krein derivative of w̄ and Λ_w^−½ B in the basis [U, U⊥].
 
     The same rule as `_inverse_and_inverse_sqrt_jvp`, written in blocks so that
@@ -803,9 +865,12 @@ def _low_rank_matmul_jvp(primals, tangents):
 
         dw̄ = dΣ_w H̃ ρ + Σ_w dH̃ ρ + Σ_w H̃ dρ
            = Σ_w dH̃ ρₐ + Σ_w (H̃ (dρ − dWᵀ w̄) − dc w̄)
+        dρ − dWᵀ w̄ = Σ_ε⁻¹ (dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ)
 
-    where ρₐ = ρ − Wᵀ w̄ comes from `_analysis_residual`, and the second term acts
-    on a vector known to lie in the span of U.
+    where ρₐ = ρ − Wᵀ w̄ comes from `_analysis_residual`, and the second term of
+    dw̄ acts on a vector known to lie in the span of U. dW comes from dΣ_ε in the
+    same way, because the tangents of Σ_ε⁻¹ r̄ and Σ_ε⁻¹ H̃ᵀ would already have lost
+    this to rounding.
 
     Args:
         primals: The arguments of `_low_rank_matmul`.
@@ -815,17 +880,72 @@ def _low_rank_matmul_jvp(primals, tangents):
         Tuple ``(primal_out, tangent_out)``.
     """
     (
+        noise_arrays,
+        obs_anomalies,
+        _,
+        whitened_anomalies,
+        whitened_residual,
+        prior_precision,
+        anomaly_rhs,
+    ) = primals
+    (
+        d_noise_arrays,
+        d_obs,
+        d_mean_residual,
+        _,
+        _,
+        d_prior,
+        d_anomaly_rhs,
+    ) = tangents
+    primal_out = _low_rank_matmul(noise_static, solver, *primals)
+    basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
+    # γ = c + λ
+    precision = prior_precision + excess
+
+    # w̄
+    weights = primal_out[0]
+    # ρₐ = Σ_ε⁻¹ (r̄ − H̃ᵀ w̄)
+    analysis_residual = _analysis_residual(
         obs_anomalies,
         whitened_anomalies,
         prior_precision,
         whitened_residual,
-        anomaly_rhs,
-    ) = primals
-    d_obs, d_whitened, d_prior, d_residual, d_anomaly_rhs = tangents
-    primal_out = _low_rank_matmul(*primals)
-    basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
-    # γ = c + λ
-    precision = prior_precision + excess
+        basis,
+        excess,
+    )
+
+    # --- what moves through Σ_ε ---
+    # A factorisation of a symmetric-tagged matrix sees only the symmetric part of
+    # a raw tangent, and the tagged operator's own transpose is a no-op.
+    noise = eqx.combine(noise_arrays, noise_static)
+    if isinstance(noise, lx.MatrixLinearOperator) and lx.is_symmetric(noise):
+        d_noise_arrays = eqx.tree_at(
+            lambda operator: operator.matrix,
+            d_noise_arrays,
+            symmetrize(d_noise_arrays.matrix),
+        )
+
+    def d_noise_matvec(vector: Float[Array, " M"]) -> Float[Array, " M"]:
+        # dΣ_ε v
+        def noise_matvec(arrays):
+            return eqx.combine(arrays, noise_static).mv(vector)
+
+        return jax.jvp(noise_matvec, (noise_arrays,), (d_noise_arrays,))[1]
+
+    # dH̃ᵀ w̄
+    moved_obs = einsum(d_obs, weights, "member obs, member -> obs")
+    # dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ
+    residual_rhs = d_mean_residual - moved_obs - d_noise_matvec(analysis_residual)
+    # dH̃ᵀ − dΣ_ε W, as rows
+    anomaly_rhs_rows = d_obs - jax.vmap(d_noise_matvec)(whitened_anomalies)
+    # Σ_ε⁻¹ [dH̃ᵀ − dΣ_ε W, dr̄ − dH̃ᵀ w̄ − dΣ_ε ρₐ], in one solve
+    solved = solve_rows(
+        noise,
+        jnp.vstack([anomaly_rhs_rows, residual_rhs]),
+        solver=solver,
+    )
+    # dW = Σ_ε⁻¹ (dH̃ᵀ − dΣ_ε W) and dρ − dWᵀ w̄
+    d_whitened, moved_residual = solved[:-1], solved[-1]
 
     # a = Uᵀ H̃
     mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
@@ -887,17 +1007,6 @@ def _low_rank_matmul_jvp(primals, tangents):
         prior_block = block_prior * d_prior * perpendicular
         return mode_block + mixed_left + mixed_right + prior_block
 
-    # w̄
-    weights = primal_out[0]
-    # ρₐ = Σ_ε⁻¹ (r̄ − H̃ᵀ w̄)
-    analysis_residual = _analysis_residual(
-        obs_anomalies,
-        whitened_anomalies,
-        prior_precision,
-        whitened_residual,
-        basis,
-        excess,
-    )
     # dH̃ ρₐ
     moved_anomalies = einsum(d_obs, analysis_residual, "member obs, obs -> member")
     # Σ_w dH̃ ρₐ
@@ -906,10 +1015,6 @@ def _low_rank_matmul_jvp(primals, tangents):
         1.0 / prior_precision,
         1.0 / precision,
         rearrange(moved_anomalies, "member -> member 1"),
-    )
-    # dρ − dWᵀ w̄
-    moved_residual = d_residual - einsum(
-        d_whitened, weights, "member obs, member -> obs"
     )
     # H̃ (dρ − dWᵀ w̄) − dc w̄, in the span of U by construction
     in_span = (

@@ -951,3 +951,64 @@ def test_low_rank_recovers_the_gradient_of_a_changing_observation_span():
 
     gradient = jax.grad(projected_weights)(jnp.zeros((), jnp.float32))
     assert jnp.allclose(gradient, 4.0 / (4e8 + 3.0), rtol=1e-3, atol=0.0)
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_gradient_of_a_strong_observation_noise():
+    """gh-747 review: d w̄ / d R when dρ and dWᵀ w̄ nearly cancel.
+
+    With H̃ = 1e4 u and uᵀ u = 4, uᵀ w̄ = 4e4 / (3 R + 4e8), whose derivative at
+    R = 1 is −1.2e5 / (4e8 + 3)², about −7.5e-13.
+    """
+    u = jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    y = jnp.ones(1, jnp.float32)
+
+    def projected_weights(variance):
+        noise = lx.DiagonalLinearOperator(variance * jnp.ones(1, jnp.float32))
+        w_mean, _ = etkf_transform(1e4 * u, y, noise)
+        return jnp.sum(w_mean * u[:, 0])
+
+    gradient = jax.grad(projected_weights)(jnp.ones((), jnp.float32))
+    assert jnp.allclose(gradient, -1.2e5 / (4e8 + 3.0) ** 2, rtol=1e-3, atol=0.0)
+
+
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+def test_low_rank_gradient_keeps_a_kronecker_noise_structured(monkeypatch):
+    """The derivative applies dΣ_ε by its own matvec, not by forming Σ_ε."""
+    nextkey = key_sequence(748)
+    left = lx.DiagonalLinearOperator(jnp.array([0.5, 1.5]))
+    right = lx.DiagonalLinearOperator(jnp.array([0.4, 0.8, 1.2]))
+    obs_particles = jr.normal(nextkey(), (8, 6))
+    particles = jr.normal(nextkey(), (8, 3))
+    y = jr.normal(nextkey(), (6,))
+
+    def loss(obs, scale, low_rank):
+        noise = gaussx.Kronecker(
+            left, lx.DiagonalLinearOperator(scale * right.diagonal)
+        )
+        analysis = gaussx.etkf_analysis(particles, obs, y, noise, low_rank=low_rank)
+        return jnp.sum(analysis**2)
+
+    argnums = (0, 1)
+    expected = jax.grad(loss, argnums=argnums)(obs_particles, 1.0, False)
+    _forbid_as_matrix(monkeypatch, gaussx.Kronecker)
+    gradient = jax.grad(loss, argnums=argnums)(obs_particles, 1.0, True)
+    assert tree_allclose(gradient, expected, rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="finite differences need float64")
+def test_low_rank_second_derivative_matches_finite_differences():
+    """The custom JVP's own derivative, including through the whitened arrays."""
+    particles, obs_map, y, R_op = _rank_route_problem(8, 2, N=3)
+
+    def loss(scale):
+        state = scale * particles
+        analysis = gaussx.etkf_analysis(
+            state, _apply_map(state, obs_map), y, R_op, low_rank=True
+        )
+        return jnp.sum(analysis**2)
+
+    first = jax.grad(loss)
+    step = 1e-5
+    central = (first(1.0 + step) - first(1.0 - step)) / (2.0 * step)
+    assert jnp.allclose(jax.grad(first)(1.0), central, rtol=1e-6)
