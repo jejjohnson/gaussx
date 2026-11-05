@@ -134,13 +134,14 @@ def gaussian_taper(
     References:
         Gaspari & Cohn (1999).
     """
+    # Mask an infinite r before anything divides by L: the slope z exp(−z² / 2),
+    # and the pullback of r / L in L, would each be ∞ × 0.
+    infinite = jnp.isinf(r)
+    finite_distance = jnp.where(infinite, 0.0, r)
     # z = r / L
-    scaled_distance = r / length_scale
-    # The slope z exp(−z² / 2) would be ∞ × 0 at z = ∞, so keep ∞ out of it.
-    infinite = jnp.isinf(scaled_distance)
-    finite_distance = jnp.where(infinite, 0.0, scaled_distance)
+    scaled_distance = finite_distance / length_scale
     # ρ = exp(−z² / 2)
-    taper = jnp.exp(-0.5 * finite_distance * finite_distance)
+    taper = jnp.exp(-0.5 * scaled_distance * scaled_distance)
     return jnp.where(infinite, 0.0, taper)
 
 
@@ -185,13 +186,14 @@ def soar_taper(
     References:
         Gaspari & Cohn (1999).
     """
+    # Mask an infinite r before anything divides by L: (1 + z) exp(−z), and the
+    # pullback of r / L in L, would each be ∞ × 0.
+    infinite = jnp.isinf(r)
+    finite_distance = jnp.where(infinite, 0.0, r)
     # z = |r| / L
-    scaled_distance = jnp.abs(r) / length_scale
-    # (1 + z) exp(−z) would be ∞ × 0 at z = ∞, so keep ∞ out of it.
-    infinite = jnp.isinf(scaled_distance)
-    finite_distance = jnp.where(infinite, 0.0, scaled_distance)
+    scaled_distance = jnp.abs(finite_distance) / length_scale
     # ρ = (1 + z) exp(−z)
-    taper = (1.0 + finite_distance) * jnp.exp(-finite_distance)
+    taper = (1.0 + scaled_distance) * jnp.exp(-scaled_distance)
     return jnp.where(infinite, 0.0, taper)
 
 

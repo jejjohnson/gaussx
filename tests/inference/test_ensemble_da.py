@@ -1245,6 +1245,18 @@ def test_taper_is_zero_at_an_infinite_distance_with_a_finite_gradient(taper):
     assert taper(jnp.array(jnp.inf), 2.0) == 0.0
     slope = jax.grad(lambda r: taper(r, 2.0))(jnp.array(jnp.inf))
     assert jnp.isfinite(slope)
+    # A masked pair must not disturb the gradient in L of the pairs that remain.
+    distances = jnp.array([1.0, jnp.inf])
+
+    def total(length_scale):
+        return jnp.sum(taper(distances, length_scale))
+
+    def finite_only(length_scale):
+        return taper(distances[0], length_scale)
+
+    gradient = jax.grad(total)(jnp.array(2.0))
+    assert jnp.isfinite(gradient)
+    assert jnp.allclose(gradient, jax.grad(finite_only)(jnp.array(2.0)))
 
 
 @pytest.mark.parametrize("taper", _TAPERS)
