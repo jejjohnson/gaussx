@@ -23,66 +23,70 @@ def ep_tilted_moments(
     integrator: AbstractIntegrator | None = None,
     power: float = 1.0,
 ) -> tuple[Float[Array, " *batch"], Float[Array, " *batch"]]:
-    r"""Moments of the scalar EP tilted distribution, elementwise over a batch.
+    """Moments of the scalar EP tilted distribution, elementwise over a batch.
 
-    For each cavity ``N(f | m, v)`` computes the mean and variance of the
-    tilted distribution
+        p_tilt(f) ∝ p(y ∣ f)ᵃ 𝒩(f ∣ μ_cav, σ²_cav)
+        w̃ᵢ = wᵢ p(y ∣ fᵢ)ᵃ
+        μ_tilt = ∑ᵢ w̃ᵢ fᵢ / ∑ᵢ w̃ᵢ
+        σ²_tilt = ∑ᵢ w̃ᵢ (fᵢ − μ_tilt)² / ∑ᵢ w̃ᵢ
 
-    $$
-    \tilde p(f) \propto p(y \mid f)^{a}\, \mathcal{N}(f \mid m, v)
-    $$
-
-    with the points ``f_i`` and mean weights ``w_i`` of a point-based rule
-    applied to the cavity:
-
-    $$
-    \tilde w_i = w_i\, p(y \mid f_i)^{a}, \quad
-    m_{\mathrm{tilt}} = \frac{\sum_i \tilde w_i f_i}{\sum_i \tilde w_i}, \quad
-    v_{\mathrm{tilt}} = \frac{\sum_i \tilde w_i (f_i - m_{\mathrm{tilt}})^2}
-        {\sum_i \tilde w_i}.
-    $$
-
-    These are the same tilted moments as ``m + v g`` and ``v + v H v`` from
-    `gaussx.moment_match` (Stein's lemma), and share its log-sum-exp shifted
-    weights. The default rule is Gauss-Hermite of ``order`` points, the
-    behaviour before ``integrator`` existed.
-
-    Pseudocode (per batch element):
-
-    ```text
-    if v <= 0: return m, v                      # invalid site, passed through
-    f, w = integrator.points_and_weights(N(m, v))
-    w~ = w * exp(a * log_lik(f) - max(a * log_lik(f)))
-    m_t = sum(w~ f) / sum(w~);  v_t = sum(w~ (f - m_t)^2) / sum(w~)
-    return m_t, max(v_t, eps * v)
-    ```
+    with the points fᵢ and mean weights wᵢ of a point-based rule applied to
+    the cavity. These are the same tilted moments as μ_cav + σ²_cav g and
+    σ²_cav + σ²_cav H σ²_cav from `gaussx.moment_match` (Stein's lemma), and
+    share its log-sum-exp shifted weights. The default rule is Gauss-Hermite
+    of ``order`` points, the behaviour before ``integrator`` existed.
 
     A site whose cavity variance is not positive -- EP's usual failure mode,
     when the site holds more precision than the current posterior -- has no
     tilted distribution. Its cavity moments are returned unchanged, so the
-    moment-matched site update ``1/t_var - 1/cav_var`` is zero and nothing
+    moment-matched site update 1/σ²_tilt − 1/σ²_cav is zero and nothing
     ``NaN`` reaches the site parameters; skip or damp such sites in the
     caller. Valid sites are unaffected, and gradients stay finite for both.
 
+    Algorithm:
+        1. Pass a site with σ²_cav ≤ 0 through as (μ_cav, σ²_cav).
+        2. Take the points and weights of the rule on 𝒩(μ_cav, σ²_cav).
+        3. Shift and tilt the weights: w̃ᵢ.
+        4. Take the tilted moments, flooring σ²_tilt at machine epsilon
+           times σ²_cav.
+
     Args:
-        log_lik_fn: Scalar function mapping latent value ``f`` to scalar
-            log-likelihood ``log p(y|f)``.
-        cav_mean: Cavity means, shape ``(*batch,)``.
-        cav_var: Cavity variances, shape ``(*batch,)``. Non-positive entries
-            are passed through as described above.
+        log_lik_fn: Maps a scalar latent f to the scalar log-likelihood
+            log p(y ∣ f).
+        cav_mean: Cavity means μ_cav.
+        cav_var: Cavity variances σ²_cav. Non-positive entries are passed
+            through as described above.
         order: Number of Gauss-Hermite points of the default rule. Default
             ``20``. Only valid when ``integrator`` is ``None``.
         integrator: Point-based rule (e.g. `gaussx.UnscentedIntegrator`,
             `gaussx.CubatureIntegrator`) applied to each 1-D cavity. Default
             ``GaussHermiteIntegrator(order)``.
-        power: Power-EP exponent ``a``; ``1.0`` is standard EP.
+        power: Power-EP exponent a; ``1.0`` is standard EP.
 
     Returns:
-        Tuple ``(tilted_mean, tilted_var)``, each of shape ``(*batch,)``.
+        Tuple ``(tilted_mean, tilted_var)`` holding μ_tilt and σ²_tilt.
 
     Raises:
         ValueError: If both ``integrator`` and ``order`` are given.
         NotImplementedError: If ``integrator`` is not point-based.
+
+    Examples:
+        A flat likelihood leaves the cavity unchanged:
+
+        >>> import jax.numpy as jnp
+        >>> tilted_mean, tilted_var = ep_tilted_moments(
+        ...     lambda f: 0.0 * f, jnp.array([0.5, 1.0]), jnp.array([1.0, 2.0])
+        ... )
+        >>> bool(jnp.allclose(tilted_mean, jnp.array([0.5, 1.0])))
+        True
+
+        An invalid site passes through:
+
+        >>> tilted_mean, tilted_var = ep_tilted_moments(
+        ...     lambda f: -(f**2), jnp.array([0.5]), jnp.array([-1.0])
+        ... )
+        >>> bool(jnp.allclose(tilted_var, jnp.array([-1.0])))
+        True
     """
     if integrator is None:
         integrator = GaussHermiteIntegrator(order=20 if order is None else order)
@@ -98,28 +102,46 @@ def ep_tilted_moments(
     cav_mean = jnp.asarray(cav_mean, dtype=dtype)
     cav_var = jnp.asarray(cav_var, dtype=dtype)
 
-    def _quadrature_moments(mean_i: Float[Array, ""], var_i: Float[Array, ""]):
+    def _quadrature_moments(
+        cavity_mean: Float[Array, ""], cavity_variance: Float[Array, ""]
+    ) -> tuple[Float[Array, ""], Float[Array, ""]]:
         state = GaussianState(
-            mean=jnp.atleast_1d(mean_i),
-            cov=lx.DiagonalLinearOperator(jnp.atleast_1d(var_i)),
+            mean=jnp.atleast_1d(cavity_mean),
+            cov=lx.DiagonalLinearOperator(jnp.atleast_1d(cavity_variance)),
         )
-        chi, w_m, _ = integrator.points_and_weights(state)  # (P, 1), (P,)
-        p_tilde, _ = _tilted_weights(lambda x: log_lik_fn(x[0]), chi, w_m, power)
-        f_nodes = chi[:, 0]
-        Z = jnp.sum(p_tilde)
-        t_mean = jnp.sum(p_tilde * f_nodes) / Z
-        t_var = jnp.sum(p_tilde * (f_nodes - t_mean) ** 2) / Z
+        points, mean_weights, _ = integrator.points_and_weights(state)
+        # w̃ᵢ = wᵢ p(y ∣ fᵢ)ᵃ / exp(shift)
+        tilted_weights, _ = _tilted_weights(
+            lambda x: log_lik_fn(x[0]), points, mean_weights, power
+        )
+        nodes = points[:, 0]
+        # ∑ᵢ w̃ᵢ
+        normaliser = jnp.sum(tilted_weights)
+        # μ_tilt = ∑ᵢ w̃ᵢ fᵢ / ∑ᵢ w̃ᵢ
+        tilted_mean = jnp.sum(tilted_weights * nodes) / normaliser
+        # σ²_tilt = ∑ᵢ w̃ᵢ (fᵢ − μ_tilt)² / ∑ᵢ w̃ᵢ
+        tilted_variance = (
+            jnp.sum(tilted_weights * (nodes - tilted_mean) ** 2) / normaliser
+        )
         # Floor relative to the cavity, not in absolute units: a tilted
         # variance below eps * cavity variance is quadrature round-off, and
         # an absolute floor would inflate small-scale problems.
-        t_var = jnp.maximum(t_var, jnp.finfo(t_var.dtype).eps * var_i)
-        return t_mean, t_var
+        tilted_variance = jnp.maximum(
+            tilted_variance, jnp.finfo(tilted_variance.dtype).eps * cavity_variance
+        )
+        return tilted_mean, tilted_variance
 
-    def _compute_moments(mean_i: Float[Array, ""], var_i: Float[Array, ""]):
+    def _compute_moments(
+        cavity_mean: Float[Array, ""], cavity_variance: Float[Array, ""]
+    ) -> tuple[Float[Array, ""], Float[Array, ""]]:
         # Double where: the quadrature never sees a negative variance, so
         # neither the value nor the gradient of an invalid site is NaN.
-        valid = var_i > 0
-        t_mean, t_var = _quadrature_moments(mean_i, jnp.where(valid, var_i, 1.0))
-        return jnp.where(valid, t_mean, mean_i), jnp.where(valid, t_var, var_i)
+        valid = cavity_variance > 0
+        safe_variance = jnp.where(valid, cavity_variance, 1.0)
+        tilted_mean, tilted_variance = _quadrature_moments(cavity_mean, safe_variance)
+        return (
+            jnp.where(valid, tilted_mean, cavity_mean),
+            jnp.where(valid, tilted_variance, cavity_variance),
+        )
 
     return jnp.vectorize(_compute_moments)(cav_mean, cav_var)
