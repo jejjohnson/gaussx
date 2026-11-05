@@ -679,6 +679,54 @@ def test_low_rank_gradients_match_the_full_route(J, M, noise):
     assert jnp.allclose(forward_low, jnp.sum(grad_full[0] * direction), rtol=1e-8)
 
 
+@pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
+@pytest.mark.parametrize(("J", "M"), [(20, 3), (4, 6)])
+def test_low_rank_gradient_through_the_noise_matches_the_full_route(J, M):
+    """dW and dρ both move with Σ_ε, with a dense and a scaled covariance."""
+    particles, obs_map, y, _ = _rank_route_problem(J, M)
+    obs_particles = _apply_map(particles, obs_map)
+    base = random_pd_matrix(jr.key(3), M, jitter=0.5)
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def loss(noise_matrix, low_rank):
+        analysis = gaussx.etkf_analysis(
+            particles,
+            obs_particles,
+            y,
+            psd_operator(noise_matrix),
+            low_rank=low_rank,
+        )
+        return jnp.sum(weights * analysis)
+
+    grad_low = jax.grad(loss)(base, True)
+    grad_full = jax.grad(loss)(base, False)
+    assert jnp.allclose(grad_low, grad_full, rtol=1e-8, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("scale", [1e2, 1e3, 1e4])
+def test_low_rank_float32_anomaly_gradient_matches_float64(scale):
+    """gh-747 review: P dΛ_w P = dc P, so no rounding meets the large f′(c)."""
+    particles, obs_map, y, _ = _rank_route_problem(20, 3, N=5)
+    obs_map = scale * obs_map
+    weights = jr.normal(jr.key(1), particles.shape)
+
+    def gradient(dtype):
+        noise = lx.DiagonalLinearOperator(jnp.ones(3, dtype))
+
+        def loss(state):
+            analysis = gaussx.etkf_analysis(
+                state, _apply_map(state, obs_map.astype(dtype)), y.astype(dtype), noise
+            )
+            return jnp.sum(weights.astype(dtype) * analysis)
+
+        return jax.grad(loss)(particles.astype(dtype))
+
+    reference = gradient(jnp.float64)
+    single = gradient(jnp.float32)
+    assert jnp.max(jnp.abs(single - reference)) < 1e-2 * jnp.max(jnp.abs(reference))
+
+
 @pytest.mark.slow
 @pytest.mark.x64_only(reason="gradients compared with the full route to 1e-8")
 def test_low_rank_gradient_through_a_transformed_identity():
@@ -883,3 +931,23 @@ def test_low_rank_recovers_the_observation_gradient_of_a_strong_observation():
 
     gradient = jax.grad(mean)(jnp.ones(1, jnp.float32))
     assert jnp.allclose(gradient, 1.0, atol=1e-3)
+
+
+@pytest.mark.x64_only(reason="reference value computed by hand in float64")
+def test_low_rank_recovers_the_gradient_of_a_changing_observation_span():
+    """gh-747 review: d w̄ / d t when the span of H̃ itself moves.
+
+    H̃(t) = 1e4 u + t v with u ⟂ v and unit noise, so vᵀ d w̄ / d t = vᵀ v / (4e8 + 3)
+    comes only from Σ_w dH̃ ρₐ, whose terms cancel if they are evaluated apart.
+    """
+    u = jnp.array([[-1.0], [-1.0], [1.0], [1.0]], jnp.float32)
+    v = jnp.array([[1.0], [-1.0], [1.0], [-1.0]], jnp.float32)
+    noise = lx.DiagonalLinearOperator(jnp.ones(1, jnp.float32))
+    y = jnp.ones(1, jnp.float32)
+
+    def projected_weights(t):
+        w_mean, _ = etkf_transform(1e4 * u + t * v, y, noise)
+        return jnp.sum(w_mean * v[:, 0])
+
+    gradient = jax.grad(projected_weights)(jnp.zeros((), jnp.float32))
+    assert jnp.allclose(gradient, 4.0 / (4e8 + 3.0), rtol=1e-3, atol=0.0)

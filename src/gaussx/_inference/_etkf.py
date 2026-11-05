@@ -679,6 +679,73 @@ def _low_rank_matmul(
     return weights, inverse_sqrt_rhs
 
 
+def _analysis_residual(
+    obs_anomalies: Float[Array, "J M"],
+    whitened_anomalies: Float[Array, "J M"],
+    prior_precision: Float[Array, ""],
+    whitened_residual: Float[Array, " M"],
+    basis: Float[Array, "J R"],
+    excess: Float[Array, " R"],
+) -> Float[Array, " M"]:
+    """ρₐ = Σ_ε⁻¹ (r̄ − H̃ᵀ w̄), without subtracting nearly equal vectors.
+
+    With ρ = Σ_ε⁻¹ r̄, a = Uᵀ H̃ (rows aᵢ), q = Uᵀ Σ_ε⁻¹ H̃ᵀ (rows qᵢ) and
+    α = a ρ, the plain form is ρₐ = ρ − ∑ᵢ qᵢ αᵢ / γᵢ, which cancels on a mode with
+    λᵢ ≫ c. Since aᵢᵀ qⱼ = λᵢ δᵢⱼ, the part of ρ along those modes is removed by the
+    oblique projection T = ∑ᵢ qᵢ aᵢᵀ / λᵢ, which leaves the small remainder in
+    closed form:
+
+        1 / λᵢ − 1 / γᵢ = c / (λᵢ γᵢ)
+
+        ρₐ = (I − T)² ρ + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
+
+    with i over λᵢ > c and j over the rest, where there is nothing to cancel. T is
+    idempotent, and applying it twice removes the rounding that one pass leaves.
+
+    Args:
+        obs_anomalies: Observation anomalies H̃, stacked as rows.
+        whitened_anomalies: Σ_ε⁻¹ H̃ᵀ, stacked as rows.
+        prior_precision: The prior term c = (|ℰ| − 1) / ζ.
+        whitened_residual: ρ = Σ_ε⁻¹ r̄.
+        basis: Orthonormal U.
+        excess: λ, with H̃ Σ_ε⁻¹ H̃ᵀ = U diag(λ) Uᵀ.
+
+    Returns:
+        ρₐ.
+    """
+    # a = Uᵀ H̃
+    mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
+    # q = Uᵀ Σ_ε⁻¹ H̃ᵀ
+    mode_whitened = einsum(
+        basis, whitened_anomalies, "member mode, member obs -> mode obs"
+    )
+    # γ = c + λ
+    precision = prior_precision + excess
+    # a mode that cancels; λ > c > 0 there, so dividing by λ is safe
+    strong = excess > prior_precision
+    safe_excess = jnp.where(strong, excess, 1.0)
+
+    def _remove_strong_modes(values: Float[Array, " M"]) -> Float[Array, " M"]:
+        # a v
+        projected = einsum(mode_obs, values, "mode obs, obs -> mode")
+        # v − ∑ᵢ qᵢ (a v)ᵢ / λᵢ
+        coefficients = jnp.where(strong, projected / safe_excess, 0.0)
+        return values - einsum(mode_whitened, coefficients, "mode obs, mode -> obs")
+
+    # (I − T)² ρ
+    remainder = _remove_strong_modes(_remove_strong_modes(whitened_residual))
+    # α = a ρ
+    mode_residual = einsum(mode_obs, whitened_residual, "mode obs, obs -> mode")
+    # c / (λᵢ γᵢ) on strong modes, −1 / γⱼ on the rest
+    coefficients = jnp.where(
+        strong, prior_precision / (safe_excess * precision), -1.0 / precision
+    )
+    # (I − T)² ρ + ∑ᵢ qᵢ αᵢ c / (λᵢ γᵢ) − ∑ⱼ qⱼ αⱼ / γⱼ
+    return remainder + einsum(
+        mode_whitened, coefficients * mode_residual, "mode obs, mode -> obs"
+    )
+
+
 def _inverse_difference(
     first: Float[Array, "*shape"], second: Float[Array, "*shape"]
 ) -> Float[Array, "*shape"]:
@@ -723,9 +790,22 @@ def _low_rank_matmul_jvp(primals, tangents):
                     + f′(c) P dΛ_w P B
 
     with P = I − U Uᵀ, Dᵢⱼ the divided difference at (γᵢ, γⱼ) and dᵢ the one at
-    (γᵢ, c). dΛ_w is applied by matrix-vector products only. In
-    dw̄ = dΣ_w b + Σ_w dH̃ Σ_ε⁻¹ r̄ + Σ_w H̃ d(Σ_ε⁻¹ r̄), with b = H̃ Σ_ε⁻¹ r̄, the
-    first and last terms act on vectors known to lie in the span of U.
+    (γᵢ, c). With dΛ_w = dc I + dH̃ Wᵀ + H̃ dWᵀ and W = Σ_ε⁻¹ H̃ᵀ, the identities
+    P H̃ = 0 and Wᵀ P = 0 reduce those blocks, before any is evaluated, to
+
+        Uᵀ dΛ_w P = Uᵀ H̃ dWᵀ P,   P dΛ_w U = P dH̃ Wᵀ U,   P dΛ_w P = dc P
+
+    so no term of about ε ‖W‖ meets the large f′(c), which grew as ε (λ / c).
+
+    The mean weights take their three terms combined before any is evaluated,
+    because evaluated apart they cancel for a strongly informative observation.
+    With ρ = Σ_ε⁻¹ r̄, W = Σ_ε⁻¹ H̃ᵀ and dΛ_w = dc I + dH̃ Wᵀ + H̃ dWᵀ,
+
+        dw̄ = dΣ_w H̃ ρ + Σ_w dH̃ ρ + Σ_w H̃ dρ
+           = Σ_w dH̃ ρₐ + Σ_w (H̃ (dρ − dWᵀ w̄) − dc w̄)
+
+    where ρₐ = ρ − Wᵀ w̄ comes from `_analysis_residual`, and the second term acts
+    on a vector known to lie in the span of U.
 
     Args:
         primals: The arguments of `_low_rank_matmul`.
@@ -747,32 +827,24 @@ def _low_rank_matmul_jvp(primals, tangents):
     # γ = c + λ
     precision = prior_precision + excess
 
-    def d_precision(rhs: Float[Array, "J C"]) -> Float[Array, "J C"]:
-        # dΛ_w B = dc B + ½ (dH̃ Wᵀ + H̃ dWᵀ + W dH̃ᵀ + dW H̃ᵀ) B, W = Σ_ε⁻¹ H̃ᵀ
-        def outer(left, right):
-            # L (Rᵀ B)
-            return einsum(
-                left,
-                einsum(right, rhs, "member obs, member col -> obs col"),
-                "member obs, obs col -> member col",
-            )
+    # a = Uᵀ H̃
+    mode_obs = einsum(basis, obs_anomalies, "member mode, member obs -> mode obs")
+    # Wᵀ U
+    whitened_modes = einsum(
+        whitened_anomalies, basis, "member obs, member mode -> obs mode"
+    )
+    # dH̃ Wᵀ U
+    d_obs_modes = einsum(d_obs, whitened_modes, "member obs, obs mode -> member mode")
+    # dWᵀ U
+    d_whitened_modes = einsum(d_whitened, basis, "member obs, member mode -> obs mode")
+    # Uᵀ (dH̃ Wᵀ + H̃ dWᵀ) U
+    rotated = einsum(
+        basis, d_obs_modes, "member mode, member other -> mode other"
+    ) + einsum(mode_obs, d_whitened_modes, "mode obs, obs other -> mode other")
+    # Uᵀ dΛ_w U = dc I + ½ (Uᵀ (dH̃ Wᵀ + H̃ dWᵀ) U + transpose)
+    rotated = symmetrize(rotated) + d_prior * jnp.eye(basis.shape[1], dtype=basis.dtype)
 
-        terms = (
-            outer(d_obs, whitened_anomalies)
-            + outer(obs_anomalies, d_whitened)
-            + outer(whitened_anomalies, d_obs)
-            + outer(d_whitened, obs_anomalies)
-        )
-        return d_prior * rhs + 0.5 * terms
-
-    def complement(rhs: Float[Array, "J C"]) -> Float[Array, "J C"]:
-        return _complement(basis, rhs)
-
-    # dΛ_w U and Uᵀ dΛ_w U
-    d_basis = d_precision(basis)
-    rotated = einsum(basis, d_basis, "member mode, member other -> mode other")
-
-    def tangent(difference, rhs, *, in_span=False):
+    def tangent(difference, rhs):
         # D, d and f′(c)
         block_modes = difference(
             rearrange(precision, "mode -> mode 1"),
@@ -780,8 +852,9 @@ def _low_rank_matmul_jvp(primals, tangents):
         )
         block_mixed = difference(precision, prior_precision)
         block_prior = difference(prior_precision, prior_precision)
-        # Uᵀ B
+        # Uᵀ B and P B
         projected = einsum(basis, rhs, "member mode, member col -> mode col")
+        perpendicular = _complement(basis, rhs)
         # U (D ⊙ Uᵀ dΛ_w U) Uᵀ B
         mode_block = einsum(
             basis,
@@ -789,61 +862,63 @@ def _low_rank_matmul_jvp(primals, tangents):
             projected,
             "member mode, mode other, other col -> member col",
         )
-        # P dΛ_w U diag(d) Uᵀ B
-        mixed_right = complement(
-            einsum(
-                d_basis,
-                einx.multiply("mode, mode col -> mode col", block_mixed, projected),
-                "member mode, mode col -> member col",
-            )
+        # dWᵀ P B
+        d_whitened_perp = einsum(
+            d_whitened, perpendicular, "member obs, member col -> obs col"
         )
-        if in_span:
-            # P B = 0
-            return mode_block + mixed_right
-        # P B
-        perpendicular = complement(rhs)
-        d_perpendicular = d_precision(perpendicular)
-        # U diag(d) Uᵀ dΛ_w P B
+        # Uᵀ dΛ_w P B = Uᵀ H̃ dWᵀ P B
+        mode_perp = einsum(mode_obs, d_whitened_perp, "mode obs, obs col -> mode col")
+        # U diag(d) Uᵀ H̃ dWᵀ P B
         mixed_left = einsum(
             basis,
-            einx.multiply(
-                "mode, mode col -> mode col",
-                block_mixed,
-                einsum(basis, d_perpendicular, "member mode, member col -> mode col"),
-            ),
+            einx.multiply("mode, mode col -> mode col", block_mixed, mode_perp),
             "member mode, mode col -> member col",
         )
-        # f′(c) P dΛ_w P B
-        prior_block = block_prior * complement(d_perpendicular)
+        # P dH̃ Wᵀ U diag(d) Uᵀ B
+        mixed_right = _complement(
+            basis,
+            einsum(
+                d_obs_modes,
+                einx.multiply("mode, mode col -> mode col", block_mixed, projected),
+                "member mode, mode col -> member col",
+            ),
+        )
+        # f′(c) dc P B
+        prior_block = block_prior * d_prior * perpendicular
         return mode_block + mixed_left + mixed_right + prior_block
 
-    # b = H̃ Σ_ε⁻¹ r̄
-    projected_residual = einsum(
-        obs_anomalies, whitened_residual, "member obs, obs -> member"
+    # w̄
+    weights = primal_out[0]
+    # ρₐ = Σ_ε⁻¹ (r̄ − H̃ᵀ w̄)
+    analysis_residual = _analysis_residual(
+        obs_anomalies,
+        whitened_anomalies,
+        prior_precision,
+        whitened_residual,
+        basis,
+        excess,
     )
-    # dΣ_w b
-    d_weights = tangent(
-        _inverse_difference,
-        rearrange(projected_residual, "member -> member 1"),
-        in_span=True,
-    )
-    d_weights = rearrange(d_weights, "member 1 -> member")
-    # dH̃ Σ_ε⁻¹ r̄
-    moved_anomalies = einsum(d_obs, whitened_residual, "member obs, obs -> member")
-    # Σ_w dH̃ Σ_ε⁻¹ r̄
+    # dH̃ ρₐ
+    moved_anomalies = einsum(d_obs, analysis_residual, "member obs, obs -> member")
+    # Σ_w dH̃ ρₐ
     moved_term = _low_rank_apply(
         basis,
         1.0 / prior_precision,
         1.0 / precision,
         rearrange(moved_anomalies, "member -> member 1"),
     )
-    # H̃ d(Σ_ε⁻¹ r̄), in the span of U by construction
-    moved_residual = einsum(obs_anomalies, d_residual, "member obs, obs -> member")
-    # dw̄ = dΣ_w b + Σ_w dH̃ Σ_ε⁻¹ r̄ + Σ_w H̃ d(Σ_ε⁻¹ r̄)
-    d_weights = (
-        d_weights
-        + rearrange(moved_term, "member 1 -> member")
-        + _span_apply(basis, 1.0 / precision, moved_residual)
+    # dρ − dWᵀ w̄
+    moved_residual = d_residual - einsum(
+        d_whitened, weights, "member obs, member -> obs"
+    )
+    # H̃ (dρ − dWᵀ w̄) − dc w̄, in the span of U by construction
+    in_span = (
+        einsum(obs_anomalies, moved_residual, "member obs, obs -> member")
+        - d_prior * weights
+    )
+    # dw̄ = Σ_w dH̃ ρₐ + Σ_w (H̃ (dρ − dWᵀ w̄) − dc w̄)
+    d_weights = rearrange(moved_term, "member 1 -> member") + _span_apply(
+        basis, 1.0 / precision, in_span
     )
     # dΛ_w^−½ B + Λ_w^−½ dB
     d_inverse_sqrt = tangent(_inverse_sqrt_difference, anomaly_rhs) + _low_rank_apply(
