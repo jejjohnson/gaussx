@@ -1476,6 +1476,8 @@ def test_obs_weights_match_the_dense_reference(J, M, noise, low_rank):
     w_ref, t_ref = _weighted_etkf_reference(
         obs_particles, y, R_op.as_matrix(), weights, inflation=1.2
     )
+    # Round-off of one eigendecomposition on each side, whose matrix Λ_w has a
+    # condition number below 10 in these draws, with a margin for the float32 lane.
     rtol, atol = default_tolerances(obs_particles)
     assert tree_allclose(w_mean, w_ref, rtol=1000 * rtol, atol=1000 * atol)
     assert tree_allclose(transform, t_ref, rtol=1000 * rtol, atol=1000 * atol)
@@ -1645,4 +1647,39 @@ def test_obs_weights_float32_means_match_float64():
             obs_weights=weights.astype(dtype),
         )
 
+    # Measured float32 error of about 1e-4 on these members of unit spread, from
+    # ρ / Σ_ε spanning 10¹⁴; 1e-3 keeps a margin and is 1000 times tighter than the
+    # posterior spread would need.
     assert jnp.allclose(run(jnp.float32), run(jnp.float64), atol=1e-3)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("variance", [1e-2, 1e-4, 1e-6, 1e-8])
+@pytest.mark.parametrize("output", [0, 1], ids=["mean", "transform"])
+def test_obs_weights_float32_gradient_matches_float64(variance, output):
+    """A weight moves H̃ and r̄ together, which must not cancel at a small Σ_ε."""
+    obs_particles = jr.normal(jr.key(0), (10, 3))
+    y = jr.normal(jr.key(1), (3,))
+    weights = jnp.array([1.0, 0.5, 1e-3])
+
+    def grad_at(dtype):
+        def loss(rho):
+            return jnp.sum(
+                jnp.sin(
+                    etkf_transform(
+                        obs_particles.astype(dtype),
+                        y.astype(dtype),
+                        lx.DiagonalLinearOperator(variance * jnp.ones(3, dtype=dtype)),
+                        obs_weights=rho,
+                    )[output]
+                )
+            )
+
+        return jax.grad(loss)(weights.astype(dtype))
+
+    reference = grad_at(jnp.float64)
+    # Measured at 8e-5 over this sweep and six seeds, relative to the largest entry,
+    # against an error above 1 before the weights' tangent was kept apart.
+    assert jnp.abs(grad_at(jnp.float32) - reference).max() <= 1e-3 * (
+        jnp.abs(reference).max()
+    )
