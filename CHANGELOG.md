@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.11](https://github.com/jejjohnson/gaussx/compare/v0.6.10...v0.6.11) (2026-11-06)
+
+
+### Bug Fixes
+
+* **inference:** floor the ensemble-space ETKF's eigenvalues at the prior term ([#791](https://github.com/jejjohnson/gaussx/issues/791)) ([55b2b5f](https://github.com/jejjohnson/gaussx/commit/55b2b5f37312f99c4bd74b3efb8883d90b7450fc))
+
 ## [0.6.10](https://github.com/jejjohnson/gaussx/compare/v0.6.9...v0.6.10) (2026-11-06)
 
 
