@@ -45,7 +45,7 @@ class SymbolicCholesky:
         pattern: Square sparsity pattern of A to analyse.
         ordering: Name of the ordering that produced ``perm``.
         backend: Numeric backend, ``"jax"`` or ``"cholmod"``.
-        perm: Fill-reducing permutation P, as P A Pᵀ = A[perm][:, perm].
+        perm: Fill-reducing permutation P, as P A Pᵀ = ``A[perm][:, perm]``.
         banded: Force the banded (``True``) or windowed (``False``) layout;
             ``None`` picks by storage cost.
 
@@ -54,7 +54,7 @@ class SymbolicCholesky:
         ordering: The fill-reducing ordering used.
         backend: The numeric backend (``"jax"`` or ``"cholmod"``).
         n: Matrix size N.
-        perm: P A Pᵀ = A[perm][:, perm], of length N.
+        perm: P A Pᵀ = ``A[perm][:, perm]``, of length N.
         iperm: The inverse permutation, ``iperm[perm] = arange(n)``.
         parent: Elimination tree, ``parent[j]`` (``-1`` at a root).
         colptr: CSC column pointers of L, of length N + 1.
