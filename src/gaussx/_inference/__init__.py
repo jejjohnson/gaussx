@@ -14,6 +14,7 @@ from gaussx._inference._eki import (
     tikhonov_augment,
 )
 from gaussx._inference._enkf import enkf_analysis, ensemble_kalman_gain
+from gaussx._inference._ensemble_smoother import ensemble_rts_step
 from gaussx._inference._ensemble_stats import (
     ensemble_covariance,
     ensemble_cross_covariance,
@@ -67,6 +68,7 @@ __all__ = [
     "ensemble_covariance",
     "ensemble_cross_covariance",
     "ensemble_kalman_gain",
+    "ensemble_rts_step",
     "etkf_analysis",
     "etkf_transform",
     "euclidean_distance",
