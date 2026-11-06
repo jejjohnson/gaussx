@@ -32,7 +32,8 @@ def gaspari_cohn(
 
     so ρ = 1 at r = 0 and ρ = 0 for |r| ≥ c, where c is the compact-support
     radius, **not** a Gaussian length scale. The taper is C³ at the knots z = 1
-    and z = 2.
+    and z = 2, and C² as a function of r, since the third derivative jumps at
+    r = 0 through the |r|³ term.
 
     Algorithm:
         1. Scale the distances to z = 2 |r| / c.
