@@ -21,6 +21,10 @@ class GaussxDeprecationWarning(DeprecationWarning):
     A subclass of `DeprecationWarning`, so ``pytest.warns(DeprecationWarning)``
     and ``-W ignore::DeprecationWarning`` still match it, while filters (such
     as the test suite's ``error::`` entry) can single out gaussx's own.
+
+    Examples:
+        >>> issubclass(GaussxDeprecationWarning, DeprecationWarning)
+        True
     """
 
 
@@ -60,7 +64,29 @@ RENAMED_REMOVAL = "0.7.0"
 
 
 def renamed_attribute(old: str, namespace: dict[str, Any]) -> Any:
-    """Resolve the renamed public name ``old`` in ``namespace``, with a warning."""
+    """Resolve the renamed public name ``old`` in ``namespace``, with a warning.
+
+    Args:
+        old: A deprecated name, a key of `RENAMED`.
+        namespace: Where the replacement lives, the package's ``globals()``.
+
+    Returns:
+        The object the replacement name holds in ``namespace``, the same object
+        rather than a copy, so ``isinstance`` and ``is`` checks keep working.
+
+    Raises:
+        KeyError: If ``old`` is not in `RENAMED`, or its replacement is not in
+            ``namespace``.
+
+    Examples:
+        >>> import warnings
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     renamed_attribute("Circulant", {"circulant": "the new object"})
+        'the new object'
+        >>> caught[0].category.__name__
+        'GaussxDeprecationWarning'
+    """
     new = RENAMED[old]
     warn_deprecated(
         f"gaussx.{old} is deprecated and will be removed in gaussx "
@@ -70,7 +96,19 @@ def renamed_attribute(old: str, namespace: dict[str, Any]) -> Any:
 
 
 def warn_deprecated(message: str) -> None:
-    """Emit a `GaussxDeprecationWarning` attributed to the caller's code."""
+    """Emit a `GaussxDeprecationWarning` attributed to the caller's code.
+
+    Args:
+        message: The warning text, naming the replacement and the removal version.
+
+    Examples:
+        >>> import warnings
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     warn_deprecated("old() is deprecated; use new().")
+        >>> caught[0].category.__name__, str(caught[0].message)
+        ('GaussxDeprecationWarning', 'old() is deprecated; use new().')
+    """
     warnings.warn(
         message, GaussxDeprecationWarning, stacklevel=2, skip_file_prefixes=_SKIP
     )
@@ -82,6 +120,39 @@ def renamed_kwargs(**renames: str) -> Callable[[Callable[P, R]], Callable[P, R]]
     ``@renamed_kwargs(K_diag="K_xx_diag")`` maps a call with ``K_diag=...``
     onto ``K_xx_diag=...`` and emits a `GaussxDeprecationWarning`; passing
     both names raises `TypeError`.
+
+    Args:
+        **renames: Each deprecated keyword mapped to its replacement.
+
+    Returns:
+        A decorator that applies the renames on each call of the function.
+
+    Raises:
+        TypeError: When the decorated function is called with both a deprecated
+            keyword and its replacement.
+
+    Examples:
+        The old keyword still works, and warns:
+
+        >>> import warnings
+        >>> @renamed_kwargs(old="new")
+        ... def scale(x, new=1):
+        ...     return x * new
+        >>> with warnings.catch_warnings(record=True) as caught:
+        ...     warnings.simplefilter("always")
+        ...     scale(2, old=3)
+        6
+        >>> caught[0].category.__name__
+        'GaussxDeprecationWarning'
+
+        The new keyword does not warn, and passing both is an error:
+
+        >>> scale(2, new=3)
+        6
+        >>> scale(2, old=3, new=3)  # doctest: +IGNORE_EXCEPTION_DETAIL
+        Traceback (most recent call last):
+        ...
+        TypeError: scale() got both old= (deprecated) and new=.
     """
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
