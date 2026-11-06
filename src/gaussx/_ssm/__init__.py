@@ -47,6 +47,7 @@ from gaussx._ssm._nonlinear_update import (
     masked_moment_inputs,
     nonlinear_kalman_predict,
     nonlinear_kalman_update,
+    sigma_point_kalman_update,
 )
 from gaussx._ssm._pairwise_marginals import pairwise_marginals
 from gaussx._ssm._parallel_kalman import (
@@ -121,6 +122,7 @@ __all__ = [
     "rts_smoother",
     "sde_autocovariance",
     "sde_kl_divergence",
+    "sigma_point_kalman_update",
     "site_mean_var_from_natural",
     "site_natural_from_tilted",
     "sites_to_precision",

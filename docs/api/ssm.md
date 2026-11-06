@@ -146,17 +146,20 @@ interleaved with something else, or a bank of filters:
 |---|---|
 | `nonlinear_kalman_predict` | $m^-, P^- = \mathcal{T}[f](m, P)$, $P^- \mathrel{+}= Q$ |
 | `nonlinear_kalman_update` | match $h$, then $K = C S^{-1}$ and the Gaussian update |
+| `sigma_point_kalman_update` | the same update from evaluations of $h$ the caller already has |
 | `nonlinear_rts_step` | one RTS backward correction |
 
 Each takes the same `integrator`, so the choice of filter carries through
 unchanged. `nonlinear_kalman_update` returns its log-likelihood increment
 rather than accumulating, leaving the accumulation to the caller.
 
+`sigma_point_kalman_update` is for a forward model that runs outside the update, as in unscented Kalman inversion: it takes the points and their evaluations, with no `obs_fn` to call.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [nonlinear_kalman_filter, nonlinear_rts_smoother, nonlinear_kalman_predict, nonlinear_kalman_update, nonlinear_rts_step, masked_moment_inputs]
+      members: [nonlinear_kalman_filter, nonlinear_rts_smoother, nonlinear_kalman_predict, nonlinear_kalman_update, sigma_point_kalman_update, nonlinear_rts_step, masked_moment_inputs]
 
 ## Kalman filtering & smoothing
 

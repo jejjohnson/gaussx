@@ -1,8 +1,9 @@
 """Moment-matched predict and update steps of the nonlinear Kalman filter.
 
-`gaussx.nonlinear_kalman_predict` and `gaussx.nonlinear_kalman_update`, with
-their validity and masking helpers. The filter and smoother loops built on
-them, and the design they follow, are in `gaussx._ssm._nonlinear_filter`.
+`gaussx.nonlinear_kalman_predict`, `gaussx.nonlinear_kalman_update` and
+`gaussx.sigma_point_kalman_update`, with their validity and masking helpers. The
+filter and smoother loops built on them, and the design they follow, are in
+`gaussx._ssm._nonlinear_filter`.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from gaussx._distributions._joseph import joseph_update
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_rows
 from gaussx._linalg._symmetrize import symmetrize
+from gaussx._quadrature._assembly import assemble_propagation_result
 from gaussx._quadrature._integrator import AbstractIntegrator, moment_transform
 from gaussx._quadrature._unscented import UnscentedIntegrator
 from gaussx._ssm._utils import _materialise
@@ -505,7 +507,7 @@ def _innovation_gain(
     # Σ_y,t is positive definite whenever Σ_ε,t is and the check is skipped
     # (gh-331).
     innovation_message = (
-        "nonlinear_kalman_update: the innovation covariance S = Cov[h(x)] + R "
+        "moment-matched update: the innovation covariance S = Cov[h(x)] + R "
         "is not positive definite. A negative-weight quadrature rule (the "
         "scaled unscented transform, or the degree-5 cubature rule above "
         "N = 4) can return an indefinite Cov[h(x)]. Use a positive-weight "
@@ -671,11 +673,12 @@ def _reject_inconsistent_posterior(
     """
     return _reject_indefinite(
         updated_covariance,
-        "nonlinear_kalman_update: the updated covariance is not positive "
+        "moment-matched update: the updated covariance is not positive "
         "semi-definite. The matched moments (Cov[h(x)], Cov[x, h(x)]) are "
         "not a consistent joint, which a negative-weight quadrature rule "
-        "can produce. Use a positive-weight rule such as CubatureIntegrator "
-        "or UnscentedIntegrator(alpha=1.0).",
+        "can produce, as can points that do not represent the covariance. "
+        "Use a positive-weight rule such as CubatureIntegrator or "
+        "UnscentedIntegrator(alpha=1.0).",
     )
 
 
@@ -793,6 +796,54 @@ def nonlinear_kalman_update(
     predicted_obs, matched_obs_covariance, matched_cross_covariance = moment_transform(
         obs_fn, mean, cov, integrator=integrator
     )
+    return _update_from_moments(
+        predicted_obs,
+        matched_obs_covariance,
+        matched_cross_covariance,
+        mean,
+        cov,
+        observation,
+        obs_noise,
+        mask=mask,
+        joseph=joseph,
+        solver=solver,
+        validate=validate,
+    )
+
+
+def _update_from_moments(
+    predicted_obs: Float[Array, " M"],
+    matched_obs_covariance: Float[Array, "M M"],
+    matched_cross_covariance: Float[Array, "N M"],
+    mean: Float[Array, " N"],
+    cov: Float[Array, "N N"],
+    observation: Float[Array, " M"],
+    obs_noise: Float[Array, "M M"],
+    *,
+    mask: Bool[Array, " M"] | None,
+    joseph: bool,
+    solver: AbstractSolverStrategy | None,
+    validate: bool,
+) -> tuple[Float[Array, " N"], Float[Array, "N N"], Float[Array, ""]]:
+    """The Kalman update that follows a moment match, however it was made.
+
+    Args:
+        predicted_obs: Matched observation mean μ_y,t.
+        matched_obs_covariance: Matched observation covariance Σ_h,t.
+        matched_cross_covariance: Matched cross-covariance Σ_xy,t.
+        mean: Predicted mean μ_x,t|t−1.
+        cov: Predicted covariance Σ_x,t|t−1.
+        observation: Observation y_t.
+        obs_noise: Noise covariance Σ_ε,t, with its shape already checked.
+        mask: Channels to observe, or ``None`` for all of them.
+        joseph: Use the Joseph form for the updated covariance.
+        solver: Solver strategy for Σ_y,t.
+        validate: Run the definiteness checks.
+
+    Returns:
+        Tuple ``(mean, covariance, log_likelihood)``.
+    """
+    obs_size = observation.shape[-1]
 
     if mask is None:
         obs_moment_covariance = matched_obs_covariance
@@ -842,6 +893,168 @@ def nonlinear_kalman_update(
     cov_upd = _reject_inconsistent_posterior(cov_upd)
 
     return mean_upd, cov_upd, log_likelihood_step
+
+
+def sigma_point_kalman_update(
+    points: Float[Array, "P N"],
+    evaluations: Float[Array, "P M"],
+    mean: Float[Array, " N"],
+    cov: Float[Array, "N N"] | lx.AbstractLinearOperator,
+    observation: Float[Array, " M"],
+    obs_noise: Float[Array, "M M"] | lx.AbstractLinearOperator,
+    *,
+    mean_weights: Float[Array, " P"],
+    cov_weights: Float[Array, " P"] | None = None,
+    joseph: bool = True,
+    solver: AbstractSolverStrategy | None = None,
+    validate: bool = True,
+) -> tuple[Float[Array, " N"], Float[Array, "N N"], Float[Array, ""]]:
+    """One moment-matched update from evaluations the caller already has.
+
+        μ_y,t = ∑ᵢ w_m,i ŷᵢ,   ŷᵢ = h(χᵢ)
+        Σ_h,t = ∑ᵢ w_c,i (ŷᵢ − μ_y,t)(ŷᵢ − μ_y,t)ᵀ
+        Σ_xy,t = ∑ᵢ w_c,i (χᵢ − μ_x,t|t−1)(ŷᵢ − μ_y,t)ᵀ
+        G_t = Σ_xy,t Σ_y,t⁻¹,   Σ_y,t = Σ_h,t + Σ_ε,t
+        μ_x,t|t = μ_x,t|t−1 + G_t (y_t − μ_y,t)
+
+    This is the update of `nonlinear_kalman_update` with h already applied, for a
+    forward model that the caller runs, such as unscented Kalman inversion. Given
+    the points and weights of an integrator, the two agree to rounding.
+
+    Algorithm:
+        1. Assemble μ_y,t, Σ_h,t and Σ_xy,t from the weighted evaluations.
+        2. Add Σ_ε,t and factorise Σ_y,t once for G_t, the residual solve and the
+           log-determinant.
+        3. Update the mean and the covariance, and evaluate the log-likelihood.
+
+    Args:
+        points: Points χᵢ in the state space, shape (P, D_x). They must represent
+            𝒩(μ_x,t|t−1, Σ_x,t|t−1), since the update trusts the two to agree.
+        evaluations: Evaluations ŷᵢ = h(χᵢ), shape (P, D_y).
+        mean: Predicted mean μ_x,t|t−1.
+        cov: Predicted covariance Σ_x,t|t−1, dense or as an operator.
+        observation: Observation y_t.
+        obs_noise: Noise covariance Σ_ε,t, dense or as an operator.
+        mean_weights: Mean weights w_m,i.
+        cov_weights: Covariance weights w_c,i. ``None`` uses ``mean_weights``.
+        joseph: Use the Joseph form for the updated covariance.
+        solver: Solver strategy for Σ_y,t. ``None`` factorises it once by Cholesky.
+        validate: Reject a Σ_y,t that is not positive definite and an updated
+            covariance that is indefinite. Points from the caller carry no
+            guarantee, so this is on by default.
+
+    Returns:
+        Tuple ``(mean, covariance, log_likelihood)`` of μ_x,t|t, Σ_x,t|t and
+        log p(y_t ∣ y_1:t−1), which is exact when h is affine.
+
+    Raises:
+        ValueError: If an input's shape does not match the points, the evaluations
+            or the observation.
+
+    Examples:
+        The forward model runs outside the update, once per sigma point:
+
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> mean = jnp.zeros(2)
+        >>> cov = lx.DiagonalLinearOperator(jnp.ones(2))
+        >>> points, w_m, w_c = gaussx.sigma_points(mean, cov, alpha=1.0)
+        >>> evaluations = jax.vmap(jnp.tanh)(points)
+        >>> mean_upd, cov_upd, log_lik = gaussx.sigma_point_kalman_update(
+        ...     points,
+        ...     evaluations,
+        ...     mean,
+        ...     cov,
+        ...     jnp.array([0.5, -0.2]),
+        ...     0.1 * jnp.eye(2),
+        ...     mean_weights=w_m,
+        ...     cov_weights=w_c,
+        ... )
+        >>> mean_upd.shape, cov_upd.shape, log_lik.shape
+        ((2,), (2, 2), ())
+
+    References:
+        Huang, Schneider & Stuart (2022), *J. Comput. Phys.* 463.
+    """
+    predicted_covariance = _materialise(cov)
+    noise_covariance = _materialise(obs_noise)
+    _check_sigma_point_shapes(
+        points,
+        evaluations,
+        mean,
+        predicted_covariance,
+        observation,
+        mean_weights,
+        cov_weights,
+    )
+    noise_covariance = _check_noise_shape(
+        noise_covariance, observation.shape[-1], "obs_noise"
+    )
+    # μ_y,t, Σ_h,t and Σ_xy,t
+    matched = assemble_propagation_result(
+        points, evaluations, mean, mean_weights, cov_weights
+    )
+    # The assembly always fills Σ_xy, which its result type leaves optional.
+    assert matched.cross_cov is not None
+    return _update_from_moments(
+        matched.state.mean,
+        matched.state.cov.as_matrix(),
+        matched.cross_cov,
+        mean,
+        predicted_covariance,
+        observation,
+        noise_covariance,
+        mask=None,
+        joseph=joseph,
+        solver=solver,
+        validate=validate,
+    )
+
+
+def _check_sigma_point_shapes(
+    points: Float[Array, "P N"],
+    evaluations: Float[Array, "P M"],
+    mean: Float[Array, " N"],
+    cov: Float[Array, "N N"],
+    observation: Float[Array, " M"],
+    mean_weights: Float[Array, " P"],
+    cov_weights: Float[Array, " P"] | None,
+) -> None:
+    """Reject inputs that would broadcast instead of failing.
+
+    Args:
+        points: Points χᵢ.
+        evaluations: Evaluations ŷᵢ.
+        mean: Predicted mean μ_x,t|t−1.
+        cov: Predicted covariance Σ_x,t|t−1.
+        observation: Observation y_t.
+        mean_weights: Mean weights w_m,i.
+        cov_weights: Covariance weights w_c,i, or ``None``.
+
+    Raises:
+        ValueError: If a shape does not match the points or the observation.
+    """
+    if points.ndim != 2 or evaluations.ndim != 2:
+        msg = (
+            "points and evaluations must have shapes (P, D_x) and (P, D_y); "
+            f"got {points.shape} and {evaluations.shape}."
+        )
+        raise ValueError(msg)
+    num_points, state_size = points.shape
+    expected = {
+        "evaluations": (evaluations.shape, (num_points, observation.shape[-1])),
+        "mean": (mean.shape, (state_size,)),
+        "cov": (cov.shape, (state_size, state_size)),
+        "mean_weights": (mean_weights.shape, (num_points,)),
+    }
+    if cov_weights is not None:
+        expected["cov_weights"] = (cov_weights.shape, (num_points,))
+    for name, (shape, wanted) in expected.items():
+        if shape != wanted:
+            msg = f"{name} must have shape {wanted}; got {shape}."
+            raise ValueError(msg)
 
 
 def _log_likelihood_increment(
