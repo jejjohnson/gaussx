@@ -157,6 +157,9 @@ NO_X64_TESTS := tests/primitives \
 	tests/distributions/test_markov_gaussian.py \
 	tests/distributions/test_lgssm.py \
 	tests/distributions/test_sample_dtype.py \
+	tests/inference/test_ensemble_da.py \
+	tests/inference/test_ensemble_smoother.py \
+	tests/ssm/test_sigma_point_update.py \
 	tests/ssm/test_kalman.py \
 	tests/ssm/test_parallel_kalman.py \
 	tests/ssm/test_infinite_horizon_kalman.py \
