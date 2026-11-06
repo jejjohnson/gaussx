@@ -1430,3 +1430,293 @@ def test_ledoit_wolf_of_a_zero_ensemble_is_finite():
 def test_ledoit_wolf_rejects_a_single_member_for_the_bessel_divisor():
     with pytest.raises(ValueError, match="J >= 2"):
         gaussx.ledoit_wolf_shrinkage(jnp.zeros((1, 3)))
+
+
+# ----------------------------------------------------------------
+# Observation weights: R-localization (gh-690)
+# ----------------------------------------------------------------
+
+
+def _weighted_etkf_reference(obs_particles, y, R, weights, inflation=1.0):
+    """The dense formulas with Σ_ε⁻¹ replaced by D_ρ^½ Σ_ε⁻¹ D_ρ^½."""
+    num_members = obs_particles.shape[0]
+    anomalies = obs_particles - reduce(obs_particles, "J M -> M", "mean")
+    residual = y - reduce(obs_particles, "J M -> M", "mean")
+    root = jnp.sqrt(weights)
+    precision = einsum(root, jnp.linalg.inv(R), root, "a, a b, b -> a b")
+    weight_precision = (num_members - 1) / inflation * jnp.eye(num_members) + einsum(
+        anomalies, precision, anomalies, "J a, a b, K b -> J K"
+    )
+    eigenvalues, eigenvectors = jnp.linalg.eigh(
+        0.5 * (weight_precision + rearrange(weight_precision, "a b -> b a"))
+    )
+    mean_weights = jnp.linalg.solve(
+        weight_precision,
+        einsum(anomalies, einsum(precision, residual, "a b, b -> a"), "J a, a -> J"),
+    )
+    scale = jnp.sqrt((num_members - 1) / eigenvalues)
+    transform = einsum(
+        einx.multiply("J i, i -> J i", eigenvectors, scale),
+        eigenvectors,
+        "J i, K i -> J K",
+    )
+    return mean_weights, transform
+
+
+@pytest.mark.parametrize("low_rank", [True, False], ids=["low_rank", "full"])
+@pytest.mark.parametrize("noise", ["diagonal", "dense"])
+@pytest.mark.parametrize(("J", "M"), [(12, 3), (4, 6), (6, 6)], ids=str)
+def test_obs_weights_match_the_dense_reference(J, M, noise, low_rank):
+    _, _, y, R_op = _rank_route_problem(J, M, noise)
+    obs_particles = jr.normal(jr.key(J), (J, M))
+    weights = jnp.linspace(0.0, 1.0, M)
+    w_mean, transform = etkf_transform(
+        obs_particles, y, R_op, obs_weights=weights, inflation=1.2, low_rank=low_rank
+    )
+    w_ref, t_ref = _weighted_etkf_reference(
+        obs_particles, y, R_op.as_matrix(), weights, inflation=1.2
+    )
+    # Round-off of one eigendecomposition on each side, whose matrix Λ_w has a
+    # condition number below 4 in these draws, with a margin for the float32 lane.
+    rtol, atol = default_tolerances(obs_particles)
+    assert tree_allclose(w_mean, w_ref, rtol=1000 * rtol, atol=1000 * atol)
+    assert tree_allclose(transform, t_ref, rtol=1000 * rtol, atol=1000 * atol)
+
+
+@pytest.mark.parametrize("low_rank", [True, False], ids=["low_rank", "full"])
+def test_unit_weights_are_the_unweighted_filter(low_rank):
+    _, _, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    plain = etkf_transform(obs_particles, y, R_op, low_rank=low_rank)
+    weighted = etkf_transform(
+        obs_particles, y, R_op, obs_weights=jnp.ones(3), low_rank=low_rank
+    )
+    assert tree_allclose(plain, weighted)
+
+
+@pytest.mark.parametrize("low_rank", [True, False], ids=["low_rank", "full"])
+def test_zero_weights_remove_every_observation(low_rank):
+    """w̄ = 0 and W = √ζ I: the analysis is the inflated forecast."""
+    _, _, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    w_mean, transform = etkf_transform(
+        obs_particles,
+        y,
+        R_op,
+        obs_weights=jnp.zeros(3),
+        inflation=4.0,
+        low_rank=low_rank,
+    )
+    rtol, atol = default_tolerances(obs_particles)
+    assert jnp.allclose(w_mean, 0.0, atol=atol)
+    assert jnp.allclose(transform, 2.0 * jnp.eye(12), rtol=10 * rtol, atol=10 * atol)
+
+
+def test_a_zero_weight_equals_deleting_that_observation():
+    """R-localization for a diagonal Σ_ε, whatever the channel holds."""
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    y = jnp.array([0.3, 1e6, -0.4])
+    variances = jnp.array([0.5, 1.0, 0.7])
+    keep = jnp.array([0, 2])
+    w_mean, transform = etkf_transform(
+        obs_particles,
+        y,
+        lx.DiagonalLinearOperator(variances),
+        obs_weights=jnp.array([1.0, 0.0, 1.0]),
+    )
+    w_ref, t_ref = etkf_transform(
+        obs_particles[:, keep], y[keep], lx.DiagonalLinearOperator(variances[keep])
+    )
+    rtol, atol = default_tolerances(obs_particles)
+    assert tree_allclose(w_mean, w_ref, rtol=100 * rtol, atol=100 * atol)
+    assert tree_allclose(transform, t_ref, rtol=100 * rtol, atol=100 * atol)
+
+
+def test_a_diagonal_weight_divides_the_variance():
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    y = jnp.array([0.3, -0.2, -0.4])
+    variances = jnp.array([0.5, 1.0, 0.7])
+    weights = jnp.array([0.25, 0.5, 1.0])
+    weighted = etkf_transform(
+        obs_particles, y, lx.DiagonalLinearOperator(variances), obs_weights=weights
+    )
+    inflated = etkf_transform(
+        obs_particles, y, lx.DiagonalLinearOperator(variances / weights)
+    )
+    rtol, atol = default_tolerances(obs_particles)
+    assert tree_allclose(weighted, inflated, rtol=100 * rtol, atol=100 * atol)
+
+
+@pytest.mark.parametrize("low_rank", [True, False], ids=["low_rank", "full"])
+def test_obs_weights_gradients_are_finite_with_zero_weights(low_rank):
+    _, _, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    state_weights = jr.normal(jr.key(1), (12, 12))
+    weights = jnp.array([1.0, 0.0, 0.5])
+
+    def loss(obs, rho):
+        w_mean, transform = etkf_transform(
+            obs, y, R_op, obs_weights=rho, low_rank=low_rank
+        )
+        return jnp.sum(w_mean**2) + jnp.sum(state_weights * transform)
+
+    by_obs, by_weights = jax.grad(loss, argnums=(0, 1))(obs_particles, weights)
+    assert jnp.all(jnp.isfinite(by_obs))
+    assert jnp.all(jnp.isfinite(by_weights))
+    # Nothing in a removed channel can move the analysis.
+    assert jnp.allclose(by_obs[:, 1], 0.0)
+
+
+@pytest.mark.x64_only(reason="finite differences need float64")
+def test_obs_weights_gradient_matches_central_differences():
+    _, _, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    state_weights = jr.normal(jr.key(1), (12, 12))
+
+    def loss(rho):
+        w_mean, transform = etkf_transform(obs_particles, y, R_op, obs_weights=rho)
+        return jnp.sum(w_mean**2) + jnp.sum(state_weights * transform)
+
+    weights = jnp.array([1.0, 0.3, 0.5])
+    direction = jnp.array([0.2, -0.1, 0.4])
+    step = 1e-6
+    central = (loss(weights + step * direction) - loss(weights - step * direction)) / (
+        2.0 * step
+    )
+    assert jnp.allclose(
+        jnp.sum(jax.grad(loss)(weights) * direction), central, rtol=1e-6
+    )
+
+
+def test_vmap_over_weight_rows_is_a_local_etkf():
+    _, _, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = jr.normal(jr.key(0), (12, 3))
+    rho = jnp.array([[1.0, 0.0, 0.0], [0.5, 0.5, 0.0], [0.0, 0.2, 1.0]])
+
+    def local(weights):
+        return etkf_transform(obs_particles, y, R_op, obs_weights=weights)
+
+    batched = jax.vmap(local)(rho)
+    looped = [local(row) for row in rho]
+    for index in range(3):
+        assert tree_allclose(batched[0][index], looped[index][0])
+        assert tree_allclose(batched[1][index], looped[index][1])
+    assert tree_allclose(jax.jit(local)(rho[0])[0], looped[0][0])
+
+
+def test_etkf_analysis_takes_obs_weights():
+    particles, obs_map, y, R_op = _rank_route_problem(12, 3)
+    obs_particles = _apply_map(particles, obs_map)
+    weights = jnp.array([1.0, 0.0, 0.5])
+    w_mean, transform = etkf_transform(obs_particles, y, R_op, obs_weights=weights)
+    mean = reduce(particles, "member state -> state", "mean")
+    anomalies = einx.subtract("member state, state -> member state", particles, mean)
+    expected = einx.add(
+        "state, member state -> member state",
+        mean + einsum(w_mean, anomalies, "member, member state -> state"),
+        einsum(transform, anomalies, "member other, other state -> member state"),
+    )
+    analysis = gaussx.etkf_analysis(
+        particles, obs_particles, y, R_op, obs_weights=weights
+    )
+    rtol, atol = default_tolerances(particles)
+    assert tree_allclose(analysis, expected, rtol=100 * rtol, atol=100 * atol)
+
+
+def test_obs_weights_must_match_the_observations():
+    noise = lx.DiagonalLinearOperator(jnp.ones(3))
+    with pytest.raises(ValueError, match="obs_weights must have shape"):
+        etkf_transform(jnp.zeros((5, 3)), jnp.zeros(3), noise, obs_weights=jnp.ones(2))
+
+
+@pytest.mark.x64_only(reason="exact second derivative at float64 round-off")
+def test_obs_weights_second_derivative_has_its_closed_form():
+    # H̃ = (−1, 0, 1)ᵀ, r̄ = 1, Σ_ε = 1 gives w̄₃ = ρ / (2 (1 + ρ)), so ∂²w̄₃/∂ρ² is
+    # −1 / (1 + ρ)³ = −8/27 at ρ = 1/2.
+    obs_particles = jnp.array([[-1.0], [0.0], [1.0]])
+    y = jnp.array([1.0])
+    noise = lx.DiagonalLinearOperator(jnp.ones(1))
+
+    def last_weight(rho):
+        return etkf_transform(obs_particles, y, noise, obs_weights=rho)[0][2]
+
+    second = jax.jacfwd(jax.grad(last_weight))(jnp.array([0.5]))
+    # Round-off through one eigendecomposition and its derivative
+    assert jnp.allclose(second, -8.0 / 27.0, rtol=1e-10)
+
+
+@pytest.mark.x64_only(reason="central differences need float64")
+@pytest.mark.parametrize("noise_kind", ["diagonal", "dense"])
+def test_obs_weights_hessian_matches_differences_of_the_gradient(noise_kind):
+    _, _, y, R_op = _rank_route_problem(12, 3, noise_kind)
+    obs_particles = jr.normal(jr.key(5), (12, 3))
+    weights = jnp.array([1.0, 0.5, 0.2])
+
+    def loss(rho):
+        mean, transform = etkf_transform(obs_particles, y, R_op, obs_weights=rho)
+        return jnp.sum(jnp.sin(mean)) + jnp.sum(jnp.sin(transform))
+
+    gradient = jax.grad(loss)
+    hessian = jax.jacfwd(gradient)(weights)
+    direction = jnp.array([1.0, -0.5, 0.25])
+    step = 1e-5
+    difference = (
+        gradient(weights + step * direction) - gradient(weights - step * direction)
+    ) / (2.0 * step)
+    # O(step²) truncation against ε / step of round-off, near 1e-10 here.
+    assert jnp.allclose(hessian @ direction, difference, rtol=1e-6, atol=1e-8)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+def test_obs_weights_float32_means_match_float64():
+    """Strong, nearly removed channels together; ρ / Σ_ε spans many decades."""
+    particles = jr.normal(jr.key(0), (20, 5))
+    obs_particles = _apply_map(particles, jr.normal(jr.key(1), (3, 5)))
+    y = jnp.array([0.3, -0.2, 0.5])
+    weights = jnp.array([1.0, 1e-8, 0.5])
+    variances = jnp.array([1e-6, 1.0, 1e-2])
+
+    def run(dtype):
+        return gaussx.etkf_analysis(
+            particles.astype(dtype),
+            obs_particles.astype(dtype),
+            y.astype(dtype),
+            lx.DiagonalLinearOperator(variances.astype(dtype)),
+            obs_weights=weights.astype(dtype),
+        )
+
+    # Measured at 1e-6 on these members of unit spread, with a margin for the
+    # platform's float32 eigensolver.
+    assert jnp.allclose(run(jnp.float32), run(jnp.float64), atol=1e-3)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("variance", [1e-2, 1e-4, 1e-6, 1e-8])
+@pytest.mark.parametrize("output", [0, 1], ids=["mean", "transform"])
+def test_obs_weights_float32_gradient_matches_float64(variance, output):
+    """A weight moves H̃ and r̄ together, which must not cancel at a small Σ_ε."""
+    obs_particles = jr.normal(jr.key(0), (10, 3))
+    y = jr.normal(jr.key(1), (3,))
+    weights = jnp.array([1.0, 0.5, 1e-3])
+
+    def grad_at(dtype):
+        def loss(rho):
+            return jnp.sum(
+                jnp.sin(
+                    etkf_transform(
+                        obs_particles.astype(dtype),
+                        y.astype(dtype),
+                        lx.DiagonalLinearOperator(variance * jnp.ones(3, dtype=dtype)),
+                        obs_weights=rho,
+                    )[output]
+                )
+            )
+
+        return jax.grad(loss)(weights.astype(dtype))
+
+    reference = grad_at(jnp.float64)
+    # Measured at 8e-5 over this sweep and six seeds, relative to the largest entry,
+    # against an error above 1 before the weights' tangent was kept apart.
+    assert jnp.abs(grad_at(jnp.float32) - reference).max() <= 1e-3 * (
+        jnp.abs(reference).max()
+    )

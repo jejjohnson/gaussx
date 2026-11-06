@@ -214,6 +214,40 @@ conjugation is an approximation with no guaranteed ordering against the
 physical-space update -- usually much better, but a badly matched warp can make
 the latent joint less Gaussian and do worse.
 
+### Local ETKF
+
+`obs_weights` replaces $R^{-1}$ by $D_\rho^{1/2} R^{-1} D_\rho^{1/2}$, which for a diagonal $R$ is $\rho_k / R_{kk}$ (Hunt, Kostelich & Szunyogh 2007). A zero weight is the same as deleting that observation, so the local ETKF is a `vmap` of `etkf_transform` over grid points, with one row of tapered distances per point.
+
+```python
+import einx
+import jax
+import jax.numpy as jnp
+import lineax as lx
+
+import gaussx
+
+key = jax.random.key(0)
+particles = jax.random.normal(key, (20, 30))  # (J, N): members by grid points
+grid = jnp.linspace(0.0, 10.0, 30)
+sites = jnp.array([1.0, 4.0, 7.0, 9.0])
+y = jnp.array([0.3, -0.1, 0.4, 0.2])
+obs_noise = lx.DiagonalLinearOperator(0.2 * jnp.ones(4))
+
+obs_particles = particles[:, jnp.searchsorted(grid, sites)]  # (J, M)
+distances = jnp.abs(grid[:, None] - sites[None, :])  # (N, M)
+rho = gaussx.gaspari_cohn(distances, 3.0)  # zero beyond the 3.0 radius
+
+w_mean, W = jax.vmap(
+    lambda row: gaussx.etkf_transform(obs_particles, y, obs_noise, obs_weights=row)
+)(rho)  # (N, J), (N, J, J)
+
+mean = einx.mean("[member] state", particles)
+anomalies = particles - mean
+new_mean = mean + einx.dot("state member, member state -> state", w_mean, anomalies)
+new_anomalies = einx.dot("state j k, k state -> j state", W, anomalies)
+analysis = new_mean + new_anomalies  # (J, N)
+```
+
 ::: gaussx
     options:
       show_root_heading: false
