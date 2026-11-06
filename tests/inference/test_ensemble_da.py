@@ -1260,6 +1260,20 @@ def test_taper_is_zero_at_an_infinite_distance_with_a_finite_gradient(taper):
 
 
 @pytest.mark.parametrize("taper", _TAPERS)
+@pytest.mark.parametrize(
+    ("distance", "length_scale"), [(1e30, 1e-10), (1e20, 1.0), (jnp.inf, 2.0)]
+)
+def test_taper_is_zero_with_zero_slopes_beyond_the_floating_point_range(
+    taper, distance, length_scale
+):
+    distance = jnp.array(distance, dtype=jnp.float32)
+    length_scale = jnp.array(length_scale, dtype=jnp.float32)
+    assert taper(distance, length_scale) == 0.0
+    slopes = jax.grad(taper, argnums=(0, 1))(distance, length_scale)
+    assert all(slope == 0.0 for slope in slopes)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
 def test_taper_keeps_the_input_dtype_and_runs_under_transforms(taper):
     distances = jnp.array([0.0, 1.0], jnp.float32)
     assert taper(distances, 2.0).dtype == jnp.float32
@@ -1390,6 +1404,18 @@ def test_ledoit_wolf_shrinkage_does_not_depend_on_the_ensemble_scale(magnitude):
     )
     _, shrinkage = gaussx.ledoit_wolf_shrinkage(magnitude * members)
     assert jnp.allclose(shrinkage, 85.0 / 144.0, rtol=1e-5)
+
+
+def test_ledoit_wolf_target_scale_stays_in_range_when_the_trace_does_not():
+    # The diagonal is near 2e38, in range; the trace it is divided from is not.
+    members = 1.1e19 * jnp.array(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 2.0], [0.0, -2.0]], dtype=jnp.float32
+    )
+    covariance, shrinkage = gaussx.ledoit_wolf_shrinkage(members)
+    # λ μ in Python floats, since the product with the trace would overflow float32.
+    expected = float(shrinkage) * 1.1e19**2 * (10.0 / 3.0) / 2.0
+    # float32 round-off through the two scale products
+    assert jnp.allclose(jnp.diagonal(covariance.base.as_matrix()), expected, rtol=1e-5)
 
 
 def test_ledoit_wolf_of_a_zero_ensemble_is_finite():

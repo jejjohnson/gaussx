@@ -143,7 +143,9 @@ def frobenius_norm(
         # ‖A_1 ⊗ … ⊗ A_D‖_F = ∏_d ‖A_d‖_F
         return ft.reduce(jnp.multiply, recurse_each(operator.operators))
     if isinstance(operator, LowRankUpdate):
-        return _frobenius_low_rank(operator, _squared_norm(operator.base, recurse))
+        return jnp.sqrt(
+            _low_rank_squared_norm(operator, _squared_norm(operator.base, recurse))
+        )
     if isinstance(operator, lx.TaggedLinearOperator):
         return recurse(operator.operator)
     if isinstance(operator, lx.MulLinearOperator):
@@ -185,6 +187,14 @@ def _squared_norm(
         return jnp.sum(jnp.abs(lx.diagonal(operator)) ** 2)
     if isinstance(operator, lx.MatrixLinearOperator):
         return jnp.sum(jnp.abs(operator.as_matrix()) ** 2)
+    if isinstance(operator, BlockDiag):
+        squared = [_squared_norm(block, norm) for block in operator.operators]
+        return ft.reduce(jnp.add, squared)
+    if isinstance(operator, Kronecker):
+        squared = [_squared_norm(factor, norm) for factor in operator.operators]
+        return ft.reduce(jnp.multiply, squared)
+    if isinstance(operator, LowRankUpdate):
+        return _low_rank_squared_norm(operator, _squared_norm(operator.base, norm))
     if isinstance(operator, lx.TaggedLinearOperator | lx.NegLinearOperator):
         return _squared_norm(operator.operator, norm)
     if isinstance(operator, lx.MulLinearOperator):
@@ -195,12 +205,12 @@ def _squared_norm(
     return root * root
 
 
-def _frobenius_low_rank(
+def _low_rank_squared_norm(
     operator: LowRankUpdate, base_squared: Float[Array, ""]
 ) -> Float[Array, ""]:
-    """‖A₀ + U D Vᵀ‖_F from the squared norm of A₀, without forming the update.
+    """‖A₀ + U D Vᵀ‖_F² from the squared norm of A₀, without forming the update.
 
-        ‖A‖_F² = ‖A₀‖_F² + 2 ∑_k d_k u_kᵀ A₀ v_k + tr(UᵀU D VᵀV D)
+        ‖A‖_F² = ‖A₀‖_F² + 2 Re ∑_k d̄_k u_kᴴ A₀ v̄_k + ∑_kl d_k d̄_l (u_lᴴ u_k) (v_lᴴ v_k)
 
     The Gram matrices are formed after moving each mode's scale into its weight,
     since U and V can have scales whose squares leave the floating-point range
@@ -212,11 +222,11 @@ def _frobenius_low_rank(
         base_squared: ‖A₀‖_F².
 
     Returns:
-        The Frobenius norm ‖A‖_F, clamped at zero before the root.
+        ‖A‖_F², clamped at zero.
     """
     # A rank-0 update is its base, and einx rejects a zero-length axis.
     if operator.U.shape[1] == 0:
-        return jnp.sqrt(base_squared)
+        return base_squared
     # s_k = max_i |U_ik|, and t_k likewise for V
     left_scale = _mode_scale(operator.U)
     right_scale = _mode_scale(operator.V)
@@ -225,25 +235,59 @@ def _frobenius_low_rank(
     # V T⁻¹
     right = einx.divide("col mode, mode -> col mode", operator.V, right_scale)
     # D S T
-    weights = operator.d * (left_scale * right_scale)
+    weights = _scale_in_range(operator.d, left_scale, right_scale)
     # U D
     weighted_left = einx.multiply("row mode, mode -> row mode", left, weights)
     # V D
     weighted_right = einx.multiply("col mode, mode -> col mode", right, weights)
-    # UᵀU D
-    left_gram = einsum(left, weighted_left, "row mode, row other -> mode other")
-    # VᵀV D
-    right_gram = einsum(right, weighted_right, "col mode, col other -> mode other")
-    # tr(UᵀU D VᵀV D)
-    update_squared = einsum(left_gram, right_gram, "mode other, other mode ->")
-    # A₀ v_k, one column per mode
-    base_right = jax.vmap(operator.base.mv, in_axes=1, out_axes=1)(right)
-    # ∑_k d_k u_kᵀ A₀ v_k
-    cross = einsum(weighted_left, base_right, "row mode, row mode ->")
+    # Uᴴ U D
+    left_gram = einsum(
+        jnp.conj(left), weighted_left, "row mode, row other -> mode other"
+    )
+    # (V D)ᴴ V
+    right_gram = einsum(
+        jnp.conj(weighted_right), right, "col mode, col other -> mode other"
+    )
+    # ∑_kl d_k d̄_l (u_lᴴ u_k) (v_lᴴ v_k)
+    update_squared = jnp.real(
+        einsum(left_gram, right_gram, "mode other, mode other ->")
+    )
+    # A₀ v̄_k, one column per mode
+    base_right = jax.vmap(operator.base.mv, in_axes=1, out_axes=1)(jnp.conj(right))
+    # Re ∑_k d̄_k u_kᴴ A₀ v̄_k
+    cross = jnp.real(
+        einsum(jnp.conj(weighted_left), base_right, "row mode, row mode ->")
+    )
     # ‖A‖_F²
     norm_squared = base_squared + 2.0 * cross + update_squared
     # max(‖A‖_F², 0), which rounding could undershoot when A₀ cancels the update
-    return jnp.sqrt(jnp.maximum(norm_squared, 0.0))
+    return jnp.maximum(norm_squared, 0.0)
+
+
+def _scale_in_range(
+    weights: Float[Array, " modes"],
+    left_scale: Float[Array, " modes"],
+    right_scale: Float[Array, " modes"],
+) -> Float[Array, " modes"]:
+    """d s t, in an order where a partial product leaves the range only if d s t does.
+
+    Multiplying a large |d| by the smaller scale first, or a small |d| by the larger
+    scale first, keeps every partial product between the result and its factors.
+
+    Args:
+        weights: The weights d.
+        left_scale: The scales s.
+        right_scale: The scales t.
+
+    Returns:
+        The product d s t.
+    """
+    smaller = jnp.minimum(left_scale, right_scale)
+    larger = jnp.maximum(left_scale, right_scale)
+    large_weight = jnp.abs(weights) >= 1.0
+    first = jnp.where(large_weight, smaller, larger)
+    second = jnp.where(large_weight, larger, smaller)
+    return weights * first * second
 
 
 def _mode_scale(factor: Float[Array, "rows modes"]) -> Float[Array, " modes"]:

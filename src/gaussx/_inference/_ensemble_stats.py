@@ -281,7 +281,7 @@ def ledoit_wolf_shrinkage(
     # tr(Σ̂_x) / s² = tr(Uᵀ U) / s²
     trace = jnp.sum(scaled_diagonal)
     # μ = tr(Σ̂_x) / D_x
-    target_scale = factor_scale * (factor_scale * trace) / state_size
+    target_scale = factor_scale * (factor_scale * (trace / state_size))
     # ‖Σ̂_x‖_F² / s⁴ = ‖Uᵀ U‖_F² / s⁴
     covariance_squared = jnp.sum(scaled_gram * scaled_gram)
     # d² / s⁴ = (‖Σ̂_x‖_F² − tr(Σ̂_x)² / D_x) / s⁴
