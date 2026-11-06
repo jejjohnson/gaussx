@@ -185,7 +185,9 @@ def etkf_transform(
     weight_precision = prior_precision * identity + obs_precision
     weight_precision = symmetrize(weight_precision)
     # Σ_w = Λ_w⁻¹ and Λ_w^−½
-    weight_covariance, inverse_sqrt = _inverse_and_inverse_sqrt(weight_precision)
+    weight_covariance, inverse_sqrt = _inverse_and_inverse_sqrt(
+        weight_precision, prior_precision
+    )
 
     # H̃ Σ_ε⁻¹ r̄
     projected_residual = einsum(
@@ -530,6 +532,7 @@ def _root_weights(
 @jax.custom_jvp
 def _inverse_and_inverse_sqrt(
     matrix: Float[Array, "J J"],
+    floor: Float[Array, ""],
 ) -> tuple[Float[Array, "J J"], Float[Array, "J J"]]:
     """A⁻¹ and A^−½ of a symmetric positive-definite matrix from a single `eigh`.
 
@@ -539,14 +542,20 @@ def _inverse_and_inverse_sqrt(
     ensemble-space precision always has when D_y < |ℰ| − 1. See
     `_inverse_and_inverse_sqrt_jvp` for the gap-free derivative.
 
+    A has every eigenvalue at or above ``floor``, which rounding can undershoot,
+    even past zero, when the largest eigenvalue is about 1 / ε times the floor.
+
     Args:
         matrix: Symmetric positive-definite matrix A.
+        floor: A lower bound on the eigenvalues of A.
 
     Returns:
         Tuple ``(inverse, inverse_sqrt)`` holding A⁻¹ and A^−½.
     """
     # A = Φ diag(γ) Φᵀ
     eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    # max(γ, floor)
+    eigenvalues = jnp.maximum(eigenvalues, floor)
     return _spectral_inverse_and_inverse_sqrt(eigenvalues, eigenvectors)
 
 
@@ -596,17 +605,19 @@ def _inverse_and_inverse_sqrt_jvp(primals, tangents):
     however many eigenvalues coincide.
 
     Args:
-        primals: One-element tuple holding the matrix A.
-        tangents: One-element tuple holding the tangent dA.
+        primals: Tuple holding the matrix A and the floor on its eigenvalues.
+        tangents: Tuple holding the tangent dA, and the floor's, which is not read.
 
     Returns:
         Tuple ``(primal_out, tangent_out)`` with the values and the tangents of
         ``(A⁻¹, A^−½)``.
     """
-    (matrix,) = primals
-    (tangent,) = tangents
+    matrix, floor = primals
+    tangent, _ = tangents
     # A = Φ diag(γ) Φᵀ
     eigenvalues, eigenvectors = jnp.linalg.eigh(matrix)
+    # max(γ, floor)
+    eigenvalues = jnp.maximum(eigenvalues, floor)
     primal_out = _spectral_inverse_and_inverse_sqrt(eigenvalues, eigenvectors)
 
     # eigh reads one triangle, so project the tangent onto the symmetric part.
