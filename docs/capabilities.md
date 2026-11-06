@@ -367,22 +367,22 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `range_finder` | function | Orthonormal basis $Q$ for the dominant range of $A$. |
-| `qb` | function | Randomized QB factorisation $A \approx QB$ with $B = Q^\top A$. |
-| `randomized_svd` | function | Truncated SVD $A \approx U \operatorname{diag}(s) V^\top$ by randomized QB. |
+| `range_finder` | function | Orthonormal basis Q for the dominant range of A. |
+| `qb` | function | Randomized QB factorisation A ≈ Q B with B = Qᵀ A. |
+| `randomized_svd` | function | Truncated SVD A ≈ U diag(s) Vᵀ by randomized QB. |
 | `randomized_eigh` | function | Partial eigendecomposition of a symmetric operator by Rayleigh-Ritz. |
 
 ### Randomized Nyström
 
 | Name | Kind | What it does |
 |---|---|---|
-| `randomized_nystrom` | function | Randomized Nyström approximation $\hat A = U\hat\Lambda U^\top$ of a PSD $A$. |
+| `randomized_nystrom` | function | Randomized Nyström approximation Â = U diag(γ̂) Uᵀ of a PSD A. |
 
 ### Randomly pivoted Cholesky
 
 | Name | Kind | What it does |
 |---|---|---|
-| `rp_cholesky` | function | Randomly pivoted partial Cholesky of a PSD matrix ``A``. |
+| `rp_cholesky` | function | Randomly pivoted partial Cholesky of a PSD matrix A. |
 
 ### Interpolative and CUR decompositions
 
@@ -390,8 +390,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `column_id` | function | Randomized column interpolative decomposition (Voronin & Martinsson, 2017). |
 | `cur` | function | Randomized CUR decomposition (Voronin & Martinsson, 2017, §4). |
-| `ColumnID` | class | Column interpolative decomposition $A \approx A_{:,J}\,X$. |
-| `CUR` | class | CUR decomposition $A \approx C\,U\,R$, $C = A_{:,J}$, $R = A_{I,:}$. |
+| `ColumnID` | class | Column interpolative decomposition A ≈ A_:,J X. |
+| `CUR` | class | CUR decomposition A ≈ C U R, with C = A_:,J and R = A_I,:. |
 
 ## [Distributions & Exponential Family](api/distributions.md)
 

@@ -1,4 +1,8 @@
-"""GaussX randomized linear algebra."""
+"""GaussX randomized linear algebra: range finders, low-rank factorisations, CUR.
+
+Each method reaches an M × N operator A only through matvecs, or a PSD matrix only
+through its diagonal and some columns, so A is never materialised to sketch it.
+"""
 
 from gaussx._randomized._interpolative import CUR, ColumnID, column_id, cur
 from gaussx._randomized._nystrom import randomized_nystrom
