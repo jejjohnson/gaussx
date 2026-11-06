@@ -31,44 +31,35 @@ on the manifold.
 
 ### Natural-parameter conventions
 
-Two conventions for the second natural parameter coexist. Both share the
-first one, $\eta_1 = \Lambda\mu$. Feeding the output of one family into the
-other silently flips the sign and halves the precision. Convert with
-$\text{nat2} = -2\,\eta_2$.
+Two conventions for the second natural parameter coexist. Both share the first one, `nat1` $= \boldsymbol{\Lambda}_x \boldsymbol{\mu}_x$. Feeding the output of one family into the other silently flips the sign and halves the precision. Convert with `nat2` $\mapsto -2$ `nat2`, from $-\frac{1}{2} \boldsymbol{\Lambda}_x$ to $\boldsymbol{\Lambda}_x$.
 
 | Function | Convention of `nat2` |
 |---|---|
-| `blr_diag_update`, `blr_full_update` | $\eta_2 = -\tfrac12\Lambda$ by default; $+\Lambda$ with `convention="precision"` |
-| `mean_cov_to_natural`, `natural_to_mean_cov` | $\eta_2 = -\tfrac12\Lambda$ |
-| `newton_update`, `cavity_distribution` | $+\Lambda$ |
+| `blr_diag_update`, `blr_full_update` | `nat2` $= -\frac{1}{2} \boldsymbol{\Lambda}_x$ by default; $+\boldsymbol{\Lambda}_x$ with `convention="precision"` |
+| `mean_cov_to_natural`, `natural_to_mean_cov` | `nat2` $= -\frac{1}{2} \boldsymbol{\Lambda}_x$ |
+| `newton_update`, `cavity_distribution` | $+\boldsymbol{\Lambda}_x$ |
 | `damped_natural_update` | either (it is linear), as long as both arguments share it |
 
 ## Precision-form Laplace (INLA)
 
-`laplace_mode` is the inner loop of INLA: the Gaussian approximation
-$\mathcal N(\hat x, H^{-1})$ of a latent Gaussian model at fixed
-hyperparameters $\theta$, computed entirely in precision form. With
-$\eta = Ax + o$, $g = \partial_\eta\log p(y\mid\eta)$ and
-$W = -\operatorname{diag}(\partial^2_\eta\log p)$, each Newton step solves
+`laplace_mode` is the inner loop of INLA: the Gaussian approximation $\mathcal{N}(\hat{\mathbf{x}}, \boldsymbol{\Lambda}_{x \mid y}^{-1})$ of a latent Gaussian model at fixed hyperparameters $\boldsymbol{\theta}$, computed entirely in precision form. With the linear predictor $\boldsymbol{\eta} = \mathbf{A} \mathbf{x} + \mathbf{o}$, $\mathbf{g} = \nabla_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta})$ and the site precision $\boldsymbol{\Lambda}_\text{site} = -\mathrm{diag}(\nabla^2_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta}))$ (floored at $10^{-6}$), each Newton step solves
 
 $$
-(Q + A^\top WA)\,x_{t+1} = Q\mu + A^\top(g + WAx_t),
+\boldsymbol{\Lambda}_{x \mid y} \mathbf{x}^{(j+1)} = \boldsymbol{\Lambda}_x \boldsymbol{\mu}_x + \mathbf{A}^\top (\mathbf{g} + \boldsymbol{\Lambda}_\text{site} \mathbf{A} \mathbf{x}^{(j)})
 $$
 
-with a matrix whose structure never changes: an identity or row-selection
+with $\boldsymbol{\Lambda}_{x \mid y} = \boldsymbol{\Lambda}_x + \mathbf{A}^\top \boldsymbol{\Lambda}_\text{site} \mathbf{A}$, a matrix whose structure never changes: an identity or row-selection
 projector keeps a `BlockTriDiag` prior banded, and anything else becomes a
 `SparseOperator` on a pattern whose sparse Cholesky analysis is shared by every
-step and every $\theta$. Hard sum-to-zero (null-space) constraints of an
+step and every $\boldsymbol{\theta}$. Hard sum-to-zero (null-space) constraints of an
 `IntrinsicGMRF` are applied by kriging each solve. At the mode,
 
 $$
-\log\tilde\pi(y\mid\theta) = \log p(y\mid A\hat x + o)
-  - \tfrac12(\hat x-\mu)^\top Q(\hat x-\mu) + \tfrac12\log|Q| - \tfrac12\log|H|,
+\log \tilde{\pi}(\mathbf{y} \mid \boldsymbol{\theta}) = \log p(\mathbf{y} \mid \mathbf{A} \hat{\mathbf{x}} + \mathbf{o}) - \frac{1}{2} (\hat{\mathbf{x}} - \boldsymbol{\mu}_x)^\top \boldsymbol{\Lambda}_x (\hat{\mathbf{x}} - \boldsymbol{\mu}_x) + \frac{1}{2} \log \det \boldsymbol{\Lambda}_x - \frac{1}{2} \log \det \boldsymbol{\Lambda}_{x \mid y}
 $$
 
 with the constraint corrections of Rue et al. (2009) for intrinsic priors. The
-mode is differentiated implicitly ($\partial_\theta\hat x =
-H^{-1}\partial_\theta\nabla\ell$, via `jax.lax.custom_root`) and the
+mode is differentiated implicitly ($\partial_{\boldsymbol{\theta}} \hat{\mathbf{x}} = -\boldsymbol{\Lambda}_{x \mid y}^{-1} \partial_{\boldsymbol{\theta}} \nabla_{\mathbf{x}} \mathcal{J}$, via `jax.lax.custom_root`) and the
 log-determinants through their structured or sparse (Takahashi) VJPs, so
 `jax.grad` and the reverse-over-reverse Hessian that `theta_design` uses are
 exact.
@@ -109,7 +100,7 @@ takes no separate `y`. For an odd number of nodes `rw2_structure(n)` returns
 `n + 1` rows (a decoupled padding node): build the field on `n + 1` nodes with
 `null_space` zero on the padding row, observe the first `n` through a row
 selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, n + 1))`
-(which keeps $H$ banded), and drop `mode[n]`.
+(which keeps $\boldsymbol{\Lambda}_{x \mid y}$ banded), and drop `mode[n]`.
 
 ::: gaussx
     options:
@@ -119,24 +110,13 @@ selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, 
 
 ## Low-rank VB mean correction (INLA)
 
-Under a skewed likelihood (Bernoulli, Poisson with small counts) the Laplace
-mode is a biased estimate of the posterior mean. `vb_mean_correction`
-(Van Niekerk & Rue, 2024; R-INLA's default `control.vb` correction) keeps the
-Laplace covariance $H^{-1}$ and shifts the mean within a $p$-dimensional
-subspace, $\bar x = \hat x + H^{-1}S\delta$, with $\delta$ maximising
+Under a skewed likelihood (Bernoulli, Poisson with small counts) the Laplace mode is a biased estimate of the posterior mean. `vb_mean_correction` (Van Niekerk & Rue, 2024; R-INLA's default `control.vb` correction) keeps the Laplace covariance $\boldsymbol{\Sigma} = \boldsymbol{\Lambda}_{x \mid y}^{-1}$ and shifts the mean within a $p$-dimensional subspace spanned by the columns of $\mathbf{S}$, $\bar{\mathbf{x}} = \hat{\mathbf{x}} + \boldsymbol{\Sigma} \mathbf{S} \boldsymbol{\delta}$, with $\boldsymbol{\delta} \in \mathbb{R}^p$ maximising
 
 $$
-\mathcal L(\delta) = \sum_i\mathbb E_{\eta_i\sim\mathcal N(m_i(\delta),\,v_i)}
-  \big[\log p(y_i\mid\eta_i)\big]
-  - \tfrac12(\bar x-\mu)^\top Q(\bar x-\mu),
+\mathrm{ELBO}(\boldsymbol{\delta}) = \sum_m \mathbb{E}_{\eta_m \sim \mathcal{N}(\mu_{\eta,m}(\boldsymbol{\delta}), v_m)} [\log p(y_m \mid \eta_m)] - \frac{1}{2} (\bar{\mathbf{x}} - \boldsymbol{\mu}_x)^\top \boldsymbol{\Lambda}_x (\bar{\mathbf{x}} - \boldsymbol{\mu}_x)
 $$
 
-$m = A\bar x + o$, $v_i = [AH^{-1}A^\top]_{ii}$. The expectations are 1-D
-Gauss-Hermite per site, the predictor variances come from the same Takahashi
-selected inverse as the marginal variances, and the Newton steps on $\delta$
-are $p$-dimensional, so it costs $p$ solves with the Laplace factor. For a
-Gaussian likelihood the correction is exactly zero. Typically $S$ spans the
-fixed effects:
+with $\boldsymbol{\mu}_\eta = \mathbf{A} \bar{\mathbf{x}} + \mathbf{o}$ and $v_m = [\mathbf{A} \boldsymbol{\Sigma} \mathbf{A}^\top]_{mm}$. The expectations are 1-D Gauss-Hermite per site, the predictor variances come from the same Takahashi selected inverse as the marginal variances, and the Newton steps on $\boldsymbol{\delta}$ are $p$-dimensional, so it costs $p$ solves with the Laplace factor. For a Gaussian likelihood the correction is exactly zero. Typically $\mathbf{S}$ spans the fixed effects:
 
 ```python
 import jax.numpy as jnp
@@ -216,7 +196,7 @@ the latent joint less Gaussian and do worse.
 
 ### Local ETKF
 
-`obs_weights` replaces $R^{-1}$ by $D_\rho^{1/2} R^{-1} D_\rho^{1/2}$, which for a diagonal $R$ is $\rho_k / R_{kk}$ (Hunt, Kostelich & Szunyogh 2007). A zero weight is the same as deleting that observation, so the local ETKF is a `vmap` of `etkf_transform` over grid points, with one row of tapered distances per point.
+`obs_weights` replaces $\boldsymbol{\Sigma}_\varepsilon^{-1}$ by $\mathbf{D}_\rho^{1/2} \boldsymbol{\Sigma}_\varepsilon^{-1} \mathbf{D}_\rho^{1/2}$ with $\mathbf{D}_\rho = \mathrm{diag}(\boldsymbol{\rho})$, which for a diagonal $\boldsymbol{\Sigma}_\varepsilon$ is $\rho_k / [\boldsymbol{\Sigma}_\varepsilon]_{kk}$ (Hunt, Kostelich & Szunyogh 2007). A zero weight is the same as deleting that observation, so the local ETKF is a `vmap` of `etkf_transform` over grid points, with one row of tapered distances per point.
 
 ```python
 import einx

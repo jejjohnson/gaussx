@@ -8,11 +8,14 @@ NumPyro sites) lives downstream; gaussx owns the math.
 
 ## Conditioning & prediction
 
-The standard posterior
+The standard posterior, with $\boldsymbol{\Sigma}_y = \mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I} \in \mathbb{R}^{N \times N}$ the covariance of the training targets $\mathbf{y}$ with mean $\boldsymbol{\mu}_y$, $\mathbf{K}_{*X} \in \mathbb{R}^{M \times N}$ the cross-covariance with the $M$ test inputs and $\mathbf{K}_{**}$ the prior kernel matrix at the test inputs:
 
 $$
-\mu_* = K_{*f}\,K^{-1}(y - \mu), \qquad
-\Sigma_{**} = K_{**} - K_{*f}\,K^{-1}K_{f*}
+\boldsymbol{\mu}_* = \mathbf{K}_{*X} \boldsymbol{\Sigma}_y^{-1} (\mathbf{y} - \boldsymbol{\mu}_y)
+$$
+
+$$
+\boldsymbol{\Sigma}_{**} = \mathbf{K}_{**} - \mathbf{K}_{*X} \boldsymbol{\Sigma}_y^{-1} \mathbf{K}_{X*}
 $$
 
 plus a precomputed-cache variant for repeated test-time queries and a
@@ -41,8 +44,7 @@ is now `K_xx_diag=`, and the unused `solver=` of `collapsed_elbo` and
 
 ## Pathwise sampling
 
-Matheron's rule turns joint prior draws $(a, b)$ into posterior draws:
-$a + \mathrm{Cov}(a,b)\,\mathrm{Cov}(b,b)^{-1}(\beta - b)$.
+Matheron's rule turns joint prior draws $(\mathbf{x}_A, \mathbf{x}_B)$ into posterior draws of $\mathbf{x}_A \mid \mathbf{x}_B = \boldsymbol{\beta}$: $\mathbf{x}_A + \boldsymbol{\Sigma}_{AB} \boldsymbol{\Sigma}_{BB}^{-1} (\boldsymbol{\beta} - \mathbf{x}_B)$.
 
 ::: gaussx
     options:
@@ -52,9 +54,7 @@ $a + \mathrm{Cov}(a,b)\,\mathrm{Cov}(b,b)^{-1}(\beta - b)$.
 
 ## Whitening
 
-The whitened parameterization $u = Lv$, $v \sim \mathcal{N}(0, I)$ that keeps
-sparse-variational optimization well-conditioned, and the whitened SVGP
-predictive that consumes it.
+The whitened parameterization $\mathbf{f}_{\mathcal{I}} = \mathbf{L}_{\mathcal{I}\mathcal{I}} \mathbf{z}_{\mathcal{I}}$, $\mathbf{z}_{\mathcal{I}} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ with $\mathbf{L}_{\mathcal{I}\mathcal{I}} \mathbf{L}_{\mathcal{I}\mathcal{I}}^\top = \mathbf{K}_{\mathcal{I}\mathcal{I}}$ that keeps sparse-variational optimization well-conditioned, and the whitened SVGP predictive that consumes it.
 
 ::: gaussx
     options:

@@ -8,9 +8,7 @@ operations that probabilistic code actually calls, and the exponential-family
 
 NumPyro-compatible distributions whose covariance (or precision) is a lineax
 operator, so `sample` / `log_prob` inherit every structured fast path.
-`MultivariateNormalPrecision` carries $\Lambda = \Sigma^{-1}$ directly — the
-natural home for natural-parameter guides, where materializing $\Sigma$ would
-be wasted work. Both require `numpyro` to be installed.
+`MultivariateNormalPrecision` carries $\boldsymbol{\Lambda} = \boldsymbol{\Sigma}^{-1}$ directly — the natural home for natural-parameter guides, where materializing $\boldsymbol{\Sigma}$ would be wasted work. Both require `numpyro` to be installed.
 
 Both subclass `AbstractMultivariateNormal`, so code written against the base
 works for either parameterisation. It provides `covariance_operator` and
@@ -19,13 +17,12 @@ works for either parameterisation. It provides `covariance_operator` and
 mix of the two classes:
 
 $$
-\mathrm{KL}(p \,\|\, q) = \tfrac12\Big(\operatorname{tr}(\Lambda_q \Sigma_p)
-+ (\mu_q - \mu_p)^\top \Lambda_q (\mu_q - \mu_p) - N
-+ \log\lvert\Sigma_q\rvert - \log\lvert\Sigma_p\rvert\Big),
-\qquad \Lambda_q = \Sigma_q^{-1}.
+\mathrm{KL}[p \Vert q] = \frac{1}{2} (\mathrm{tr}(\boldsymbol{\Lambda}_q \boldsymbol{\Sigma}_p) + (\boldsymbol{\mu}_q - \boldsymbol{\mu}_p)^\top \boldsymbol{\Lambda}_q (\boldsymbol{\mu}_q - \boldsymbol{\mu}_p) - D_x + \log \det \boldsymbol{\Sigma}_q - \log \det \boldsymbol{\Sigma}_p)
 $$
 
-When `q` is precision-parameterised, $\Lambda_q$ is its native operator, so
+with $\boldsymbol{\Lambda}_q = \boldsymbol{\Sigma}_q^{-1}$ and $D_x$ the event size.
+
+When `q` is precision-parameterised, $\boldsymbol{\Lambda}_q$ is its native operator, so
 the trace and quadratic terms need no solve. `MultivariateNormalPrecision.variance`
 takes `diag_inv`'s exact structured paths (for example, the $O(N d^3)$ selected
 inverse of a `BlockTriDiag` precision) and densifies only an unstructured
@@ -47,63 +44,24 @@ probes, pass `solver=KeyedSolver(CGSolver(), key)` with a fresh key per step
 
 ## Gaussian Markov random fields
 
-`GaussianMRF` is $\mathcal N(\mu, Q^{-1})$ with a structured precision, and
-`IntrinsicGMRF` the improper $\mathcal N(\mu, (\tau R)^+)$ of RW1 / RW2 /
-Besag (ICAR) priors, with a structure matrix $R$ and its null space. Every
-operation dispatches on the precision's structure
-([GMRF precision builders](gmrf.md) return the right one):
+`GaussianMRF` is $\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Lambda}^{-1})$ with a structured precision, and `IntrinsicGMRF` the improper $\mathcal{N}(\boldsymbol{\mu}, (\tau \mathbf{R})^+)$ of RW1 / RW2 / Besag (ICAR) priors, with a structure matrix $\mathbf{R}$ and its null space $\mathbf{V}$ of $D_c$ columns. Every operation dispatches on the precision's structure ([GMRF precision builders](gmrf.md) return the right one):
 
-- **sample**, in order: a factorisable precision (dense, `BlockTriDiag`, or
-  a `SparseOperator` through its sparse Cholesky factor) gives
-  $\mu + L^{-\top}z$; a Kronecker-structured one (`Kronecker`,
-  `KroneckerSum`, `SpectralFunction`) the symmetric root in its factor
-  eigenvectors; anything else with `precision_factors`
-  $Q = \sum_k F_k^\top F_k$ is sampled by **perturbation-optimisation**:
-  $x = Q^{-1}\sum_k F_k^\top z_k$ has covariance $Q^{-1}QQ^{-1} = Q^{-1}$,
-  one CG solve per draw and no factorisation (graph precisions come
-  factored, $B^\top\operatorname{diag}(w)B$ from an incidence matrix).
-- **log_prob**: $\tfrac12\log|Q| - \tfrac12(x-\mu)^\top Q(x-\mu) - \tfrac N2\log 2\pi$,
-  with $\log|Q|$ from `log_det_precision` when known in closed form (no
-  stochastic estimate inside an MCMC density), else `logdet_strategy`,
-  `solver` or the structural `logdet`. The intrinsic density is
-  $\tfrac{N-c}{2}\log\tau - \tfrac\tau2(x-\mu)^\top R(x-\mu)$, plus the
-  $\tau$-free $\tfrac12\log|R|_+$ ([`pseudo_logdet`](primitives.md)) with
-  `include_normalizer`.
-- **marginal variances**: `diag_inv` (Takahashi on a sparse or banded
-  factor, factor eigenvectors on a grid).
-- **observations** $y = Ax + \varepsilon$:
-  `condition_on_observations` returns the posterior GMRF,
-  $Q + A^\top\Lambda A$ (sparse on the union pattern for a sparse prior and
-  `A`, matrix-free for a grid prior) with its mean from one solve.
-- **constraints** $A_cx = e$: `condition_on_constraints` returns a
-  `ConstrainedGMRF`, conditioning by kriging (Rue & Held, 2005, §2.3.3):
-  $x^\ast = x - Q^{-1}A_c^\top(A_cQ^{-1}A_c^\top)^{-1}(A_cx - e)$ is an exact
-  draw from $x \mid A_cx = e$, with corrected marginal variances and the
-  constrained density. `IntrinsicGMRF` defaults to the hard constraint
-  `null_spaceᵀx = 0`; `constraint="soft"` puts a tight Gaussian on
-  `null_spaceᵀx` instead, for NUTS.
+- **sample**, in order: a factorisable precision (dense, `BlockTriDiag`, or a `SparseOperator` through its sparse Cholesky factor) gives $\boldsymbol{\mu} + \mathbf{L}_{\boldsymbol{\Lambda}}^{-\top} \mathbf{z}$ with $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$; a Kronecker-structured one (`Kronecker`, `KroneckerSum`, `SpectralFunction`) the symmetric root in its factor eigenvectors; anything else with `precision_factors` $\boldsymbol{\Lambda} = \sum_k \mathbf{F}_k^\top \mathbf{F}_k$ is sampled by **perturbation-optimisation**: $\mathbf{x} = \boldsymbol{\Lambda}^{-1} \sum_k \mathbf{F}_k^\top \mathbf{z}_k$ has covariance $\boldsymbol{\Lambda}^{-1} \boldsymbol{\Lambda} \boldsymbol{\Lambda}^{-1} = \boldsymbol{\Lambda}^{-1}$, one CG solve per draw and no factorisation (graph precisions come factored, $\mathbf{B}^\top \mathrm{diag}(\mathbf{w}) \mathbf{B}$ from an incidence matrix).
+- **log_prob**: $\frac{1}{2} \log \det \boldsymbol{\Lambda} - \frac{1}{2} (\mathbf{x} - \boldsymbol{\mu})^\top \boldsymbol{\Lambda} (\mathbf{x} - \boldsymbol{\mu}) - \frac{D_x}{2} \log 2\pi$, with $\log \det \boldsymbol{\Lambda}$ from `log_det_precision` when known in closed form (no stochastic estimate inside an MCMC density), else `logdet_strategy`, `solver` or the structural `logdet`. The intrinsic density is $\frac{D_x - D_c}{2} \log \tau - \frac{\tau}{2} (\mathbf{x} - \boldsymbol{\mu})^\top \mathbf{R} (\mathbf{x} - \boldsymbol{\mu})$, plus the $\tau$-free $\frac{1}{2} \log \det_+ \mathbf{R} - \frac{D_x - D_c}{2} \log 2\pi$ ([`pseudo_logdet`](primitives.md)) with `include_normalizer`.
+- **marginal variances**: `diag_inv` (Takahashi on a sparse or banded factor, factor eigenvectors on a grid).
+- **observations** $\mathbf{y} = \mathbf{H} \mathbf{x} + \boldsymbol{\varepsilon}$: `condition_on_observations` returns the posterior GMRF, $\boldsymbol{\Lambda} + \mathbf{H}^\top \boldsymbol{\Lambda}_\varepsilon \mathbf{H}$ (sparse on the union pattern for a sparse prior and `A`, matrix-free for a grid prior) with its mean from one solve.
+- **constraints** $\mathbf{A}_c \mathbf{x} = \mathbf{e}$: `condition_on_constraints` returns a `ConstrainedGMRF`, conditioning by kriging (Rue & Held, 2005, §2.3.3): $\mathbf{x} \mapsto \mathbf{x} - \boldsymbol{\Lambda}^{-1} \mathbf{A}_c^\top (\mathbf{A}_c \boldsymbol{\Lambda}^{-1} \mathbf{A}_c^\top)^{-1} (\mathbf{A}_c \mathbf{x} - \mathbf{e})$ maps a draw to an exact draw from $\mathbf{x} \mid \mathbf{A}_c \mathbf{x} = \mathbf{e}$, with corrected marginal variances and the constrained density. `IntrinsicGMRF` defaults to the hard constraint `null_spaceᵀx = 0`; `constraint="soft"` puts a tight Gaussian on `null_spaceᵀx` instead, for NUTS.
 
 An odd-length `rw2_structure(n)` has one decoupled padding node: build the
 `IntrinsicGMRF` on all `n + 1` nodes with `null_space` zero on it, and drop
 it from draws. All four require `numpyro` to be installed.
 
-**BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair
-$(b, u^\ast)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision
-$Q(\tau, \phi)$ has the null vector $(\sqrt{\phi/\tau}\,\mathbf 1, \mathbf 1)$,
-which depends on $\theta$. So the bracket `IntrinsicGMRF` drops by default is
-not constant (it holds $\tfrac n2\log\tfrac{\tau}{1-\phi}$), and projecting
-draws along `null_space` does not remove the singular direction.
-`BYM2GMRF` uses the exact density on $\{V^\top u^\ast = 0\}$,
-$-\tfrac12 x^\top Q x + \tfrac n2\log\tfrac{\tau}{1-\phi}$ (plus the constant
-$\tfrac12\log|R^\ast|_+ - \tfrac{2n-c}{2}\log 2\pi$ with `include_normalizer`),
-and draws $u^\ast$ from the ICAR on $R^\ast$, then $b$ from its definition.
-It is an `IntrinsicGMRF`, so `laplace_mode` takes it as a prior, and its
-log-marginal is then correct in $(\tau, \phi)$:
+**BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair $(\mathbf{b}, \mathbf{u}^\star)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision $\boldsymbol{\Lambda}(\tau, \phi)$ has the null vector $(\sqrt{\phi / \tau} \mathbf{1}, \mathbf{1})$, which depends on $\boldsymbol{\theta} = (\tau, \phi)$. So the bracket `IntrinsicGMRF` drops by default is not constant (it holds $\frac{n}{2} \log \frac{\tau}{1 - \phi}$), and projecting draws along `null_space` does not remove the singular direction. `BYM2GMRF` uses the exact density on $\{\mathbf{V}^\top \mathbf{u}^\star = \mathbf{0}\}$, $-\frac{1}{2} \mathbf{r}^\top \boldsymbol{\Lambda} \mathbf{r} + \frac{n}{2} \log \frac{\tau}{1 - \phi}$ with $\mathbf{r} = (\mathbf{b}, \mathbf{u}^\star) - \boldsymbol{\mu}$ (plus the constant $\frac{1}{2} \log \det_+ \mathbf{R}^\star - \frac{2n - D_c}{2} \log 2\pi$ with `include_normalizer`), and draws $\mathbf{u}^\star$ from the ICAR on $\mathbf{R}^\star$, then $\mathbf{b}$ from its definition. It is an `IntrinsicGMRF`, so `laplace_mode` takes it as a prior, and its log-marginal is then correct in $(\tau, \phi)$:
 
 ```python
 scale = gx.generalized_variance_scale(R, V)  # R: the Besag structure, n areas
 R_star = scale * R
-# theta-free, so once: log|s R|_+ = log|R|_+ + (n - c) log s, with c = 1 here
+# θ-free, so once: log det₊(s R) = log det₊ R + (n − D_c) log s, with D_c = 1 here
 log_pdet = gx.pseudo_logdet(R, structure="laplacian") + (n - 1) * jnp.log(scale)
 
 
@@ -153,7 +111,7 @@ R = gx.SparseOperator.from_coo(
 null_space = jnp.zeros((6, 2)).at[:4, 0].set(0.5).at[4:, 1].set(2**-0.5)
 icar = gx.IntrinsicGMRF(jnp.zeros(6), 2.0, R, null_space)  # kernellib: graph_null_space
 u = icar.sample(jax.random.PRNGKey(1))  # null_spaceᵀ u == 0 to machine precision
-lp = icar.log_prob(u)  # (N − c)/2 · log τ − τ/2 uᵀRu, with N − c = 4
+lp = icar.log_prob(u)  # ((D_x − D_c) / 2) log τ − (τ / 2) uᵀ R u, with D_x − D_c = 4
 ```
 
 ::: gaussx
@@ -165,20 +123,11 @@ lp = icar.log_prob(u)  # (N − c)/2 · log τ − τ/2 uᵀRu, with N − c = 4
 ## Sequential distributions
 
 The linear-Gaussian state-space model as a *density* rather than a set of
-functions: `log_prob` is the Kalman marginal likelihood $\log p(y_{1:T})$
-(delegated to [`kalman_filter`](ssm.md)), `sample` is ancestral forward
-simulation, and `event_shape` is $(T, M)$ so `log_prob` returns a scalar with
-no `.to_event()` wrapping. That makes them usable directly as a NumPyro
-likelihood site.
+functions: `log_prob` is the Kalman marginal likelihood $\log p(\mathbf{y}_{1:T})$ (delegated to [`kalman_filter`](ssm.md)), `sample` is ancestral forward simulation, and `event_shape` is $(T, D_y)$ so `log_prob` returns a scalar with no `.to_event()` wrapping. That makes them usable directly as a NumPyro likelihood site.
 
-`A`, `H`, `Q` and `R` each take a dense array *or* a lineax operator, exactly
-matching [`kalman_filter`](ssm.md)'s contract — a structured $Q$ / $R$ keeps its
-structure through the Cholesky in `sample`, and $H$ through the sandwich in
-`variance`.
+`A`, `H`, `Q` and `R` (the transition $\mathbf{F}$, the observation operator $\mathbf{H}$ and the covariances $\boldsymbol{\Sigma}_\eta$ and $\boldsymbol{\Sigma}_\varepsilon$) each take a dense array *or* a lineax operator, exactly matching [`kalman_filter`](ssm.md)'s contract — a structured $\boldsymbol{\Sigma}_\eta$ / $\boldsymbol{\Sigma}_\varepsilon$ keeps its structure through the Cholesky in `sample`, and $\mathbf{H}$ through the sandwich in `variance`.
 
-`MaskedLGSSM` carries a $(T, M)$ observation mask and returns the **exact**
-marginal $\log p(y_{\mathrm{obs}})$ — not a bound — because
-$p(y_{\mathrm{miss}} \mid y_{\mathrm{obs}})$ is closed-form Gaussian.
+`MaskedLGSSM` carries a $(T, D_y)$ observation mask and returns the **exact** marginal $\log p(\mathbf{y}_\text{obs})$ — not a bound — because $p(\mathbf{y}_\text{miss} \mid \mathbf{y}_\text{obs})$ is closed-form Gaussian.
 `LGSSMFactory` is the `mask -> MaskedLGSSM` callable for conditional use; it
 is an `equinox.Module` rather than a closure so the state-space parameters
 stay visible to `equinox.filter_grad`.
@@ -193,16 +142,8 @@ needed on either side. All three require `numpyro` to be installed.
       show_root_toc_entry: false
       members: [LGSSM, MaskedLGSSM, LGSSMFactory]
 
-`MarkovGaussian` is the density over the *states* of a Gauss-Markov chain
-rather than its observations: $x_0 \sim \mathcal{N}(\mu_0, P_0)$,
-$x_{k+1} = A_k x_k + b_k + \varepsilon_k$, with `event_shape` $(T, d)$.
-`sample` and `log_prob` use the chain factorisation at $O(T d^3)$ and never
-form the joint covariance, so it serves as a prior over a latent trajectory
-or as a structured variational guide. Its precision is block-tridiagonal;
-`to_precision_form` / `from_precision_form` convert to and from the
-$(\mu, \Lambda)$ layout that [`spingp_posterior`](ssm.md) returns, through
-the [UDL factorisation](ssm.md#precision-form-chains), so a precision-form
-posterior becomes a sampleable chain in one $O(T d^3)$ pass. Requires
+`MarkovGaussian` is the density over the *states* of a Gauss-Markov chain rather than its observations: $\mathbf{x}_0 \sim \mathcal{N}(\boldsymbol{\mu}_{x,0}, \boldsymbol{\Sigma}_{x,0})$, $\mathbf{x}_{t+1} = \mathbf{F}_t \mathbf{x}_t + \mathbf{c}_t + \boldsymbol{\eta}_{t+1}$, with `event_shape` $(T, D_x)$. `sample` and `log_prob` use the chain factorisation at $O(T D_x^3)$ and never form the joint covariance, so it serves as a prior over a latent trajectory or as a structured variational guide. Its precision is block-tridiagonal; `to_precision_form` / `from_precision_form` convert to and from the $(\boldsymbol{\mu}_x, \boldsymbol{\Lambda}_x)$ layout that [`spingp_posterior`](ssm.md) returns, through the [UDL factorisation](ssm.md#precision-form-chains), so a precision-form
+posterior becomes a sampleable chain in one $O(T D_x^3)$ pass. Requires
 `numpyro`.
 
 ::: gaussx
@@ -214,9 +155,7 @@ posterior becomes a sampleable chain in one $O(T d^3)$ pass. Requires
 ## Gaussian sugar ops
 
 $$
-\log \mathcal{N}(x \mid \mu, \Sigma)
-= -\tfrac12 (x-\mu)^\top \Sigma^{-1} (x-\mu)
-  - \tfrac12 \log|\Sigma| - \tfrac{N}{2}\log 2\pi
+\log \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}, \boldsymbol{\Sigma}) = -\frac{1}{2} (\mathbf{x} - \boldsymbol{\mu})^\top \boldsymbol{\Sigma}^{-1} (\mathbf{x} - \boldsymbol{\mu}) - \frac{1}{2} \log \det \boldsymbol{\Sigma} - \frac{D_x}{2} \log 2\pi
 $$
 
 evaluated through structured `solve` + `logdet`, plus entropy, quadratic
@@ -231,24 +170,9 @@ covariance update.
 
 ## Structured sampling
 
-`sample_mvn` draws $x = \mu + L\varepsilon$ with $LL^\top = K$, picking the
-factor $L$ from the structure of the covariance operator: element-wise for a
-diagonal, per factor for a Kronecker product, per block for a block-diagonal,
-FFT circulant embedding for a Toeplitz, and $L_B z_1 + U\sqrt{D}z_2$ for a
-low-rank update, so a $10^4 \times 10^4$ Kronecker covariance is never
-factorised densely. Every branch is exact. A `SumOfKroneckers` therefore takes
-the dense symmetric square root: its matrix-free sampler,
-`sum_of_kroneckers_sample`, is a truncated Lanczos approximation and stays an
-explicit opt-in. The one-off helpers `toeplitz_sample` and
-`kronecker_sum_sample` also remain available for callers that want them
-directly.
+`sample_mvn` draws $\mathbf{x} = \boldsymbol{\mu} + \mathbf{L} \mathbf{z}$ with $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ and $\mathbf{L} \mathbf{L}^\top = \boldsymbol{\Sigma}$, picking the factor $\mathbf{L}$ from the structure of the covariance operator: element-wise for a diagonal, per factor for a Kronecker product, per block for a block-diagonal, FFT circulant embedding for a Toeplitz, and $\mathbf{L}_{\mathbf{A}_0} \mathbf{z}_1 + \mathbf{U} \mathbf{D}^{1/2} \mathbf{z}_2$ for a low-rank update $\mathbf{A}_0 + \mathbf{U} \mathbf{D} \mathbf{U}^\top$, so a $10^4 \times 10^4$ Kronecker covariance is never factorised densely. Every branch is exact. A `SumOfKroneckers` therefore takes the dense symmetric square root: its matrix-free sampler, `sum_of_kroneckers_sample`, is a truncated Lanczos approximation and stays an explicit opt-in. The one-off helpers `toeplitz_sample` and `kronecker_sum_sample` also remain available for callers that want them directly.
 
-`sample_joint_conditional` draws a partitioned Gaussian $(x_a, x_b)$ jointly
-without forming its $(N + M)^2$ covariance: the observed block through
-`sample_mvn`, so it keeps its structure, and the other through the gain
-$K_{to}K_{oo}^{-1}$ plus a square root of the Schur complement. Given an
-observed value it also returns conditional draws that share the same noise,
-which makes them exactly the [`matheron_update`](gp.md) of the joint draws.
+`sample_joint_conditional` draws a partitioned Gaussian $(\mathbf{x}_A, \mathbf{x}_B)$ jointly without forming its $(N + M)^2$ covariance: the observed block $B$ through `sample_mvn`, so it keeps its structure, and the other, $A$, through the gain $\boldsymbol{\Sigma}_{AB} \boldsymbol{\Sigma}_{BB}^{-1}$ plus a square root of the Schur complement. Given an observed value it also returns conditional draws that share the same noise, which makes them exactly the [`matheron_update`](gp.md) of the joint draws.
 
 ::: gaussx
     options:
@@ -258,8 +182,7 @@ which makes them exactly the [`matheron_update`](gp.md) of the joint draws.
 
 ## Exponential family
 
-The Gaussian in natural form: $\eta_1 = \Lambda\mu$, $\eta_2 = -\tfrac12
-\Lambda$. Conversions between mean/covariance, natural, and expectation
+The Gaussian in natural form: the natural parameters $(\boldsymbol{\Lambda} \boldsymbol{\mu}, -\frac{1}{2} \boldsymbol{\Lambda})$, held in the fields `eta1` and `eta2`. Conversions between mean/covariance, natural, and expectation
 parameterizations — multivariate (operator-aware) and univariate (per-site
 diagonal) — plus the log-partition, Fisher information, and sufficient
 statistics that natural-gradient and EP updates are built from.

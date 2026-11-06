@@ -1,6 +1,6 @@
 # Quadrature & Moment Matching
 
-Gaussian integration: $\mathbb{E}_{x \sim \mathcal{N}(\mu, \Sigma)}[f(x)]$ via
+Gaussian integration: $\mathbb{E}_{\mathbf{x} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)}[f(\mathbf{x})]$ via
 deterministic rules (Gauss-Hermite, unscented / cubature, Taylor) or Monte
 Carlo, behind one `AbstractIntegrator` interface. Everything that needs an
 expectation — expected log-likelihoods, EP tilted moments, uncertain-input GP
@@ -66,7 +66,7 @@ derivatives from a single pass over the quadrature points; the tilted
 moments and the EP site follow from those in closed form (see its
 docstring — the derivatives are not themselves the site naturals).
 `statistical_linear_regression` returns the moment-matched linear-Gaussian
-surrogate $p(y \mid f) \approx \mathcal{N}(y \mid Af + b, \Omega)$ behind
+surrogate $p(\mathbf{y} \mid \mathbf{f}) \approx \mathcal{N}(\mathbf{y}; \mathbf{A} \mathbf{f} + \mathbf{b}, \boldsymbol{\Omega})$ behind
 posterior linearisation and the iterated Kalman smoother. Both take any
 point-based integrator.
 
@@ -78,17 +78,10 @@ point-based integrator.
 
 ## Hyperparameter designs (INLA)
 
-`theta_design` turns a hyperparameter log-posterior
-$\log\tilde\pi(\theta \mid y)$ and its mode $\theta^\ast$ into a small set of
-integration points $\theta_k$ and normalised log-weights, the way R-INLA
-integrates over $\theta$ (Rue, Martino & Chopin, 2009, §6.5). Points are laid
-out in the standardised coordinates $\theta(z) = \theta^\ast + V\Lambda^{-1/2}z$,
-where $-\nabla^2\log\tilde\pi(\theta^\ast) = V\Lambda V^\top$ (exact, from
-`jax.hessian`), and each design weight is corrected by the evaluated
-log-posterior:
+`theta_design` turns a hyperparameter log-posterior $\log \tilde{\pi}(\boldsymbol{\theta} \mid \mathbf{y})$ and its mode $\boldsymbol{\theta}^\star$ into a small set of integration points $\boldsymbol{\theta}_k$ and normalised log-weights, the way R-INLA integrates over $\boldsymbol{\theta}$ (Rue, Martino & Chopin, 2009, §6.5). Points are laid out in the standardised coordinates $\boldsymbol{\theta}(\mathbf{z}) = \boldsymbol{\theta}^\star + \mathbf{Q} \mathrm{diag}(\boldsymbol{\gamma})^{-1/2} \mathbf{z}$, where $-\nabla^2 \log \tilde{\pi}(\boldsymbol{\theta}^\star \mid \mathbf{y}) = \mathbf{Q} \mathrm{diag}(\boldsymbol{\gamma}) \mathbf{Q}^\top$ (exact, from `jax.hessian`), and each design weight is corrected by the evaluated log-posterior:
 
 - `"eb"` — empirical Bayes, the mode alone;
-- `"grid"` — an axis-wise grid in $z$, truncated `grid_threshold` log-units
+- `"grid"` — an axis-wise grid in $\mathbf{z}$, truncated `grid_threshold` log-units
   below the mode (the default for $m \le 2$);
 - `"ccd"` — a central composite design: centre, $2m$ axial points and a
   resolution-V fractional factorial on the sphere of radius $f_0\sqrt m$,
@@ -97,11 +90,11 @@ log-posterior:
 
 The design is a pure function of any callable, so mode-finding stays with the
 caller. A typical INLA step fits one Laplace approximation per design point in
-a single `vmap` (`laplace_mode` lands with G8):
+a single `vmap`:
 
 ```python
 pts, logw = gaussx.theta_design(log_post, theta_star, method="ccd")  # (15, 3), (15,)
-fits = jax.vmap(lambda th: gaussx.laplace_mode(prior_at(th), lik, y))(pts)
+fits = jax.vmap(lambda th: gaussx.laplace_mode(prior_at(th), lik))(pts)
 post_mean = einx.dot("k, k n -> n", jnp.exp(logw), fits.mode)
 ```
 
@@ -113,9 +106,7 @@ post_mean = einx.dot("k, k n -> n", jnp.exp(logw), fits.mode)
 
 ## Kernel expectations & uncertain-input GPs
 
-The $\Psi$-statistics $\Psi_0 = \mathbb{E}[k(x,x)]$, $\Psi_1 = \mathbb{E}[k(x,
-X)]$, $\Psi_2 = \mathbb{E}[k(x,\cdot)k(x,\cdot)^\top]$ and the GP / SVGP / VGP /
-BGPLVM predictive equations for inputs that are themselves Gaussian.
+The $\Psi$-statistics $\Psi_0 = \mathbb{E}[k(\mathbf{x}, \mathbf{x})]$, $[\boldsymbol{\Psi}_1]_i = \mathbb{E}[k(\mathbf{x}, \mathbf{x}_i)]$, $[\boldsymbol{\Psi}_2]_{ij} = \mathbb{E}[k(\mathbf{x}, \mathbf{x}_i) k(\mathbf{x}, \mathbf{x}_j)]$ for $\mathbf{x} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$ and the GP / SVGP / VGP / BGPLVM predictive equations for inputs that are themselves Gaussian.
 
 ::: gaussx
     options:
