@@ -184,19 +184,25 @@ ZOO: list[Case] = [
     Case(
         "low_rank_update",
         _base("low_rank_update"),
-        structured=frozenset({"solve", "logdet", "diag", "trace", "inv", "submatrix"}),
+        structured=frozenset(
+            {"solve", "logdet", "diag", "trace", "inv", "submatrix", "frobenius_norm"}
+        ),
         spy=gaussx.LowRankUpdate,
     ),
     Case(
         "low_rank_rank0",
         lambda: _low_rank(np.zeros(0)),
-        structured=frozenset({"solve", "logdet", "diag", "trace", "inv"}),
+        structured=frozenset(
+            {"solve", "logdet", "diag", "trace", "inv", "frobenius_norm"}
+        ),
         spy=gaussx.LowRankUpdate,
     ),
     Case(
         "low_rank_zero_weight",
         lambda: _low_rank([1.0, 0.0]),
-        structured=frozenset({"solve", "logdet", "diag", "trace", "inv", "submatrix"}),
+        structured=frozenset(
+            {"solve", "logdet", "diag", "trace", "inv", "submatrix", "frobenius_norm"}
+        ),
         spy=gaussx.LowRankUpdate,
     ),
     Case(
