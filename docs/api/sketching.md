@@ -1,28 +1,27 @@
 # Sketching
 
-Random sketching operators $S \in \mathbb{R}^{d \times m}$ that compress a tall
-matrix $A \in \mathbb{R}^{m \times n}$ to $SA \in \mathbb{R}^{d \times n}$
-while approximately preserving the geometry of its range. $S$ is an
-$\varepsilon$-subspace embedding for $\operatorname{range}(A)$ if
+Random sketching operators $\mathbf{S} \in \mathbb{R}^{d \times M}$ that compress a tall matrix $\mathbf{A} \in \mathbb{R}^{M \times N}$ to $\mathbf{S}\mathbf{A} \in \mathbb{R}^{d \times N}$ while approximately preserving the geometry of its range. $\mathbf{S}$ is an $\varepsilon$-subspace embedding for $\mathrm{range}(\mathbf{A})$ if
 
 $$
-(1-\varepsilon)\|Ax\| \le \|SAx\| \le (1+\varepsilon)\|Ax\| \qquad \forall x .
+(1 - \varepsilon) \Vert \mathbf{A}\mathbf{x} \Vert_2 \le \Vert \mathbf{S}\mathbf{A}\mathbf{x} \Vert_2 \le (1 + \varepsilon) \Vert \mathbf{A}\mathbf{x} \Vert_2
 $$
+
+for every $\mathbf{x} \in \mathbb{R}^N$.
 
 Sketches are the foundation of the randomized linear-algebra stack (range
 finders, randomized SVD, sketch-and-precondition least squares).
 
 | Sketch | Size `d` for an $\varepsilon$-embedding | Cost to apply |
 |---|---|---|
-| `GaussianSketch` | $O(n/\varepsilon^2)$ | $O(dmn)$ |
-| `SparseSignSketch` (default for tall problems) | $O(n\log n/\varepsilon^2)$ | $O(\text{nnz}\cdot mn)$ |
-| `SRHTSketch` | $O((n+\log m)\log n/\varepsilon^2)$ | $O(mn\log m)$ |
+| `GaussianSketch` | $O(N/\varepsilon^2)$ | $O(dMN)$ |
+| `SparseSignSketch` (default for tall problems) | $O(N\log N/\varepsilon^2)$ | $O(\mathrm{nnz}\cdot MN)$ |
+| `SRHTSketch` | $O((N+\log M)\log N/\varepsilon^2)$ | $O(MN\log M)$ |
 
 A sketch is **sampled once**, with an explicit PRNG key (`key=None` means
 `jax.random.PRNGKey(0)`), and its random draws live in the module: `apply`
-($SA$) and `apply_transpose` ($S^\top Y$) always refer to the same $S$.
+($\mathbf{S}\mathbf{A}$) and `apply_transpose` ($\mathbf{S}^\top \mathbf{Y}$) always refer to the same $\mathbf{S}$.
 `sketch_operator` sketches a matrix-free lineax operator with $d$
-transpose-matvecs, and `as_operator` returns $S$ itself as a lineax operator.
+transpose-matvecs, and `as_operator` returns $\mathbf{S}$ itself as a lineax operator.
 
 ```python
 # Sketch a tall Jacobian (10⁶ residuals × 200 parameters) down to 800 rows

@@ -3,7 +3,7 @@
 `SparseOperator` is a sparse matrix whose sparsity pattern is a static,
 host-side, hashable `SparsityPattern`; only the non-zero `values` are traced.
 Every matrix a GMRF / INLA workflow factorises — a prior precision, a graph
-Laplacian, the Laplace Hessian $Q + A^\top W A$ — has a pattern known before
+Laplacian, the Laplace Hessian $\boldsymbol{\Lambda} + \mathbf{A}^\top \mathbf{W} \mathbf{A}$ — has a pattern known before
 any value is, so all symbolic work (canonical ordering, transposition, pattern
 unions, the pattern of a congruence) runs once per pattern on the host and is
 reused across `jit` calls, Newton steps, hyperparameter values and `vmap`-ped
@@ -12,14 +12,15 @@ datasets. Changing the values never retraces; changing the pattern does.
 The pattern of the Laplace Hessian is known in advance:
 
 $$
-(A^\top W A)_{ij} = \sum_k A_{ki}\,w_k\,A_{kj} \neq 0 \;\Rightarrow\;
-i, j \in \operatorname{supp}(A_{k,:}),\qquad
-\operatorname{pattern}(Q + A^\top W A) = \operatorname{pattern}(Q)\cup
-\textstyle\bigcup_k \operatorname{supp}(A_{k,:})^2 .
+[\mathbf{A}^\top \mathbf{W} \mathbf{A}]_{ij} = \sum_k [\mathbf{A}]_{ki} w_k [\mathbf{A}]_{kj} \neq 0 \Rightarrow i, j \in \mathrm{supp}([\mathbf{A}]_{k,:})
+$$
+
+$$
+\mathrm{pattern}(\boldsymbol{\Lambda} + \mathbf{A}^\top \mathbf{W} \mathbf{A}) = \mathrm{pattern}(\boldsymbol{\Lambda}) \cup \bigcup_k \mathrm{supp}([\mathbf{A}]_{k,:})^2
 $$
 
 A FEM projector row touches the vertices of one triangle, which are already
-neighbours in $Q$, so the pattern does not grow; each fixed effect adds one
+neighbours in $\boldsymbol{\Lambda}$, so the pattern does not grow; each fixed effect adds one
 dense row and column.
 
 **Storage.** Patterns are canonical: sorted row-major, duplicates merged, and
@@ -70,29 +71,31 @@ R = gx.SparseOperator.from_coo(
     tags=frozenset({lx.positive_semidefinite_tag}),
 )
 tau = 2.0
-Q = eqx.tree_at(lambda op: op.values, R, tau * R.values)  # same static pattern
+precision = eqx.tree_at(lambda op: op.values, R, tau * R.values)  # same static pattern
 
 # Observation projector A (2 observations) and Newton weights w_t
 A = gx.SparseOperator.from_coo(
     np.array([0, 0, 1]), np.array([0, 1, 3]), jnp.array([0.5, 0.5, 1.0]), (2, N)
 )
 w_t = jnp.array([1.0, 2.0])
-H = Q.union(
-    Q.congruence(A, w_t), tags=lx.positive_semidefinite_tag
-)  # Q + Aᵀ diag(w_t) A
+H = precision.union(
+    precision.congruence(A, w_t), tags=lx.positive_semidefinite_tag
+)  # Λ + Aᵀ diag(w_t) A
 x = gx.solve(H, jnp.ones(N))
 ```
 
 ## Sparse Cholesky
 
 Cholesky is Gaussian elimination: eliminating node $j$ connects its
-not-yet-eliminated neighbours, so the column patterns of $P Q P^\top = L L^\top$
+not-yet-eliminated neighbours, so the column patterns of $\mathbf{P} \mathbf{A} \mathbf{P}^\top = \mathbf{L} \mathbf{L}^\top$
 follow the **elimination tree**,
 
 $$
-\operatorname{struct}(L_{:,j}) = \operatorname{struct}(Q_{j:,j})\ \cup
-\bigcup_{\operatorname{parent}(c)=j}\operatorname{struct}(L_{:,c})\setminus\{c\},
-\qquad \operatorname{parent}(j) = \min\{i>j : L_{ij}\neq 0\}.
+\mathrm{struct}([\mathbf{L}]_{:,j}) = \mathrm{struct}([\mathbf{P} \mathbf{A} \mathbf{P}^\top]_{j:,j}) \cup \bigcup_{\mathrm{parent}(c) = j} \mathrm{struct}([\mathbf{L}]_{:,c}) \setminus \{c\}
+$$
+
+$$
+\mathrm{parent}(j) = \min\{i > j : [\mathbf{L}]_{ij} \neq 0\}
 $$
 
 That depends only on the pattern and the ordering, so `symbolic_cholesky`
@@ -104,25 +107,19 @@ values and is differentiable.
   bandwidth; `"natural"` keeps the given order; `"amd"` (approximate minimum
   degree, through CHOLMOD) minimises fill.
 - **Numeric phase.** After RCM on a mesh the factor fills a narrow band, so
-  $L$ is block tridiagonal in bandwidth-sized blocks and dense block kernels
+  $\mathbf{L}$ is block tridiagonal in bandwidth-sized blocks and dense block kernels
   do the work. Otherwise a left-looking `lax.scan` over columns gathers
   fixed-size windows from the CSC arrays (columns bucketed by length, so a
   few long separator columns do not pad all the short ones). Either way
-  `SparseCholeskyFactor.values` holds $L$ on its exact CSC pattern.
+  `SparseCholeskyFactor.values` holds $\mathbf{L}$ on its exact CSC pattern.
 - **Takahashi.** The backward recursion
-  $Z_{ij} = \delta_{ij}/L_{jj}^2 - L_{jj}^{-1}\sum_{k>j,\,k\in\operatorname{struct}(L_{:,j})} L_{kj} Z_{ki}$
-  evaluates $Z = Q^{-1}$ exactly on $\operatorname{pattern}(L + L^\top)$,
-  which contains $\operatorname{pattern}(Q)$, at about the cost of the
+  $[\mathbf{Z}]_{ij} = \delta_{ij} / [\mathbf{L}]_{jj}^2 - [\mathbf{L}]_{jj}^{-1} \sum_{k > j, k \in \mathrm{struct}([\mathbf{L}]_{:,j})} [\mathbf{L}]_{kj} [\mathbf{Z}]_{ki}$
+  evaluates $\mathbf{Z} = (\mathbf{P} \mathbf{A} \mathbf{P}^\top)^{-1}$ exactly on $\mathrm{pattern}(\mathbf{L} + \mathbf{L}^\top)$,
+  which contains $\mathrm{pattern}(\mathbf{P} \mathbf{A} \mathbf{P}^\top)$, at about the cost of the
   factorisation. `selected_inverse()` returns it as a `SparseOperator` in
   the original order; `diag_inv()` gives the marginal variances.
-- **Gradients.** $d\log|Q| = \operatorname{tr}(Q^{-1}dQ)$, so the
-  log-determinant's cotangent is $Z$ on $\operatorname{pattern}(Q)$: one
-  Takahashi sweep, never $Q^{-1}$. For $x = Q^{-1}b$:
-  $\bar b = Q^{-1}\bar x$ and $\bar Q = -\bar b\,x^\top$, symmetrised. With
-  `symmetric=True` storage an off-diagonal stored value sets $Q_{ij}$ and
-  $Q_{ji}$, so its gradient is doubled ($2Z_{ij}$); general storage is
-  factored as $\tfrac12(Q + Q^\top)$ and each stored value gets $Z_{ij}$.
-  `solve_lower_transpose` (sampling, $x = P^\top L^{-\top} z$) and
+- **Gradients.** $\mathrm{d} \log \det \mathbf{A} = \mathrm{tr}(\mathbf{A}^{-1} \mathrm{d}\mathbf{A})$, so the log-determinant's cotangent is $\mathbf{Z}$ on $\mathrm{pattern}(\mathbf{A})$: one Takahashi sweep, never $\mathbf{A}^{-1}$. For $\mathbf{x} = \mathbf{A}^{-1}\mathbf{b}$: $\bar{\mathbf{b}} = \mathbf{A}^{-1}\bar{\mathbf{x}}$ and $\bar{\mathbf{A}} = -\bar{\mathbf{b}} \mathbf{x}^\top$, symmetrised. With `symmetric=True` storage an off-diagonal stored value sets $[\mathbf{A}]_{ij}$ and $[\mathbf{A}]_{ji}$, so its gradient is doubled ($2 [\mathbf{Z}]_{ij}$); general storage is factored as $\frac{1}{2}(\mathbf{A} + \mathbf{A}^\top)$ and each stored value gets $[\mathbf{Z}]_{ij}$.
+  `solve_lower_transpose` (sampling, $\mathbf{x} = \mathbf{P}^\top \mathbf{L}^{-\top} \mathbf{z}$) and
   `diag_inv` are differentiated by JAX through the factorisation.
 - **CHOLMOD backend** (opt-in, `pip install scikit-sparse`, which needs
   SuiteSparse; not a dependency of gaussx). `backend="cholmod"` runs only
@@ -134,7 +131,7 @@ values and is differentiable.
 **Scale.** Measured on triangulated square meshes (the P1 FEM 7-point
 stencil), CPU, float64, `jit`-compiled, after compilation:
 
-| Nodes | Ordering / backend | nnz(L) | Fill vs tril(Q) | `logdet` | `value_and_grad(logdet)` | `diag_inv` |
+| Nodes | Ordering / backend | nnz(L) | Fill vs tril(Λ) | `logdet` | `value_and_grad(logdet)` | `diag_inv` |
 |---|---|---|---|---|---|---|
 | 10,000 | RCM / JAX (banded) | 681,550 | 17.2 | 1.0 s | 1.1 s | 0.9 s |
 | 40,000 | RCM / JAX (banded) | 5,393,100 | 33.9 | 1.1 s | 1.6 s | 1.5 s |
@@ -158,7 +155,7 @@ symbolic analysis is a one-off host cost (about 0.3 s at 10⁴ nodes and
 Supernodes and level scheduling (GPU parallelism over independent
 subtrees) are follow-ups.
 
-**Example.** A Matérn-like SPDE precision $Q(\kappa) = \kappa^2 I + G$ on a
+**Example.** A Matérn-like SPDE precision $\boldsymbol{\Lambda}(\kappa) = \kappa^2 \mathbf{I} + \mathbf{G}$ on a
 40k-node mesh: analyse once, factor for many $\kappa$, differentiate the
 log-determinant.
 
@@ -191,12 +188,12 @@ sym = gx.symbolic_cholesky(G.pattern)  # host, once: RCM, banded layout
 
 
 def logdet(log_kappa):
-    Q = G.add_diagonal(jnp.full(n, jnp.exp(2 * log_kappa)))  # same pattern
-    return gx.sparse_cholesky(Q, sym).logdet()
+    precision = G.add_diagonal(jnp.full(n, jnp.exp(2 * log_kappa)))  # same pattern
+    return gx.sparse_cholesky(precision, sym).logdet()
 
 
 jax.vmap(logdet)(jnp.linspace(-1.0, 1.0, 16))  # 16 factorisations, one analysis
-jax.grad(logdet)(0.0)  # d log|Q| / d log κ, through one Takahashi sweep
+jax.grad(logdet)(0.0)  # d log det Λ / d log κ, through one Takahashi sweep
 ```
 
 ::: gaussx
