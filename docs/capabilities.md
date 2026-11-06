@@ -343,14 +343,14 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `AbstractSketch` | class | A random sketching matrix $S \in \mathbb{R}^{d \times m}$, sampled once. |
+| `AbstractSketch` | class | A random sketching matrix S ∈ ℝ^(d × M), sampled once. |
 
 ### Sketches
 
 | Name | Kind | What it does |
 |---|---|---|
-| `GaussianSketch` | class | Gaussian sketch: i.i.d. entries $S_{ij} \sim \mathcal{N}(0, 1/d)$. |
-| `OrthonormalSketch` | class | Gaussian sketch with orthonormal rows, $S S^\top = I_d$. |
+| `GaussianSketch` | class | Gaussian sketch: i.i.d. entries S_ij ~ 𝒩(0, 1/d). |
+| `OrthonormalSketch` | class | Gaussian sketch with orthonormal rows, S Sᵀ = I_d. |
 | `SparseSignSketch` | class | Sparse sign sketch (sparse Johnson-Lindenstrauss transform). |
 | `SRHTSketch` | class | Subsampled randomized Hadamard transform sketch. |
 | `RowSamplingSketch` | class | Weighted row-sampling sketch. |
