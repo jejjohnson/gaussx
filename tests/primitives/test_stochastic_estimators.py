@@ -180,6 +180,12 @@ class TestFrobeniusLowRank:
         monkeypatch.setattr(LowRankUpdate, "as_matrix", forbidden)
         assert tree_allclose(frobenius_norm(op), expected)
 
+    def test_an_empty_operator_has_zero_norm(self):
+        update = LowRankUpdate(
+            lx.MatrixLinearOperator(jnp.zeros((0, 0))), jnp.zeros((0, 1))
+        )
+        assert frobenius_norm(update) == 0.0
+
     def test_stochastic_base_is_estimated_not_materialised(self, psd_op, getkey):
         """A matrix-free base keeps its probes; the update stays exact."""
         left = jr.normal(getkey(), (psd_op.in_size(), 2))
