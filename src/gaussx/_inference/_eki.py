@@ -102,8 +102,9 @@ def eki_step(
         obs_noise: Observation-error covariance Σ_ε. Scaled to Σ_ε / Δt as a lazy
             `gaussx.ScaledOperator`, so a structured Σ_ε keeps its own solve in
             both variants.
-        dt: Observation-side tempering step Δt > 0. Positivity is not checked,
-            since it may be traced.
+        dt: Observation-side tempering step Δt. It may be traced, so a step that
+            is not positive is not an error: it returns ``particles`` unchanged,
+            with a zero derivative.
         step: State-side operator α. ``None`` is the identity, and skips the
             matvec rather than building one.
         key: PRNG key for internally drawn perturbations ε⁽ᵉ⁾ ~ 𝒩(0, Σ_ε), which
@@ -233,7 +234,11 @@ def eki_step(
     # the inner solve, so a Diagonal, BlockDiag or Kronecker Σ_ε keeps its own
     # solve rather than falling back to a dense (D_y, D_y). At Δt = 1 the scalar
     # is exactly 1.0 and every route is bit-for-bit `enkf_analysis`.
-    tempered_noise = ScaledOperator(obs_noise, 1.0 / dt)
+    # A step that is not positive moves nothing. Its 1 / Δt and 1 / √Δt are kept out
+    # of the update, where ∞ × 0 would be NaN in the value and in the gradient.
+    positive_step = dt > 0.0
+    safe_dt = jnp.where(positive_step, dt, 1.0)
+    tempered_noise = ScaledOperator(obs_noise, 1.0 / safe_dt)
 
     if deterministic:
         # By the push-through identity G (y − h̄) = X̃ᵀ w̄, so the ETKF weights
@@ -262,7 +267,7 @@ def eki_step(
             "member state, state -> member state", particles, mean_increment
         )
         # x⁽ᵉ⁾ ← x⁽ᵉ⁾ + α X̃ᵀ w̄ + α (W x̃⁽ᵉ⁾ − x̃⁽ᵉ⁾)
-        return shifted + anomaly_increment
+        return jnp.where(positive_step, shifted + anomaly_increment, particles)
 
     use_dense = (
         ensemble_size >= obs_size if dense_innovation is None else dense_innovation
@@ -293,7 +298,7 @@ def eki_step(
         # ε⁽ᵉ⁾ = L n⁽ᵉ⁾
         drawn_noise = jax.vmap(noise_factor.mv)(noise)
         # ε⁽ᵉ⁾ / √Δt
-        perturbation = drawn_noise / jnp.sqrt(dt)
+        perturbation = drawn_noise / jnp.sqrt(safe_dt)
         # jnp, not einx: an empty D_y returns the prior ensemble here today, and
         # einx raises AxisSizeError on a zero-length axis.
         # y + ε⁽ᵉ⁾ / √Δt
@@ -317,7 +322,7 @@ def eki_step(
         # α G r⁽ᵉ⁾, one row per member
         increment = jax.vmap(step.mv)(increment)
     # x⁽ᵉ⁾ ← x⁽ᵉ⁾ + α G r⁽ᵉ⁾
-    return particles + increment
+    return jnp.where(positive_step, particles + increment, particles)
 
 
 def tikhonov_augment(
@@ -484,7 +489,7 @@ def discrepancy_step_size(
         The step Δt, a scalar. It never exceeds ``remaining``, and is positive
         whenever ``remaining`` is: a degenerate ensemble (σ²_𝒥 = 0) sends the
         second candidate to +∞, so the max saturates and ``remaining`` is
-        returned.
+        returned. It is 0 when ``remaining`` is not positive.
 
     Raises:
         ValueError: If the shapes disagree, or if ``bessel`` is set with
@@ -551,5 +556,6 @@ def discrepancy_step_size(
     accuracy = obs_size / (2.0 * mean_cost)
     # C2: √(D_y / (2 σ²_𝒥))
     uncertainty = jnp.sqrt(obs_size / (2.0 * variance_cost))
-    # Δt = min(max(C1, C2), remaining)
-    return jnp.minimum(jnp.maximum(accuracy, uncertainty), remaining)
+    # Δt = min(max(C1, C2), max(remaining, 0)), since round-off can take the budget
+    # just below zero in a fixed-length driver
+    return jnp.minimum(jnp.maximum(accuracy, uncertainty), jnp.maximum(remaining, 0.0))
