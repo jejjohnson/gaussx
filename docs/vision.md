@@ -35,7 +35,7 @@ welcome.
 
 | If your matrix is... | Dense LAPACK | gaussx |
 |---|---|---|
-| Kronecker $A \otimes B$, factors $n_1, n_2$ | $O((n_1 n_2)^3)$ | $O(n_1^3 + n_2^3)$ |
+| Kronecker $\mathbf{A} \otimes \mathbf{B}$, factors $n_1, n_2$ | $O((n_1 n_2)^3)$ | $O(n_1^3 + n_2^3)$ |
 | Block diagonal, $k$ blocks of size $m$ | $O((km)^3)$ | $O(k m^3)$ |
 | Low-rank + diagonal, rank $k$ | $O(n^3)$ | $O(n k^2)$ via Woodbury |
 | Block-tridiagonal (state-space), $N$ steps | $O((Nd)^3)$ | $O(N d^3)$ |
@@ -51,13 +51,13 @@ Linear algebra is the load-bearing wall of scientific computing, and almost
 everyone treats it as wallpaper. Nearly every algorithm you care about
 eventually bottlenecks on the same tiny handful of operations:
 
-- **Linear regression** solves $(X^\top X)\beta = X^\top y$
-- **Gaussian processes** need $(K + \sigma^2 I)^{-1} y$ and $\log|K + \sigma^2 I|$ for *every* likelihood evaluation
-- **Kalman filters** compute the gain $K = P H^\top (H P H^\top + R)^{-1}$ at *every* time step
-- **Variational inference** wants $\log|\Sigma|$ and samples from $\mathcal{N}(\mu, \Sigma)$ --- both need a square root
-- **Natural gradients** invert the Fisher information, $F^{-1}\nabla\mathcal{L}$, at *every* update
+- **Linear regression** solves $(\mathbf{X}^\top \mathbf{X}) \boldsymbol{\theta} = \mathbf{X}^\top \mathbf{y}$
+- **Gaussian processes** need $(\mathbf{K} + \sigma^2 \mathbf{I})^{-1} \mathbf{y}$ and $\log \det(\mathbf{K} + \sigma^2 \mathbf{I})$ for *every* likelihood evaluation
+- **Kalman filters** compute the gain $\mathbf{G} = \boldsymbol{\Sigma}_x \mathbf{H}^\top (\mathbf{H} \boldsymbol{\Sigma}_x \mathbf{H}^\top + \boldsymbol{\Sigma}_\varepsilon)^{-1}$ at *every* time step
+- **Variational inference** wants $\log \det \boldsymbol{\Sigma}$ and samples from $\mathcal{N}(\boldsymbol{\mu}, \boldsymbol{\Sigma})$ --- both need a square root
+- **Natural gradients** invert the Fisher information, $\mathbf{F}^{-1} \nabla_{\boldsymbol{\theta}} \mathcal{L}$, at *every* update
 - **Ensemble methods** build empirical covariances that are low-rank by construction
-- **Spatial statistics on grids** produce $K_x \otimes K_y$, where $O(N^3)$ collapses to $O(n_x^3 + n_y^3)$
+- **Spatial statistics on grids** produce $\mathbf{K}_x \otimes \mathbf{K}_y$, where $O(N^3)$ collapses to $O(n_x^3 + n_y^3)$
 - **PDE solvers** invert elliptic operators and precondition iterative methods
 - **Optimal transport** runs Sinkhorn iterations that are just matvecs wearing a hat
 

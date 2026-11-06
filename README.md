@@ -178,13 +178,13 @@ Every primitive dispatches on the operator it is given. A dense matrix costs $O(
 
 | Operator | Represents | `solve` | `logdet` |
 |---|---|---|---|
-| `Kronecker` | $A_1 \otimes \cdots \otimes A_k$, $N = \prod_i n_i$ | $O(\sum_i n_i^3 + N \sum_i n_i)$, per factor | $O(\sum_i n_i^3)$, scaled sum |
-| `KroneckerSum` | $A \oplus B = A \otimes I + I \otimes B$ | joint eigenbasis, $O(n_A^3 + n_B^3 + N(n_A + n_B))$ | $\sum_{ij} \log(\lambda_i + \mu_j)$ |
-| `SumOfKroneckers` | $A_1 \otimes B_1 + A_2 \otimes B_2$ | whiten + per-factor `eigh` | eigenvalue sum |
-| `BlockDiag` | $\mathrm{diag}(A_1, \ldots, A_k)$ | $O(\sum_i b_i^3)$, per block | $O(\sum_i b_i^3)$, per block |
+| `Kronecker` | $\mathbf{A}_1 \otimes \ldots \otimes \mathbf{A}_k$, $N = \prod_i n_i$ | $O(\sum_i n_i^3 + N \sum_i n_i)$, per factor | $O(\sum_i n_i^3)$, scaled sum |
+| `KroneckerSum` | $\mathbf{A}_1 \oplus \mathbf{A}_2 = \mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$ | joint eigenbasis, $O(n_A^3 + n_B^3 + N(n_A + n_B))$ | $\sum_{ij} \log(\gamma_{1,i} + \gamma_{2,j})$ |
+| `SumOfKroneckers` | $\mathbf{A}_1 \otimes \mathbf{B}_1 + \mathbf{A}_2 \otimes \mathbf{B}_2$ | whiten + per-factor `eigh` | eigenvalue sum |
+| `BlockDiag` | $\mathrm{blockdiag}(\mathbf{A}_1, \ldots, \mathbf{A}_k)$ | $O(\sum_i b_i^3)$, per block | $O(\sum_i b_i^3)$, per block |
 | `BlockTriDiag` | symmetric block-tridiagonal, $T$ blocks of $d$ | $O(T d^3)$, block Cholesky | $O(T d^3)$ |
-| `LowRankUpdate` | $D + U C V^\top$, rank $k$ | $O(n k^2 + k^3)$, Woodbury | $O(n k^2 + k^3)$, determinant lemma |
-| `DiagonalizedOperator` | $V^{-1} \mathrm{diag}(\lambda) V$ (FFT, DCT, `circulant`) | $O(n \log n)$, transform pair | $O(n)$, $\sum \log \lvert\lambda\rvert$ |
+| `LowRankUpdate` | $\mathbf{A}_0 + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{V}^\top$, rank $k$ | $O(n k^2 + k^3)$, Woodbury | $O(n k^2 + k^3)$, determinant lemma |
+| `DiagonalizedOperator` | $\mathbf{W}^{-1} \mathrm{diag}(\boldsymbol{\gamma}) \mathbf{W}$ (FFT, DCT, `circulant`) | $O(n \log n)$, transform pair | $O(n)$, $\sum_i \log \lvert\gamma_i\rvert$ |
 | `SparseOperator` | sparse matrix on a static pattern | sparse Cholesky, or CG when large and PSD | sparse Cholesky, or an SLQ estimate |
 | `MaskedOperator` | rows / columns of a base operator | capacitance solve | dense |
 | `Toeplitz`, `InterpolatedOperator` | stationary kernels on grids, KISS-GP | $O(n \log n)$ matvecs for CG | SLQ via a strategy |

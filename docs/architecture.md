@@ -75,13 +75,13 @@ Pure functions that match the equations in papers. Every one takes a
 `lineax.AbstractLinearOperator` and returns arrays or operators:
 
 ```python
-x = gaussx.solve(A, b)  # solve A x = b
-ld = gaussx.logdet(A)  # log|det(A)|
-L = gaussx.cholesky(A)  # A = L L^T   (lazy, structure-preserving)
+x = gaussx.solve(A, b)  # A x = b
+ld = gaussx.logdet(A)  # log |det A|
+L = gaussx.cholesky(A)  # A = L Lᵀ (lazy, structure-preserving)
 d = gaussx.diag(A)  # diagonal entries
-t = gaussx.trace(A)  # tr(A)
-S = gaussx.sqrt(A)  # S with S S = A
-A_inv = gaussx.inv(A)  # lazy A^{-1}
+t = gaussx.trace(A)  # tr A
+S = gaussx.sqrt(A)  # S² = A
+A_inv = gaussx.inv(A)  # lazy A⁻¹
 ```
 
 Two properties are worth internalising:
@@ -144,22 +144,22 @@ branch, fails the test suite.
 | `Identity` / `Diagonal` | O(n) | O(n) | O(n) | O(n) | O(n) | O(n) |
 | `BlockDiag` | per block | sum of logdets | per block | per block | per block | per block |
 | `Kronecker` | Roth's lemma | scaled sum | per factor | per factor | per factor | per factor |
-| `KroneckerSum` | joint eigenbasis | $\sum \log(\lambda_i + \mu_j)$ | dense | from the factors' diagonals / traces | `KroneckerSumSqrt` | lazy |
+| `KroneckerSum` | joint eigenbasis | $\sum_{i,j} \log(\gamma_{1,i} + \gamma_{2,j})$ | dense | from the factors' diagonals / traces | `KroneckerSumSqrt` | lazy |
 | `KroneckerSumSqrt` | joint eigenbasis | dense | dense | dense | dense | lazy |
 | `SumOfKroneckers` | two terms: whiten + per-factor eigh; else dense | two terms: eigenvalue sum; else dense | dense (warns) | per term | `SumOfKroneckersSqrt` | lazy |
-| `SpectralFunction` | per-axis eigenbasis | $\sum \log\lvert f(\lambda)\rvert$ | dense | diag: per-axis eigenbasis; trace: dense | dense | lazy |
-| `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | orthonormal $U$ with scaled-identity base: closed form; else dense | square base: Woodbury |
+| `SpectralFunction` | per-axis eigenbasis | $\sum_i \log\lvert f(\gamma_i)\rvert$ | dense | diag: per-axis eigenbasis; trace: dense | dense | lazy |
+| `LowRankUpdate` | Woodbury | determinant lemma | dense | base + update | orthonormal $\mathbf{U}$ with scaled-identity base: closed form; else dense | square base: Woodbury |
 | `BlockTriDiag` | symmetric: block-banded; else dense | symmetric: block Cholesky; else dense | block Cholesky | per block | dense | lazy |
 | `LowerBlockTriDiag` / `UpperBlockTriDiag` | block forward / back substitution | sum over the diagonal blocks | dense | per block | dense | lazy |
-| `DiagonalizedOperator` / `circulant` | transform pair | $\sum \log\lvert\lambda\rvert$ | dense (warns; use `sqrt`) | trace: $\sum \lambda$; diag: $\bar\lambda$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
+| `DiagonalizedOperator` / `circulant` | transform pair | $\sum_i \log\lvert\gamma_i\rvert$ | dense (warns; use `sqrt`) | trace: $\sum_i \gamma_i$; diag: $\bar{\gamma}$ for the FFT pair, else dense (warns) | eigenvalues | eigenvalues |
 | `SparseOperator` | large and PSD: CG; else dense | large and PSD: SLQ estimate; else dense | sparse Cholesky | diag: stored diagonal; trace: dense | dense | lazy |
 | `MaskedOperator` | with a capacitance: capacitance solve; else dense | dense | dense | dense | dense | lazy |
-| `Toeplitz` | dense | dense | dense | $c_0$ (constant diagonal) | dense | lazy |
+| `Toeplitz` | dense | dense | dense | $t_0$ (constant diagonal) | dense | lazy |
 | `InterpolatedOperator` | dense | dense | dense | dense | dense | lazy |
-| `InverseOperator` (from `inv`) | one matvec with $A$ | dense | dense | dense | dense | returns $A$ |
+| `InverseOperator` (from `inv`) | one matvec with $\mathbf{A}$ | dense | dense | dense | dense | returns $\mathbf{A}$ |
 | `Tagged` | unwrap + recurse | unwrap + recurse | unwrap + recurse | unwrap + recurse | unwrap + recurse | lazy |
 | `Mul` / `Div` / `Neg` | unwrap + recurse, fix up the scalar | unwrap + recurse, add $\pm n \log\lvert c\rvert$ | $\sqrt{c}$ folded into the factor; `-A` raises | unwrap + recurse, scale | $\sqrt{c}$ folded into the root; `-A` raises | unwrap + recurse, scale by $1/c$ |
-| `Composed` | $B^{-1}(A^{-1} b)$ | square factors: sum of logdets; else dense | dense | dense | dense | square factors: $B^{-1} A^{-1}$; else lazy |
+| `Composed` | $\mathbf{B}^{-1}(\mathbf{A}^{-1} \mathbf{b})$ | square factors: sum of logdets; else dense | dense | dense | dense | square factors: $\mathbf{B}^{-1} \mathbf{A}^{-1}$; else lazy |
 | `Add` | two Kronecker terms: eigen reduction; else dense | two Kronecker terms: eigenvalue sum; else dense | dense | sum of the two parts | dense | lazy |
 | Everything else | lineax solver chosen from the tags | `slogdet` | `jax.scipy` Cholesky | dense | dense eigh | lazy `InverseOperator` |
 
@@ -216,15 +216,15 @@ flowchart LR
 
 | Operator | Represents | Why it is worth it |
 |----------|-----------|--------------------|
-| `Kronecker(A, B, ...)` | $A \otimes B \otimes \cdots$ | $O(\sum_i n_i^3)$ instead of $O((\prod_i n_i)^3)$; matvec is Roth's column lemma via einx |
-| `KroneckerSum(A, B)` | $A \oplus B = A \otimes I + I \otimes B$ | Diagonalises in the joint eigenbasis, eigenvalues $\lambda_i + \mu_j$ |
-| `SumOfKroneckers` | $\sum_k A_k \otimes B_k$ | Structured Cholesky/sqrt for separable-plus-noise covariances. *Not* the same as `KroneckerSum`; was named `SumKronecker`, which survives as a deprecated alias |
-| `BlockDiag(A, B, ...)` | $\mathrm{diag}(A, B, \ldots)$ | Every primitive splits per block |
-| `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | $O(N d^3)$ --- the precision structure of Markovian GPs |
-| `LowRankUpdate(L, U, d, V)` | $L + U\,\mathrm{diag}(d)\,V^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
+| `Kronecker(A, B, ...)` | $\mathbf{A}_1 \otimes \ldots \otimes \mathbf{A}_D$ | $O(\sum_d N_d^3)$ instead of $O((\prod_d N_d)^3)$; matvec is Roth's column lemma via einx |
+| `KroneckerSum(A, B)` | $\mathbf{A}_1 \oplus \mathbf{A}_2 = \mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$ | Diagonalises in the joint eigenbasis, eigenvalues $\gamma_{1,i} + \gamma_{2,j}$ |
+| `SumOfKroneckers` | $\sum_j \mathbf{A}_j \otimes \mathbf{B}_j$ | Structured Cholesky/sqrt for separable-plus-noise covariances. *Not* the same as `KroneckerSum`; was named `SumKronecker`, which survives as a deprecated alias |
+| `BlockDiag(A, B, ...)` | $\mathrm{blockdiag}(\mathbf{A}_1, \ldots, \mathbf{A}_D)$ | Every primitive splits per block |
+| `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | $O(B d^3)$ for $B$ blocks of size $d$ --- the precision structure of Markovian GPs |
+| `LowRankUpdate(base, U, d, V)` | $\mathbf{A}_0 + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{V}^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
 | `SVDLowRankUpdate` | *Deprecated* --- use `LowRankUpdate(..., orthonormal=True)` | Kept as a subclass so `isinstance` checks keep working; warns on construction |
 | `Toeplitz` | Symmetric Toeplitz | $O(n \log n)$ matvecs and sampling via FFT circulant embedding |
-| `InterpolatedOperator` | $W K_{uu} W^\top$ (KISS-GP style) | Grid interpolation weights, sparse in effect |
+| `InterpolatedOperator` | $\mathbf{W}_\text{interp} \mathbf{K}_{\mathcal{I}\mathcal{I}} \mathbf{W}_\text{interp}^\top$ (KISS-GP style) | Grid interpolation weights, sparse in effect |
 | `MaskedOperator` | Row/column sub-selection of a base operator | Irregular domains, held-out indices |
 
 Arithmetic composes with lineax's own operators, and the primitives unwrap the
@@ -377,13 +377,13 @@ flowchart LR
 - **`MultivariateNormal(loc, cov_operator, solver=...)`** takes *any* covariance
   operator and *any* solver strategy. The distribution owns the math; the
   strategy owns the numerics.
-- **`MultivariateNormalPrecision`** carries $\Lambda = \Sigma^{-1}$ directly ---
-  the natural home for natural-parameter guides, where materializing $\Sigma$
+- **`MultivariateNormalPrecision`** carries $\boldsymbol{\Lambda} = \boldsymbol{\Sigma}^{-1}$ directly ---
+  the natural home for natural-parameter guides, where materializing $\boldsymbol{\Sigma}$
   would be wasted work.
 - Both require `numpyro`, which is an **optional** dependency. The rest of
   gaussx imports fine without it (see the guarded import at the bottom of
   `src/gaussx/__init__.py`).
-- **Sugar ops** evaluate $\log\mathcal{N}(x \mid \mu, \Sigma)$, entropy,
+- **Sugar ops** evaluate $\log\mathcal{N}(\mathbf{x}; \boldsymbol{\mu}, \boldsymbol{\Sigma})$, entropy,
   quadratic forms, KLs, conditioning, and the numerically stable Joseph-form
   covariance update --- all through structured `solve` + `logdet`.
 - **Exponential family** provides the conversions (mean/cov ↔ natural ↔
