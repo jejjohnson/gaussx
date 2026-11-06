@@ -1,4 +1,11 @@
-"""Randomized SVD and symmetric eigendecomposition."""
+"""Randomized SVD and symmetric eigendecomposition of an operator A.
+
+A is M × N for the SVD, A ≈ U diag(s) Vᵀ, with k singular values s ≥ 0 and left and
+right singular vectors in the columns of U and V. A is N × N and symmetric for the
+eigendecomposition, A ≈ V diag(γ) Vᵀ, with eigenvalues γ and orthonormal V. Q is an
+orthonormal basis from `range_finder` with ℓ = k + p columns, for oversampling p and
+q power iterations.
+"""
 
 from __future__ import annotations
 
@@ -22,50 +29,89 @@ def randomized_svd(
     n_power_iter: int = 2,
     key: jax.Array | None = None,
 ) -> tuple[Float[Array, "m k"], Float[Array, " k"], Float[Array, "k n"]]:
-    r"""Truncated SVD $A \approx U \operatorname{diag}(s) V^\top$ by randomized QB.
+    """Truncated SVD A ≈ U diag(s) Vᵀ by randomized QB.
 
-    Computes $A \approx QB$ with `qb`, the small SVD $B = U_B \Sigma V^\top$,
-    and lifts $U = Q U_B$, keeping the top ``rank`` triplets (Halko,
-    Martinsson & Tropp, 2011, Algorithm 5.1). The cost is
-    $(2q + 2)\ell$ matvecs with $A$ or $A^\top$, $\ell$ = ``rank +
-    oversample``, plus $O((m+n)\ell^2)$ flops; $A$ is never formed.
+        A ≈ Q B,   B = U_B diag(s) Vᵀ,   U = Q U_B
 
-    Randomized methods target the **top** of the spectrum: the leading
-    singular triplets are accurate, the trailing ones are not. Use
-    ``n_power_iter >= 2`` for slowly decaying spectra (Matérn-½ Gram
-    matrices, most geophysical fields); see `range_finder` for the error
-    bound.
+    The cost is (2q + 2) ℓ matvecs with A or Aᵀ, plus O((M + N) ℓ²) flops; A is
+    never formed.
+
+    Randomized methods target the **top** of the spectrum: the leading singular
+    triplets are accurate, the trailing ones are not. Use ``n_power_iter >= 2`` for
+    slowly decaying spectra (Matérn-½ Gram matrices, most geophysical fields); see
+    `range_finder` for the error bound.
+
+    Algorithm:
+        1. Factorise A ≈ Q B with `qb`.
+        2. Take the small SVD B = U_B diag(s) Vᵀ.
+        3. Keep the top k triplets and lift the left vectors, U = Q U_B.
 
     Args:
-        op: Operator $A$ of shape ``(m, n)``; may be matrix-free.
-        rank: Number of singular triplets $k$ to return (at most
-            ``min(m, n)``).
-        oversample: Extra columns $p$ in the range finder.
-        n_power_iter: Number of power iterations $q$.
+        op: Operator A of size M × N; may be matrix-free.
+        rank: Number of singular triplets k to return (at most min(M, N)).
+        oversample: Extra columns p in the range finder.
+        n_power_iter: Number of power iterations q.
         key: PRNG key for the Gaussian test matrix. ``None`` means
             ``jax.random.PRNGKey(0)``.
 
     Returns:
-        ``(U, s, Vt)`` of shapes ``(m, k)``, ``(k,)`` and ``(k, n)``, with
-        ``s`` descending.
+        Tuple ``(U, s, Vt)`` holding U (M × k), s (length k, descending) and
+        Vᵀ (k × N).
+
+    Raises:
+        ValueError: On a non-positive ``rank``, or a negative ``oversample`` or
+            ``n_power_iter``.
 
     Examples:
-        50 EOFs of an anomaly matrix available only as a matvec, here a
-        small dense stand-in:
+        Five EOFs of an anomaly matrix available only as a matvec, here a small dense
+        stand-in:
 
-        >>> import einx, jax.random as jr, lineax as lx
-        >>> import gaussx as gx
-        >>> X = jr.normal(jr.key(0), (300, 8)) @ jr.normal(jr.key(1), (8, 120))
-        >>> U, s, Vt = gx.randomized_svd(lx.MatrixLinearOperator(X), 5, key=jr.key(2))
+        >>> import einx
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> left = jr.normal(jr.key(0), (300, 8))
+        >>> anomalies = left @ jr.normal(jr.key(1), (8, 120))
+        >>> op = lx.MatrixLinearOperator(anomalies)
+        >>> U, s, Vt = gaussx.randomized_svd(op, 5, key=jr.key(2))
         >>> U.shape, s.shape, Vt.shape
         ((300, 5), (5,), (5, 120))
-        >>> eofs, pcs = U, einx.multiply("k, k t -> k t", s, Vt)
+        >>> pcs = einx.multiply("k, k time -> k time", s, Vt)
+        >>> pcs.shape
+        (5, 120)
+
+        A ``rank`` above min(M, N) returns min(M, N) triplets:
+
+        >>> small = lx.MatrixLinearOperator(jnp.eye(3))
+        >>> gaussx.randomized_svd(small, 5)[1].shape
+        (3,)
+
+        A non-positive ``rank`` is rejected:
+
+        >>> gaussx.randomized_svd(small, 0)
+        Traceback (most recent call last):
+        ...
+        ValueError: rank must be a positive integer, got 0.
+
+    References:
+        Halko, N., Martinsson, P.-G. & Tropp, J. A. (2011), Algorithm 5.1.
     """
-    Q, B = qb(op, rank, oversample=oversample, n_power_iter=n_power_iter, key=key)
-    U_b, s, Vt = jnp.linalg.svd(B, full_matrices=False)
-    k = min(rank, s.shape[0])
-    U = einsum(Q, U_b[:, :k], "m l, l k -> m k")
-    return U, s[:k], Vt[:k]
+    # A ≈ Q B
+    basis, projection = qb(
+        op, rank, oversample=oversample, n_power_iter=n_power_iter, key=key
+    )
+    # B = U_B diag(s) Vᵀ
+    small_left, singular_values, right_transpose = jnp.linalg.svd(
+        projection, full_matrices=False
+    )
+    # min(k, ℓ)
+    kept = min(rank, singular_values.shape[0])
+    # U_B restricted to the top triplets
+    top_small_left = small_left[:, :kept]
+    # U = Q U_B
+    left = einsum(basis, top_small_left, "m l, l k -> m k")
+    return left, singular_values[:kept], right_transpose[:kept]
 
 
 def randomized_eigh(
@@ -77,64 +123,85 @@ def randomized_eigh(
     which: Literal["largest", "magnitude"] = "largest",
     key: jax.Array | None = None,
 ) -> tuple[Float[Array, " k"], Float[Array, "n k"]]:
-    r"""Partial eigendecomposition of a symmetric operator by Rayleigh-Ritz.
+    """Partial eigendecomposition of a symmetric operator by Rayleigh-Ritz.
 
-    Finds an orthonormal $Q$ for the dominant range of $A$ with
-    `range_finder`, forms the Rayleigh-Ritz matrix $T = Q^\top A Q$
-    ($\ell$ more matvecs), and lifts the eigenpairs of $T$:
-    $A \approx (QW)\Lambda(QW)^\top$ with $T = W\Lambda W^\top$. $A$ may be
-    indefinite. The range finder captures the eigenvalues of largest
-    **magnitude** (randomized methods target the **top** of the spectrum),
-    and ``rank`` Ritz pairs are kept by ``which``:
+        T = Qᵀ A Q = W diag(γ) Wᵀ,   A ≈ (Q W) diag(γ) (Q W)ᵀ
+
+    A may be indefinite. The range finder captures the eigenvalues of largest
+    **magnitude** (randomized methods target the **top** of the spectrum), and
+    ``rank`` Ritz pairs are kept by ``which``:
 
     - ``"largest"``: the algebraically largest Ritz values;
     - ``"magnitude"``: the Ritz values of largest absolute value.
 
-    For an indefinite $A$ whose large negative eigenvalues dominate,
-    ``"largest"`` is only as good as the subspace, so prefer
-    ``"magnitude"`` there. The small end of a spectrum (e.g. the smallest
-    eigenvalues of a graph Laplacian) is Lanczos / LOBPCG territory.
+    For an indefinite A whose large negative eigenvalues dominate, ``"largest"`` is
+    only as good as the subspace, so prefer ``"magnitude"`` there. The small end of a
+    spectrum (e.g. the smallest eigenvalues of a graph Laplacian) is Lanczos / LOBPCG
+    territory.
 
-    Use ``n_power_iter >= 2`` for slowly decaying spectra (Matérn-½ Gram
-    matrices, most geophysical fields). With ``n_power_iter=0`` this is the
-    one-pass randomized Rayleigh-Ritz projection, the successor of the
-    algorithm behind `NystromPreconditioner` up to gaussx 0.4; it projects
-    onto $\operatorname{orth}(A\Omega)$ rather than
-    $\operatorname{orth}(\Omega)$, which is more accurate, so it is not
-    numerically identical. For PSD operators,
-    `randomized_nystrom` is strictly more accurate for the same number of
+    Use ``n_power_iter >= 2`` for slowly decaying spectra (Matérn-½ Gram matrices,
+    most geophysical fields). With ``n_power_iter=0`` this is the one-pass randomized
+    Rayleigh-Ritz projection, the successor of the algorithm behind
+    `NystromPreconditioner` up to gaussx 0.4; it projects onto orth(A Ω) rather than
+    orth(Ω), which is more accurate, so it is not numerically identical. For PSD
+    operators, `randomized_nystrom` is strictly more accurate for the same number of
     matvecs (Tropp et al., 2017).
 
+    Algorithm:
+        1. Find an orthonormal Q for the dominant range of A with `range_finder`.
+        2. Form the Rayleigh-Ritz matrix T = Qᵀ A Q (ℓ more matvecs) and symmetrise.
+        3. Take T = W diag(γ) Wᵀ and keep k Ritz pairs by ``which``.
+        4. Lift the kept eigenvectors, V = Q W.
+
     Args:
-        op: Symmetric operator $A$ of shape ``(n, n)``; may be matrix-free.
-        rank: Number of eigenpairs $k$ to return.
-        oversample: Extra columns $p$ in the range finder.
-        n_power_iter: Number of power iterations $q$.
+        op: Symmetric operator A of size N × N; may be matrix-free.
+        rank: Number of eigenpairs k to return.
+        oversample: Extra columns p in the range finder.
+        n_power_iter: Number of power iterations q.
         which: ``"largest"`` or ``"magnitude"``.
         key: PRNG key for the Gaussian test matrix. ``None`` means
             ``jax.random.PRNGKey(0)``.
 
     Returns:
-        ``(eigenvalues, eigenvectors)`` of shapes ``(k,)`` and ``(n, k)``,
-        eigenvalues in ascending order (as `jax.numpy.linalg.eigh`),
-        eigenvectors orthonormal.
+        Tuple ``(eigenvalues, eigenvectors)`` holding γ (length k, ascending, as
+        `jax.numpy.linalg.eigh`) and the orthonormal V (N × k).
 
     Raises:
-        ValueError: If ``which`` is invalid or the operator is not square.
+        ValueError: If ``which`` is invalid, the operator is not square, ``rank`` is
+            non-positive, or ``oversample`` or ``n_power_iter`` is negative.
 
     Examples:
-        >>> import einx, jax.numpy as jnp, jax.random as jr, lineax as lx
-        >>> import gaussx as gx
-        >>> lam = jnp.array([-9.0, 5.0, 1.0, 0.1, 0.01, 0.0])
-        >>> Q, _ = jnp.linalg.qr(jr.normal(jr.key(0), (6, 6)))
-        >>> A = einx.dot("i k, j k -> i j", einx.multiply("i k, k -> i k", Q, lam), Q)
-        >>> A = lx.MatrixLinearOperator(A, lx.symmetric_tag)
-        >>> vals, vecs = gx.randomized_eigh(A, 2, oversample=2, which="magnitude")
-        >>> bool(jnp.allclose(vals, jnp.array([-9.0, 5.0]), atol=1e-4))
+        An indefinite operator, where ``which`` decides between its pairs:
+
+        >>> import einx
+        >>> import jax.numpy as jnp
+        >>> import jax.random as jr
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> spectrum = jnp.array([-9.0, 5.0, 1.0, 0.1, 0.01, 0.0])
+        >>> vectors, _ = jnp.linalg.qr(jr.normal(jr.key(0), (6, 6)))
+        >>> scaled = einx.multiply("row k, k -> row k", vectors, spectrum)
+        >>> matrix = einx.dot("row k, col k -> row col", scaled, vectors)
+        >>> op = lx.MatrixLinearOperator(matrix, lx.symmetric_tag)
+        >>> values, _ = gaussx.randomized_eigh(op, 2, oversample=2, which="magnitude")
+        >>> bool(jnp.allclose(values, jnp.array([-9.0, 5.0]), atol=1e-4))
         True
-        >>> vals, _ = gx.randomized_eigh(A, 2, oversample=2, which="largest")
-        >>> bool(jnp.allclose(vals, jnp.array([1.0, 5.0]), atol=1e-4))
+        >>> values, _ = gaussx.randomized_eigh(op, 2, oversample=2, which="largest")
+        >>> bool(jnp.allclose(values, jnp.array([1.0, 5.0]), atol=1e-4))
         True
+
+        A ``rank`` above N returns N pairs:
+
+        >>> small = lx.MatrixLinearOperator(jnp.eye(3), lx.symmetric_tag)
+        >>> gaussx.randomized_eigh(small, 5)[1].shape
+        (3, 3)
+
+        An unknown ``which`` is rejected:
+
+        >>> gaussx.randomized_eigh(small, 2, which="smallest")
+        Traceback (most recent call last):
+        ...
+        ValueError: which must be 'largest' or 'magnitude', got 'smallest'.
     """
     if which not in ("largest", "magnitude"):
         raise ValueError(f"which must be 'largest' or 'magnitude', got {which!r}.")
@@ -143,15 +210,32 @@ def randomized_eigh(
             f"randomized_eigh needs a square operator, got "
             f"{op.out_size()}x{op.in_size()}."
         )
-    Q = range_finder(
+    # Q = orth((A Aᵀ)^q A Ω)
+    basis = range_finder(
         op, rank, oversample=oversample, n_power_iter=n_power_iter, key=key
     )
-    T = symmetrize(einsum(Q, _matmat(op, Q), "n a, n b -> a b"))
-    vals, W = jnp.linalg.eigh(T)
-    k = min(rank, vals.shape[0])
+    # A Q
+    image = _matmat(op, basis)
+    # Qᵀ A Q
+    ritz_matrix = einsum(basis, image, "n a, n b -> a b")
+    # T = sym(Qᵀ A Q)
+    ritz_matrix = symmetrize(ritz_matrix)
+    # T = W diag(γ) Wᵀ
+    ritz_values, ritz_vectors = jnp.linalg.eigh(ritz_matrix)
+    # min(k, ℓ)
+    kept = min(rank, ritz_values.shape[0])
     if which == "largest":
-        keep = jnp.arange(vals.shape[0] - k, vals.shape[0])
+        # eigh sorts γ ascending, so the last k are the largest
+        keep = jnp.arange(ritz_values.shape[0] - kept, ritz_values.shape[0])
     else:
-        keep = jnp.sort(jnp.argsort(-jnp.abs(vals))[:k])
-    vecs = einsum(Q, W[:, keep], "n l, l k -> n k")
-    return vals[keep], vecs
+        # |γ|
+        magnitudes = jnp.abs(ritz_values)
+        # −|γ|, so an ascending sort puts the largest first
+        order = jnp.argsort(-magnitudes)
+        # the k largest |γ|, back in ascending order of γ
+        keep = jnp.sort(order[:kept])
+    # W restricted to the kept pairs
+    kept_vectors = ritz_vectors[:, keep]
+    # V = Q W
+    eigenvectors = einsum(basis, kept_vectors, "n l, l k -> n k")
+    return ritz_values[keep], eigenvectors
