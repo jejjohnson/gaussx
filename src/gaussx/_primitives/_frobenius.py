@@ -224,8 +224,9 @@ def _low_rank_squared_norm(
     Returns:
         ‖A‖_F², clamped at zero.
     """
-    # A rank-0 update is its base, and einx rejects a zero-length axis.
-    if operator.U.shape[1] == 0:
+    # An update with no modes, rows or columns is its base, and einx rejects a
+    # zero-length axis.
+    if 0 in operator.U.shape or 0 in operator.V.shape:
         return base_squared
     # s_k = max_i |U_ik|, and t_k likewise for V
     left_scale = _mode_scale(operator.U)
