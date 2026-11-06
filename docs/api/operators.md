@@ -9,17 +9,17 @@ All are immutable `equinox.Module` pytrees, so they compose freely with `jit`,
 
 ## Structured products & sums
 
-The Kronecker product $A_1 \otimes A_2 \otimes \cdots$ gives $O(\sum_i n_i^3)$
-solves on a $\prod_i n_i$ grid; the Kronecker *sum* $A \otimes I + I \otimes B$
-diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
+The Kronecker product $\mathbf{A}_1 \otimes \mathbf{A}_2 \otimes \ldots \otimes \mathbf{A}_D$ gives $O(\sum_d N_d^3)$
+solves on a $\prod_d N_d$ grid; the Kronecker *sum* $\mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$
+diagonalises in the joint eigenbasis with eigenvalues $\gamma_{1,i} + \gamma_{2,j}$.
 
 !!! warning "`KroneckerSum` and `SumOfKroneckers` are different operators"
     They are not word-order variants of one idea:
 
     | | Math | Eigendecomposition |
     |---|---|---|
-    | `KroneckerSum(A, B)` | $A \otimes I + I \otimes B$ | Closed form — eigenvalues $\lambda_i + \mu_j$, eigenvectors $V_A \otimes V_B$ |
-    | `SumOfKroneckers(K_1, K_2, …)` | $\sum_k A_k \otimes B_k$ | None in general. `solve` / `logdet` reduce the *two-term* case with one term positive definite — $B \otimes C + \sigma^2 I$ and $B_1 \otimes C_1 + B_2 \otimes C_2$ — to one eigendecomposition per factor, $O(n_c^3 + n_d^3)$; `eigendecompose` covers the same two-term symmetric case more generally by densifying a $(n_c n_d)^2$ block |
+    | `KroneckerSum(A, B)` | $\mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$ | Closed form — eigenvalues $\gamma_{1,i} + \gamma_{2,j}$, eigenvectors $\mathbf{Q}_1 \otimes \mathbf{Q}_2$ |
+    | `SumOfKroneckers(K_1, K_2, …)` | $\sum_j \mathbf{A}_j \otimes \mathbf{B}_j$ | None in general. `solve` / `logdet` reduce the *two-term* case with one term positive definite — $\mathbf{A} \otimes \mathbf{B} + \sigma^2 \mathbf{I}$ and $\mathbf{A}_1 \otimes \mathbf{B}_1 + \mathbf{A}_2 \otimes \mathbf{B}_2$ — to one eigendecomposition per factor, $O(N_1^3 + N_2^3)$; `eigendecompose` covers the same two-term symmetric case more generally by densifying a $(N_1 N_2)^2$ block |
 
     `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
     still imports and subclasses the new one — so `isinstance` checks keep
@@ -40,21 +40,25 @@ diagonalises in the joint eigenbasis with eigenvalues $\lambda_i + \mu_j$.
 
 ## Low-rank updates
 
-$L + U\,\mathrm{diag}(d)\,V^\top$ with Woodbury-efficient solves and
+$\mathbf{A}_0 + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{V}^\top$ with Woodbury-efficient solves and
 matrix-determinant-lemma logdets. The factories build the common special cases
-directly from arrays. `orthonormal=True` is an unchecked claim that $U$ has
-orthonormal columns ($U^\top U = I_k$: truncated SVD, Nyström, ensemble
+directly from arrays. `orthonormal=True` is an unchecked claim that $\mathbf{U}$ has
+orthonormal columns ($\mathbf{U}^\top \mathbf{U} = \mathbf{I}_k$: truncated SVD, Nyström, ensemble
 factors). It matters only for a symmetric update on a scaled-identity base,
-$cI + U\,\mathrm{diag}(d)\,U^\top$ — build one with
+$c\mathbf{I} + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{U}^\top$ — build one with
 `low_rank_plus_identity(U, d, scale=c, orthonormal=True)` — where `solve` and
-`logdet` take $O(nk)$ / $O(k)$ closed forms with no $k \times k$ factorisation,
+`logdet` take $O(Nk)$ / $O(k)$ closed forms with no $k \times k$ factorisation,
 and `inv` and `sqrt` stay orthonormal low-rank updates:
 
 $$
-(cI + UDU^\top)^{-1} = c^{-1}\Big(I - U\,\mathrm{diag}\big(\tfrac{d}{c+d}\big)U^\top\Big),
-\qquad
-\log\lvert\det(cI + UDU^\top)\rvert = (n-k)\log\lvert c\rvert + \textstyle\sum_i \log\lvert c + d_i\rvert .
+(c\mathbf{I} + \mathbf{U}\mathbf{D}\mathbf{U}^\top)^{-1} = c^{-1} \left(\mathbf{I} - \mathbf{U} \mathrm{diag}\left(\frac{d_i}{c + d_i}\right) \mathbf{U}^\top\right)
 $$
+
+$$
+\log \lvert \det(c\mathbf{I} + \mathbf{U}\mathbf{D}\mathbf{U}^\top) \rvert = (N - k) \log \lvert c \rvert + \sum_i \log \lvert c + d_i \rvert
+$$
+
+with $\mathbf{D} = \mathrm{diag}(\mathbf{d})$ and $\mathbf{U}$ of size $N \times k$.
 
 On any other base (e.g. a general diagonal) the flag does not change the
 result, and tag inference never depends on it.
@@ -88,10 +92,10 @@ operators get $O(n \log n)$ matvecs and sampling via FFT circulant embedding.
 ## Fast-diagonalisable operators
 
 `DiagonalizedOperator` is an operator diagonal in a fast transform basis,
-$A = V^{-1}\Lambda V$, given by a forward/inverse transform pair (FFT,
+$\mathbf{A} = \mathbf{W}^{-1} \mathrm{diag}(\boldsymbol{\gamma}) \mathbf{W}$, given by a forward/inverse transform pair (FFT,
 orthonormal DCT/DST, spherical harmonics, or a dense eigenvector matrix) and
-the eigenvalue array $\Lambda$. `solve`, `logdet`, `inv`, `sqrt` and `trace`
-are elementwise in $\Lambda$, and shifts/scalings such as $A - \lambda I$
+the eigenvalue array $\boldsymbol{\gamma}$. `solve`, `logdet`, `inv`, `sqrt` and `trace`
+are elementwise in $\boldsymbol{\gamma}$, and shifts/scalings such as $\mathbf{A} - c\mathbf{I}$
 stay diagonalised, so a spectral Helmholtz solve is never materialised.
 `circulant` / `circulant_from_symbol` are the FFT special case (periodic
 stencils, stationary covariances on periodic grids), and a `KroneckerSum` whose
@@ -118,13 +122,13 @@ psi = gaussx.solve(helmholtz, f)  # two FFTs, no matrix
       show_root_toc_entry: false
       members: [DiagonalizedOperator, circulant, circulant_from_symbol, as_diagonalized]
 
-`SpectralFunction` is $f(A_1\oplus\cdots\oplus A_d)$ for symmetric factors,
+`SpectralFunction` is $f(\mathbf{A}_1 \oplus \ldots \oplus \mathbf{A}_D)$ for symmetric factors,
 stored as the factor eigendecompositions plus the elementwise function $f$:
 `mv`, `solve`, `logdet`, `diag_inv` (also with `pinv=True`) and `sqrt_matmul`
 act one axis at a time through the shared eigenvectors. It is the operator
 behind the SPDE (Matérn) precision on a regular grid,
 [`spde_precision_grid`](gmrf.md), and as a factor of a shifted Kronecker
-product $A\otimes f(B) + cI$ it keeps its eigenbasis.
+product $\mathbf{A}_1 \otimes f(\mathbf{A}_2) + c\mathbf{I}$ it keeps its eigenbasis.
 
 ::: gaussx
     options:
@@ -150,7 +154,7 @@ on them unchanged.
 ## Lazy algebra & sampling
 
 Sum / scale / compose operators without materializing, sample
-$\varepsilon \sim \mathcal{N}(0, A)$ for the structured families, and solve
+$\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{A})$ for the structured families, and solve
 bordered systems through the capacitance (Schur-complement) form.
 
 ::: gaussx

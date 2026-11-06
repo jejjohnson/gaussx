@@ -79,22 +79,25 @@ is a PyTree leaf, or change `seed`.
 ## Sketch-and-precondition least squares
 
 `SketchAndPrecondLSMR` solves tall (optionally ridge-damped) least squares
-$\min_x \|Ax - b\|^2 + \delta^2\|x\|^2$, $m \gg n$, in a number of LSMR
-steps that does not grow with $m$ or $\kappa(A)$. A sketch
-$S \in \mathbb{R}^{d \times m}$ ([Sketching](sketching.md)) of $A$ gives
-$[SA;\ \delta I] = QR$, and $M = R^{-1}$ is a right preconditioner with
+$\min_{\mathbf{x}} \Vert \mathbf{A}\mathbf{x} - \mathbf{b} \Vert_2^2 + \beta \Vert \mathbf{x} \Vert_2^2$ with $\beta = \mathrm{damp}^2 \ge 0$ and $\mathbf{A} \in \mathbb{R}^{M \times N}$, $M \gg N$, in a number of LSMR
+steps that does not grow with $M$ or $\kappa(\mathbf{A})$. A sketch
+$\mathbf{S} \in \mathbb{R}^{d \times M}$ ([Sketching](sketching.md)) of $\mathbf{A}$ gives
+$[\mathbf{S}\mathbf{A};\ \sqrt{\beta}\mathbf{I}] = \mathbf{Q}\mathbf{R}$, and $\mathbf{R}^{-1}$ is a right preconditioner with
 
 $$
-\kappa(\tilde A M) \le \frac{1+\varepsilon}{1-\varepsilon},
-\qquad \tilde A = [A;\ \delta I],
+\kappa(\mathbf{A}_\text{aug} \mathbf{R}^{-1}) \le \frac{1+\varepsilon}{1-\varepsilon}
 $$
 
-when $S$ is an $\varepsilon$-embedding for $\operatorname{range}(A)$. The
-sketch-and-solve estimate $x_0 = R^{-1}Q_{1:d}^\top Sb$ is the warm start;
+$$
+\mathbf{A}_\text{aug} = [\mathbf{A};\ \sqrt{\beta}\mathbf{I}]
+$$
+
+when $\mathbf{S}$ is an $\varepsilon$-embedding for $\mathrm{range}(\mathbf{A})$. The
+sketch-and-solve estimate $\mathbf{x}_0 = \mathbf{R}^{-1}\mathbf{Q}_{1:d}^\top \mathbf{S}\mathbf{b}$ is the warm start;
 `sketch_and_solve` returns it on its own (an $O(\varepsilon)$ approximation).
-The dense QR costs $O(dn^2)$, so this targets $n \lesssim 10^4$; for larger
-$n$, solve the normal equations with `PreconditionedCGSolver` and a
-`NystromPreconditioner` on $A^\top A$ with `shift=δ²`.
+The dense QR costs $O(dN^2)$, so this targets $N \lesssim 10^4$; for larger
+$N$, solve the normal equations with `PreconditionedCGSolver` and a
+`NystromPreconditioner` on $\mathbf{A}^\top \mathbf{A}$ with `shift=β`.
 
 ```python
 # Gauss–Newton step on a (10⁶ pixels × 300 parameters) Jacobian J_op
@@ -110,13 +113,13 @@ step = gx.SketchAndPrecondLSMR(damp=1e-3).solve(J_op, -residuals)
 ## Logdet strategies
 
 Dense eigendecomposition for exactness; stochastic Lanczos quadrature (SLQ) for
-$O(n^2 \cdot \text{rank})$ estimates on large PSD (or symmetric-indefinite)
+$O(N^2 \cdot \mathrm{rank})$ estimates on large PSD (or symmetric-indefinite)
 operators.
 
 `NystromLogdet` (Wenger et al., 2022) is the variance-reduced SLQ for a
-covariance-form $K + \sigma^2 I$. The log-determinant of the Nyström
-preconditioner $P = \hat K + \sigma^2 I$ is exact, and SLQ only estimates
-$\log|P^{-1/2}(K + \sigma^2 I)P^{-1/2}|$, whose operator is close to the
+covariance-form $\mathbf{K} + \sigma^2 \mathbf{I}$. The log-determinant of the Nyström
+preconditioner $\mathbf{P} = \hat{\mathbf{K}} + \sigma^2 \mathbf{I}$ is exact, and SLQ only estimates
+$\log \det(\mathbf{P}^{-1/2} (\mathbf{K} + \sigma^2 \mathbf{I}) \mathbf{P}^{-1/2})$, whose operator is close to the
 identity, so the probe variance collapses. Use plain `SLQLogdet` for
 precision-form GMRF systems.
 
@@ -128,18 +131,18 @@ precision-form GMRF systems.
 
 ## Preconditioners
 
-Approximate inverses $M^{-1} \approx A^{-1}$ that accelerate the iterative
+Approximate inverses $\mathbf{M}^{-1} \approx \mathbf{A}^{-1}$ that accelerate the iterative
 solvers above. Pass them via the `preconditioner=` argument of
 [`linear_solve`](#gaussx.linear_solve), [`CGSolver`](#gaussx.CGSolver), or
 [`PreconditionedCGSolver`](#gaussx.PreconditionedCGSolver).
 
-For a covariance-form system $K + \sigma^2 I$, build
+For a covariance-form system $\mathbf{K} + \sigma^2 \mathbf{I}$, build
 [`NystromPreconditioner`](#gaussx.NystromPreconditioner) or
 [`PartialCholeskyPreconditioner`](#gaussx.PartialCholeskyPreconditioner) once
-with `from_operator(K, rank, shift=σ²)`: the operator is the PSD part $K$ only
+with `from_operator(K, rank, shift=σ²)`: the operator is the PSD part $\mathbf{K}$ only
 and the noise is passed separately, so it is never counted twice. With a
-Nyström rank $\ell \gtrsim 2\lceil 1.5\,d_{\text{eff}}(\sigma^2)\rceil + 1$,
-$d_{\text{eff}}(\mu) = \operatorname{tr}\big(K(K + \mu I)^{-1}\big)$, CG
+Nyström rank $k \gtrsim 2\lceil 1.5 d_\text{eff}(\sigma^2)\rceil + 1$,
+$d_\text{eff}(\sigma^2) = \mathrm{tr}(\mathbf{K}(\mathbf{K} + \sigma^2 \mathbf{I})^{-1})$, CG
 needs a number of iterations that does not grow with $n$ (Frangella, Tropp &
 Udell, 2023).
 

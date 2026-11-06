@@ -30,7 +30,7 @@ recipes never re-derive them.
     gaussx 0.7.0 — it is
     detected when the second positional argument is a
     `lineax.AbstractLinearOperator` — but it emits a `DeprecationWarning` and
-    skips the $K_{XZ}$-based Schur subtraction, treating its first argument as
+    skips the $\mathbf{K}_{XZ}$-based Schur subtraction, treating its first argument as
     an already-computed Schur diagonal. Call
     `conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u)` instead.
 
@@ -42,25 +42,27 @@ recipes never re-derive them.
 
 ## Marginal variances & selected inverses
 
-`diag_inv` returns $\operatorname{diag}(Q^{-1})$ — the marginal variances
-of a Gaussian with precision $Q$ — and dispatches on structure before
+`diag_inv` returns $\mathrm{diag}(\boldsymbol{\Lambda}^{-1})$ — the marginal variances
+of a Gaussian with precision $\boldsymbol{\Lambda}$ — and dispatches on structure before
 falling back to dense Cholesky or Hutchinson:
 
 | Structure | Path | Cost |
 |---|---|---|
 | `BlockTriDiag` (rw1, rw2, ar1, temporal SDE priors) | block Takahashi recursion, `selected_inverse` | $O(N d^3)$ |
-| `Kronecker` $A \otimes B$ | $\operatorname{diag}(A^{-1}) \otimes \operatorname{diag}(B^{-1})$ | per factor |
-| `KroneckerSum` $A \oplus B$ (grid Laplacians, SPDE on a raster) | $(U_A \circ U_A)\,M\,(U_B \circ U_B)^\top$, $M_{ij} = 1/(\lambda^A_i + \lambda^B_j)$ | $O(H^2 W + H W^2)$ |
-| $A \otimes B + cI$ | same, with $M_{ij} = 1/(\lambda^A_i \lambda^B_j + c)$ | per factor |
+| `Kronecker` $\mathbf{A} \otimes \mathbf{B}$ | $\mathrm{diag}(\mathbf{A}^{-1}) \otimes \mathrm{diag}(\mathbf{B}^{-1})$ | per factor |
+| `KroneckerSum` $\mathbf{A} \oplus \mathbf{B}$ (grid Laplacians, SPDE on a raster) | $(\mathbf{U}_A \odot \mathbf{U}_A) \mathbf{M} (\mathbf{U}_B \odot \mathbf{U}_B)^\top$, $[\mathbf{M}]_{ij} = 1/(\gamma^A_i + \gamma^B_j)$ | $O(H^2 W + H W^2)$ |
+| $\mathbf{A} \otimes \mathbf{B} + c\mathbf{I}$ | same, with $[\mathbf{M}]_{ij} = 1/(\gamma^A_i \gamma^B_j + c)$ | per factor |
 
 `pinv=True` drops the zero eigenvalues of an intrinsic precision on a
 grid. A factor that already carries its eigenbasis (`DiagonalizedOperator`,
 `KroneckerSum`) keeps it, so `solve`, `logdet` and `diag_inv` of a
-space-time $A \otimes B + cI$ never form the spatial factor $B$.
+space-time $\mathbf{A} \otimes \mathbf{B} + c\mathbf{I}$ never form the spatial factor $\mathbf{B}$.
 
 ```python
-# Posterior sd of an AR(1) trend under Gaussian noise: Q + σ⁻² I stays block-tridiagonal
-H = gaussx.BlockTriDiag(Q.diagonal + jnp.eye(1) / sigma**2, Q.sub_diagonal)
+# Posterior sd of an AR(1) trend under Gaussian noise: Λ + σ⁻² I stays block-tridiagonal
+H = gaussx.BlockTriDiag(
+    precision.diagonal + jnp.eye(1) / sigma**2, precision.sub_diagonal
+)
 sd = jnp.sqrt(gaussx.diag_inv(H))  # O(N), not O(N³)
 
 # Prior sd of an intrinsic field on an H × W grid: two small matrix products
@@ -70,10 +72,10 @@ sd = jnp.sqrt(gaussx.diag_inv(gaussx.KroneckerSum(L_H, L_W), pinv=True))
 For a precision too large to factor (a 10⁶-node mesh, where Cholesky fill is
 prohibitive), `method="xdiag"` is the variance-reduced estimator of Epperly,
 Tropp & Webber (2024), wrapping matfree's `leave_one_out_xdiag`. It computes
-the range of $Q^{-1}\Omega$ exactly and runs Hutchinson only on the remainder,
+the range of $\boldsymbol{\Lambda}^{-1}\boldsymbol{\Omega}$ exactly and runs Hutchinson only on the remainder,
 reusing every probe for both. With $k$ probes it costs $2k$ solves through
 `solver` (Jacobi-preconditioned CG for a precision matrix), and it beats
-Hutchinson at equal solve counts whenever $Q^{-1}$ has a few dominant
+Hutchinson at equal solve counts whenever $\boldsymbol{\Lambda}^{-1}$ has a few dominant
 directions, as GMRF covariances do. `method="auto"` still picks Hutchinson
 above $N = 2048$, so XDiag is opt-in.
 
@@ -99,7 +101,7 @@ sd = jnp.sqrt(
 
 ## Matrix-RHS & batched solves
 
-Solve $AX = B$ for matrix right-hand sides with one factorization
+Solve $\mathbf{A}\mathbf{X} = \mathbf{B}$ for matrix right-hand sides with one factorization
 (`solve_matrix`), per-column or per-row structured dispatch
 (`solve_columns` / `solve_rows`), or $O(n)$ Thomas-algorithm tridiagonal
 solves.
@@ -114,8 +116,8 @@ solves.
 
 Factor each 1D operator once with `EigenDecomposition` (non-symmetric
 diagonalizable factors with a real spectrum are supported), then solve
-$(A_0 \oplus A_1 \oplus \dots - \sigma I)\,x = b$ in tensor form for any
-shift $\sigma$ with `kronecker_sum_solve` — the matrix-diagonalization method
+$(\mathbf{A}_1 \oplus \mathbf{A}_2 \oplus \ldots \oplus \mathbf{A}_D - c\mathbf{I}) \mathrm{vec}(\mathbf{X}) = \mathrm{vec}(\mathbf{B})$ in tensor form for any
+shift $c$ with `kronecker_sum_solve` — the matrix-diagonalization method
 for separable operators such as tensor-product spectral Laplacians.
 
 ::: gaussx

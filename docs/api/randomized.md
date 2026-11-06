@@ -7,23 +7,24 @@ matvecs. They take an explicit PRNG `key`; `key=None` means
 ## Range finder, QB, SVD and eigh
 
 Randomized subspace iteration (Halko, Martinsson & Tropp, 2011) finds an
-orthonormal basis $Q$ for the dominant range of a matrix-free operator from a
+orthonormal basis $\mathbf{Q}$ for the dominant range of a matrix-free operator $\mathbf{A}$ from a
 block of $\ell = k + p$ matvecs. For a Gaussian test matrix,
 
 $$
-\mathbb E\,\|A - QQ^\top A\|_2 \le \Big(1+\sqrt{\tfrac{k}{p-1}}\Big)\sigma_{k+1}
-+ \frac{e\sqrt{k+p}}{p}\Big(\sum_{j>k}\sigma_j^2\Big)^{1/2}.
+\mathbb{E} \Vert \mathbf{A} - \mathbf{Q}\mathbf{Q}^\top \mathbf{A} \Vert_2 \le \left(1 + \sqrt{\frac{k}{p-1}}\right) s_{k+1} + \frac{e\sqrt{k+p}}{p} \left(\sum_{j>k} s_j^2\right)^{1/2}
 $$
 
+with $s_j$ the singular values of $\mathbf{A}$.
+
 The tail term hurts for slowly decaying spectra (Matérn-½ Gram matrices, most
-geophysical fields); `n_power_iter=q` applies the bound to $(AA^\top)^qA$,
-whose singular values are $\sigma_j^{2q+1}$, for $2q$ more passes. Use
+geophysical fields); `n_power_iter=q` applies the bound to $(\mathbf{A}\mathbf{A}^\top)^q \mathbf{A}$,
+whose singular values are $s_j^{2q+1}$, for $2q$ more passes. Use
 `n_power_iter >= 2` there. These methods target the **top** of the spectrum;
 the small end (e.g. the smallest Laplacian eigenvalues) is Lanczos / LOBPCG
 territory.
 
-`qb` returns $Q$ and $B = Q^\top A$, `randomized_svd` lifts the SVD of $B$,
-and `randomized_eigh` is the Rayleigh–Ritz projection $Q^\top A Q$ for
+`qb` returns $\mathbf{Q}$ and $\mathbf{B} = \mathbf{Q}^\top \mathbf{A}$, `randomized_svd` lifts the SVD of $\mathbf{B}$,
+and `randomized_eigh` is the Rayleigh–Ritz projection $\mathbf{Q}^\top \mathbf{A} \mathbf{Q}$ for
 symmetric, possibly indefinite, operators. `svd(op, rank=k,
 method="randomized")` and `eig(op, rank=k, method="randomized")` route here;
 Lanczos stays the default.
@@ -43,13 +44,13 @@ eofs, pcs = U, einx.multiply("k, k t -> k t", s, Vt)
 ## Randomized Nyström
 
 For a PSD operator, `randomized_nystrom` returns the Nyström approximation
-$\hat A = (A\Omega)(\Omega^\top A\Omega)^{+}(A\Omega)^\top$ from one pass of
+$\hat{\mathbf{A}} = (\mathbf{A}\boldsymbol{\Omega})(\boldsymbol{\Omega}^\top \mathbf{A} \boldsymbol{\Omega})^{+}(\mathbf{A}\boldsymbol{\Omega})^\top$ from one pass of
 $\ell$ matvecs (Tropp, Yurtsever, Udell & Cevher, 2017, Algorithm 3). It
-satisfies $0 \preceq \hat A \preceq A$ and, for the same $\ell$, is more
+satisfies $0 \preceq \hat{\mathbf{A}} \preceq \mathbf{A}$ and, for the same $\ell$, is more
 accurate than the Rayleigh–Ritz projection of `randomized_eigh`. The result
 is an orthonormal [`LowRankUpdate`](operators.md#gaussx.LowRankUpdate)
-$U\hat\Lambda U^\top$, so the same factors on a $\sigma^2 I$ base solve and
-take log-determinants of $\hat A + \sigma^2 I$ through the Woodbury rules. It
+$\mathbf{U} \mathrm{diag}(\hat{\boldsymbol{\gamma}}) \mathbf{U}^\top$, so the same factors on a $\sigma^2 \mathbf{I}$ base solve and
+take log-determinants of $\hat{\mathbf{A}} + \sigma^2 \mathbf{I}$ through the Woodbury rules. It
 is also the sketch behind
 [`NystromPreconditioner`](solvers.md#gaussx.NystromPreconditioner).
 
@@ -77,12 +78,8 @@ is the classic pivoted Cholesky behind
 
 ## Interpolative and CUR decompositions
 
-`column_id` returns $k$ **actual** columns $J$ of $A$ and an interpolation
-matrix $X$ ($X_{:,J} = I$) with $A \approx A_{:,J}X$, from column-pivoted QR
-of a randomized sketch of the row space (`range_finder` on $A^\top$; Voronin
-& Martinsson, 2017). `cur` adds a row ID of $C = A_{:,J}$ and returns
-$A \approx CUR$ with $C = A_{:,J}$, $R = A_{I,:}$ and $U = XR^{+}$. Unlike
-the SVD factors, $C$ and $R$ are columns and rows of $A$: they keep its
+`column_id` returns $k$ **actual** columns $J$ of $\mathbf{A}$ and an interpolation matrix $\mathbf{X}$ ($[\mathbf{X}]_{:,J} = \mathbf{I}_k$) with $\mathbf{A} \approx [\mathbf{A}]_{:,J} \mathbf{X}$, from column-pivoted QR of a randomized sketch of the row space (`range_finder` on $\mathbf{A}^\top$; Voronin & Martinsson, 2017). `cur` adds a row ID of $\mathbf{C} = [\mathbf{A}]_{:,J}$ and returns $\mathbf{A} \approx \mathbf{C}\mathbf{U}\mathbf{R}$ with $\mathbf{C} = [\mathbf{A}]_{:,J}$, $\mathbf{R} = [\mathbf{A}]_{I,:}$ and $\mathbf{U} = \mathbf{X}\mathbf{R}^{+}$. Unlike
+the SVD factors, $\mathbf{C}$ and $\mathbf{R}$ are columns and rows of $\mathbf{A}$: they keep its
 sparsity, sign and units, which makes them interpretable as representative
 stations, time steps or landmark points.
 
