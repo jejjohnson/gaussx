@@ -24,7 +24,7 @@
 # 1. How GP prediction is just conditioning a joint Gaussian
 # 2. `gaussx.conditional` for computing $p(x_A \mid x_B = b)$
 # 3. `gaussx.schur_complement` for the conditional covariance block
-# 4. `gaussx.dist_kl_divergence` to verify equivalence of two approaches
+# 4. `gaussx.gaussian_kl` to verify equivalence of two approaches
 # 5. `gaussx.conditional_variance` for predictive variances
 
 # %% [markdown]
@@ -216,7 +216,7 @@ cond_cov_reg = cond_cov + 1e-6 * jnp.eye(n_test)
 cov_manual_op = lx.MatrixLinearOperator(cov_manual_reg, lx.positive_semidefinite_tag)
 cond_cov_reg_op = lx.MatrixLinearOperator(cond_cov_reg, lx.positive_semidefinite_tag)
 
-kl = gaussx.dist_kl_divergence(cond_mean, cond_cov_reg_op, mu_manual, cov_manual_op)
+kl = gaussx.gaussian_kl(cond_mean, cond_cov_reg_op, mu_manual, cov_manual_op)
 print(f"KL(conditional || manual) = {kl:.2e}")
 
 # %% [markdown]
@@ -332,7 +332,7 @@ print(
 # |----------------|--------------|
 # | `conditional` | $p(x_A \mid x_B = b)$ |
 # | `solve` | $(K + \sigma^2 I)^{-1} y$ |
-# | `dist_kl_divergence` | KL between two MVNs |
+# | `gaussian_kl` | KL between two MVNs |
 # | `schur_complement` | Structured cond. cov. |
 # | `conditional_variance` | Diagonal pred. var. |
 #

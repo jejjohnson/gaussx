@@ -229,7 +229,7 @@ mu_std = jnp.std(mus, axis=0)
 noise_vars = samples["noise"] ** 2  # (num_samples,)
 aleatoric_var = jnp.mean(vars_ + noise_vars[:, None], axis=0)
 total_var = mu_std**2 + aleatoric_var
-total_var = jnp.clip(total_var, a_min=0.0)  # guard against roundoff
+total_var = jnp.clip(total_var, min=0.0)  # guard against roundoff
 total_std = jnp.sqrt(total_var)
 
 print(f"Predictive mean shape: {mu_mean.shape}")
