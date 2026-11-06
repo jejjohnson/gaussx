@@ -194,11 +194,11 @@ def gauss_newton_operator(
     | None = None,
     jac: Literal["fwd", "bwd"] = "fwd",
 ) -> lx.AbstractLinearOperator:
-    r"""Matrix-free Gauss-Newton precision of a residual function.
+    """Matrix-free Gauss-Newton precision of a residual function.
 
         Λ_GN = Λ_θ + J_rᵀ Λ_ε J_r,   Λ_GN v = Λ_θ v + J_rᵀ (Λ_ε (J_r v))
 
-    J_r = ∂r/∂θ at θ\* is the Jacobian of the residual r, Λ_ε the noise precision
+    J_r = ∂r/∂θ at θ⋆ is the Jacobian of the residual r, Λ_ε the noise precision
     and Λ_θ the prior precision. Λ_GN is the Gauss-Newton approximation of the
     Hessian of ½ rᵀ Λ_ε r + ½ θᵀ Λ_θ θ (Nocedal & Wright 2006, *Numerical
     Optimization*, ch. 10): it drops the second-order residual term, so it is
@@ -206,7 +206,7 @@ def gauss_newton_operator(
     `gauss_newton_precision` for a state too large for a dense Jacobian.
 
     Algorithm:
-        1. With ``jac="fwd"``, linearise r at θ\* with `lineax.linearise` of a
+        1. With ``jac="fwd"``, linearise r at θ⋆ with `lineax.linearise` of a
            `lineax.JacobianLinearOperator`, so each matvec costs one J_r and one
            J_rᵀ product and one Λ_ε apply, and no Jacobian is formed.
         2. With ``jac="bwd"``, for an r that defines only a VJP (a ``custom_vjp``
@@ -217,7 +217,7 @@ def gauss_newton_operator(
 
     Args:
         residual_fn: The residual θ ↦ r(θ).
-        point: The linearisation point θ\*, an array or a pytree of arrays.
+        point: The linearisation point θ⋆, an array or a pytree of arrays.
         noise_precision: Λ_ε, as an operator on r's structure or a callable
             r ↦ Λ_ε r. Default ``None`` is the identity.
         prior_precision: Λ_θ, as an operator on θ's structure or a callable

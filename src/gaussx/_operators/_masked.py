@@ -466,20 +466,20 @@ def masked_obs_covariance(
     obs_cov: lx.AbstractLinearOperator,
     mask: Bool[Array, "*obs"] | Float[Array, "*obs"],
 ) -> lx.AbstractLinearOperator:
-    r"""Observation-error covariance with masked entries marginalised out.
+    """Observation-error covariance with masked entries marginalised out.
 
         R̃ = M R M + (I − M),   M = diag(m)
 
-    R̃ holds $R_{oo}$ on the observed indices o, the identity on the unobserved
-    indices u, and no cross terms. For a residual r with $r_u = 0$,
+    R̃ holds R_oo on the observed indices o, the identity on the unobserved
+    indices u, and no cross terms. For a residual r with r_u = 0,
 
         R̃⁻¹ r = [R_oo⁻¹ r_o; 0],   ln det R̃ = ln det R_oo
 
     so ½ rᵀ R̃⁻¹ r is the exact marginal likelihood term of the observed
     entries. Solving R itself against r instead weights them by
-    $(R^{-1})_{oo}$, which conditions on the unobserved errors being zero.
+    (R⁻¹)_oo, which conditions on the unobserved errors being zero.
     A Gaussian log-likelihood built on R̃ must drop the ½ N_u ln 2π of the
-    identity block, with $N_u$ the number of unobserved entries.
+    identity block, with N_u the number of unobserved entries.
 
     Unlike `MaskedOperator`, R̃ keeps the size of R, so the mask may be traced
     under ``jit`` and batched under ``vmap``. See Särkkä & Svensson (2023),

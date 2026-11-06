@@ -161,11 +161,11 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `is_kronecker` | function | Check whether *operator* carries the Kronecker tag. |
-| `is_kronecker_sum` | function | Check whether *operator* carries the Kronecker sum tag. |
-| `is_block_diagonal` | function | Check whether *operator* carries the block-diagonal tag. |
-| `is_block_tridiagonal` | function | Check whether *operator* carries the block-tridiagonal tag. |
-| `is_low_rank` | function | Check whether *operator* carries the low-rank tag. |
+| `is_kronecker` | function | Check whether ``operator`` carries the Kronecker tag. |
+| `is_kronecker_sum` | function | Check whether ``operator`` carries the Kronecker sum tag. |
+| `is_block_diagonal` | function | Check whether ``operator`` carries the block-diagonal tag. |
+| `is_block_tridiagonal` | function | Check whether ``operator`` carries the block-tridiagonal tag. |
+| `is_low_rank` | function | Check whether ``operator`` carries the low-rank tag. |
 | `is_eigen_reducible` | function | Whether a sum of Kronecker products has the exact two-term reduction. |
 | `is_diagonal` | function | Re-exported from `lineax`. |
 | `is_symmetric` | function | Re-exported from `lineax`. |
@@ -174,10 +174,10 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `is_lower_triangular` | function | Re-exported from `lineax`. |
 | `is_upper_triangular` | function | Re-exported from `lineax`. |
 | `kronecker_tag` | constant | Operator is a Kronecker product. |
-| `kronecker_sum_tag` | constant | Operator is a Kronecker sum A (+) B = A (x) I_b + I_a (x) B. |
+| `kronecker_sum_tag` | constant | Operator is a Kronecker sum A ⊕ B = A ⊗ I_b + I_a ⊗ B. |
 | `block_diagonal_tag` | constant | Operator is block diagonal. |
 | `block_tridiagonal_tag` | constant | Operator is block tridiagonal. |
-| `low_rank_tag` | constant | Operator has low-rank structure (e.g. L + U D V^T). |
+| `low_rank_tag` | constant | Operator has low-rank structure (e.g. A₀ + U D Vᵀ). |
 | `diagonal_tag` | constant | Re-exported from `lineax`. |
 | `symmetric_tag` | constant | Re-exported from `lineax`. |
 | `positive_semidefinite_tag` | constant | Re-exported from `lineax`. |
