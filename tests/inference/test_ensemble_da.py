@@ -1667,6 +1667,29 @@ def test_obs_weights_hessian_matches_differences_of_the_gradient(noise_kind):
     assert jnp.allclose(hessian @ direction, difference, rtol=1e-6, atol=1e-8)
 
 
+def test_ensemble_space_route_stays_finite_when_rounding_undershoots_the_prior():
+    # Λ_w has eigenvalues from c = 7 up to about 1 / ε times that, so in float32
+    # the smallest computed one can be negative, and its root would be NaN.
+    dtype = jnp.float32
+    state_grid = jnp.linspace(0.0, 10.0, 12)
+    obs_grid = jnp.linspace(0.0, 10.0, 30)
+    offsets = einx.subtract("obs, state -> obs state", obs_grid, state_grid)
+    obs_map = jnp.exp(-0.5 * (offsets / 1.5) ** 2)
+    distances = jnp.abs(rearrange(offsets, "obs state -> state obs"))
+    rho = gaussx.gaspari_cohn(distances, 4.0).astype(dtype)
+    noise = lx.DiagonalLinearOperator(jnp.logspace(-8.0, 0.0, 30).astype(dtype))
+    particles = jr.normal(jr.key(0), (8, 12)).astype(dtype)
+    obs_particles = particles @ obs_map.astype(dtype).T
+    y = jr.normal(jr.key(1), (30,)).astype(dtype)
+
+    def transform(row):
+        return etkf_transform(obs_particles, y, noise, obs_weights=row)
+
+    mean_weights, transforms = jax.vmap(transform)(rho)
+    assert jnp.isfinite(mean_weights).all()
+    assert jnp.isfinite(transforms).all()
+
+
 @pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
 def test_obs_weights_float32_means_match_float64():
     """Strong, nearly removed channels together; ρ / Σ_ε spans many decades."""
