@@ -907,7 +907,7 @@ def sigma_point_kalman_update(
     cov_weights: Float[Array, " P"] | None = None,
     joseph: bool = True,
     solver: AbstractSolverStrategy | None = None,
-    validate: bool = True,
+    validate: bool = False,
 ) -> tuple[Float[Array, " N"], Float[Array, "N N"], Float[Array, ""]]:
     """One moment-matched update from evaluations the caller already has.
 
@@ -940,8 +940,9 @@ def sigma_point_kalman_update(
         joseph: Use the Joseph form for the updated covariance.
         solver: Solver strategy for Σ_y,t. ``None`` factorises it once by Cholesky.
         validate: Reject a Σ_y,t that is not positive definite and an updated
-            covariance that is indefinite. Points from the caller carry no
-            guarantee, so this is on by default.
+            covariance that is indefinite. Off by default, since its threshold is
+            relative to the updated covariance, and a strong observation in
+            float32 can round below it on a well-posed problem.
 
     Returns:
         Tuple ``(mean, covariance, log_likelihood)`` of μ_x,t|t, Σ_x,t|t and

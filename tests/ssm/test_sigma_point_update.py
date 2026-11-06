@@ -10,13 +10,12 @@ import lineax as lx
 import pytest
 
 import gaussx
-from gaussx._testing import default_tolerances, tree_allclose
+from gaussx._testing import default_tolerances, random_pd_matrix, tree_allclose
 
 
 def _prior(state_size=3, seed=0):
     keys = jr.split(jr.key(seed))
-    factor = jr.normal(keys[0], (state_size, state_size))
-    cov = factor @ factor.T + jnp.eye(state_size)
+    cov = random_pd_matrix(keys[0], state_size, jitter=1.0)
     return jr.normal(keys[1], (state_size,)), cov
 
 
@@ -99,6 +98,8 @@ def test_a_linear_map_is_the_kalman_update(joseph):
         observation, obs_model @ mean, innovation_cov
     )
     rtol, atol = default_tolerances(updated_mean)
+    # An affine map has exact moments, so only round-off through one Cholesky of a
+    # well-conditioned Σ_y,t remains, which a tenfold margin on the default covers.
     tight = {"rtol": 10 * rtol, "atol": 10 * atol}
     assert tree_allclose(updated_mean, expected_mean, **tight)
     assert tree_allclose(updated_cov, expected_cov, **tight)
@@ -232,6 +233,8 @@ def test_gradient_with_respect_to_evaluations_matches_central_differences():
     finite_difference = (
         loss(evaluations + step * tangent) - loss(evaluations - step * tangent)
     ) / (2.0 * step)
+    # A central difference of a smooth function: O(step²) truncation, and ε / step
+    # of round-off, which is near 1e-10 for a step of 1e-6.
     assert jnp.allclose(
         jnp.vdot(jax.grad(loss)(evaluations), tangent), finite_difference, rtol=1e-7
     )
@@ -259,11 +262,29 @@ def test_float32_matches_float64(joseph):
         joseph=joseph,
     )
     assert all(part.dtype == jnp.float32 for part in single)
+    # float32 round-off through the sigma points' root and one Cholesky of Σ_y,t.
     for part, target in zip(single, reference, strict=True):
         assert jnp.allclose(part, target, rtol=1e-4, atol=1e-4)
 
 
-def test_an_inconsistent_covariance_is_rejected_by_default():
+def test_a_strong_observation_is_not_rejected_by_default():
+    # The check's threshold scales with the updated covariance, which a float32
+    # update from a much larger prior can round below on this well-posed problem.
+    mean, cov = _prior(4, seed=2)
+    obs_model = jr.normal(jr.key(3), (3, 4))
+    points, evaluations, mean_weights, cov_weights = _sigma_inputs(
+        mean, cov, lambda state: obs_model @ state, alpha=1.0
+    )
+    arguments = [points, evaluations, mean, cov, jnp.zeros(3), 1e-6 * jnp.eye(3)]
+    updated = gaussx.sigma_point_kalman_update(
+        *[value.astype(jnp.float32) for value in arguments],
+        mean_weights=mean_weights.astype(jnp.float32),
+        cov_weights=cov_weights.astype(jnp.float32),
+    )
+    assert all(jnp.isfinite(part).all() for part in updated)
+
+
+def test_an_inconsistent_covariance_is_rejected_when_validating():
     # Points of a broad prior, with a covariance that cannot support their Σ_xy.
     mean = jnp.zeros(2)
     broad = 100.0 * jnp.eye(2)
@@ -273,10 +294,10 @@ def test_an_inconsistent_covariance_is_rejected_by_default():
     arguments = (points, evaluations, mean, 0.01 * jnp.eye(2), jnp.zeros(2), jnp.eye(2))
     weights = {"mean_weights": mean_weights, "cov_weights": cov_weights}
     with pytest.raises(Exception, match="not positive"):
-        gaussx.sigma_point_kalman_update(*arguments, **weights, joseph=False)
-    unchecked = gaussx.sigma_point_kalman_update(
-        *arguments, **weights, joseph=False, validate=False
-    )
+        gaussx.sigma_point_kalman_update(
+            *arguments, **weights, joseph=False, validate=True
+        )
+    unchecked = gaussx.sigma_point_kalman_update(*arguments, **weights, joseph=False)
     assert jnp.isfinite(unchecked[1]).all()
 
 
