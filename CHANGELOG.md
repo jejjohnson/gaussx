@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.10](https://github.com/jejjohnson/gaussx/compare/v0.6.9...v0.6.10) (2026-11-06)
+
+
+### Features
+
+* **inference:** add ensemble_rts_step, the ensemble smoother's backward step ([7b5eb16](https://github.com/jejjohnson/gaussx/commit/7b5eb161351bdd0415fcff9044926b95d4d8a5ab))
+* **inference:** add gaussian_taper and soar_taper next to gaspari_cohn ([0768d3b](https://github.com/jejjohnson/gaussx/commit/0768d3bbf7b58ca4d4988dc0c3d7025d81ae7c44))
+* **inference:** add ledoit_wolf_shrinkage returning a LowRankUpdate ([216cdd2](https://github.com/jejjohnson/gaussx/commit/216cdd2ed34fc40b17f74ca4336e075a000519c1))
+* **inference:** add obs_weights to etkf_transform and etkf_analysis for a local ETKF ([1f262c0](https://github.com/jejjohnson/gaussx/commit/1f262c0749815174260d3f48351a0690690b087a))
+* **ssm:** add sigma_point_kalman_update for evaluations the caller already has ([902b2ae](https://github.com/jejjohnson/gaussx/commit/902b2aeadb62512b7b3a8c971ee0615bda8a23a9))
+
+
+### Performance Improvements
+
+* **primitives:** compute frobenius_norm of a LowRankUpdate without forming it ([d4eb512](https://github.com/jejjohnson/gaussx/commit/d4eb512c35ba92b8770bf36a798edd75e9071e52))
+
 ## [0.6.9](https://github.com/jejjohnson/gaussx/compare/v0.6.8...v0.6.9) (2026-11-05)
 
 
