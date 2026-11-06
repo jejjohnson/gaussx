@@ -207,7 +207,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `symbolic_cholesky` | function | Symbolic analysis of a sparse Cholesky factorisation (host, cached). |
 | `SymbolicCholesky` | class | Symbolic Cholesky factor of a symmetric sparsity pattern. |
 | `sparse_cholesky` | function | Sparse Cholesky factorisation of a symmetric positive-definite operator. |
-| `SparseCholeskyFactor` | class | Sparse Cholesky factor ``P Q Pᵀ = L Lᵀ`` on a static symbolic pattern. |
+| `SparseCholeskyFactor` | class | Sparse Cholesky factor on a static symbolic pattern. |
 
 ## [GMRF Precision Builders](api/gmrf.md)
 
