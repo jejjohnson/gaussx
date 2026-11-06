@@ -1406,6 +1406,18 @@ def test_ledoit_wolf_shrinkage_does_not_depend_on_the_ensemble_scale(magnitude):
     assert jnp.allclose(shrinkage, 85.0 / 144.0, rtol=1e-5)
 
 
+def test_ledoit_wolf_target_scale_stays_in_range_when_the_trace_does_not():
+    # The diagonal is near 2e38, in range; the trace it is divided from is not.
+    members = 1.1e19 * jnp.array(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 2.0], [0.0, -2.0]], dtype=jnp.float32
+    )
+    covariance, shrinkage = gaussx.ledoit_wolf_shrinkage(members)
+    # λ μ in Python floats, since the product with the trace would overflow float32.
+    expected = float(shrinkage) * 1.1e19**2 * (10.0 / 3.0) / 2.0
+    # float32 round-off through the two scale products
+    assert jnp.allclose(jnp.diagonal(covariance.base.as_matrix()), expected, rtol=1e-5)
+
+
 def test_ledoit_wolf_of_a_zero_ensemble_is_finite():
     def shrinkage(state):
         return gaussx.ledoit_wolf_shrinkage(state)[1]
