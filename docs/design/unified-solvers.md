@@ -9,8 +9,8 @@
 
 Three JAX libraries have grown overlapping numerical-solver machinery:
 
-- **gaussx** — structured *probabilistic* linear algebra. Solves `A x = b` and
-  `logdet(A)` for PSD covariance/precision operators (CG, MINRES, LSMR,
+- **gaussx** — structured *probabilistic* linear algebra. Solves $\mathbf{A} \mathbf{x} = \mathbf{b}$ and
+  $\log \det \mathbf{A}$ for PSD covariance/precision operators (CG, MINRES, LSMR,
   preconditioned CG, BBMM, SLQ). Built on `lineax` + `matfree` + `equinox`.
 - **finitevolX** — finite-volume operators on Arakawa C-grids. Re-implements its
   own CG loop (`solve_cg`), three preconditioners (spectral, Nyström,
@@ -83,17 +83,19 @@ as a preconditioner").
 ### 3.1 The SPDE / GMRF bridge (why this is one problem, not two)
 
 The Whittle–Matérn SPDE (Lindgren, Rue & Lindgren, 2011) states that a Gaussian
-field `u` with Matérn covariance is the stationary solution of
+field $u$ with Matérn covariance is the stationary solution of
 
-```
-(κ² − Δ)^{α/2} u(x) = 𝒲(x),     α = ν + d/2
-```
+$$(\kappa^2 - \Delta)^{\alpha/2} u(\mathbf{s}) = \mathcal{W}(\mathbf{s})$$
 
-where `𝒲` is white noise and `Δ` the Laplacian. Discretised, the **precision**
-matrix `Q` of the Matérn field is a (power of a) **Helmholtz operator**
-`κ²I − Δ`. Consequences relevant here:
+with
 
-- A **separable Laplacian** on a tensor grid is `Δ = Δ_x ⊕ Δ_y` — exactly
+$$\alpha = \nu + D_s / 2$$
+
+where $\mathcal{W}$ is white noise, $\Delta$ the Laplacian and $D_s$ the dimension of the coordinates $\mathbf{s}$. Discretised, the **precision**
+matrix $\boldsymbol{\Lambda}_u$ of the Matérn field is a (power of a) **Helmholtz operator**
+$\kappa^2 \mathbf{I} - \boldsymbol{\Delta}$. Consequences relevant here:
+
+- A **separable Laplacian** on a tensor grid is $\boldsymbol{\Delta} = \boldsymbol{\Delta}_x \oplus \boldsymbol{\Delta}_y$ — exactly
   gaussx's `KroneckerSum`, which it already solves by eigendecomposition.
 - A **stationary kernel on a regular grid** is Toeplitz / BTTB = an FFT
   convolution — exactly gaussx's `Toeplitz` (circulant embedding) and exactly
@@ -108,13 +110,13 @@ expression of that fact.
 
 ### 3.2 Conjugate Gradient + preconditioning
 
-For SPD `A`, CG solves `A x = b` in Krylov space. Convergence depends on
-`κ(A) = λ_max/λ_min`. A preconditioner `M ≈ A` (cheap to invert) replaces the
-spectrum of `A` with that of `M⁻¹A`. The four preconditioners in play:
+For SPD $\mathbf{A}$, CG solves $\mathbf{A} \mathbf{x} = \mathbf{b}$ in Krylov space. Convergence depends on
+$\mathrm{cond}(\mathbf{A}) = \gamma_\text{max} / \gamma_\text{min}$. A preconditioner $\mathbf{M} \approx \mathbf{A}$ (cheap to invert) replaces the
+spectrum of $\mathbf{A}$ with that of $\mathbf{M}^{-1} \mathbf{A}$. The four preconditioners in play:
 
-| Preconditioner | `M⁻¹` is… | Generic? |
+| Preconditioner | $\mathbf{M}^{-1}$ is… | Generic? |
 |---|---|---|
-| Jacobi | `diag(A)⁻¹` | yes |
+| Jacobi | $\mathrm{diag}(\mathbf{A})^{-1}$ | yes |
 | Nyström / partial-Cholesky | low-rank approx inverse from a few matvecs | yes |
 | Spectral | an FFT/DST/DCT Helmholtz solve used as approx inverse | **no** (needs transforms) |
 | Multigrid | one V-cycle used as approx inverse | **no** (needs grid/mask) |
@@ -127,20 +129,20 @@ dependency cycle (gaussx must never import spectraldiffx/finitevolX).
 
 ### 3.3 Capacitance matrix method (Sherman–Morrison / Woodbury)
 
-To solve `A u = f` on an irregular domain Ω embedded in a regular domain R for
-which a *fast* solver `B⁻¹` exists (FFT/DST/DCT):
+To solve $\mathbf{A} \mathbf{u} = \mathbf{f}$ on an irregular domain $\Omega$ embedded in a regular domain $R$ for
+which a *fast* solver $\mathbf{A}_0^{-1}$ exists (FFT/DST/DCT):
 
-1. Treat the `N_b` boundary unknowns as constraints. Define Green's functions
-   `g_b = B⁻¹ e_b` for each boundary index `b` (one fast solve each, **offline**).
-2. Form the **capacitance matrix** `C` = restriction of the Green's functions to
-   the boundary rows; precompute `C⁻¹` (small, `N_b × N_b`).
-3. **Online:** `u = B⁻¹f − G (C⁻¹ (R_b B⁻¹ f − target))`, i.e. one fast base
-   solve plus an `N_b`-sized correction.
+1. Treat the $N_b$ boundary unknowns as constraints. Define Green's functions
+   $\mathbf{g}_b = \mathbf{A}_0^{-1} \mathbf{e}_b$ for each boundary index $b$ (one fast solve each, **offline**).
+2. Form the **capacitance matrix** $\mathbf{C}$ = restriction of the Green's functions to
+   the boundary rows; precompute $\mathbf{C}^{-1}$ (small, $N_b \times N_b$).
+3. **Online:** $\mathbf{u} = \mathbf{A}_0^{-1} \mathbf{f} - \mathbf{G} (\mathbf{C}^{-1} (\mathbf{R}_b \mathbf{A}_0^{-1} \mathbf{f} - \mathbf{u}_\text{target}))$, i.e. one fast base
+   solve plus an $N_b$-sized correction.
 
 This is precisely a **Woodbury / low-rank update** around the base solve — and
 gaussx *already* has `LowRankUpdate`, `SVDLowRankUpdate`, Woodbury and Schur
-machinery. The generic algebra (given `B⁻¹` and the boundary index set) belongs
-in gaussx; *which* cells are boundary and *which* `B⁻¹` to use stay in the PDE
+machinery. The generic algebra (given $\mathbf{A}_0^{-1}$ and the boundary index set) belongs
+in gaussx; *which* cells are boundary and *which* $\mathbf{A}_0^{-1}$ to use stay in the PDE
 repos.
 
 ---
