@@ -1260,6 +1260,20 @@ def test_taper_is_zero_at_an_infinite_distance_with_a_finite_gradient(taper):
 
 
 @pytest.mark.parametrize("taper", _TAPERS)
+@pytest.mark.parametrize(
+    ("distance", "length_scale"), [(1e30, 1e-10), (1e20, 1.0), (jnp.inf, 2.0)]
+)
+def test_taper_is_zero_with_zero_slopes_beyond_the_floating_point_range(
+    taper, distance, length_scale
+):
+    distance = jnp.array(distance, dtype=jnp.float32)
+    length_scale = jnp.array(length_scale, dtype=jnp.float32)
+    assert taper(distance, length_scale) == 0.0
+    slopes = jax.grad(taper, argnums=(0, 1))(distance, length_scale)
+    assert all(slope == 0.0 for slope in slopes)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
 def test_taper_keeps_the_input_dtype_and_runs_under_transforms(taper):
     distances = jnp.array([0.0, 1.0], jnp.float32)
     assert taper(distances, 2.0).dtype == jnp.float32

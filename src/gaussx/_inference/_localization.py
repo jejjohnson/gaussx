@@ -99,14 +99,14 @@ def gaussian_taper(
 
     A positive-definite function in any dimension, so ρ ∘ P stays PSD by the
     Schur product theorem. Unlike `gaspari_cohn` it has no compact support: ρ is
-    positive at every finite distance, so it never zeroes a covariance.
+    positive at every finite distance, until it rounds to zero.
 
     Args:
         r: Distances r of any shape, e.g. a pairwise distance matrix.
         length_scale: Length scale L > 0.
 
     Returns:
-        Taper values in (0, 1], with the shape of ``r``.
+        Taper values in [0, 1], with the shape of ``r``.
 
     Examples:
         One at zero distance, decaying with distance:
@@ -134,15 +134,16 @@ def gaussian_taper(
     References:
         Gaspari & Cohn (1999).
     """
-    # Mask an infinite r before anything divides by L: the slope z exp(−z² / 2),
+    # Mask a z² out of range before anything divides by L: the slope z exp(−z² / 2),
     # and the pullback of r / L in L, would each be ∞ × 0.
-    infinite = jnp.isinf(r)
-    finite_distance = jnp.where(infinite, 0.0, r)
+    ratio = r / length_scale
+    beyond_range = jnp.isinf(ratio * ratio)
+    in_range_distance = jnp.where(beyond_range, 0.0, r)
     # z = r / L
-    scaled_distance = finite_distance / length_scale
+    scaled_distance = in_range_distance / length_scale
     # ρ = exp(−z² / 2)
     taper = jnp.exp(-0.5 * scaled_distance * scaled_distance)
-    return jnp.where(infinite, 0.0, taper)
+    return jnp.where(beyond_range, 0.0, taper)
 
 
 def soar_taper(
@@ -159,8 +160,7 @@ def soar_taper(
         length_scale: Length scale L > 0.
 
     Returns:
-        Taper values in [0, 1], with the shape of ``r``; zero only at an
-        infinite distance.
+        Taper values in [0, 1], with the shape of ``r``.
 
     Examples:
         One at zero distance, decaying with distance:
@@ -186,15 +186,15 @@ def soar_taper(
     References:
         Gaspari & Cohn (1999).
     """
-    # Mask an infinite r before anything divides by L: (1 + z) exp(−z), and the
+    # Mask a z out of range before anything divides by L: (1 + z) exp(−z), and the
     # pullback of r / L in L, would each be ∞ × 0.
-    infinite = jnp.isinf(r)
-    finite_distance = jnp.where(infinite, 0.0, r)
+    beyond_range = jnp.isinf(r / length_scale)
+    in_range_distance = jnp.where(beyond_range, 0.0, r)
     # z = |r| / L
-    scaled_distance = jnp.abs(finite_distance) / length_scale
+    scaled_distance = jnp.abs(in_range_distance) / length_scale
     # ρ = (1 + z) exp(−z)
     taper = (1.0 + scaled_distance) * jnp.exp(-scaled_distance)
-    return jnp.where(infinite, 0.0, taper)
+    return jnp.where(beyond_range, 0.0, taper)
 
 
 def euclidean_distance(
