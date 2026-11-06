@@ -58,8 +58,9 @@ def etkf_transform(
 
     Λ_w exceeds its prior term by rank at most D_y, so with D_y < |ℰ| the
     default replaces that (|ℰ|, |ℰ|) eigendecomposition with a thin QR of H̃ and
-    a (D_y, D_y) one. The two routes agree to round-off, and in float32 the
-    low-rank route stays finite where the other can turn non-finite. Use
+    a (D_y, D_y) one. The two routes agree to round-off in float64, and in
+    float32 the low-rank route stays finite where the other can turn non-finite
+    or lose accuracy. Use
     `etkf_analysis` to avoid forming W at all. First derivatives assume a tangent of
     Σ_ε that is symmetric, as a covariance's must be. Second derivatives on the
     low-rank route need H̃ of full rank with distinct λ; both routes can be wrong or
@@ -83,8 +84,11 @@ def etkf_transform(
             ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
         obs_weights: Per-observation weights ρ ∈ [0, 1], which replace Σ_ε⁻¹ by
             D_ρ^½ Σ_ε⁻¹ D_ρ^½ with D_ρ = diag(ρ). ``None`` weights every
-            observation by 1. A derivative with respect to a weight of exactly
-            zero is taken as zero, since √ρ has no slope there.
+            observation by 1, and a value that is not positive counts as 0. The
+            derivative with respect to a weight of exactly 0 is returned as 0,
+            although the one-sided derivative exists for a diagonal Σ_ε. A
+            compactly supported taper has no slope there, so differentiating
+            through one is unaffected.
 
     Returns:
         Tuple ``(w_mean, transform)`` holding w̄ and W. With state anomalies
@@ -97,7 +101,8 @@ def etkf_transform(
             concrete ``inflation`` is not positive.
 
     With ``obs_weights`` this is R-localization (Hunt et al. 2007): a weight
-    of 1 keeps an observation, a weight of 0 removes it, and ρ = 0 everywhere
+    of 1 keeps an observation, a weight of 0 removes it provided its entries are
+    finite, and ρ = 0 everywhere
     gives w̄ = 0 and W = √ζ I. For a diagonal Σ_ε the weight divides the variance,
     ρₖ / Σ_ε,kk. Applying `etkf_transform` with one row of weights per grid point
     is the local ETKF, as a `jax.vmap`.
@@ -144,8 +149,15 @@ def etkf_transform(
     """
     _check_etkf_inputs(obs_particles, y, obs_noise, inflation, obs_weights)
     ensemble_size, obs_size = obs_particles.shape
+    use_low_rank = _use_low_rank(low_rank, ensemble_size, obs_size)
+    # The ensemble-space route differentiates the whitening as it stands.
+    constant_weights, log_root_weights = (
+        _split_weights(obs_weights, obs_particles)
+        if use_low_rank
+        else (obs_weights, None)
+    )
     obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
-        obs_particles, y, obs_noise, solver, obs_weights
+        obs_particles, y, obs_noise, solver, constant_weights
     )
     # √(|ℰ| − 1)
     root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=obs_anomalies.dtype))
@@ -155,7 +167,7 @@ def etkf_transform(
         (ensemble_size - 1) / inflation, dtype=obs_anomalies.dtype
     )
 
-    if _use_low_rank(low_rank, ensemble_size, obs_size):
+    if log_root_weights is not None:
         # w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ I
         w_mean, inverse_sqrt = _low_rank_route(
             obs_noise,
@@ -166,6 +178,7 @@ def etkf_transform(
             whitened_residual,
             prior_precision,
             identity,
+            log_root_weights,
         )
         # W = √(|ℰ| − 1) Λ_w^−½
         return w_mean, root_size * inverse_sqrt
@@ -236,8 +249,11 @@ def etkf_analysis(
             ``False`` always takes the (|ℰ|, |ℰ|) eigendecomposition.
         obs_weights: Per-observation weights ρ ∈ [0, 1], which replace Σ_ε⁻¹ by
             D_ρ^½ Σ_ε⁻¹ D_ρ^½ with D_ρ = diag(ρ). ``None`` weights every
-            observation by 1. A derivative with respect to a weight of exactly
-            zero is taken as zero, since √ρ has no slope there.
+            observation by 1, and a value that is not positive counts as 0. The
+            derivative with respect to a weight of exactly 0 is returned as 0,
+            although the one-sided derivative exists for a diagonal Σ_ε. A
+            compactly supported taper has no slope there, so differentiating
+            through one is unaffected.
 
     Returns:
         The analysis ensemble.
@@ -335,8 +351,9 @@ def _etkf_increments(
     )
 
     if _use_low_rank(low_rank, ensemble_size, obs_size):
+        constant_weights, log_root_weights = _split_weights(obs_weights, obs_particles)
         obs_anomalies, mean_residual, whitened_anomalies, whitened_residual = _whiten(
-            obs_particles, y, obs_noise, solver, obs_weights
+            obs_particles, y, obs_noise, solver, constant_weights
         )
         # (|ℰ| − 1) / ζ
         prior_precision = jnp.asarray(
@@ -352,6 +369,7 @@ def _etkf_increments(
             whitened_residual,
             prior_precision,
             anomalies,
+            log_root_weights,
         )
         # W X̃ = √(|ℰ| − 1) Λ_w^−½ X̃
         root_size = jnp.sqrt(jnp.asarray(ensemble_size - 1, dtype=anomalies.dtype))
@@ -481,6 +499,30 @@ def _whiten(
     # Σ_ε⁻¹ [H̃, r̄]
     whitened = solve_rows(obs_noise, right_hand_sides, solver=solver)
     return obs_anomalies, mean_residual, whitened[:-1], whitened[-1]
+
+
+def _split_weights(
+    obs_weights: Float[Array, " M"] | None,
+    obs_particles: Float[Array, "J M"],
+) -> tuple[Float[Array, " M"] | None, Float[Array, " M"]]:
+    """The weights with no tangent, and log D_ρ^½ to carry their tangent apart.
+
+    A zero weight has zero log-weight, and so a zero derivative, by the convention
+    documented on `etkf_transform`.
+
+    Args:
+        obs_weights: Per-observation weights ρ, or ``None`` for 1.
+        obs_particles: Observation ensemble, for the shape and dtype of the result.
+
+    Returns:
+        Tuple ``(constant_weights, log_root_weights)``.
+    """
+    if obs_weights is None:
+        return None, jnp.zeros(obs_particles.shape[1], dtype=obs_particles.dtype)
+    positive = obs_weights > 0.0
+    safe_weights = jnp.where(positive, obs_weights, 1.0)
+    log_root_weights = jnp.where(positive, 0.5 * jnp.log(safe_weights), 0.0)
+    return jax.lax.stop_gradient(obs_weights), log_root_weights
 
 
 @jax.custom_jvp
@@ -726,6 +768,7 @@ def _low_rank_route(
     whitened_residual: Float[Array, " M"],
     prior_precision: Float[Array, ""],
     anomaly_rhs: Float[Array, "J C"],
+    log_root_weights: Float[Array, " M"],
 ) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
     """`_low_rank_matmul`, with Σ_ε split into its arrays and the rest.
 
@@ -742,6 +785,7 @@ def _low_rank_route(
         whitened_residual: Σ_ε⁻¹ r̄.
         prior_precision: The prior term c = (|ℰ| − 1) / ζ.
         anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
+        log_root_weights: log D_ρ^½, read only by the derivative.
 
     Returns:
         Tuple ``(weights, inverse_sqrt_rhs)`` holding w̄ and Λ_w^−½ B.
@@ -757,6 +801,7 @@ def _low_rank_route(
         whitened_residual,
         prior_precision,
         anomaly_rhs,
+        log_root_weights,
     )
 
 
@@ -771,6 +816,7 @@ def _low_rank_matmul(
     whitened_residual: Float[Array, " M"],
     prior_precision: Float[Array, ""],
     anomaly_rhs: Float[Array, "J C"],
+    log_root_weights: Float[Array, " M"],
 ) -> tuple[Float[Array, " J"], Float[Array, "J C"]]:
     """w̄ = Σ_w H̃ Σ_ε⁻¹ r̄ and Λ_w^−½ B for Λ_w = c I + H̃ Σ_ε⁻¹ H̃ᵀ, from one spectrum.
 
@@ -788,10 +834,12 @@ def _low_rank_matmul(
         whitened_residual: Σ_ε⁻¹ r̄.
         prior_precision: The prior term c = (|ℰ| − 1) / ζ.
         anomaly_rhs: Right-hand sides B of Λ_w^−½, one per column.
+        log_root_weights: log D_ρ^½, read only by the derivative.
 
     Returns:
         Tuple ``(weights, inverse_sqrt_rhs)`` holding w̄ and Λ_w^−½ B.
     """
+    del log_root_weights
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
     # γ = c + λ
     precision = prior_precision + excess
@@ -992,6 +1040,11 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     differentiating the solve at Σ_ε, because the tangents of Σ_ε⁻¹ r̄ and
     Σ_ε⁻¹ H̃ᵀ would already have lost this to rounding.
 
+    A weight enters as a move of the precision, with its tangent ℓ = d log D_ρ^½
+    arriving on its own: H̃ and r̄ stay put, and D_ρ^½ Σ_ε⁻¹ D_ρ^½ moves by ℓ Σ_ε⁻¹ +
+    Σ_ε⁻¹ ℓ. Written as moves of H̃ and r̄, the same derivative would subtract nearly
+    equal vectors and leave rounding off the span of U to meet f′(c).
+
     Args:
         primals: The arguments of `_low_rank_matmul`.
         tangents: Their tangents.
@@ -1007,6 +1060,7 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
         whitened_residual,
         prior_precision,
         anomaly_rhs,
+        _,
     ) = primals
     (
         d_noise_arrays,
@@ -1016,6 +1070,7 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
         _,
         d_prior,
         d_anomaly_rhs,
+        d_log_root_weights,
     ) = tangents
     primal_out = _low_rank_matmul(noise_static, solver, *primals)
     basis, excess = _low_rank_spectrum(obs_anomalies, whitened_anomalies)
@@ -1054,6 +1109,30 @@ def _low_rank_matmul_jvp(noise_static, solver, primals, tangents):
     # it means to the solver: a factorisation sees only a symmetric part, through
     # any wrapper or nested factor.
     _, d_noise_solved = jax.jvp(solve_with_noise, (noise_arrays,), (d_noise_arrays,))
+    # Σ_ε⁻¹ ℓ [H̃ᵀ, r_a]
+    weights_solved = solve_rows(
+        noise,
+        jnp.vstack(
+            [
+                einx.multiply(
+                    "member obs, obs -> member obs", obs_anomalies, d_log_root_weights
+                ),
+                d_log_root_weights * analysis_mismatch,
+            ]
+        ),
+        solver=solver,
+    )
+    # ℓ Σ_ε⁻¹ [H̃ᵀ, r_a] = ℓ [W, ρₐ]
+    weights_moved = jnp.vstack(
+        [
+            einx.multiply(
+                "member obs, obs -> member obs", whitened_anomalies, d_log_root_weights
+            ),
+            d_log_root_weights * analysis_residual,
+        ]
+    )
+    # dΣ_ε⁻¹ [H̃ᵀ, r_a], with the move of the precision that the weights make
+    d_noise_solved = d_noise_solved + weights_solved + weights_moved
     # dH̃ᵀ w̄
     moved_obs = einsum(d_obs, weights, "member obs, member -> obs")
     # Σ_ε⁻¹ [dH̃ᵀ, dr̄ − dH̃ᵀ w̄]

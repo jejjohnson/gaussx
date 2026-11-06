@@ -250,6 +250,83 @@ class TestFrobeniusLowRank:
         )
         assert jnp.allclose(frobenius_norm(update), 1.0, rtol=1e-5)
 
+    @pytest.mark.parametrize(
+        ("scale", "weight"), [(1e20, 1e-30), (1e-20, 1e30), (1e30, 1e-30)]
+    )
+    def test_a_scale_product_out_of_range_can_be_offset_by_the_weight(
+        self, scale, weight
+    ):
+        # s t or d s leaves float32's range, while d s t does not.
+        update = LowRankUpdate(
+            lx.DiagonalLinearOperator(jnp.zeros(1, dtype=jnp.float32)),
+            jnp.array([[scale]], dtype=jnp.float32),
+            jnp.array([weight], dtype=jnp.float32),
+            jnp.array([[1.0]], dtype=jnp.float32),
+        )
+        balanced = LowRankUpdate(
+            lx.DiagonalLinearOperator(jnp.zeros(1, dtype=jnp.float32)),
+            jnp.array([[jnp.sqrt(jnp.float32(scale))]], dtype=jnp.float32),
+            jnp.array([weight], dtype=jnp.float32),
+            jnp.array([[jnp.sqrt(jnp.float32(scale))]], dtype=jnp.float32),
+        )
+        expected = scale * weight
+        assert jnp.allclose(frobenius_norm(update), expected, rtol=1e-5)
+        assert jnp.allclose(frobenius_norm(balanced), expected, rtol=1e-5)
+
+    def test_complex_update_matches_the_dense_norm(self):
+        keys = jr.split(jr.key(0), 4)
+        left = jr.normal(keys[0], (4, 2)) + 1j * jr.normal(keys[1], (4, 2))
+        right = jr.normal(keys[2], (4, 2)) + 1j * jr.normal(keys[3], (4, 2))
+        weights = jnp.array([1.0 + 2.0j, 0.5 - 1.0j])
+        diagonal = jnp.array([1.0 + 1.0j, 2.0, 0.0, 1.0j])
+        update = LowRankUpdate(
+            lx.DiagonalLinearOperator(diagonal), left, weights, right
+        )
+        dense = jnp.sqrt(jnp.sum(jnp.abs(update.as_matrix()) ** 2))
+        result = frobenius_norm(update)
+        assert jnp.isrealobj(result)
+        rtol, atol = default_tolerances(result)
+        assert tree_allclose(result, dense, rtol=rtol, atol=atol)
+
+    @pytest.mark.parametrize(
+        "make_base",
+        [
+            lambda zeros: BlockDiag(
+                lx.MatrixLinearOperator(zeros), lx.MatrixLinearOperator(zeros)
+            ),
+            lambda zeros: Kronecker(
+                lx.MatrixLinearOperator(zeros),
+                lx.MatrixLinearOperator(jnp.eye(2)),
+            ),
+            lambda zeros: LowRankUpdate(
+                BlockDiag(
+                    lx.MatrixLinearOperator(zeros), lx.MatrixLinearOperator(zeros)
+                ),
+                jnp.zeros((4, 1)),
+                jnp.ones(1),
+                jnp.zeros((4, 1)),
+            ),
+        ],
+        ids=["block-diagonal", "kronecker", "nested-update"],
+    )
+    def test_gradient_through_a_zero_structured_base_is_finite(self, make_base):
+        left = jr.normal(jr.key(1), (4, 2))
+        right = jr.normal(jr.key(2), (4, 2))
+        weights = jnp.array([1.0, -0.5])
+
+        def norm(zeros):
+            return frobenius_norm(LowRankUpdate(make_base(zeros), left, weights, right))
+
+        zeros = jnp.zeros((2, 2))
+        gradient = jax.grad(norm)(zeros)
+        assert jnp.isfinite(gradient).all()
+        tangent = jr.normal(jr.key(3), (2, 2))
+        step = 1e-3
+        difference = (norm(step * tangent) - norm(-step * tangent)) / (2.0 * step)
+        # Central difference of a smooth norm at a nonzero value: O(step²), and
+        # float32 round-off of about ε / step in the difference.
+        assert jnp.allclose(jnp.vdot(gradient, tangent), difference, atol=1e-2)
+
     def test_each_mode_is_balanced_separately(self):
         scales = jnp.array([1e25, 1.0, 1e-25])
         left = jr.normal(jr.key(0), (6, 3)) * scales

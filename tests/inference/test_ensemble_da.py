@@ -1260,6 +1260,20 @@ def test_taper_is_zero_at_an_infinite_distance_with_a_finite_gradient(taper):
 
 
 @pytest.mark.parametrize("taper", _TAPERS)
+@pytest.mark.parametrize(
+    ("distance", "length_scale"), [(1e30, 1e-10), (1e20, 1.0), (jnp.inf, 2.0)]
+)
+def test_taper_is_zero_with_zero_slopes_beyond_the_floating_point_range(
+    taper, distance, length_scale
+):
+    distance = jnp.array(distance, dtype=jnp.float32)
+    length_scale = jnp.array(length_scale, dtype=jnp.float32)
+    assert taper(distance, length_scale) == 0.0
+    slopes = jax.grad(taper, argnums=(0, 1))(distance, length_scale)
+    assert all(slope == 0.0 for slope in slopes)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
 def test_taper_keeps_the_input_dtype_and_runs_under_transforms(taper):
     distances = jnp.array([0.0, 1.0], jnp.float32)
     assert taper(distances, 2.0).dtype == jnp.float32
@@ -1392,6 +1406,18 @@ def test_ledoit_wolf_shrinkage_does_not_depend_on_the_ensemble_scale(magnitude):
     assert jnp.allclose(shrinkage, 85.0 / 144.0, rtol=1e-5)
 
 
+def test_ledoit_wolf_target_scale_stays_in_range_when_the_trace_does_not():
+    # The diagonal is near 2e38, in range; the trace it is divided from is not.
+    members = 1.1e19 * jnp.array(
+        [[1.0, 0.0], [-1.0, 0.0], [0.0, 2.0], [0.0, -2.0]], dtype=jnp.float32
+    )
+    covariance, shrinkage = gaussx.ledoit_wolf_shrinkage(members)
+    # λ μ in Python floats, since the product with the trace would overflow float32.
+    expected = float(shrinkage) * 1.1e19**2 * (10.0 / 3.0) / 2.0
+    # float32 round-off through the two scale products
+    assert jnp.allclose(jnp.diagonal(covariance.base.as_matrix()), expected, rtol=1e-5)
+
+
 def test_ledoit_wolf_of_a_zero_ensemble_is_finite():
     def shrinkage(state):
         return gaussx.ledoit_wolf_shrinkage(state)[1]
@@ -1450,6 +1476,8 @@ def test_obs_weights_match_the_dense_reference(J, M, noise, low_rank):
     w_ref, t_ref = _weighted_etkf_reference(
         obs_particles, y, R_op.as_matrix(), weights, inflation=1.2
     )
+    # Round-off of one eigendecomposition on each side, whose matrix Λ_w has a
+    # condition number below 4 in these draws, with a margin for the float32 lane.
     rtol, atol = default_tolerances(obs_particles)
     assert tree_allclose(w_mean, w_ref, rtol=1000 * rtol, atol=1000 * atol)
     assert tree_allclose(transform, t_ref, rtol=1000 * rtol, atol=1000 * atol)
@@ -1619,4 +1647,38 @@ def test_obs_weights_float32_means_match_float64():
             obs_weights=weights.astype(dtype),
         )
 
+    # Measured at 1e-6 on these members of unit spread, with a margin for the
+    # platform's float32 eigensolver.
     assert jnp.allclose(run(jnp.float32), run(jnp.float64), atol=1e-3)
+
+
+@pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
+@pytest.mark.parametrize("variance", [1e-2, 1e-4, 1e-6, 1e-8])
+@pytest.mark.parametrize("output", [0, 1], ids=["mean", "transform"])
+def test_obs_weights_float32_gradient_matches_float64(variance, output):
+    """A weight moves H̃ and r̄ together, which must not cancel at a small Σ_ε."""
+    obs_particles = jr.normal(jr.key(0), (10, 3))
+    y = jr.normal(jr.key(1), (3,))
+    weights = jnp.array([1.0, 0.5, 1e-3])
+
+    def grad_at(dtype):
+        def loss(rho):
+            return jnp.sum(
+                jnp.sin(
+                    etkf_transform(
+                        obs_particles.astype(dtype),
+                        y.astype(dtype),
+                        lx.DiagonalLinearOperator(variance * jnp.ones(3, dtype=dtype)),
+                        obs_weights=rho,
+                    )[output]
+                )
+            )
+
+        return jax.grad(loss)(weights.astype(dtype))
+
+    reference = grad_at(jnp.float64)
+    # Measured at 8e-5 over this sweep and six seeds, relative to the largest entry,
+    # against an error above 1 before the weights' tangent was kept apart.
+    assert jnp.abs(grad_at(jnp.float32) - reference).max() <= 1e-3 * (
+        jnp.abs(reference).max()
+    )

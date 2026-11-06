@@ -10,10 +10,11 @@ import pytest
 
 import gaussx
 from gaussx._einx import einsum
-from gaussx._testing import tree_allclose
+from gaussx._testing import assert_sample_moments, tree_allclose
 
 
-# Float64 round-off, or the larger of float32 round-off through a pseudo-inverse.
+# Round-off through a pseudo-inverse of a matrix with condition number near 10, in
+# each lane, with a margin.
 TOL = 1e-9 if jax.config.read("jax_enable_x64") else 2e-3
 
 
@@ -127,12 +128,9 @@ def test_matches_the_moment_smoother_on_a_linear_gaussian_model():
 
     result = gaussx.ensemble_rts_step(smoothed, analysis, forecast)
 
-    sample_mean = einx.mean("[member] state", result)
-    anomalies = _anomalies(result)
-    sample_covariance = anomalies.T @ anomalies / (ensemble_size - 1)
-    # Monte Carlo tolerance: a few standard errors of J = 2000 members
-    assert jnp.allclose(sample_mean, moment_means[0], atol=0.08)
-    assert jnp.allclose(sample_covariance, moment_covariances[0], atol=0.08)
+    # The smoothed members are Gaussian up to a gain error of order 1 / √J, which
+    # the estimator's own sampling distribution covers at 7σ (gh-220).
+    assert_sample_moments(result, moment_means[0], moment_covariances[0])
 
 
 @pytest.mark.parametrize(
@@ -179,6 +177,8 @@ def test_gradient_matches_central_differences(ensemble_size, state_size):
     finite_difference = (
         loss(forecast + step * tangent) - loss(forecast - step * tangent)
     ) / (2.0 * step)
+    # A central difference of a smooth function: O(step²) truncation, and ε / step
+    # of round-off, which is near 1e-10 for a step of 1e-6.
     assert jnp.allclose(
         jnp.vdot(jax.grad(loss)(forecast), tangent), finite_difference, rtol=1e-6
     )
@@ -204,6 +204,7 @@ def test_float32_matches_float64(ensemble_size, state_size):
         *_ensembles(ensemble_size, state_size, dtype=jnp.float32)
     )
     assert single.dtype == jnp.float32
+    # Measured below 2e-5 on these members of unit spread, with a margin.
     assert jnp.allclose(single, reference, atol=2e-4, rtol=0.0)
 
 
@@ -222,18 +223,75 @@ def test_a_weak_direction_stays_resolved_in_float32():
         forecast.astype(jnp.float32),
     )
     weak_spread = jnp.sqrt(einx.mean("[member] state", _anomalies(analysis) ** 2))[1]
+    # Measured at 2e-7 of the spread here, and at 0.26 through F Fᵀ.
     assert jnp.abs(single - reference)[:, 1].max() / weak_spread < 1e-2
 
 
 @pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
 def test_a_large_mean_does_not_reintroduce_the_null_direction():
     smoothed, analysis, forecast = _ensembles(20, 200)
-    # Rounding in the mean leaves F e a little off zero in float32.
+    # Rounding in the mean leaves F e a little off zero in float32. Measured at 5e-4
+    # in units of the spread, from rounding each member near 300, and at 7e-2 when
+    # the forecast is centred only once.
     shift, spread = 300.0, 0.1
     moved = [shift + spread * members for members in (smoothed, analysis, forecast)]
     reference = gaussx.ensemble_rts_step(*moved)
     single = gaussx.ensemble_rts_step(*[m.astype(jnp.float32) for m in moved])
     assert jnp.abs(single - reference).max() / spread < 3e-3
+
+
+@pytest.mark.parametrize("dtype", ["float64", "float32"])
+@pytest.mark.parametrize("seed", range(4))
+def test_the_null_direction_is_dropped_whatever_the_state_size(dtype, seed):
+    # At few members and a large state the rounding singular value of F e reaches
+    # several ε of the largest. Keeping it adds a term the size of the increment.
+    if dtype == "float64" and not jax.config.read("jax_enable_x64"):
+        pytest.skip("float64 needs x64")
+    ensemble_size = 4
+    keys = jr.split(jr.key(seed), 3)
+    analysis = jr.normal(keys[0], (ensemble_size, 4000)).astype(dtype)
+    forecast = 0.9 * analysis + 0.3 * jr.normal(keys[1], analysis.shape, dtype=dtype)
+    smoothed = forecast + 0.1 * jr.normal(keys[2], analysis.shape, dtype=dtype)
+    anomalies = _anomalies(forecast)
+    left, values, right = jnp.linalg.svd(anomalies, full_matrices=False)
+    rank = ensemble_size - 1
+    pinv = einsum(
+        einx.divide("rank state, rank -> rank state", right[:rank], values[:rank]),
+        left[:, :rank],
+        "rank state, member rank -> state member",
+    )
+    expected = analysis + (smoothed - forecast) @ pinv @ _anomalies(analysis)
+    result = gaussx.ensemble_rts_step(smoothed, analysis, forecast)
+    # The same reference, so round-off of a few ε on members of unit spread.
+    atol = 1e3 * jnp.finfo(analysis.dtype).eps
+    assert jnp.abs(result - expected).max() < atol
+
+
+def test_a_small_state_forms_no_ensemble_sized_matrix():
+    arguments = _ensembles(40, 3)
+    jaxpr = str(jax.make_jaxpr(gaussx.ensemble_rts_step)(*arguments))
+    assert "[40,40]" not in jaxpr
+
+
+@pytest.mark.parametrize("scale", [1e-20, 1e20])
+def test_the_forecast_scale_does_not_reach_the_gradient(scale):
+    # F⁺ F⁺ᵀ overflows or underflows float32 here, though the step has no units.
+    smoothed, analysis, forecast = _ensembles(6, 12, dtype=jnp.float32)
+
+    def gradient(spread):
+        def loss(forecast_next):
+            return jnp.sum(
+                gaussx.ensemble_rts_step(smoothed * spread, analysis, forecast_next)
+                ** 2
+            )
+
+        return jax.grad(loss)(forecast * spread)
+
+    # Scaling F and D together leaves the step unchanged, so d/dF scales as 1 / s.
+    scaled = gradient(jnp.float32(scale)) * jnp.float32(scale)
+    assert jnp.isfinite(scaled).all()
+    # float32 round-off through the pseudo-inverse's derivative
+    assert jnp.allclose(scaled, gradient(jnp.float32(1.0)), rtol=1e-2, atol=1e-2)
 
 
 def test_rejects_mismatched_shapes_and_a_single_member():
