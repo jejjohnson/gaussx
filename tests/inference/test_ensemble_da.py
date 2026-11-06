@@ -1477,7 +1477,7 @@ def test_obs_weights_match_the_dense_reference(J, M, noise, low_rank):
         obs_particles, y, R_op.as_matrix(), weights, inflation=1.2
     )
     # Round-off of one eigendecomposition on each side, whose matrix Λ_w has a
-    # condition number below 10 in these draws, with a margin for the float32 lane.
+    # condition number below 4 in these draws, with a margin for the float32 lane.
     rtol, atol = default_tolerances(obs_particles)
     assert tree_allclose(w_mean, w_ref, rtol=1000 * rtol, atol=1000 * atol)
     assert tree_allclose(transform, t_ref, rtol=1000 * rtol, atol=1000 * atol)
@@ -1647,9 +1647,8 @@ def test_obs_weights_float32_means_match_float64():
             obs_weights=weights.astype(dtype),
         )
 
-    # Measured float32 error of about 1e-4 on these members of unit spread, from
-    # ρ / Σ_ε spanning 10¹⁴; 1e-3 keeps a margin and is 1000 times tighter than the
-    # posterior spread would need.
+    # Measured at 1e-6 on these members of unit spread, with a margin for the
+    # platform's float32 eigensolver.
     assert jnp.allclose(run(jnp.float32), run(jnp.float64), atol=1e-3)
 
 
