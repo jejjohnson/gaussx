@@ -163,11 +163,11 @@ state = gaussx.GaussianState(
 #
 # $$\mu_{y,i} = f_i(\mu) + \tfrac{1}{2}\operatorname{tr}(H_i\,\Sigma).$$
 #
-# By default, the covariance remains the first-order expression
-# $\Sigma_y = J\Sigma J^\top$ — this "second-order EKF" (mean-only
+# With `correct_variance=False`, the covariance remains the first-order
+# expression $\Sigma_y = J\Sigma J^\top$ — this "second-order EKF" (mean-only
 # correction) appears in Athans et al. (1968).
 #
-# Optionally, with `correct_variance=True`, the covariance also receives a
+# By default (`correct_variance=True`), the covariance also receives a
 # second-order correction using fourth Gaussian moments:
 #
 # $$(\Sigma_y)_{ij} \mathrel{+}=
@@ -223,11 +223,11 @@ state = gaussx.GaussianState(
 taylor1 = gaussx.TaylorIntegrator(order=1)
 res_t1 = taylor1.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
 
-# --- Taylor 2nd order (mean correction only, default) ---
-taylor2 = gaussx.TaylorIntegrator(order=2)
+# --- Taylor 2nd order (mean correction only) ---
+taylor2 = gaussx.TaylorIntegrator(order=2, correct_variance=False)
 res_t2 = taylor2.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
 
-# --- Taylor 2nd order (mean + variance correction) ---
+# --- Taylor 2nd order (mean + variance correction, default) ---
 taylor2v = gaussx.TaylorIntegrator(order=2, correct_variance=True)
 res_t2v = taylor2v.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
 

@@ -135,7 +135,7 @@ Sigma_0 = 4.0 * jnp.eye(2)
 Sigma_0_op = lx.MatrixLinearOperator(Sigma_0, lx.symmetric_tag)
 
 # Convert to natural parameters using gaussx
-eta1_prior, eta2_prior = gaussx.to_natural(mu_0, Sigma_0_op)
+eta1_prior, eta2_prior = gaussx.mean_cov_to_natural(mu_0, Sigma_0_op)
 
 print("Prior natural parameters:")
 print("  eta1 =", eta1_prior)
@@ -176,7 +176,7 @@ eta2_post_op = lx.MatrixLinearOperator(eta2_post_mat, lx.symmetric_tag)
 
 # Convert back to mean and covariance
 post_expfam = GaussianExpFam(eta1=eta1_post, eta2=eta2_post_op)
-mu_1, Sigma_1_op = gaussx.to_expectation(post_expfam)
+mu_1, Sigma_1_op = gaussx.to_mean_cov(post_expfam)
 Sigma_1 = Sigma_1_op.as_matrix()
 
 print("\nNatural parameter posterior:")
@@ -304,7 +304,7 @@ for i, (H_i, y_i) in enumerate(zip(H_list, observations, strict=True)):
     # Convert back for plotting
     eta2_curr_op = lx.MatrixLinearOperator(eta2_curr_mat, lx.symmetric_tag)
     post_i = GaussianExpFam(eta1=eta1_curr, eta2=eta2_curr_op)
-    mu_i, Sigma_i_op = gaussx.to_expectation(post_i)
+    mu_i, Sigma_i_op = gaussx.to_mean_cov(post_i)
 
     trajectory_mu.append(mu_i)
     trajectory_Sigma.append(Sigma_i_op.as_matrix())
@@ -374,7 +374,7 @@ for H_i, y_i, R_i in zip(H_all_list, y_all_list, R_all_list, strict=True):
 # Convert to mean/cov
 eta2_batch_op = lx.MatrixLinearOperator(eta2_batch_mat, lx.symmetric_tag)
 batch_expfam = GaussianExpFam(eta1=eta1_batch, eta2=eta2_batch_op)
-mu_batch, Sigma_batch_op = gaussx.to_expectation(batch_expfam)
+mu_batch, Sigma_batch_op = gaussx.to_mean_cov(batch_expfam)
 Sigma_batch = Sigma_batch_op.as_matrix()
 
 # Compare with sequential result (last entry in trajectory)
@@ -487,7 +487,7 @@ print(f"Posterior mean RMSE vs truth: {rmse:.4f}")
 #
 # gaussx makes this clean with:
 #
-# - `to_natural` / `to_expectation` for parameter conversion
+# - `mean_cov_to_natural` / `to_mean_cov` for parameter conversion
 # - `GaussianExpFam` for natural parameter containers
 # - `solve`, `inv`, `logdet` for structured linear algebra
 # - `log_marginal_likelihood` for GP model selection

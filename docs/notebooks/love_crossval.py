@@ -312,7 +312,7 @@ alpha = gaussx.solve(K_op, y_train)
 # = sum_j (Q_{ij}^2 * inv_eigvals_j)
 K_inv_diag_love = jnp.sum(cache.Q**2 * cache.inv_eigvals[None, :], axis=1)
 # Clamp diagonal to positive values to avoid negative variance
-K_inv_diag_love = jnp.clip(K_inv_diag_love, a_min=1e-12)
+K_inv_diag_love = jnp.clip(K_inv_diag_love, min=1e-12)
 
 # LOO predictive mean and variance
 mu_loo = y_train - alpha / K_inv_diag_love
@@ -555,7 +555,7 @@ for ls_val in lengthscales:
     cache_ls = gaussx.love_cache(K_ls_op, lanczos_order=50, key=jax.random.PRNGKey(0))
     K_inv_diag_ls = jnp.sum(cache_ls.Q**2 * cache_ls.inv_eigvals[None, :], axis=1)
     # Clamp diagonal to positive values to avoid negative variance
-    K_inv_diag_ls = jnp.clip(K_inv_diag_ls, a_min=1e-12)
+    K_inv_diag_ls = jnp.clip(K_inv_diag_ls, min=1e-12)
     mu_loo_ls = y_train - alpha_ls / K_inv_diag_ls
     var_loo_ls = 1.0 / K_inv_diag_ls
     loo_val = -0.5 * n_train * jnp.log(2 * jnp.pi) - 0.5 * jnp.sum(

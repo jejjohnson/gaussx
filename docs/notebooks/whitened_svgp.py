@@ -164,7 +164,7 @@ def unwhitened_elbo(m, S_chol, y, K_zz_op, K_xz, K_xx_diag, noise_var):
 
     # --- KL(q(u) || p(u)) with p(u) = N(0, K_zz) ---
     prior_loc = jnp.zeros(m.shape[0])
-    kl = gaussx.dist_kl_divergence(m, S_op, prior_loc, K_zz_op)
+    kl = gaussx.gaussian_kl(m, S_op, prior_loc, K_zz_op)
 
     # --- ELBO ---
     return gaussx.variational_elbo_gaussian(y, f_loc, f_var, noise_var, kl)
@@ -296,7 +296,9 @@ print(f"Max error vs explicit Q: {jnp.max(jnp.abs(Q_mat - Q_expected)):.2e}")
 # - $\eta_1 = \Sigma^{-1}\mu$
 # - $\eta_2 = -\tfrac{1}{2}\Sigma^{-1}$
 #
-# Updates use the gradient and Hessian of the expected log-likelihood.
+# Updates use the gradient and Hessian of the log-joint: the Gaussian
+# log-likelihood plus the prior $\mathcal{N}(0, I)$. The prior keeps the
+# precision invertible, since these features are strongly correlated.
 
 # %%
 # --- Feature extractor: simple 2-layer MLP ---
@@ -339,9 +341,10 @@ for _step in range(20):
     f_pred = Phi_train @ mu
     residual = y_train - f_pred
 
-    # Gradient and Hessian of log-likelihood
-    grad = Phi_train.T @ residual / noise_var  # (d,)
-    hessian = -Phi_train.T @ Phi_train / noise_var  # (d, d), negative definite
+    # Gradient and Hessian of the log-joint, prior included
+    grad = Phi_train.T @ residual / noise_var - mu  # (d,)
+    # (d, d), negative definite
+    hessian = -Phi_train.T @ Phi_train / noise_var - jnp.eye(d_features)
 
     nat1, nat2 = gaussx.blr_full_update(nat1, nat2, grad, hessian, lr_blr)
 
@@ -363,16 +366,20 @@ print(f"BLR full-rank posterior mean norm: {jnp.linalg.norm(mu_blr_full):.4f}")
 nat1_diag = jnp.zeros(d_features)
 nat2_diag = -0.5 * jnp.ones(d_features)
 
-for _step in range(20):
+# The diagonal ignores the correlation between features, so a large step
+# diverges here: it needs a small step and more of them than the full-rank case.
+lr_blr_diag = 0.1
+
+for _step in range(200):
     mu_d = nat1_diag / (-2.0 * nat2_diag)
     f_pred_d = Phi_train @ mu_d
     residual_d = y_train - f_pred_d
 
-    grad_d = Phi_train.T @ residual_d / noise_var
-    hessian_diag_d = -jnp.sum(Phi_train**2, axis=0) / noise_var
+    grad_d = Phi_train.T @ residual_d / noise_var - mu_d
+    hessian_diag_d = -jnp.sum(Phi_train**2, axis=0) / noise_var - 1.0
 
     nat1_diag, nat2_diag = gaussx.blr_diag_update(
-        nat1_diag, nat2_diag, grad_d, hessian_diag_d, lr_blr
+        nat1_diag, nat2_diag, grad_d, hessian_diag_d, lr_blr_diag
     )
 
 mu_blr_diag = nat1_diag / (-2.0 * nat2_diag)
@@ -557,7 +564,7 @@ plt.show()
 # | `svgp_variance_adjustment` | Build the $Q$ operator for predictive variance |
 # | `trace_correction` | Titsias trace penalty |
 # | `variational_elbo_gaussian` | Closed-form ELBO for Gaussian likelihoods |
-# | `dist_kl_divergence` | General KL between two multivariate normals |
+# | `gaussian_kl` | General KL between two multivariate normals |
 # | `blr_full_update` | Full-rank natural-parameter BLR step |
 # | `blr_diag_update` | Diagonal natural-parameter BLR step |
 # | `ggn_diagonal` | Diagonal of $J^\top J$ (GGN approximation) |
@@ -569,7 +576,8 @@ plt.show()
 #   kernel hyperparameters, giving faster and more stable convergence.
 # - `svgp_variance_adjustment` encapsulates the algebraic bookkeeping of
 #   $K_{zz}^{-1} S_u K_{zz}^{-1} - K_{zz}^{-1}$ behind a lazy operator.
-# - BLR in natural parameters converges in very few steps (often a
-#   single pass through the data suffices for Gaussian likelihoods).
+# - Full-rank BLR in natural parameters converges in very few steps for
+#   Gaussian likelihoods. The diagonal version ignores correlations between
+#   features, so it needs a smaller step and many more iterations.
 # - The GGN diagonal is exact and cheap; the Hutchinson estimator trades
 #   accuracy for the ability to work with implicit HVP access only.

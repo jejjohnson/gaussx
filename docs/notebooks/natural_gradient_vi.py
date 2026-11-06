@@ -63,6 +63,11 @@
 # %%
 from __future__ import annotations
 
+import warnings
+
+
+warnings.filterwarnings("ignore", message=r".*IProgress.*")
+
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -192,7 +197,7 @@ def adam_step(params, grads, m, v, t, lr=0.01, b1=0.9, b2=0.999, eps=1e-8):
     m_hat = [mi / (1 - b1 ** (t + 1)) for mi in m_new]
     v_hat = [vi / (1 - b2 ** (t + 1)) for vi in v_new]
     params_new = [
-        p + lr * mh / (jnp.sqrt(vh) + eps)
+        p - lr * mh / (jnp.sqrt(vh) + eps)
         for p, mh, vh in zip(params, m_hat, v_hat, strict=True)
     ]
     return params_new, m_new, v_new
@@ -256,9 +261,10 @@ for _i in range(n_steps_natural):
     hess_f = jax.hessian(lambda f: probit_log_lik(f, y_class))(mu)
 
     # Newton target natural parameters (likelihood site)
-    nat1_target, nat2_target = gaussx.newton_update(mu, grad_f, hess_f)
+    # newton_update returns the site precision +Lambda, so convert it to eta2
+    nat1_target, site_precision = gaussx.newton_update(mu, grad_f, hess_f)
     # Add prior precision contribution: eta2_prior = -0.5 K^{-1}
-    nat2_target = nat2_target + (-0.5 * K_inv)
+    nat2_target = -0.5 * site_precision + (-0.5 * K_inv)
 
     # Damped natural update
     nat1, nat2 = gaussx.damped_natural_update(
@@ -470,6 +476,7 @@ ax.plot(elbo_history_natural, label="Natural gradient", linewidth=2)
 ax.plot(elbo_history_blr, label="BLR", linestyle="--", linewidth=2)
 ax.set_xlabel("Iteration")
 ax.set_ylabel("ELBO")
+ax.set_yscale("symlog")
 ax.set_title("ELBO convergence")
 ax.legend(fontsize=9)
 ax.grid(True, which="major", alpha=0.3)
