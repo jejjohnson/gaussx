@@ -1629,6 +1629,44 @@ def test_obs_weights_must_match_the_observations():
         etkf_transform(jnp.zeros((5, 3)), jnp.zeros(3), noise, obs_weights=jnp.ones(2))
 
 
+@pytest.mark.x64_only(reason="exact second derivative at float64 round-off")
+def test_obs_weights_second_derivative_has_its_closed_form():
+    # H̃ = (−1, 0, 1)ᵀ, r̄ = 1, Σ_ε = 1 gives w̄₃ = ρ / (2 (1 + ρ)), so ∂²w̄₃/∂ρ² is
+    # −1 / (1 + ρ)³ = −8/27 at ρ = 1/2.
+    obs_particles = jnp.array([[-1.0], [0.0], [1.0]])
+    y = jnp.array([1.0])
+    noise = lx.DiagonalLinearOperator(jnp.ones(1))
+
+    def last_weight(rho):
+        return etkf_transform(obs_particles, y, noise, obs_weights=rho)[0][2]
+
+    second = jax.jacfwd(jax.grad(last_weight))(jnp.array([0.5]))
+    # Round-off through one eigendecomposition and its derivative
+    assert jnp.allclose(second, -8.0 / 27.0, rtol=1e-10)
+
+
+@pytest.mark.x64_only(reason="central differences need float64")
+@pytest.mark.parametrize("noise_kind", ["diagonal", "dense"])
+def test_obs_weights_hessian_matches_differences_of_the_gradient(noise_kind):
+    _, _, y, R_op = _rank_route_problem(12, 3, noise_kind)
+    obs_particles = jr.normal(jr.key(5), (12, 3))
+    weights = jnp.array([1.0, 0.5, 0.2])
+
+    def loss(rho):
+        mean, transform = etkf_transform(obs_particles, y, R_op, obs_weights=rho)
+        return jnp.sum(jnp.sin(mean)) + jnp.sum(jnp.sin(transform))
+
+    gradient = jax.grad(loss)
+    hessian = jax.jacfwd(gradient)(weights)
+    direction = jnp.array([1.0, -0.5, 0.25])
+    step = 1e-5
+    difference = (
+        gradient(weights + step * direction) - gradient(weights - step * direction)
+    ) / (2.0 * step)
+    # O(step²) truncation against ε / step of round-off, near 1e-10 here.
+    assert jnp.allclose(hessian @ direction, difference, rtol=1e-6, atol=1e-8)
+
+
 @pytest.mark.x64_only(reason="compares float32 runs with a float64 reference")
 def test_obs_weights_float32_means_match_float64():
     """Strong, nearly removed channels together; ρ / Σ_ε spans many decades."""
