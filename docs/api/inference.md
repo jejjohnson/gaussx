@@ -261,7 +261,7 @@ RTPP / RTPS inflation.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [localization_matrix, localized_kalman_gain, gaspari_cohn, inflate_multiplicative, inflate_rtpp, inflate_rtps]
+      members: [localization_matrix, localized_kalman_gain, gaspari_cohn, gaussian_taper, soar_taper, inflate_multiplicative, inflate_rtpp, inflate_rtps]
 
 ## Distances
 

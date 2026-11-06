@@ -34,9 +34,11 @@ from gaussx._inference._inflation import (
 from gaussx._inference._localization import (
     euclidean_distance,
     gaspari_cohn,
+    gaussian_taper,
     haversine_distance,
     localization_matrix,
     localized_kalman_gain,
+    soar_taper,
 )
 from gaussx._inference._natural_gradient import (
     damped_natural_update,
@@ -71,6 +73,7 @@ __all__ = [
     "gauss_newton_operator",
     "gauss_newton_precision",
     "gaussian_expected_log_lik",
+    "gaussian_taper",
     "ggn_diagonal",
     "haversine_distance",
     "hutchinson_hessian_diag",
@@ -84,6 +87,7 @@ __all__ = [
     "newton_update",
     "process_noise_covariance",
     "riemannian_psd_correction",
+    "soar_taper",
     "tikhonov_augment",
     "trace_correction",
     "vb_mean_correction",

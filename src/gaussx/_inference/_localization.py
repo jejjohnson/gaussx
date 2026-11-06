@@ -1,4 +1,4 @@
-"""Covariance localization: Gaspari-Cohn taper and the Hadamard-localized gain."""
+"""Covariance localization: tapers and the Hadamard-localized gain."""
 
 from __future__ import annotations
 
@@ -90,6 +90,111 @@ def gaspari_cohn(
     )
     outer = jnp.where(scaled_distance < 2.0, mid, 0.0)
     return jnp.where(scaled_distance <= 1.0, near, outer)
+
+
+def gaussian_taper(
+    r: Float[Array, "*shape"], length_scale: float | Float[Array, ""]
+) -> Float[Array, "*shape"]:
+    """Gaussian localization taper ρ(r) = exp(−r² / (2 L²)).
+
+    A positive-definite function in any dimension, so ρ ∘ P stays PSD by the
+    Schur product theorem. Unlike `gaspari_cohn` it has no compact support: ρ is
+    positive at every finite distance, until it rounds to zero.
+
+    Args:
+        r: Distances r of any shape, e.g. a pairwise distance matrix.
+        length_scale: Length scale L > 0.
+
+    Returns:
+        Taper values in [0, 1], with the shape of ``r``.
+
+    Examples:
+        One at zero distance, decaying with distance:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> values = gaussx.gaussian_taper(jnp.array([0.0, 2.0]), 2.0)
+        >>> [round(value, 4) for value in values.tolist()]
+        [1.0, 0.6065]
+
+        The gradient stays finite at r = 0:
+
+        >>> import jax
+        >>> slope = jax.grad(lambda r: gaussx.gaussian_taper(r, 2.0))(jnp.array(0.0))
+        >>> bool(jnp.isfinite(slope))
+        True
+
+        A taper matrix from coordinates:
+
+        >>> coords = jnp.array([[0.0], [1.0], [2.0]])
+        >>> rho = gaussx.gaussian_taper(gaussx.euclidean_distance(coords, coords), 1.0)
+        >>> rho.shape
+        (3, 3)
+
+    References:
+        Gaspari & Cohn (1999).
+    """
+    # Mask a z² out of range before anything divides by L: the slope z exp(−z² / 2),
+    # and the pullback of r / L in L, would each be ∞ × 0.
+    ratio = r / length_scale
+    beyond_range = jnp.isinf(ratio * ratio)
+    in_range_distance = jnp.where(beyond_range, 0.0, r)
+    # z = r / L
+    scaled_distance = in_range_distance / length_scale
+    # ρ = exp(−z² / 2)
+    taper = jnp.exp(-0.5 * scaled_distance * scaled_distance)
+    return jnp.where(beyond_range, 0.0, taper)
+
+
+def soar_taper(
+    r: Float[Array, "*shape"], length_scale: float | Float[Array, ""]
+) -> Float[Array, "*shape"]:
+    """Second-order auto-regressive (SOAR) taper ρ(r) = (1 + |r| / L) exp(−|r| / L).
+
+    A positive-definite function in any dimension, so ρ ∘ P stays PSD by the
+    Schur product theorem. Unlike `gaspari_cohn` it has no compact support, and
+    it decays more slowly than `gaussian_taper`.
+
+    Args:
+        r: Distances r of any shape, e.g. a pairwise distance matrix.
+        length_scale: Length scale L > 0.
+
+    Returns:
+        Taper values in [0, 1], with the shape of ``r``.
+
+    Examples:
+        One at zero distance, decaying with distance:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> values = gaussx.soar_taper(jnp.array([0.0, 2.0]), 2.0)
+        >>> [round(value, 4) for value in values.tolist()]
+        [1.0, 0.7358]
+
+        The gradient stays finite at r = 0:
+
+        >>> import jax
+        >>> slope = jax.grad(lambda r: gaussx.soar_taper(r, 2.0))(jnp.array(0.0))
+        >>> bool(jnp.isfinite(slope))
+        True
+
+        An infinite distance zeroes a pair, as it does for `gaussian_taper`:
+
+        >>> float(gaussx.soar_taper(jnp.array(jnp.inf), 2.0))
+        0.0
+
+    References:
+        Gaspari & Cohn (1999).
+    """
+    # Mask a z out of range before anything divides by L: (1 + z) exp(−z), and the
+    # pullback of r / L in L, would each be ∞ × 0.
+    beyond_range = jnp.isinf(r / length_scale)
+    in_range_distance = jnp.where(beyond_range, 0.0, r)
+    # z = |r| / L
+    scaled_distance = jnp.abs(in_range_distance) / length_scale
+    # ρ = (1 + z) exp(−z)
+    taper = (1.0 + scaled_distance) * jnp.exp(-scaled_distance)
+    return jnp.where(beyond_range, 0.0, taper)
 
 
 def euclidean_distance(

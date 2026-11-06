@@ -1167,3 +1167,116 @@ def test_low_rank_needs_fewer_observations_than_members():
 
     counts = _primitive_counts(run, obs_particles, y, R_op)
     assert counts.get("qr", 0) == 0
+
+
+# ----------------------------------------------------------------
+# Gaussian and SOAR tapers (gh-692)
+# ----------------------------------------------------------------
+
+
+_TAPERS = [gaussx.gaussian_taper, gaussx.soar_taper]
+
+
+def test_tapers_match_their_closed_forms():
+    distances = jnp.array([0.0, 0.5, 1.0, 3.0, 10.0])
+    scaled = distances / 2.0
+    rtol, atol = default_tolerances(distances)
+    assert tree_allclose(
+        gaussx.gaussian_taper(distances, 2.0),
+        jnp.exp(-0.5 * scaled**2),
+        rtol=rtol,
+        atol=atol,
+    )
+    assert tree_allclose(
+        gaussx.soar_taper(distances, 2.0),
+        (1.0 + scaled) * jnp.exp(-scaled),
+        rtol=rtol,
+        atol=atol,
+    )
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_is_one_at_zero_and_decreases(taper):
+    distances = jnp.linspace(0.0, 20.0, 41)
+    values = taper(distances, 2.0)
+    assert values[0] == 1.0
+    assert jnp.all(jnp.diff(values) <= 0.0)
+    assert jnp.all(values >= 0.0)
+    # An even function of r, as a distance need not be signed.
+    assert tree_allclose(taper(-distances, 2.0), values)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_matrix_is_positive_semidefinite(taper):
+    """The Schur product theorem needs this; a smallest eigenvalue of about −ε."""
+    coords = jr.normal(jr.key(0), (40, 3))
+    taper_matrix = taper(gaussx.euclidean_distance(coords, coords), 1.5)
+    tolerance = 100 * jnp.finfo(coords.dtype).eps * 40
+    assert jnp.min(jnp.linalg.eigvalsh(taper_matrix)) >= -tolerance
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_gradient_is_finite_at_zero_distance(taper):
+    slope = jax.grad(lambda r: taper(r, 2.0))(jnp.array(0.0))
+    assert jnp.isfinite(slope)
+    # Through the distance itself, including the diagonal of a self-distance.
+    coords = jr.normal(jr.key(1), (5, 2))
+
+    def total(points):
+        return jnp.sum(taper(gaussx.euclidean_distance(points, points), 1.0))
+
+    assert jnp.all(jnp.isfinite(jax.grad(total)(coords)))
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_gradient_in_the_length_scale_matches_central_differences(taper):
+    distances = jnp.array([0.5, 1.0, 2.0])
+
+    def total(length_scale):
+        return jnp.sum(taper(distances, length_scale))
+
+    step = jnp.sqrt(jnp.finfo(distances.dtype).eps)
+    central = (total(2.0 + step) - total(2.0 - step)) / (2.0 * step)
+    assert jnp.allclose(jax.grad(total)(jnp.array(2.0)), central, rtol=1e-3)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_is_zero_at_an_infinite_distance_with_a_finite_gradient(taper):
+    assert taper(jnp.array(jnp.inf), 2.0) == 0.0
+    slope = jax.grad(lambda r: taper(r, 2.0))(jnp.array(jnp.inf))
+    assert jnp.isfinite(slope)
+    # A masked pair must not disturb the gradient in L of the pairs that remain.
+    distances = jnp.array([1.0, jnp.inf])
+
+    def total(length_scale):
+        return jnp.sum(taper(distances, length_scale))
+
+    def finite_only(length_scale):
+        return taper(distances[0], length_scale)
+
+    gradient = jax.grad(total)(jnp.array(2.0))
+    assert jnp.isfinite(gradient)
+    assert jnp.allclose(gradient, jax.grad(finite_only)(jnp.array(2.0)))
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+@pytest.mark.parametrize(
+    ("distance", "length_scale"), [(1e30, 1e-10), (1e20, 1.0), (jnp.inf, 2.0)]
+)
+def test_taper_is_zero_with_zero_slopes_beyond_the_floating_point_range(
+    taper, distance, length_scale
+):
+    distance = jnp.array(distance, dtype=jnp.float32)
+    length_scale = jnp.array(length_scale, dtype=jnp.float32)
+    assert taper(distance, length_scale) == 0.0
+    slopes = jax.grad(taper, argnums=(0, 1))(distance, length_scale)
+    assert all(slope == 0.0 for slope in slopes)
+
+
+@pytest.mark.parametrize("taper", _TAPERS)
+def test_taper_keeps_the_input_dtype_and_runs_under_transforms(taper):
+    distances = jnp.array([0.0, 1.0], jnp.float32)
+    assert taper(distances, 2.0).dtype == jnp.float32
+    looped = jnp.stack([taper(row, 2.0) for row in jnp.ones((2, 3))])
+    assert tree_allclose(jax.vmap(lambda r: taper(r, 2.0))(jnp.ones((2, 3))), looped)
+    assert tree_allclose(jax.jit(lambda r: taper(r, 2.0))(jnp.ones(3)), looped[0])
