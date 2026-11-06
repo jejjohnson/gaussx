@@ -1,10 +1,6 @@
 # GMRF Precision Builders
 
-The components of a latent Gaussian model, as precision operators. Each is a
-quadratic form $\tfrac{\tau}{2}\|Dx\|^2$ for a sparse difference operator $D$,
-so $Q = \tau D^\top D$ is sparse, and each builder returns the structured
-operator that sends `solve`, `logdet`, `diag_inv` and sampling to their
-cheapest exact path:
+The components of a latent Gaussian model, as precision operators. Each is a quadratic form $\frac{\tau}{2} \Vert \mathbf{D} \mathbf{x} \Vert_2^2$ for a sparse difference operator $\mathbf{D}$, so the precision $\boldsymbol{\Lambda} = \tau \mathbf{D}^\top \mathbf{D}$ is sparse, and each builder returns the structured operator that sends `solve`, `logdet`, `diag_inv` and sampling to their cheapest exact path:
 
 | Builder | Returns | Exact path |
 |---|---|---|
@@ -21,30 +17,10 @@ fmesher, pygmsh or meshio.
 
 **The maths.**
 
-- **RW1 / RW2.** Increments $x_{i+1}-x_i$ (second differences
-  $x_{i+1}-2x_i+x_{i-1}$) are $\mathcal N(0,\tau^{-1})$; the structure matrix
-  has null space $\{\mathbf 1\}$ ($\{\mathbf 1, t\}$). RW2 is stored with
-  $2\times 2$ blocks, so an odd $n$ gets one decoupled unit-precision padding
-  node; strip it from results. Their normalising constant
-  $\tfrac12\log|R|_+$ (and Besag's) is
-  [`pseudo_logdet`](primitives.md#pseudo-determinant); the padding node's
-  eigenvalue 1 adds nothing to it.
-- **AR(1).**
-  $Q = \frac{\tau}{1-\rho^2}\operatorname{tridiag}(-\rho,\ 1+\rho^2,\ -\rho)$
-  with 1 in the corners: every marginal variance is $1/\tau$.
-- **BYM2** (Riebler et al., 2016). The pair $(b, u^*)$ with
-  $b = (\sqrt{1-\phi}\,v + \sqrt\phi\,u^*)/\sqrt\tau$ has a sparse joint
-  precision whose pattern does not depend on $(\tau, \phi)$. $u^*$ is scaled
-  by `generalized_variance_scale`, the geometric mean of the constrained
-  marginal variances (Sørbye & Rue, 2014); it matches R-INLA's
-  `inla.scale.model` (golden fixture, `scripts/golden/inla/`).
-- **SPDE** (Lindgren, Rue & Lindström, 2011).
-  $(\kappa^2-\Delta)^{\alpha/2}(\tau x) = \mathcal W$ has Matérn covariance
-  with $\nu = \alpha - d/2$. With P1 elements, $K = \kappa^2\tilde C + G$
-  and $Q_\alpha = \tau^2 K(\tilde C^{-1}K)^{\alpha-1}$; on a grid with
-  spacing $h$, $Q_\alpha = \tau^2 h^d(\kappa^2 I + h^{-2}(L_1\oplus\cdots\oplus L_d))^\alpha$.
-  `matern_spde_params` converts (range, $\sigma$, $\nu$) into
-  $(\kappa, \tau, \alpha)$.
+- **RW1 / RW2.** With regular spacing, the increments $x_{t+1} - x_t$ (second differences $x_{t+1} - 2 x_t + x_{t-1}$) are $\mathcal{N}(0, 1/\tau)$, so $\boldsymbol{\Lambda} = \tau \mathbf{R}$; the structure matrix $\mathbf{R}$ has null space $\mathrm{span}\{\mathbf{1}\}$ ($\mathrm{span}\{\mathbf{1}, \mathbf{t}\}$). RW2 is stored with $2 \times 2$ blocks, so an odd $n$ gets one decoupled unit-precision padding node; strip it from results. Their normalising constant $\frac{1}{2} \log \det_+ \mathbf{R}$ (and Besag's) is [`pseudo_logdet`](primitives.md#pseudo-determinant); the padding node's eigenvalue 1 adds nothing to it.
+- **AR(1).** $\boldsymbol{\Lambda} = \frac{\tau}{1 - \rho^2} \mathrm{tridiag}(-\rho, 1 + \rho^2, -\rho)$ with 1 in the corners: every marginal variance is $1/\tau$.
+- **BYM2** (Riebler et al., 2016). The pair $(\mathbf{b}, \mathbf{u}^\star)$ with $\mathbf{b} = (\sqrt{1 - \phi} \mathbf{v} + \sqrt{\phi} \mathbf{u}^\star) / \sqrt{\tau}$ has a sparse joint precision whose pattern does not depend on $(\tau, \phi)$. $\mathbf{u}^\star$ is scaled by `generalized_variance_scale`, the geometric mean of the constrained marginal variances (Sørbye & Rue, 2014); it matches R-INLA's `inla.scale.model` (golden fixture, `scripts/golden/inla/`).
+- **SPDE** (Lindgren, Rue & Lindström, 2011). In $D_s$ spatial dimensions, $(\kappa^2 - \nabla^2)^{\alpha/2} (\tau x) = \mathcal{W}$ has Matérn covariance with $\nu = \alpha - D_s/2$. With P1 elements, $\mathbf{K} = \kappa^2 \tilde{\mathbf{C}} + \mathbf{G}$ and $\boldsymbol{\Lambda}_\alpha = \tau^2 \mathbf{K} (\tilde{\mathbf{C}}^{-1} \mathbf{K})^{\alpha - 1}$; on a grid with spacing $h$, $\boldsymbol{\Lambda}_\alpha = \tau^2 h^{D_s} (\kappa^2 \mathbf{I} + h^{-2} (\mathbf{L}_1 \oplus \ldots \oplus \mathbf{L}_{D_s}))^\alpha$. `matern_spde_params` converts (range, $\sigma$, $\nu$) into $(\kappa, \tau, \alpha)$.
 
 **Boundary effects and domain extension.** The SPDE on a bounded domain,
 mesh or grid, has natural (Neumann) boundary conditions. They inflate the
