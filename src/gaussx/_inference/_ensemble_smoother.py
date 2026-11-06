@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import einx
+import jax
 import jax.numpy as jnp
 from jaxtyping import Array, Float
 
@@ -45,7 +46,8 @@ def ensemble_rts_step(
         forecast_next: Forecast ensemble X_t+1^f propagated from ``analysis``,
             shape (|ℰ|, D_x). Members must correspond across all three ensembles.
         rcond: Singular values of F at or below ``rcond`` times the largest are
-            dropped. ``None`` means |ℰ| times the machine epsilon of the dtype.
+            dropped. ``None`` means |ℰ| + √D_x times the machine epsilon of the
+            dtype.
 
     Returns:
         The smoothed ensemble X_t^s, shape (|ℰ|, D_x).
@@ -76,7 +78,7 @@ def ensemble_rts_step(
         Evensen & van Leeuwen (2000), *Mon. Wea. Rev.* 128, 1852-1867.
         Golub & Pereyra (1973), *SIAM J. Numer. Anal.* 10, 413-432.
     """
-    ensemble_size = smoothed_next.shape[0]
+    ensemble_size, state_size = smoothed_next.shape
     _check_ensemble_size(ensemble_size, True)
     if not smoothed_next.shape == analysis.shape == forecast_next.shape:
         raise ValueError(
@@ -92,22 +94,44 @@ def ensemble_rts_step(
     forecast_anomalies = forecast_anomalies - einx.mean(
         "[member] state", forecast_anomalies
     )
-    # D = X_t+1^s − X_t+1^f
-    discrepancy = smoothed_next - forecast_next
+    # s = max |F|, a constant to the derivative, since F⁺ = (F / s)⁺ / s for any s.
+    # Without it the derivative's F⁺ F⁺ᵀ can leave the floating-point range.
+    largest = jax.lax.stop_gradient(jnp.max(jnp.abs(forecast_anomalies)))
+    scale = jnp.where(largest > 0.0, largest, 1.0)
+    # D / s = (X_t+1^s − X_t+1^f) / s
+    discrepancy = (smoothed_next - forecast_next) / scale
+    # Rounding an (|ℰ|, D_x) matrix leaves singular values at about ε (√|ℰ| + √D_x)
+    # relative to one near √(|ℰ| D_x), and computing them adds a few ε more, which
+    # this bound clears at every size.
     tolerance = (
-        ensemble_size * jnp.finfo(forecast_anomalies.dtype).eps
+        (ensemble_size + state_size**0.5) * jnp.finfo(forecast_anomalies.dtype).eps
         if rcond is None
         else rcond
     )
-    # F⁺
-    forecast_pinv = jnp.linalg.pinv(forecast_anomalies, tolerance)
-    # D F⁺
-    member_weights = einsum(
-        discrepancy, forecast_pinv, "member state, state other -> member other"
-    )
-    # D F⁺ A
-    increment = einsum(
-        member_weights, analysis_anomalies, "member other, other state -> member state"
-    )
+    # (F / s)⁺
+    forecast_pinv = jnp.linalg.pinv(forecast_anomalies / scale, tolerance)
+    # D F⁺ A, contracted through the smaller of |ℰ| and D_x
+    if ensemble_size <= state_size:
+        # D F⁺
+        member_weights = einsum(
+            discrepancy, forecast_pinv, "member state, state other -> member other"
+        )
+        increment = einsum(
+            member_weights,
+            analysis_anomalies,
+            "member other, other state -> member state",
+        )
+    else:
+        # F⁺ A
+        state_gain = einsum(
+            forecast_pinv,
+            analysis_anomalies,
+            "forecast member, member state -> forecast state",
+        )
+        increment = einsum(
+            discrepancy,
+            state_gain,
+            "member forecast, forecast state -> member state",
+        )
     # X_t^s = X_t^a + D F⁺ A
     return analysis + increment
