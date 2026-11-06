@@ -31,7 +31,13 @@ from gaussx import (
 from gaussx._einx import einsum
 from gaussx._primitives._cholesky import DenseFallbackWarning
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
-from gaussx._testing import empirical_moments, key_sequence, random_pd_matrix
+from gaussx._testing import (
+    default_tolerances,
+    empirical_moments,
+    key_sequence,
+    random_pd_matrix,
+    tree_allclose,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -936,3 +942,65 @@ def test_a_shaped_diagonal_noise_draws_stochastic_perturbations(getkey):
     )
     assert updated.shape == particles.shape
     assert jnp.all(jnp.isfinite(updated))
+
+
+@pytest.mark.parametrize("noise_kind", ["diagonal", "dense"])
+@pytest.mark.parametrize("mode", ["key", "perturbed_obs", "deterministic"])
+@pytest.mark.parametrize("step_size", [0.0, -1e-7])
+def test_a_step_that_is_not_positive_moves_nothing(noise_kind, mode, step_size):
+    particles = jr.normal(jr.key(0), (8, 3))
+    obs_particles = jr.normal(jr.key(1), (8, 4))
+    observation = jnp.zeros(4)
+    obs_noise = (
+        lx.DiagonalLinearOperator(jnp.ones(4))
+        if noise_kind == "diagonal"
+        else lx.MatrixLinearOperator(jnp.eye(4), lx.positive_semidefinite_tag)
+    )
+    kwargs = {
+        "key": {"key": jr.key(2)},
+        "perturbed_obs": {"perturbed_obs": jnp.zeros((8, 4))},
+        "deterministic": {"deterministic": True},
+    }[mode]
+
+    def update(obs_members):
+        return eki_step(
+            particles, obs_members, observation, obs_noise, dt=step_size, **kwargs
+        )
+
+    assert jnp.array_equal(update(obs_particles), particles)
+    gradient = jax.grad(lambda obs_members: jnp.sum(update(obs_members)))(obs_particles)
+    assert jnp.array_equal(gradient, jnp.zeros_like(gradient))
+
+
+def test_a_traced_step_of_zero_moves_nothing_under_jit():
+    particles = jr.normal(jr.key(0), (8, 3))
+    obs_particles = jr.normal(jr.key(1), (8, 4))
+    obs_noise = lx.DiagonalLinearOperator(jnp.ones(4))
+
+    def update(step_size):
+        return eki_step(
+            particles,
+            obs_particles,
+            jnp.zeros(4),
+            obs_noise,
+            dt=step_size,
+            key=jr.key(2),
+        )
+
+    assert jnp.array_equal(jax.jit(update)(jnp.asarray(0.0)), particles)
+    rtol, atol = default_tolerances(particles)
+    assert tree_allclose(
+        jax.jit(update)(jnp.asarray(0.5)), update(0.5), rtol=rtol, atol=atol
+    )
+
+
+@pytest.mark.parametrize("remaining", [0.0, -1e-7])
+def test_discrepancy_step_size_is_zero_without_a_budget(remaining):
+    obs_particles = jr.normal(jr.key(0), (8, 4))
+    step_size = discrepancy_step_size(
+        obs_particles,
+        jnp.zeros(4),
+        lx.DiagonalLinearOperator(jnp.ones(4)),
+        remaining=jnp.asarray(remaining),
+    )
+    assert step_size == 0.0
