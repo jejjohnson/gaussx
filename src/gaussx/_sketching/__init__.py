@@ -1,4 +1,4 @@
-"""GaussX sketching operators -- random subspace embeddings for RandNLA."""
+"""Random sketches S ∈ ℝ^(d × M), subspace embeddings for randomized linear algebra."""
 
 from gaussx._sketching._base import AbstractSketch
 from gaussx._sketching._dense import GaussianSketch, OrthonormalSketch
