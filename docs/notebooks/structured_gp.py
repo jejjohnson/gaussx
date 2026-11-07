@@ -23,12 +23,7 @@
 # 1. **Kronecker structure** — GP on a grid (e.g. spatial data on a regular mesh)
 # 2. **Low-rank + diagonal** — sparse GP with inducing points (Nystrom approximation)
 #
-# The two most common forms of kernel structure in GP models are
-# (1) Kronecker products from separable kernels on grids, and
-# (2) low-rank approximations from inducing point methods. Both reduce
-# the $O(N^3)$ cost of dense GP inference. gaussx supports both through
-# its operator type system, dispatching to the optimal algorithm
-# automatically.
+# The two most common forms of kernel structure in GP models are (1) Kronecker products from separable kernels on grids, and (2) low-rank approximations from inducing point methods. Both reduce the $O(N^3)$ cost of dense GP inference. gaussx supports both through its operator type system, dispatching to the optimal algorithm automatically.
 
 # %%
 from __future__ import annotations
@@ -52,13 +47,11 @@ jax.config.update("jax_enable_x64", True)
 # ---
 # ## Part 1: Kronecker GP on a grid
 #
-# When input data lies on a grid, the kernel matrix factorizes as
-# a Kronecker product: $K = K_1 \otimes K_2$. This turns $O(N^3)$
-# operations into $O(n_1^3 + n_2^3)$ where $N = n_1 n_2$.
+# When input data lies on a grid, the kernel matrix factorizes as a Kronecker product: $\mathbf{K} = \mathbf{K}_1 \otimes \mathbf{K}_2$. This turns $O(N^3)$ operations into $O(N_1^3 + N_2^3)$ where $N = N_1 N_2$.
 #
 # For a separable kernel on 2D inputs the factorization is:
 #
-# $$k((x_1,y_1),(x_2,y_2)) = k_x(x_1,x_2) \cdot k_y(y_1,y_2)$$
+# $$k(\mathbf{s}, \mathbf{s}') = k_1(s_1, s_1') k_2(s_2, s_2')$$
 #
 # This includes products of any 1D stationary kernels (e.g. RBF, Matern).
 # See Saatci (2012) for a comprehensive treatment of Kronecker methods
@@ -90,37 +83,39 @@ print(f"Kronecker stores {n1}x{n1} + {n2}x{n2} = {n1**2 + n2**2} entries")
 
 # %%
 # Per-dimension kernel matrices (lengthscale ~ grid spacing for good conditioning)
-K1 = rbf_kernel_1d(x1, lengthscale=1.0, variance=1.0)
-K2 = rbf_kernel_1d(x2, lengthscale=1.0, variance=1.0)
+# K₁  (N₁, N₁)
+kernel_1 = rbf_kernel_1d(x1, lengthscale=1.0, variance=1.0)
+# K₂  (N₂, N₂)
+kernel_2 = rbf_kernel_1d(x2, lengthscale=1.0, variance=1.0)
 
 # Wrap as PSD lineax operators
-K1_op = lx.MatrixLinearOperator(K1, lx.positive_semidefinite_tag)
-K2_op = lx.MatrixLinearOperator(K2, lx.positive_semidefinite_tag)
+kernel_1_op = lx.MatrixLinearOperator(kernel_1, lx.positive_semidefinite_tag)
+kernel_2_op = lx.MatrixLinearOperator(kernel_2, lx.positive_semidefinite_tag)
 
-# Kronecker product: K = K1 kron K2
-K_kron = gaussx.Kronecker(K1_op, K2_op)
+# Kronecker product: K = K₁ ⊗ K₂  (N, N)
+kernel_kron = gaussx.Kronecker(kernel_1_op, kernel_2_op)
 
-# Add noise: (K1 kron K2) + sigma^2 I
+# Add noise: (K₁ ⊗ K₂) + σ_ε² I
 # For now, materialize noise addition — a full structured version
 # would use a LowRankUpdate or custom operator.
 noise_var = 0.01
 
-print(f"Kronecker operator size: {K_kron.in_size()}")
+print(f"Kronecker operator size: {kernel_kron.in_size()}")
 
 # %% [markdown]
 # ### Kronecker logdet
 #
-# The key identity: $\log|K_1 \otimes K_2| = n_2 \log|K_1| + n_1 \log|K_2|$
+# The key identity: $\log \det (\mathbf{K}_1 \otimes \mathbf{K}_2) = N_2 \log \det \mathbf{K}_1 + N_1 \log \det \mathbf{K}_2$
 #
 # gaussx computes this automatically — no need to form the $N \times N$ matrix.
 
 # %%
 # Structured logdet: O(n1^3 + n2^3)
-ld_structured = gaussx.logdet(K_kron)
+ld_structured = gaussx.logdet(kernel_kron)
 print(f"logdet (structured): {ld_structured:.6f}")
 
 # Verify against dense: O(N^3)
-ld_dense = jnp.linalg.slogdet(K_kron.as_matrix())[1]
+ld_dense = jnp.linalg.slogdet(kernel_kron.as_matrix())[1]
 print(f"logdet (dense):      {ld_dense:.6f}")
 print(f"Match: {jnp.allclose(ld_structured, ld_dense)}")
 
@@ -134,36 +129,37 @@ print(f"Match: {jnp.allclose(ld_structured, ld_dense)}")
 key = jax.random.PRNGKey(0)
 y = jax.random.normal(key, (N,))
 
-# Structured solve of K_kron @ alpha = y
-alpha = gaussx.solve(K_kron, y)
-print(f"solve residual: {jnp.max(jnp.abs(K_kron.mv(alpha) - y)):.2e}")
+# Structured solve of K α = y
+# α = K⁻¹ y  (N,)
+alpha = gaussx.solve(kernel_kron, y)
+print(f"solve residual: {jnp.max(jnp.abs(kernel_kron.mv(alpha) - y)):.2e}")
 
-# Structured Cholesky: returns Kronecker(chol(K1), chol(K2))
-L = gaussx.cholesky(K_kron)
-print(f"cholesky type: {type(L).__name__}")
-print(f"L factors: {[type(f).__name__ for f in L.operators]}")
+# Structured Cholesky: returns Kronecker(chol(K₁), chol(K₂))
+chol_kron = gaussx.cholesky(kernel_kron)
+print(f"cholesky type: {type(chol_kron).__name__}")
+print(f"L factors: {[type(f).__name__ for f in chol_kron.operators]}")
 
-# Verify: L L^T = K
-recon_err = jnp.max(jnp.abs(L.as_matrix() @ L.as_matrix().T - K_kron.as_matrix()))
+# Verify: L Lᵀ = K
+recon_err = jnp.max(
+    jnp.abs(chol_kron.as_matrix() @ chol_kron.as_matrix().T - kernel_kron.as_matrix())
+)
 print(f"Cholesky reconstruction error: {recon_err:.2e}")
 
 # %% [markdown]
 # ---
 # ## Part 2: Low-rank GP (Nystrom / inducing points)
 #
-# For non-grid data, a common approximation is $K \approx K_{nm} K_{mm}^{-1} K_{mn}$.
-# The resulting covariance is $\text{diag}(\sigma^2) + U U^\top$ — a low-rank update.
+# For non-grid data, a common approximation is $\mathbf{K}_{XX} \approx \mathbf{K}_{X\mathcal{I}} \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} \mathbf{K}_{\mathcal{I}X}$. The resulting covariance is $\mathrm{diag}(\sigma_\varepsilon^2) + \mathbf{U} \mathbf{U}^\top$ — a low-rank update.
 #
 # The Woodbury identity gives an efficient solve:
 #
-# $$(\sigma^2 I + UU^\top)^{-1} = \sigma^{-2} I
-#   - \sigma^{-2} U (I + \sigma^{-2} U^\top U)^{-1} U^\top \sigma^{-2}$$
+# $$(\sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top)^{-1} = \sigma_\varepsilon^{-2} \mathbf{I} - \sigma_\varepsilon^{-2} \mathbf{U} (\mathbf{I} + \sigma_\varepsilon^{-2} \mathbf{U}^\top \mathbf{U})^{-1} \mathbf{U}^\top \sigma_\varepsilon^{-2}$$
 #
 # and the matrix determinant lemma gives an efficient logdet:
 #
-# $$\log|\sigma^2 I + UU^\top| = N \log \sigma^2 + \log|I + \sigma^{-2} U^\top U|$$
+# $$\log \det (\sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top) = N \log \sigma_\varepsilon^2 + \log \det (\mathbf{I} + \sigma_\varepsilon^{-2} \mathbf{U}^\top \mathbf{U})$$
 #
-# Both reduce the cost from $O(N^3)$ to $O(NM^2 + M^3)$.
+# Both reduce the cost from $O(N^3)$ to $O(N N_{\mathcal{I}}^2 + N_{\mathcal{I}}^3)$, with $\mathbf{U} \in \mathbb{R}^{N \times N_{\mathcal{I}}}$ and $N_{\mathcal{I}}$ the number of inducing inputs.
 #
 # ### Setup: random 1D data with inducing points
 
@@ -198,26 +194,29 @@ def rbf_kernel_2d(x1, x2, ls, var):
     return var * jnp.exp(-0.5 * sq_dist / ls**2)
 
 
-# K_nm: data-to-inducing kernel
-K_nm = rbf_kernel_2d(x_data, x_inducing, ls, var)
+# K_XI: data-to-inducing kernel  (N, N_I)
+kernel_data_inducing = rbf_kernel_2d(x_data, x_inducing, ls, var)
 
-# K_mm: inducing-to-inducing kernel
-K_mm = rbf_kernel_2d(x_inducing, x_inducing, ls, var)
+# K_II: inducing-to-inducing kernel  (N_I, N_I)
+kernel_inducing = rbf_kernel_2d(x_inducing, x_inducing, ls, var)
 
-# Nystrom factor: U = K_nm @ chol(K_mm)^{-T} gives K approx U U^T
-L_mm = jnp.linalg.cholesky(K_mm + 1e-6 * jnp.eye(n_inducing))
-U = jax.scipy.linalg.solve_triangular(L_mm, K_nm.T, lower=True).T
+# Nystrom factor: U = K_XI L_IIᵀ⁻¹ gives K ≈ U Uᵀ, with L_II L_IIᵀ = K_II
+chol_inducing = jnp.linalg.cholesky(kernel_inducing + 1e-6 * jnp.eye(n_inducing))
+nystrom_factor = jax.scipy.linalg.solve_triangular(
+    chol_inducing, kernel_data_inducing.T, lower=True
+).T
 
-print(f"U shape: {U.shape}")  # (200, 15)
+print(f"U shape: {nystrom_factor.shape}")  # (200, 15)
 
 # %% [markdown]
 # ### Construct gaussx LowRankUpdate operator
 #
-# $\Sigma = \sigma^2 I + U U^\top$
+# $\boldsymbol{\Sigma}_y = \sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top$
 
 # %%
 diag_noise = noise * jnp.ones(n_data)
-sigma = gaussx.low_rank_plus_diag(diag_noise, U)
+# Σ_y = σ_ε² I + U Uᵀ  (N, N)
+sigma = gaussx.low_rank_plus_diag(diag_noise, nystrom_factor)
 
 print(f"LowRankUpdate rank: {sigma.rank}")
 print(f"Operator size: {sigma.in_size()}")
@@ -234,7 +233,7 @@ print(f"gaussx.is_low_rank: {gaussx.is_low_rank(sigma)}")
 # Generate observations
 y_data = jnp.sin(2 * x_data) + noise * jax.random.normal(k2, (n_data,))
 
-# Woodbury solve: (sigma^2 I + U U^T)^{-1} y
+# Woodbury solve: α = (σ_ε² I + U Uᵀ)⁻¹ y
 alpha = gaussx.solve(sigma, y_data)
 print(f"solve residual: {jnp.max(jnp.abs(sigma.mv(alpha) - y_data)):.2e}")
 
@@ -252,9 +251,13 @@ print(f"Match: {jnp.allclose(ld, ld_dense, rtol=1e-4)}")
 # %%
 def sparse_gp_lml(y, sigma_op):
     """Sparse GP log-marginal likelihood."""
+    # α = Σ_y⁻¹ y
     alpha = gaussx.solve(sigma_op, y)
+    # −½ yᵀ α
     data_fit = -0.5 * jnp.dot(y, alpha)
+    # −½ log det Σ_y
     complexity = -0.5 * gaussx.logdet(sigma_op)
+    # −(N/2) log 2π
     constant = -0.5 * len(y) * jnp.log(2 * jnp.pi)
     return data_fit + complexity + constant
 
@@ -268,16 +271,20 @@ print(f"Sparse GP LML: {lml:.4f}")
 # %%
 # Predict on a test grid using the sparse approximation
 x_plot = jnp.linspace(-3.5, 3.5, 300)
-K_star_m = rbf_kernel_2d(x_plot, x_inducing, ls, var)
-L_mm_op = lx.MatrixLinearOperator(
-    K_mm + 1e-6 * jnp.eye(n_inducing), lx.positive_semidefinite_tag
+# K_*I  (N_plot, N_I)
+kernel_plot_inducing = rbf_kernel_2d(x_plot, x_inducing, ls, var)
+inducing_op = lx.MatrixLinearOperator(
+    kernel_inducing + 1e-6 * jnp.eye(n_inducing), lx.positive_semidefinite_tag
 )
 # Nystrom prediction weights
+# α = Σ_y⁻¹ y  (N,)
 alpha_sparse = gaussx.solve(sigma, y_data)
 # Project through inducing points
-w = U.T @ alpha_sparse  # (k,)
-y_plot = K_star_m @ jnp.linalg.solve(
-    K_mm + 1e-6 * jnp.eye(n_inducing), K_nm.T @ alpha_sparse
+w = nystrom_factor.T @ alpha_sparse  # (k,)
+# μ_* = K_*I (K_II + jitter)⁻¹ K_IX α  (N_plot,)
+y_plot = kernel_plot_inducing @ jnp.linalg.solve(
+    kernel_inducing + 1e-6 * jnp.eye(n_inducing),
+    kernel_data_inducing.T @ alpha_sparse,
 )
 
 fig, ax = plt.subplots(figsize=(10, 4))

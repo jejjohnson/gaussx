@@ -15,9 +15,7 @@
 # %% [markdown]
 # # Kernel Ridge Regression with gaussx
 #
-# A minimal kernel regression example showing how gaussx handles
-# the core linear algebra: solving $(K + \sigma^2 I) \alpha = y$
-# and computing the log-marginal likelihood.
+# A minimal kernel regression example showing how gaussx handles the core linear algebra: solving $(\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}) \boldsymbol{\alpha} = \mathbf{y}$ and computing the log-marginal likelihood.
 #
 # This is the computational backbone of Gaussian process regression.
 
@@ -31,25 +29,15 @@
 # Because the GP prior is conjugate with Gaussian observation noise, the
 # posterior is again a GP and can be computed in closed form.
 #
-# Given training inputs $X$ with observations $y$ and test inputs $X_*$,
-# the posterior predictive distribution is
+# Given training inputs $\mathbf{X} \in \mathbb{R}^{N \times D_x}$ with observations $\mathbf{y} \in \mathbb{R}^N$ and test inputs $\mathbf{X}_* \in \mathbb{R}^{M \times D_x}$, the posterior predictive distribution is
 #
-# $$\mu_* = K_{*f}(K_{ff} + \sigma^2 I)^{-1} y$$
+# $$\boldsymbol{\mu}_* = \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y}$$
 #
-# $$\Sigma_* = K_{**} - K_{*f}(K_{ff} + \sigma^2 I)^{-1} K_{f*}$$
+# $$\boldsymbol{\Sigma}_* = \mathbf{K}_{**} - \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{K}_{X*}$$
 #
-# where $K_{ff}$ is the kernel matrix evaluated at training points,
-# $K_{*f}$ is the cross-covariance between test and training points,
-# $K_{**}$ is the kernel at test points, and $\sigma^2$ is the
-# observation noise variance.
+# where $\mathbf{K}_{XX} \in \mathbb{R}^{N \times N}$ is the kernel matrix evaluated at training points, $\mathbf{K}_{*X} \in \mathbb{R}^{M \times N}$ is the cross-covariance between test and training points, $\mathbf{K}_{**} \in \mathbb{R}^{M \times M}$ is the kernel at test points, and $\sigma_\varepsilon^2$ is the observation noise variance.
 #
-# The computational bottleneck is solving the kernel system
-# $(K_{ff} + \sigma^2 I) \alpha = y$ and computing the log-determinant
-# $\log|K_{ff} + \sigma^2 I|$, both of which appear in the
-# log-marginal likelihood. For $n$ training points, naive dense
-# approaches cost $O(n^3)$; structured kernels and iterative solvers
-# can reduce this substantially. See Rasmussen & Williams (2006), Ch. 2
-# for a thorough treatment.
+# The computational bottleneck is solving the kernel system $(\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}) \boldsymbol{\alpha} = \mathbf{y}$ and computing the log-determinant $\log \det (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})$, both of which appear in the log-marginal likelihood. For $N$ training points, naive dense approaches cost $O(n^3)$; structured kernels and iterative solvers can reduce this substantially. See Rasmussen & Williams (2006), Ch. 2 for a thorough treatment.
 
 # %%
 from __future__ import annotations
@@ -121,7 +109,7 @@ plt.show()
 #
 # We use a squared-exponential (RBF) kernel:
 #
-# $$k(x, x') = \sigma_f^2 \exp\left(-\frac{(x - x')^2}{2 \ell^2}\right)$$
+# $$k_\text{RBF}(x, x') = \sigma_k^2 \exp\left(-\frac{(x - x')^2}{2 \ell^2}\right)$$
 
 
 # %%
@@ -137,13 +125,15 @@ variance = 1.0
 noise_var = noise_std**2
 
 # Kernel matrices
-K_train = rbf_kernel(x_train, x_train, lengthscale, variance)
-K_test_train = rbf_kernel(x_test, x_train, lengthscale, variance)
+# K_XX = k(X, X)  (N, N)
+kernel_train = rbf_kernel(x_train, x_train, lengthscale, variance)
+# K_*X = k(X_*, X)  (M, N)
+kernel_test_train = rbf_kernel(x_test, x_train, lengthscale, variance)
 
 # %% [markdown]
 # ## Solve with gaussx
 #
-# The key computation: $(K + \sigma^2 I) \alpha = y$.
+# The key computation: $(\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}) \boldsymbol{\alpha} = \mathbf{y}$.
 #
 # We wrap the kernel matrix as a lineax operator and use
 # `gaussx.solve` which dispatches to the appropriate solver.
@@ -151,14 +141,17 @@ K_test_train = rbf_kernel(x_test, x_train, lengthscale, variance)
 # %%
 # K + noise * I as a LowRankUpdate? No -- this is dense.
 # Wrap as a MatrixLinearOperator with PSD tag.
-K_noisy = K_train + noise_var * jnp.eye(n_train)
-op = lx.MatrixLinearOperator(K_noisy, lx.positive_semidefinite_tag)
+# Σ_y = K_XX + σ_ε² I  (N, N)
+noisy_kernel = kernel_train + noise_var * jnp.eye(n_train)
+op = lx.MatrixLinearOperator(noisy_kernel, lx.positive_semidefinite_tag)
 
 # Solve for weights
+# α = Σ_y⁻¹ y  (N,)
 alpha = gaussx.solve(op, y_train)
 
 # Predict
-y_pred = K_test_train @ alpha
+# μ_* = K_*X α  (M,)
+y_pred = kernel_test_train @ alpha
 
 print("alpha shape:", alpha.shape)
 print("prediction shape:", y_pred.shape)
@@ -166,17 +159,19 @@ print("prediction shape:", y_pred.shape)
 # %% [markdown]
 # ## Log-marginal likelihood
 #
-# $$\log p(y | X, \theta) = -\frac{1}{2} y^\top (K + \sigma^2 I)^{-1} y
-#                           - \frac{1}{2} \log |K + \sigma^2 I|
-#                           - \frac{n}{2} \log 2\pi$$
+# $$\log p(\mathbf{y} \mid \mathbf{X}; \boldsymbol{\theta}) = -\frac{1}{2} \mathbf{y}^\top (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y} - \frac{1}{2} \log \det (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}) - \frac{N}{2} \log 2\pi$$
 
 
 # %%
 def log_marginal_likelihood(y, op):
     """GP log-marginal likelihood."""
+    # α = Σ_y⁻¹ y
     alpha = gaussx.solve(op, y)
+    # −½ yᵀ α
     data_fit = -0.5 * jnp.dot(y, alpha)
+    # −½ log det Σ_y
     complexity = -0.5 * gaussx.logdet(op)
+    # −(N/2) log 2π
     constant = -0.5 * y.shape[0] * jnp.log(2 * jnp.pi)
     return data_fit + complexity + constant
 
@@ -191,17 +186,11 @@ print(f"Log-marginal likelihood: {lml:.4f}")
 # hyperparameters via gradient descent on the negative log-marginal
 # likelihood.
 #
-# The analytic gradient of the log-marginal likelihood with respect to
-# a hyperparameter $\theta_j$ is
+# The analytic gradient of the log-marginal likelihood with respect to a hyperparameter $\theta_j$ is
 #
-# $$\frac{\partial}{\partial \theta_j} \log p(y|X,\theta)
-# = \frac{1}{2} \alpha^\top \frac{\partial K}{\partial \theta_j} \alpha
-# - \frac{1}{2} \operatorname{tr}\!\left(K^{-1}
-# \frac{\partial K}{\partial \theta_j}\right)$$
+# $$\frac{\partial}{\partial \theta_j} \log p(\mathbf{y} \mid \mathbf{X}; \boldsymbol{\theta}) = \frac{1}{2} \boldsymbol{\alpha}^\top \frac{\partial \mathbf{K}_{XX}}{\partial \theta_j} \boldsymbol{\alpha} - \frac{1}{2} \mathrm{tr}\left(\boldsymbol{\Sigma}_y^{-1} \frac{\partial \mathbf{K}_{XX}}{\partial \theta_j}\right)$$
 #
-# where $\alpha = K_y^{-1} y$ and $K_y = K + \sigma^2 I$.
-# The first term rewards data fit and the second penalizes model
-# complexity (Rasmussen & Williams, 2006, Eq. 5.9).
+# where $\boldsymbol{\alpha} = \boldsymbol{\Sigma}_y^{-1} \mathbf{y}$ and $\boldsymbol{\Sigma}_y = \mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}$. The first term rewards data fit and the second penalizes model complexity (Rasmussen & Williams, 2006, Eq. 5.9).
 #
 # Rather than implementing this expression manually, gaussx + JAX
 # computes the gradient via automatic differentiation through `solve`
@@ -215,8 +204,9 @@ def neg_lml(log_params):
     var = jnp.exp(log_params[1])
     noise = jnp.exp(log_params[2])
 
-    K = rbf_kernel(x_train, x_train, ls, var) + noise * jnp.eye(n_train)
-    op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+    # Σ_y = K_XX + σ_ε² I
+    noisy_kernel = rbf_kernel(x_train, x_train, ls, var) + noise * jnp.eye(n_train)
+    op = lx.MatrixLinearOperator(noisy_kernel, lx.positive_semidefinite_tag)
     return -log_marginal_likelihood(y_train, op)
 
 
@@ -245,18 +235,27 @@ print(
 
 # %%
 ls_opt, var_opt, noise_opt = jnp.exp(log_params)
-K_opt = rbf_kernel(x_train, x_train, ls_opt, var_opt) + noise_opt * jnp.eye(n_train)
-op_opt = lx.MatrixLinearOperator(K_opt, lx.positive_semidefinite_tag)
+# Σ_y = K_XX + σ_ε² I  (N, N)
+noisy_kernel_opt = rbf_kernel(x_train, x_train, ls_opt, var_opt) + noise_opt * jnp.eye(
+    n_train
+)
+op_opt = lx.MatrixLinearOperator(noisy_kernel_opt, lx.positive_semidefinite_tag)
+# α = Σ_y⁻¹ y  (N,)
 alpha_opt = gaussx.solve(op_opt, y_train)
 
-K_star = rbf_kernel(x_test, x_train, ls_opt, var_opt)
-y_pred_opt = K_star @ alpha_opt
+# K_*X  (M, N)
+kernel_test_train_opt = rbf_kernel(x_test, x_train, ls_opt, var_opt)
+# μ_* = K_*X α  (M,)
+y_pred_opt = kernel_test_train_opt @ alpha_opt
 
 # Predictive variance
 # solve is vector-valued, so use vmap to solve for each test point
-K_ss_diag = var_opt * jnp.ones(n_test)  # diagonal of K_**
-V = jax.vmap(lambda k: gaussx.solve(op_opt, k))(K_star)  # (n_test, n_train)
-y_var = K_ss_diag - jnp.sum(K_star * V, axis=1)
+# diag(K_**) = σ_k² 1  (M,)
+kernel_test_diag = var_opt * jnp.ones(n_test)
+# Σ_y⁻¹ K_X*, one column per test point  (M, N)
+solved_cross = jax.vmap(lambda k: gaussx.solve(op_opt, k))(kernel_test_train_opt)
+# diag(Σ_*) = diag(K_**) − diag(K_*X Σ_y⁻¹ K_X*)  (M,)
+y_var = kernel_test_diag - jnp.sum(kernel_test_train_opt * solved_cross, axis=1)
 y_std = jnp.sqrt(jnp.maximum(y_var, 0.0))
 
 print(f"Mean prediction range: [{y_pred_opt.min():.2f}, {y_pred_opt.max():.2f}]")

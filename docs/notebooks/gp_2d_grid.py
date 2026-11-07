@@ -15,9 +15,7 @@
 # %% [markdown]
 # # GP on a 2D Grid with Kronecker Structure
 #
-# When data lives on a regular grid, the kernel matrix factorizes as
-# $K = K_x \otimes K_y$. This enables GP inference on grids with
-# thousands of points that would be intractable with a dense kernel.
+# When data lives on a regular grid, the kernel matrix factorizes as $\mathbf{K} = \mathbf{K}_1 \otimes \mathbf{K}_2$. This enables GP inference on grids with thousands of points that would be intractable with a dense kernel.
 #
 # This example fits a 2D GP to noisy observations on a grid using
 # Kronecker structure for solve, logdet, and prediction.
@@ -25,21 +23,15 @@
 # %% [markdown]
 # ## Background
 #
-# When inputs lie on a Cartesian product grid
-# $\mathcal{X} = \{x_1, \ldots, x_{n_1}\} \times \{y_1, \ldots, y_{n_2}\}$
-# and the kernel is separable,
+# When inputs lie on a Cartesian product grid $\mathcal{S}_1 \times \mathcal{S}_2$ with $\mathcal{S}_1 = \{s_{1,1}, \ldots, s_{1,N_1}\}$ and $\mathcal{S}_2 = \{s_{2,1}, \ldots, s_{2,N_2}\}$ and the kernel is separable,
 #
-# $$k\bigl((x,y),(x',y')\bigr) = k_x(x,x')\, k_y(y,y'),$$
+# $$k(\mathbf{s}, \mathbf{s}') = k_1(s_1, s_1') k_2(s_2, s_2'),$$
 #
-# the kernel matrix factorizes as a Kronecker product $K = K_x \otimes K_y$
-# where $K_x \in \mathbb{R}^{n_1 \times n_1}$ and
-# $K_y \in \mathbb{R}^{n_2 \times n_2}$.
-# With $N = n_1 n_2$, this reduces:
+# the kernel matrix factorizes as a Kronecker product $\mathbf{K} = \mathbf{K}_1 \otimes \mathbf{K}_2$ where $\mathbf{K}_1 \in \mathbb{R}^{N_1 \times N_1}$ and $\mathbf{K}_2 \in \mathbb{R}^{N_2 \times N_2}$. With $N = N_1 N_2$, this reduces:
 #
-# - **Storage** from $O(N^2)$ to $O(n_1^2 + n_2^2)$.
-# - **Solve** from $O(N^3)$ to $O(n_1^3 + n_2^3)$.
-# - **Log-determinant** via
-#   $\log|K_x \otimes K_y| = n_2 \log|K_x| + n_1 \log|K_y|$.
+# - **Storage** from $O(N^2)$ to $O(N_1^2 + N_2^2)$.
+# - **Solve** from $O(N^3)$ to $O(N_1^3 + N_2^3)$.
+# - **Log-determinant** via $\log \det (\mathbf{K}_1 \otimes \mathbf{K}_2) = N_2 \log \det \mathbf{K}_1 + N_1 \log \det \mathbf{K}_2$.
 #
 # These savings make GP inference feasible on grids with thousands of
 # points that would be intractable with a dense kernel matrix.
@@ -97,7 +89,7 @@ axes[0].set_title("True function")
 plt.colorbar(im0, ax=axes[0])
 
 im1 = axes[1].pcolormesh(xx, yy, z_obs, cmap="RdBu_r", shading="auto")
-axes[1].set_title(f"Noisy observations ($\\sigma$={noise_std})")
+axes[1].set_title(f"Noisy observations ($\\sigma_\\varepsilon$={noise_std})")
 plt.colorbar(im1, ax=axes[1])
 
 for ax in axes:
@@ -111,12 +103,9 @@ plt.show()
 # %% [markdown]
 # ## Build Kronecker kernel
 #
-# Separable RBF: $k((x_1,y_1), (x_2,y_2)) = k_x(x_1,x_2) \cdot k_y(y_1,y_2)$
+# Separable RBF: $k(\mathbf{s}, \mathbf{s}') = k_1(s_1, s_1') k_2(s_2, s_2')$
 #
-# Separability holds for any product of 1D stationary kernels (RBF,
-# Matern, periodic). For non-separable kernels, sums of Kronecker
-# products $\sum_r K_x^{(r)} \otimes K_y^{(r)}$ can be used as
-# approximations.
+# Separability holds for any product of 1D stationary kernels (RBF, Matern, periodic). For non-separable kernels, sums of Kronecker products $\sum_r \mathbf{K}_1^{(r)} \otimes \mathbf{K}_2^{(r)}$ can be used as approximations.
 
 
 # %%
@@ -129,65 +118,65 @@ ls_x, ls_y = 1.0, 1.0
 var_x, var_y = 1.0, 1.0
 noise_var = noise_std**2
 
-Kx = rbf_1d(x, ls_x, var_x)
-Ky = rbf_1d(y, ls_y, var_y)
+# K₁ = k₁(S₁, S₁)  (N₁, N₁)
+kernel_x = rbf_1d(x, ls_x, var_x)
+# K₂ = k₂(S₂, S₂)  (N₂, N₂)
+kernel_y = rbf_1d(y, ls_y, var_y)
 
-Kx_op = lx.MatrixLinearOperator(Kx, lx.positive_semidefinite_tag)
-Ky_op = lx.MatrixLinearOperator(Ky, lx.positive_semidefinite_tag)
+kernel_x_op = lx.MatrixLinearOperator(kernel_x, lx.positive_semidefinite_tag)
+kernel_y_op = lx.MatrixLinearOperator(kernel_y, lx.positive_semidefinite_tag)
 
-# Full kernel: Kx kron Ky + noise * I
-K_kron = gaussx.Kronecker(Kx_op, Ky_op)
+# Full kernel: K₁ ⊗ K₂ + noise * I
+# K = K₁ ⊗ K₂  (N, N)
+kernel_kron = gaussx.Kronecker(kernel_x_op, kernel_y_op)
 
-print(f"Kronecker kernel: {K_kron.in_size()}x{K_kron.out_size()}")
+print(f"Kronecker kernel: {kernel_kron.in_size()}x{kernel_kron.out_size()}")
 print(f"Storage: {nx}x{nx} + {ny}x{ny} = {nx**2 + ny**2}")
 print(f"Dense would be: {N}x{N} = {N**2:,}")
 
 # %% [markdown]
 # ## Add noise and solve
 #
-# We need $(K_x \otimes K_y + \sigma^2 I) \alpha = z_\mathrm{obs}$.
-# For now we add noise to the dense matrix; a full implementation
-# would keep this structured.
+# We need $(\mathbf{K}_1 \otimes \mathbf{K}_2 + \sigma_\varepsilon^2 \mathbf{I}) \boldsymbol{\alpha} = \mathbf{y}$, with $\mathbf{y} \in \mathbb{R}^N$ the flattened observations. For now we add noise to the dense matrix; a full implementation would keep this structured.
 
 # %%
-K_noisy = K_kron.as_matrix() + noise_var * jnp.eye(N)
-op = lx.MatrixLinearOperator(K_noisy, lx.positive_semidefinite_tag)
+# Σ_y = K + σ_ε² I  (N, N)
+noisy_kernel = kernel_kron.as_matrix() + noise_var * jnp.eye(N)
+op = lx.MatrixLinearOperator(noisy_kernel, lx.positive_semidefinite_tag)
 
 # Flatten observations for solve
-z_vec = z_obs.ravel()
-alpha = gaussx.solve(op, z_vec)
+y_vec = z_obs.ravel()
+# α = Σ_y⁻¹ y  (N,)
+alpha = gaussx.solve(op, y_vec)
 
 # Posterior mean on the same grid
-z_pred = (K_kron.as_matrix() @ alpha).reshape(nx, ny)
+# μ = K α  (N,) reshaped to (N₁, N₂)
+z_pred = (kernel_kron.as_matrix() @ alpha).reshape(nx, ny)
 
-print(f"Solve residual: {jnp.max(jnp.abs(op.mv(alpha) - z_vec)):.2e}")
+print(f"Solve residual: {jnp.max(jnp.abs(op.mv(alpha) - y_vec)):.2e}")
 
 # %% [markdown]
 # ## Log-marginal likelihood
 #
 # The log-marginal likelihood (LML) for GP regression is
 #
-# $$\log p(\mathbf{z} \mid X) = -\tfrac{1}{2}\mathbf{z}^\top
-#   (K + \sigma^2 I)^{-1}\mathbf{z}
-#   - \tfrac{1}{2}\log|K + \sigma^2 I|
-#   - \tfrac{N}{2}\log 2\pi.$$
+# $$\log p(\mathbf{y}) = -\frac{1}{2} \mathbf{y}^\top (\mathbf{K} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y} - \frac{1}{2} \log \det (\mathbf{K} + \sigma_\varepsilon^2 \mathbf{I}) - \frac{N}{2} \log 2\pi.$$
 #
-# Note that the noise term $\sigma^2 I$ breaks the pure Kronecker
-# structure of $K_x \otimes K_y$. However, eigendecomposition-based
-# approaches (Saatci, 2012) or Krylov methods can handle
-# $K_x \otimes K_y + \sigma^2 I$ efficiently by working with the
-# per-factor eigenvalues.
+# Note that the noise term $\sigma_\varepsilon^2 \mathbf{I}$ breaks the pure Kronecker structure of $\mathbf{K}_1 \otimes \mathbf{K}_2$. However, eigendecomposition-based approaches (Saatci, 2012) or Krylov methods can handle $\mathbf{K}_1 \otimes \mathbf{K}_2 + \sigma_\varepsilon^2 \mathbf{I}$ efficiently by working with the per-factor eigenvalues.
 
 
 # %%
-def lml(z, op):
-    alpha = gaussx.solve(op, z)
-    n = len(z)
+def lml(y, op):
+    # α = Σ_y⁻¹ y
+    alpha = gaussx.solve(op, y)
+    n = len(y)
+    # log det Σ_y
     ld = gaussx.logdet(op)
-    return -0.5 * jnp.dot(z, alpha) - 0.5 * ld - 0.5 * n * jnp.log(2 * jnp.pi)
+    # −½ yᵀ α − ½ log det Σ_y − (N/2) log 2π
+    return -0.5 * jnp.dot(y, alpha) - 0.5 * ld - 0.5 * n * jnp.log(2 * jnp.pi)
 
 
-print(f"Log-marginal likelihood: {lml(z_vec, op):.2f}")
+print(f"Log-marginal likelihood: {lml(y_vec, op):.2f}")
 
 # %% [markdown]
 # ## Visualize results
@@ -224,14 +213,15 @@ plt.show()
 
 # %%
 print("logdet(Kx kron Ky):")
-print(f"  Structured: {gaussx.logdet(K_kron):.4f}")
-print(f"  Dense:      {jnp.linalg.slogdet(K_kron.as_matrix())[1]:.4f}")
+print(f"  Structured: {gaussx.logdet(kernel_kron):.4f}")
+print(f"  Dense:      {jnp.linalg.slogdet(kernel_kron.as_matrix())[1]:.4f}")
 
 print("\ntrace(Kx kron Ky):")
-print(f"  Structured: {gaussx.trace(K_kron):.4f}")
-print(f"  Dense:      {jnp.trace(K_kron.as_matrix()):.4f}")
+print(f"  Structured: {gaussx.trace(kernel_kron):.4f}")
+print(f"  Dense:      {jnp.trace(kernel_kron.as_matrix()):.4f}")
 
-L_kron = gaussx.cholesky(K_kron)
+# L L^T = K₁ ⊗ K₂
+L_kron = gaussx.cholesky(kernel_kron)
 print(f"\ncholesky type: {type(L_kron).__name__}")
 
 # %% [markdown]

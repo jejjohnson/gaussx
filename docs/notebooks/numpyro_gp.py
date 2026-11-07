@@ -31,18 +31,11 @@
 # %% [markdown]
 # ## Background
 #
-# In standard GP regression, hyperparameters $\theta$ (kernel variance,
-# lengthscale, noise) are set by maximizing the log-marginal likelihood
-# -- a point estimate (type-II ML). Full Bayesian treatment places priors
-# on $\theta$ and integrates them out:
+# In standard GP regression, hyperparameters $\boldsymbol{\theta}$ (kernel variance, lengthscale, noise) are set by maximizing the log-marginal likelihood -- a point estimate (type-II ML). Full Bayesian treatment places priors on $\boldsymbol{\theta}$ and integrates them out:
 #
-# $$p(f_* | y) = \int p(f_* | y, \theta)\, p(\theta | y)\, d\theta$$
+# $$p(\mathbf{f}_* \mid \mathbf{y}) = \int p(\mathbf{f}_* \mid \mathbf{y}, \boldsymbol{\theta}) p(\boldsymbol{\theta} \mid \mathbf{y}) \mathrm{d}\boldsymbol{\theta}$$
 #
-# This integral is intractable, but MCMC (here NUTS; Hoffman & Gelman,
-# 2014) samples from $p(\theta | y)$ and averages the GP predictive over
-# those samples. The result is better-calibrated uncertainty that accounts
-# for hyperparameter uncertainty -- important when data is scarce or
-# hyperparameters are poorly identified.
+# This integral is intractable, but MCMC (here NUTS; Hoffman & Gelman, 2014) samples from $p(\boldsymbol{\theta} \mid \mathbf{y})$ and averages the GP predictive over those samples. The result is better-calibrated uncertainty that accounts for hyperparameter uncertainty -- important when data is scarce or hyperparameters are poorly identified.
 
 # %% [markdown]
 # ## Setup
@@ -108,13 +101,20 @@ def gp_model(X, y=None):
 
     # RBF kernel matrix
     diff = X[:, None] - X[None, :]
-    K = var * jnp.exp(-0.5 * diff**2 / length**2) + noise**2 * jnp.eye(len(X))
+    # Σ_y = σ_k² exp(−(x − x')² / 2ℓ²) + σ_ε² I  (N, N)
+    noisy_kernel = var * jnp.exp(-0.5 * diff**2 / length**2) + noise**2 * jnp.eye(
+        len(X)
+    )
 
     # Wrap as lineax PSD operator
-    K_op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
+    noisy_kernel_op = lx.MatrixLinearOperator(
+        noisy_kernel, lx.positive_semidefinite_tag
+    )
 
     # Likelihood via gaussx
-    numpyro.sample("obs", gaussx.MultivariateNormal(jnp.zeros(len(X)), K_op), obs=y)
+    numpyro.sample(
+        "obs", gaussx.MultivariateNormal(jnp.zeros(len(X)), noisy_kernel_op), obs=y
+    )
 
 
 # %% [markdown]
@@ -174,13 +174,7 @@ plt.show()
 #
 # The total predictive variance decomposes via the law of total variance:
 #
-# $$
-# \operatorname{Var}[y_* | \mathcal{D}]
-# = \underbrace{\mathbb{E}_\theta[\operatorname{Var}
-#   [y_* | \theta, \mathcal{D}]]}_{\text{aleatoric}}
-# + \underbrace{\operatorname{Var}_\theta[\mathbb{E}
-#   [y_* | \theta, \mathcal{D}]]}_{\text{hyper. unc.}}
-# $$
+# $$\mathbb{V}[y_* \mid \mathcal{D}] = \underbrace{\mathbb{E}_{p(\boldsymbol{\theta} \mid \mathcal{D})}[\mathbb{V}[y_* \mid \boldsymbol{\theta}, \mathcal{D}]]}_{\text{aleatoric}} + \underbrace{\mathbb{V}_{p(\boldsymbol{\theta} \mid \mathcal{D})}[\mathbb{E}[y_* \mid \boldsymbol{\theta}, \mathcal{D}]]}_{\text{hyper. unc.}}$$
 
 
 # %%
@@ -188,26 +182,35 @@ def gp_predict(X_train, y_train, X_test, var, length, noise):
     """Analytic GP posterior mean and variance at test points."""
     # Training kernel
     diff_tr = X_train[:, None] - X_train[None, :]
-    K_tr = var * jnp.exp(-0.5 * diff_tr**2 / length**2)
-    K_tr += noise**2 * jnp.eye(len(X_train))
+    # Σ_y = K_XX + σ_ε² I  (N, N)
+    noisy_kernel_train = var * jnp.exp(-0.5 * diff_tr**2 / length**2)
+    noisy_kernel_train += noise**2 * jnp.eye(len(X_train))
 
     # Cross kernel
     diff_ts = X_test[:, None] - X_train[None, :]
-    K_ts = var * jnp.exp(-0.5 * diff_ts**2 / length**2)
+    # K_*X  (M, N)
+    kernel_test_train = var * jnp.exp(-0.5 * diff_ts**2 / length**2)
 
     # Test kernel diagonal
-    K_tt_diag = var * jnp.ones(len(X_test))
+    # diag(K_**)  (M,)
+    kernel_test_diag = var * jnp.ones(len(X_test))
 
     # Solve via gaussx (vector solves, vmapped over test columns)
-    K_tr_op = lx.MatrixLinearOperator(K_tr, lx.positive_semidefinite_tag)
-    alpha = gaussx.solve(K_tr_op, y_train)
+    noisy_kernel_train_op = lx.MatrixLinearOperator(
+        noisy_kernel_train, lx.positive_semidefinite_tag
+    )
+    # α = Σ_y⁻¹ y  (N,)
+    alpha = gaussx.solve(noisy_kernel_train_op, y_train)
 
     # Predictive mean and variance
-    mu = K_ts @ alpha
+    # μ_* = K_*X α  (M,)
+    mu = kernel_test_train @ alpha
     # gaussx.solve is a vector solver; vmap over columns for matrix RHS
-    solve_col = lambda col: gaussx.solve(K_tr_op, col)
-    v = jax.vmap(solve_col, in_axes=1, out_axes=1)(K_ts.T)  # (n_train, n_test)
-    var_pred = K_tt_diag - jnp.sum(K_ts * v.T, axis=1)
+    solve_col = lambda col: gaussx.solve(noisy_kernel_train_op, col)
+    # Σ_y⁻¹ K_X*  (N, M)
+    solved_cross = jax.vmap(solve_col, in_axes=1, out_axes=1)(kernel_test_train.T)
+    # diag(Σ_*) = diag(K_**) − diag(K_*X Σ_y⁻¹ K_X*)  (M,)
+    var_pred = kernel_test_diag - jnp.sum(kernel_test_train * solved_cross.T, axis=1)
     return mu, var_pred
 
 
@@ -224,9 +227,10 @@ mu_mean = jnp.mean(mus, axis=0)
 mu_std = jnp.std(mus, axis=0)
 
 # Law of total variance:
-#   Var(y*|D) = E_θ[Var(y*|θ,D)] + Var_θ(E[y*|θ,D])
+#   𝕍[y_*|D] = 𝔼_θ[𝕍[y_*|θ,D]] + 𝕍_θ[𝔼[y_*|θ,D]]
 # vars_ is latent function variance; add observation noise per sample
-noise_vars = samples["noise"] ** 2  # (num_samples,)
+# σ_ε² per posterior sample  (num_samples,)
+noise_vars = samples["noise"] ** 2
 aleatoric_var = jnp.mean(vars_ + noise_vars[:, None], axis=0)
 total_var = mu_std**2 + aleatoric_var
 total_var = jnp.clip(total_var, min=0.0)  # guard against roundoff
@@ -238,9 +242,7 @@ print(f"Total std shape:       {total_std.shape}")
 # %% [markdown]
 # ## Plot predictions
 #
-# The shaded bands show $\pm 2\sigma$ total predictive uncertainty,
-# combining both hyperparameter uncertainty (from MCMC) and
-# observation noise.
+# The shaded bands show $\pm 2\sigma$ total predictive uncertainty, combining both hyperparameter uncertainty (from MCMC) and observation noise.
 
 # %%
 fig, ax = plt.subplots(figsize=(12, 5))

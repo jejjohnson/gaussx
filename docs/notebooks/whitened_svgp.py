@@ -21,7 +21,7 @@
 #
 # 1. Standard (unwhitened) SVGP with the Titsias ELBO
 # 2. Whitened SVGP for improved optimization geometry
-# 3. The variance adjustment operator $Q$
+# 3. The variance adjustment operator $\mathbf{Q}$
 # 4. BLR natural-parameter updates (full and diagonal)
 # 5. GGN and Hutchinson diagonal Hessian approximations
 # 6. Comparative plots
@@ -29,31 +29,19 @@
 # %% [markdown]
 # ## 1. Background: Whitened Parameterization
 #
-# In a standard SVGP we place a variational distribution
-# $q(\mathbf{u}) = \mathcal{N}(\mathbf{m}, \mathbf{S})$ over the
-# inducing values $\mathbf{u} = f(\mathbf{Z})$. The KL divergence
-# against the prior $p(\mathbf{u}) = \mathcal{N}(0, K_{zz})$ involves
-# $K_{zz}^{-1}$ and $\log|K_{zz}|$, which couples the variational
-# parameters to the kernel hyperparameters and makes optimization hard.
+# In a standard SVGP we place a variational distribution $q(\mathbf{f}_{\mathcal{I}}) = \mathcal{N}(\boldsymbol{\mu}_{\mathcal{I}}, \boldsymbol{\Sigma}_{\mathcal{I}})$ over the inducing values $\mathbf{f}_{\mathcal{I}} = f(\mathbf{X}_{\mathcal{I}}) \in \mathbb{R}^{N_{\mathcal{I}}}$. The KL divergence against the prior $p(\mathbf{f}_{\mathcal{I}}) = \mathcal{N}(\mathbf{0}, \mathbf{K}_{\mathcal{I}\mathcal{I}})$ involves $\mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1}$ and $\log \det \mathbf{K}_{\mathcal{I}\mathcal{I}}$, which couples the variational parameters to the kernel hyperparameters and makes optimization hard.
 #
-# The **whitened** reparameterization introduces
-# $\mathbf{v} = L_{zz}^{-1}\mathbf{u}$ where $L_{zz}$ is the Cholesky
-# factor of $K_{zz}$. We parameterize:
+# The **whitened** reparameterization introduces $\mathbf{z}_{\mathcal{I}} = \mathbf{L}_{\mathcal{I}\mathcal{I}}^{-1} \mathbf{f}_{\mathcal{I}}$ where $\mathbf{L}_{\mathcal{I}\mathcal{I}}$ is the Cholesky factor of $\mathbf{K}_{\mathcal{I}\mathcal{I}}$. We parameterize:
 #
-# $$q(\mathbf{v}) = \mathcal{N}(\mathbf{m}_w, \mathbf{S}_w)$$
+# $$q(\mathbf{z}_{\mathcal{I}}) = \mathcal{N}(\boldsymbol{\mu}_z, \boldsymbol{\Sigma}_z)$$
 #
-# so that the induced distribution over $\mathbf{u}$ is:
+# so that the induced distribution over $\mathbf{f}_{\mathcal{I}}$ is:
 #
-# $$q(\mathbf{u}) = \mathcal{N}(L_{zz}\mathbf{m}_w,\;
-#   L_{zz}\mathbf{S}_w L_{zz}^\top)$$
+# $$q(\mathbf{f}_{\mathcal{I}}) = \mathcal{N}(\mathbf{L}_{\mathcal{I}\mathcal{I}} \boldsymbol{\mu}_z, \mathbf{L}_{\mathcal{I}\mathcal{I}} \boldsymbol{\Sigma}_z \mathbf{L}_{\mathcal{I}\mathcal{I}}^\top)$$
 #
-# The prior in whitened space is simply $\mathcal{N}(0, I)$, so the
-# KL divergence simplifies to:
+# The prior in whitened space is simply $\mathcal{N}(\mathbf{0}, \mathbf{I})$, so the KL divergence simplifies to:
 #
-# $$\mathrm{KL}(q(\mathbf{v})\|p(\mathbf{v}))
-#   = \tfrac{1}{2}\bigl(\|\mathbf{m}_w\|^2
-#   + \mathrm{tr}(\mathbf{S}_w)
-#   - \log|\mathbf{S}_w| - M\bigr)$$
+# $$\mathrm{KL}[q(\mathbf{z}_{\mathcal{I}}) \Vert p(\mathbf{z}_{\mathcal{I}})] = \frac{1}{2} \left( \Vert \boldsymbol{\mu}_z \Vert_2^2 + \mathrm{tr}(\boldsymbol{\Sigma}_z) - \log \det \boldsymbol{\Sigma}_z - N_{\mathcal{I}} \right)$$
 #
 # This decouples the variational parameters from the kernel
 # hyperparameters and yields better-conditioned gradients.
@@ -120,51 +108,76 @@ def rbf_matrix(xa, xb, ls=lengthscale, var=variance):
     return var * jnp.exp(-0.5 * sqdist / ls**2)
 
 
-K_zz_mat = rbf_matrix(z_inducing, z_inducing) + 1e-6 * jnp.eye(M)
-K_xz_train = rbf_matrix(x_train, z_inducing)
-K_xx_diag_train = variance * jnp.ones(N)
+# K_ℐℐ  (N_ℐ, N_ℐ)
+kernel_inducing_mat = rbf_matrix(z_inducing, z_inducing) + 1e-6 * jnp.eye(M)
+# K_Xℐ  (N, N_ℐ)
+kernel_data_inducing_train = rbf_matrix(x_train, z_inducing)
+# diag(K_XX)  (N,)
+kernel_diag_train = variance * jnp.ones(N)
 
-K_xz_plot = rbf_matrix(x_plot, z_inducing)
-K_xx_diag_plot = variance * jnp.ones(x_plot.shape[0])
+# K_*ℐ  (N_plot, N_ℐ)
+kernel_data_inducing_plot = rbf_matrix(x_plot, z_inducing)
+# diag(K_**)  (N_plot,)
+kernel_diag_plot = variance * jnp.ones(x_plot.shape[0])
 
-K_zz_op = lx.MatrixLinearOperator(K_zz_mat)
+kernel_inducing_op = lx.MatrixLinearOperator(kernel_inducing_mat)
 
-# Full K_xx for trace correction
-K_xx_train_mat = rbf_matrix(x_train, x_train) + 1e-6 * jnp.eye(N)
-K_xx_train_op = lx.MatrixLinearOperator(K_xx_train_mat)
+# Full K_XX for trace correction
+kernel_train_mat = rbf_matrix(x_train, x_train) + 1e-6 * jnp.eye(N)
+kernel_train_op = lx.MatrixLinearOperator(kernel_train_mat)
 
 # %% [markdown]
 # ## 4. Standard (Unwhitened) SVGP
 #
-# We initialize $q(\mathbf{u}) = \mathcal{N}(\mathbf{m}, \mathbf{S})$
-# with $\mathbf{m} = 0$ and $\mathbf{S} = I$, then optimize the ELBO.
+# We initialize $q(\mathbf{f}_{\mathcal{I}}) = \mathcal{N}(\boldsymbol{\mu}_{\mathcal{I}}, \boldsymbol{\Sigma}_{\mathcal{I}})$ with $\boldsymbol{\mu}_{\mathcal{I}} = \mathbf{0}$ and $\boldsymbol{\Sigma}_{\mathcal{I}} = \mathbf{I}$, then optimize the ELBO.
 
 # %%
-# --- Trace correction: tr(K_xx) - tr(K_xz^T K_zz^{-1} K_xz) ---
-trace_corr = gaussx.trace_correction(K_xx_train_op, K_xz_train, K_zz_op)
+# --- Trace correction: tr(K_XX) − tr(K_Xℐ K_ℐℐ⁻¹ K_ℐX) ---
+trace_corr = gaussx.trace_correction(
+    kernel_train_op, kernel_data_inducing_train, kernel_inducing_op
+)
 print(f"Trace correction: {trace_corr:.4f}")
 
 
 # %%
-def unwhitened_elbo(m, S_chol, y, K_zz_op, K_xz, K_xx_diag, noise_var):
+def unwhitened_elbo(
+    mean_inducing,
+    chol_inducing,
+    y,
+    kernel_inducing_op,
+    kernel_data_inducing,
+    kernel_diag,
+    noise_var,
+):
     """ELBO for the standard (unwhitened) SVGP."""
-    S_mat = S_chol @ S_chol.T
-    S_op = lx.MatrixLinearOperator(S_mat)
+    # Σ_ℐ = L_ℐ L_ℐᵀ  (N_ℐ, N_ℐ)
+    cov_inducing = chol_inducing @ chol_inducing.T
+    cov_inducing_op = lx.MatrixLinearOperator(cov_inducing)
 
     # --- Predictive mean and variance via manual Nystrom ---
-    alpha = lx.linear_solve(K_zz_op, m).value  # K_zz^{-1} m
-    f_loc = K_xz @ alpha
+    # α = K_ℐℐ⁻¹ μ_ℐ  (N_ℐ,)
+    alpha = lx.linear_solve(kernel_inducing_op, mean_inducing).value
+    # μ_n = [K_Xℐ α]_n  (N,)
+    f_loc = kernel_data_inducing @ alpha
 
-    # Predictive variance: K_xx - K_xz K_zz^{-1} K_zx + K_xz K_zz^{-1} S K_zz^{-1} K_zx
-    # Solve K_zz @ W_col = K_zx_col for each column (data point)
-    K_zx = K_xz.T  # (M, N)
-    _solve_col = lambda col: lx.linear_solve(K_zz_op, col).value
-    W = jax.vmap(_solve_col, in_axes=1, out_axes=1)(K_zx)  # (M, N)
-    f_var = K_xx_diag - jnp.sum(W * K_zx, axis=0) + jnp.sum(W * (S_mat @ W), axis=0)
+    # Predictive variance: K_XX − K_Xℐ K_ℐℐ⁻¹ K_ℐX + K_Xℐ K_ℐℐ⁻¹ Σ_ℐ K_ℐℐ⁻¹ K_ℐX
+    # Solve K_ℐℐ @ W_col = K_ℐX_col for each column (data point)
+    kernel_inducing_data = kernel_data_inducing.T  # (N_ℐ, N)
+    _solve_col = lambda col: lx.linear_solve(kernel_inducing_op, col).value
+    # W = K_ℐℐ⁻¹ K_ℐX  (N_ℐ, N)
+    solved_cross = jax.vmap(_solve_col, in_axes=1, out_axes=1)(kernel_inducing_data)
+    # σ²_n = [K_XX]_nn − [Wᵀ K_ℐX]_nn + [Wᵀ Σ_ℐ W]_nn  (N,)
+    f_var = (
+        kernel_diag
+        - jnp.sum(solved_cross * kernel_inducing_data, axis=0)
+        + jnp.sum(solved_cross * (cov_inducing @ solved_cross), axis=0)
+    )
 
-    # --- KL(q(u) || p(u)) with p(u) = N(0, K_zz) ---
-    prior_loc = jnp.zeros(m.shape[0])
-    kl = gaussx.gaussian_kl(m, S_op, prior_loc, K_zz_op)
+    # --- KL[q(f_ℐ) ‖ p(f_ℐ)] with p(f_ℐ) = 𝒩(0, K_ℐℐ) ---
+    prior_loc = jnp.zeros(mean_inducing.shape[0])
+    kl = gaussx.gaussian_kl(
+        mean_inducing, cov_inducing_op, prior_loc, kernel_inducing_op
+    )
 
     # --- ELBO ---
     return gaussx.variational_elbo_gaussian(y, f_loc, f_var, noise_var, kl)
@@ -177,19 +190,27 @@ S_chol_init = jnp.eye(M)
 
 
 @eqx.filter_jit
-def unwhitened_step(m, S_chol, lr=0.005):
+def unwhitened_step(mean_inducing, chol_inducing, lr=0.005):
     """One gradient ascent step on the unwhitened ELBO."""
     loss_fn = lambda m_, Sc_: (
         -unwhitened_elbo(
-            m_, Sc_, y_train, K_zz_op, K_xz_train, K_xx_diag_train, noise_var
+            m_,
+            Sc_,
+            y_train,
+            kernel_inducing_op,
+            kernel_data_inducing_train,
+            kernel_diag_train,
+            noise_var,
         )
     )
-    loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1))(m, S_chol)
+    loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1))(
+        mean_inducing, chol_inducing
+    )
     # Clip gradients for stability
     g_m = jnp.clip(grads[0], -10.0, 10.0)
     g_S = jnp.clip(grads[1], -10.0, 10.0)
-    m_new = m - lr * g_m
-    S_chol_new = S_chol - lr * g_S
+    m_new = mean_inducing - lr * g_m
+    S_chol_new = chol_inducing - lr * g_S
     return m_new, S_chol_new, loss
 
 
@@ -204,22 +225,29 @@ print(f"Unwhitened ELBO (final): {-losses_uw[-1]:.4f}")
 # %% [markdown]
 # ## 5. Whitened SVGP
 #
-# Now we use the whitened parameterization. The variational parameters
-# are $\mathbf{m}_w$ (whitened mean) and $L_w$ (Cholesky of whitened
-# covariance $\mathbf{S}_w = L_w L_w^\top$). The predictive distribution
-# is computed by `whitened_svgp_predict`.
+# Now we use the whitened parameterization. The variational parameters are $\boldsymbol{\mu}_z$ (whitened mean) and $\mathbf{L}_z$ (Cholesky of whitened covariance $\boldsymbol{\Sigma}_z = \mathbf{L}_z \mathbf{L}_z^\top$). The predictive distribution is computed by `whitened_svgp_predict`.
 
 
 # %%
-def whitened_elbo(u_mean, u_chol, K_zz_op, K_xz, K_xx_diag, y, noise_var):
+def whitened_elbo(
+    u_mean,
+    u_chol,
+    kernel_inducing_op,
+    kernel_data_inducing,
+    kernel_diag,
+    y,
+    noise_var,
+):
     """ELBO for the whitened SVGP."""
     f_loc, f_var = gaussx.whitened_svgp_predict(
-        K_zz_op, K_xz, u_mean, u_chol, K_xx_diag
+        kernel_inducing_op, kernel_data_inducing, u_mean, u_chol, kernel_diag
     )
 
-    # Whitened KL: KL(N(m_w, S_w) || N(0, I))
+    # Whitened KL: KL[𝒩(μ_z, Σ_z) ‖ 𝒩(0, I)]
     M_ = u_mean.shape[0]
+    # Σ_z = L_z L_zᵀ  (N_ℐ, N_ℐ)
     S_w = u_chol @ u_chol.T
+    # ½ (‖μ_z‖₂² + tr Σ_z − log det Σ_z − N_ℐ)
     kl = 0.5 * (jnp.sum(u_mean**2) + jnp.trace(S_w) - jnp.linalg.slogdet(S_w)[1] - M_)
 
     return gaussx.variational_elbo_gaussian(y, f_loc, f_var, noise_var, kl)
@@ -234,7 +262,15 @@ u_chol_init = jnp.eye(M)
 def whitened_step(u_mean, u_chol, lr=0.005):
     """One gradient ascent step on the whitened ELBO."""
     loss_fn = lambda um, uc: (
-        -whitened_elbo(um, uc, K_zz_op, K_xz_train, K_xx_diag_train, y_train, noise_var)
+        -whitened_elbo(
+            um,
+            uc,
+            kernel_inducing_op,
+            kernel_data_inducing_train,
+            kernel_diag_train,
+            y_train,
+            noise_var,
+        )
     )
     loss, grads = jax.value_and_grad(loss_fn, argnums=(0, 1))(u_mean, u_chol)
     g_um = jnp.clip(grads[0], -10.0, 10.0)
@@ -255,50 +291,50 @@ print(f"Whitened ELBO (final): {-losses_w[-1]:.4f}")
 # %%
 # Predict on test grid
 f_mean_w, f_var_w = gaussx.whitened_svgp_predict(
-    K_zz_op, K_xz_plot, u_mean_w, u_chol_w, K_xx_diag_plot
+    kernel_inducing_op,
+    kernel_data_inducing_plot,
+    u_mean_w,
+    u_chol_w,
+    kernel_diag_plot,
 )
 
 # %% [markdown]
 # ## 6. SVGP Variance Adjustment
 #
-# The operator $Q = K_{zz}^{-1} S_u K_{zz}^{-1} - K_{zz}^{-1}$
-# appears in the predictive variance of any SVGP:
+# The operator $\mathbf{Q} = \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} \boldsymbol{\Sigma}_{\mathcal{I}} \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} - \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1}$ appears in the predictive variance of any SVGP:
 #
-# $$\mathrm{Var}[f_*] = k_{**} - \mathbf{k}_{*z}
-#   (K_{zz}^{-1} - Q)\,\mathbf{k}_{z*}$$
+# $$\mathbb{V}[f_*] = k_{**} + \mathbf{k}_{*\mathcal{I}} \mathbf{Q} \mathbf{k}_{\mathcal{I}*}$$
 #
 # `svgp_variance_adjustment` builds this operator lazily.
 
 # %%
-S_u_mat = S_chol_uw @ S_chol_uw.T
-S_u_op = lx.MatrixLinearOperator(S_u_mat)
+# Σ_ℐ = L_ℐ L_ℐᵀ  (N_ℐ, N_ℐ)
+cov_inducing_mat = S_chol_uw @ S_chol_uw.T
+cov_inducing_op = lx.MatrixLinearOperator(cov_inducing_mat)
 
-Q_op = gaussx.svgp_variance_adjustment(K_zz_op, S_u_op)
+Q_op = gaussx.svgp_variance_adjustment(kernel_inducing_op, cov_inducing_op)
 
 # Materialize Q as a dense matrix to inspect
 Q_mat = Q_op.as_matrix()
 print(f"Q operator shape: {Q_mat.shape}")
 print(f"Q diagonal (first 5): {jnp.diag(Q_mat)[:5]}")
 
-# Verify: Q = K_zz^{-1} S_u K_zz^{-1} - K_zz^{-1}
-K_zz_inv = jnp.linalg.inv(K_zz_mat)
-Q_expected = K_zz_inv @ S_u_mat @ K_zz_inv - K_zz_inv
+# Verify: Q = K_ℐℐ⁻¹ Σ_ℐ K_ℐℐ⁻¹ − K_ℐℐ⁻¹
+kernel_inducing_inv = jnp.linalg.inv(kernel_inducing_mat)
+Q_expected = (
+    kernel_inducing_inv @ cov_inducing_mat @ kernel_inducing_inv - kernel_inducing_inv
+)
 print(f"Max error vs explicit Q: {jnp.max(jnp.abs(Q_mat - Q_expected)):.2e}")
 
 # %% [markdown]
 # ## 7. BLR Connection: "Last-Layer" GP
 #
-# A GP with random Fourier features (RFF) or a neural-network feature
-# extractor $\Phi(\mathbf{x})$ reduces to Bayesian linear regression
-# in the feature space. The posterior is maintained in natural
-# parameters $(\eta_1, \eta_2)$ where:
+# A GP with random Fourier features (RFF) or a neural-network feature extractor $\boldsymbol{\phi}(\mathbf{x}) \in \mathbb{R}^{D_\phi}$ reduces to Bayesian linear regression in the feature space. The posterior over the weights $\boldsymbol{\theta} \in \mathbb{R}^{D_\phi}$ is maintained in natural parameters $(\boldsymbol{\Lambda}_\theta \boldsymbol{\mu}_\theta, -\frac{1}{2} \boldsymbol{\Lambda}_\theta)$ where:
 #
-# - $\eta_1 = \Sigma^{-1}\mu$
-# - $\eta_2 = -\tfrac{1}{2}\Sigma^{-1}$
+# - $\boldsymbol{\Lambda}_\theta \boldsymbol{\mu}_\theta = \boldsymbol{\Sigma}_\theta^{-1} \boldsymbol{\mu}_\theta$
+# - $-\frac{1}{2} \boldsymbol{\Lambda}_\theta = -\frac{1}{2} \boldsymbol{\Sigma}_\theta^{-1}$
 #
-# Updates use the gradient and Hessian of the log-joint: the Gaussian
-# log-likelihood plus the prior $\mathcal{N}(0, I)$. The prior keeps the
-# precision invertible, since these features are strongly correlated.
+# Updates use the gradient and Hessian of the log-joint: the Gaussian log-likelihood plus the prior $\mathcal{N}(\mathbf{0}, \mathbf{I})$. The prior keeps the precision invertible, since these features are strongly correlated.
 
 # %%
 # --- Feature extractor: simple 2-layer MLP ---
@@ -321,12 +357,11 @@ Phi_plot = phi(x_plot)
 # %% [markdown]
 # ### 7a. Full-Rank BLR Update
 #
-# `blr_full_update` performs a damped natural-parameter update:
+# `blr_full_update` performs a damped natural-parameter update with step size $\gamma$, gradient $\mathbf{g}$ and Hessian $\nabla^2_{\boldsymbol{\theta}}$ of the log-joint:
 #
-# $$\eta_2^{\mathrm{new}} = (1-\alpha)\eta_2
-#   + \alpha\bigl(-\tfrac{1}{2}H\bigr), \quad
-# \eta_1^{\mathrm{new}} = (1-\alpha)\eta_1
-#   + \alpha\bigl(g - H\mu\bigr)$$
+# $$-\frac{1}{2} \boldsymbol{\Lambda}_\theta^\text{new} = (1 - \gamma) \left(-\frac{1}{2} \boldsymbol{\Lambda}_\theta\right) + \gamma \left(\frac{1}{2} \nabla^2_{\boldsymbol{\theta}}\right)$$
+#
+# $$(\boldsymbol{\Lambda}_\theta \boldsymbol{\mu}_\theta)^\text{new} = (1 - \gamma) \boldsymbol{\Lambda}_\theta \boldsymbol{\mu}_\theta + \gamma \left(\mathbf{g} - \nabla^2_{\boldsymbol{\theta}} \boldsymbol{\mu}_\theta\right)$$
 
 # %%
 # Initialize natural parameters (prior: N(0, I))
@@ -359,8 +394,7 @@ print(f"BLR full-rank posterior mean norm: {jnp.linalg.norm(mu_blr_full):.4f}")
 # %% [markdown]
 # ### 7b. Diagonal BLR Update
 #
-# `blr_diag_update` is the diagonal counterpart where $\eta_2$ is
-# stored as a vector (diagonal entries only).
+# `blr_diag_update` is the diagonal counterpart where $-\frac{1}{2} \boldsymbol{\Lambda}_\theta$ is stored as a vector (diagonal entries only).
 
 # %%
 nat1_diag = jnp.zeros(d_features)
@@ -393,10 +427,7 @@ print(f"BLR diagonal posterior mean norm: {jnp.linalg.norm(mu_blr_diag):.4f}")
 # %% [markdown]
 # ## 8. GGN Diagonal
 #
-# The Generalized Gauss-Newton (GGN) matrix $J^\top J$ approximates
-# the Hessian of the loss with respect to network parameters. Its
-# diagonal is cheap to compute and useful for diagonal Laplace or
-# diagonal natural gradient updates.
+# The Generalized Gauss-Newton (GGN) matrix $\mathbf{J}^\top \mathbf{J}$ approximates the Hessian of the loss with respect to network parameters. Its diagonal is cheap to compute and useful for diagonal Laplace or diagonal natural gradient updates.
 
 # %%
 # Jacobian of the feature extractor outputs w.r.t. inputs
@@ -405,7 +436,7 @@ jacobian = Phi_train  # (N, d_features)
 
 ggn_diag = gaussx.ggn_diagonal(jacobian)
 
-# Compare with explicit J^T J diagonal
+# Compare with explicit Jᵀ J diagonal
 ggn_full = jacobian.T @ jacobian
 ggn_diag_exact = jnp.diag(ggn_full)
 
@@ -419,12 +450,12 @@ print(f"Max error vs explicit: {jnp.max(jnp.abs(ggn_diag - ggn_diag_exact)):.2e}
 # (HVPs), we can estimate its diagonal stochastically using the
 # Hutchinson identity:
 #
-# $$\mathrm{diag}(H) = \mathbb{E}[\mathbf{z} \odot (H\mathbf{z})]$$
+# $$\mathrm{diag}(\nabla^2_{\boldsymbol{\theta}}) = \mathbb{E}[\mathbf{v} \odot (\nabla^2_{\boldsymbol{\theta}} \mathbf{v})]$$
 #
-# where $\mathbf{z}$ is a Rademacher random vector.
+# where $\mathbf{v}$ is a Rademacher random vector.
 
 # %%
-# Define an HVP function for a simple quadratic: H = Phi^T Phi / sigma^2
+# Define an HVP function for a simple quadratic: H = Φᵀ Φ / σ_ε²
 H_mat = Phi_train.T @ Phi_train / noise_var
 
 
@@ -561,21 +592,20 @@ plt.show()
 # | Primitive | Purpose |
 # |-----------|---------|
 # | `whitened_svgp_predict` | Predictive mean and variance in whitened space |
-# | `svgp_variance_adjustment` | Build the $Q$ operator for predictive variance |
+# | `svgp_variance_adjustment` | Build the $\mathbf{Q}$ operator for predictive variance |
 # | `trace_correction` | Titsias trace penalty |
 # | `variational_elbo_gaussian` | Closed-form ELBO for Gaussian likelihoods |
 # | `gaussian_kl` | General KL between two multivariate normals |
 # | `blr_full_update` | Full-rank natural-parameter BLR step |
 # | `blr_diag_update` | Diagonal natural-parameter BLR step |
-# | `ggn_diagonal` | Diagonal of $J^\top J$ (GGN approximation) |
+# | `ggn_diagonal` | Diagonal of $\mathbf{J}^\top \mathbf{J}$ (GGN approximation) |
 # | `hutchinson_hessian_diag` | Stochastic Hessian diagonal via Hutchinson |
 #
 # **Key takeaways:**
 #
 # - The whitened parameterization decouples variational parameters from
 #   kernel hyperparameters, giving faster and more stable convergence.
-# - `svgp_variance_adjustment` encapsulates the algebraic bookkeeping of
-#   $K_{zz}^{-1} S_u K_{zz}^{-1} - K_{zz}^{-1}$ behind a lazy operator.
+# - `svgp_variance_adjustment` encapsulates the algebraic bookkeeping of $\mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} \boldsymbol{\Sigma}_{\mathcal{I}} \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} - \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1}$ behind a lazy operator.
 # - Full-rank BLR in natural parameters converges in very few steps for
 #   Gaussian likelihoods. The diagonal version ignores correlations between
 #   features, so it needs a smaller step and many more iterations.
