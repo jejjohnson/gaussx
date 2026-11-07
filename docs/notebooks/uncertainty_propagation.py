@@ -15,20 +15,20 @@
 # %% [markdown]
 # # Uncertainty Propagation through Nonlinear Functions
 #
-# When a Gaussian random variable $x \sim \mathcal{N}(\mu, \Sigma)$ passes
-# through a nonlinear function $f$, the output $y = f(x)$ is generally
+# When a Gaussian random variable $\mathbf{x} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$ with $\mathbf{x} \in \mathbb{R}^{D_x}$ passes
+# through a nonlinear function $f$, the output $\mathbf{y} = f(\mathbf{x}) \in \mathbb{R}^{D_y}$ is generally
 # **not** Gaussian. Different methods approximate the output distribution
-# $p(y)$ with varying fidelity.
+# $p(\mathbf{y})$ with varying fidelity.
 #
 # ## Motivation: uncertain inputs in Gaussian processes
 #
 # The problem of propagating uncertainty through nonlinear maps arises
 # naturally in **Gaussian process (GP) models with uncertain inputs**.
-# At test time the input $x_*$ may itself be uncertain — for example:
+# At test time the input $\mathbf{x}_*$ may itself be uncertain — for example:
 #
 # - In **multi-step-ahead prediction** with GP dynamics models
 #   (Girard et al., 2003; Deisenroth & Rasmussen, 2011), the predicted
-#   state at time $t$ becomes the uncertain input at time $t{+}1$.
+#   state at time $t$ becomes the uncertain input at time $t+1$.
 # - In **GP-based policy search** (PILCO; Deisenroth & Rasmussen, 2011),
 #   the controller must evaluate a GP whose input is a belief state.
 # - In **heteroscedastic and input-noise models** (McHutchon & Rasmussen,
@@ -36,14 +36,12 @@
 #   that depends on the local gradient of the GP posterior mean.
 #
 # Given a GP posterior $f \mid \mathcal{D}$ and an input distribution
-# $x_* \sim \mathcal{N}(\mu_*, \Sigma_*)$, we seek the **predictive
+# $\mathbf{x}_* \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$, we seek the **predictive
 # moments**
 #
-# $$\mathbb{E}[f(x_*)] = \int f(x)\,\mathcal{N}(x \mid \mu_*, \Sigma_*)\,dx,$$
+# $$\mathbb{E}[f(\mathbf{x}_*)] = \int f(\mathbf{x}) \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x) \mathrm{d}\mathbf{x}$$
 #
-# $$\operatorname{Var}[f(x_*)] = \int \bigl(f(x)
-#   - \mathbb{E}[f(x_*)]\bigr)^2
-#   \,\mathcal{N}(x \mid \mu_*, \Sigma_*)\,dx.$$
+# $$\mathbb{V}[f(\mathbf{x}_*)] = \int (f(\mathbf{x}) - \mathbb{E}[f(\mathbf{x}_*)])^2 \mathcal{N}(\mathbf{x}; \boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x) \mathrm{d}\mathbf{x}$$
 #
 # For the squared-exponential kernel these integrals have analytic forms
 # (Quinonero-Candela et al., 2003), but for general kernels or composed
@@ -59,9 +57,9 @@
 # | **Taylor 1st** | 1 (mean only) | Linearize $f$ at the mean |
 # | **Taylor 2nd** | 1 + Hessian | Add curvature correction (mean only) |
 # | **Taylor 2nd (var)** | 1 + Hessian | Curvature correction (mean + variance) |
-# | **Unscented** | $2N+1$ sigma points | Deterministic quadrature |
-# | **Monte Carlo** | $S$ random samples | Empirical moments |
-# | **Pure MC** | $S$ random samples | Direct histogram (ground truth) |
+# | **Unscented** | $2D_x+1$ sigma points | Deterministic quadrature |
+# | **Monte Carlo** | $N_{\mathcal{E}}$ random samples | Empirical moments |
+# | **Pure MC** | $N_{\mathcal{E}}$ random samples | Direct histogram (ground truth) |
 #
 # We propagate a 1-D Gaussian through a deliberately wiggly function
 # to expose how each method handles nonlinearity.
@@ -91,7 +89,7 @@ jax.config.update("jax_enable_x64", True)
 # We pick a function with an inflection point, asymmetry, and saturation
 # -- features that challenge linearisation-based methods:
 #
-# $$f(x) = \sin(1.5\,x) \cdot \exp(-0.15\,x^2) + 0.3\,x$$
+# $$f(x) = \sin(1.5 x) \exp(-0.15 x^2) + 0.3 x$$
 
 
 # %%
@@ -109,8 +107,8 @@ y_grid = f_vec(x_grid)
 # %%
 fig, ax = plt.subplots(figsize=(10, 4))
 ax.plot(x_grid, y_grid, "k-", lw=2)
-ax.set_xlabel("x")
-ax.set_ylabel("f(x)")
+ax.set_xlabel("$x$")
+ax.set_ylabel("$f(x)$")
 ax.set_title("Nonlinear function")
 ax.axhline(0, c="grey", lw=0.5)
 ax.grid(True, which="major", alpha=0.3)
@@ -122,56 +120,61 @@ plt.show()
 # %% [markdown]
 # ## Input distribution
 #
-# A 1-D Gaussian centred right where the function has strong curvature:
+# A 1-D Gaussian ($D_x = D_y = 1$) centred right where the function has strong curvature:
 #
-# $$x \sim \mathcal{N}(\mu=1.0,\; \sigma^2=0.6)$$
+# $$x \sim \mathcal{N}(\mu_x = 1.0, \sigma_x^2 = 0.6)$$
 
 # %%
-mu_x = 1.0
-sigma2_x = 0.6
+# μ_x = 1.0
+input_mean = 1.0
+# σ_x² = 0.6
+input_variance = 0.6
 
-state = gaussx.GaussianState(
-    mean=jnp.array([mu_x]),
-    cov=lx.MatrixLinearOperator(jnp.array([[sigma2_x]]), lx.positive_semidefinite_tag),
+# 𝒩(μ_x, Σ_x) with Σ_x = [[σ_x²]]
+input_state = gaussx.GaussianState(
+    mean=jnp.array([input_mean]),
+    cov=lx.MatrixLinearOperator(
+        jnp.array([[input_variance]]), lx.positive_semidefinite_tag
+    ),
 )
 
 # %% [markdown]
 # ## Mathematical background
 #
-# All methods below approximate the first two moments of $y = f(x)$
-# when $x \sim \mathcal{N}(\mu, \Sigma)$.
+# All methods below approximate the first two moments of $\mathbf{y} = f(\mathbf{x})$
+# when $\mathbf{x} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$, as $\boldsymbol{\mu}_y \in \mathbb{R}^{D_y}$ and $\boldsymbol{\Sigma}_y \in \mathbb{R}^{D_y \times D_y}$.
 #
 # ### Taylor 1st order (linearisation / EKF)
 #
-# Expand $f$ to first order around the mean:
+# Expand $f$ to first order around the mean, with Jacobian $\mathbf{J}_f \in \mathbb{R}^{D_y \times D_x}$:
 #
-# $$f(x) \approx f(\mu) + J\,(x - \mu), \qquad
-#   J = \left.\frac{\partial f}{\partial x}\right|_{x=\mu}.$$
+# $$f(\mathbf{x}) \approx f(\boldsymbol{\mu}_x) + \mathbf{J}_f (\mathbf{x} - \boldsymbol{\mu}_x), \quad \mathbf{J}_f = \left. \frac{\partial f}{\partial \mathbf{x}} \right|_{\mathbf{x} = \boldsymbol{\mu}_x}$$
 #
 # Under this linear approximation the output is exactly Gaussian:
 #
-# $$\mu_y = f(\mu), \qquad \Sigma_y = J\,\Sigma\,J^\top.$$
+# $$\boldsymbol{\mu}_y = f(\boldsymbol{\mu}_x)$$
+#
+# $$\boldsymbol{\Sigma}_y = \mathbf{J}_f \boldsymbol{\Sigma}_x \mathbf{J}_f^\top$$
 #
 # This is the update used in the **extended Kalman filter (EKF)**
 # (Anderson & Moore, 1979). It is exact when $f$ is affine, but ignores
-# curvature — the mean estimate is biased whenever $f''(\mu) \neq 0$.
+# curvature — the mean estimate is biased whenever $f''(\mu_x) \neq 0$ in one dimension.
 #
 # ### Taylor 2nd order
 #
 # Including the second-order term of the Taylor expansion gives a
-# correction to the mean via the Hessian $H_i = \nabla^2 f_i(\mu)$:
+# correction to the mean via the Hessian $\nabla^2 f_i(\boldsymbol{\mu}_x) \in \mathbb{R}^{D_x \times D_x}$ of output component $i$:
 #
-# $$\mu_{y,i} = f_i(\mu) + \tfrac{1}{2}\operatorname{tr}(H_i\,\Sigma).$$
+# $$\mu_{y,i} = f_i(\boldsymbol{\mu}_x) + \frac{1}{2} \mathrm{tr}(\nabla^2 f_i(\boldsymbol{\mu}_x) \boldsymbol{\Sigma}_x)$$
 #
 # With `correct_variance=False`, the covariance remains the first-order
-# expression $\Sigma_y = J\Sigma J^\top$ — this "second-order EKF" (mean-only
+# expression $\boldsymbol{\Sigma}_y = \mathbf{J}_f \boldsymbol{\Sigma}_x \mathbf{J}_f^\top$ — this "second-order EKF" (mean-only
 # correction) appears in Athans et al. (1968).
 #
 # By default (`correct_variance=True`), the covariance also receives a
 # second-order correction using fourth Gaussian moments:
 #
-# $$(\Sigma_y)_{ij} \mathrel{+}=
-#   \tfrac{1}{2}\operatorname{tr}(H_i\,\Sigma\,H_j\,\Sigma).$$
+# $$[\boldsymbol{\Sigma}_y]_{ij} = [\mathbf{J}_f \boldsymbol{\Sigma}_x \mathbf{J}_f^\top]_{ij} + \frac{1}{2} \mathrm{tr}(\nabla^2 f_i(\boldsymbol{\mu}_x) \boldsymbol{\Sigma}_x \nabla^2 f_j(\boldsymbol{\mu}_x) \boldsymbol{\Sigma}_x)$$
 #
 # This can improve accuracy for mildly nonlinear functions but may
 # overshoot for strongly nonlinear ones.
@@ -180,20 +183,19 @@ state = gaussx.GaussianState(
 #
 # Instead of differentiating $f$, the UT (Julier & Uhlmann, 1997)
 # evaluates it at a minimal set of **sigma points**
-# $\{\mathcal{X}_i\}_{i=0}^{2N}$ chosen to match the mean and
-# covariance of $x$ exactly:
+# $\{\boldsymbol{\chi}_i\}_{i=0}^{2D_x}$ chosen to match the mean and
+# covariance of $\mathbf{x}$ exactly:
 #
-# $$\mathcal{X}_0 = \mu, \qquad
-#   \mathcal{X}_i = \mu + \bigl(\sqrt{(N+\lambda)\,\Sigma}\bigr)_i, \qquad
-#   \mathcal{X}_{N+i} = \mu - \bigl(\sqrt{(N+\lambda)\,\Sigma}\bigr)_i,$$
+# $$\boldsymbol{\chi}_0 = \boldsymbol{\mu}_x$$
 #
-# where $\lambda = \alpha^2(N + \kappa) - N$ and $(\sqrt{M})_i$ denotes
-# the $i$-th column of the matrix square root. The output moments are
-# weighted sums:
+# $$\boldsymbol{\chi}_d = \boldsymbol{\mu}_x + \sqrt{D_x + \lambda} \mathbf{S}_d, \quad \boldsymbol{\chi}_{D_x + d} = \boldsymbol{\mu}_x - \sqrt{D_x + \lambda} \mathbf{S}_d$$
 #
-# $$\mu_y = \sum_i w_i^{(m)}\,f(\mathcal{X}_i), \qquad
-#   \Sigma_y = \sum_i w_i^{(c)}\bigl(f(\mathcal{X}_i) - \mu_y\bigr)
-#             \bigl(f(\mathcal{X}_i) - \mu_y\bigr)^\top.$$
+# where $\mathbf{S} \mathbf{S}^\top = \boldsymbol{\Sigma}_x$, $\mathbf{S}_d$ is the $d$-th column of the matrix square root $\mathbf{S}$ for $d = 1, \ldots, D_x$, and $\lambda = \alpha^2 (D_x + \kappa) - D_x$. The output moments are
+# weighted sums, with mean weights $w_{m,i}$ and covariance weights $w_{c,i}$:
+#
+# $$\boldsymbol{\mu}_y = \sum_{i=0}^{2D_x} w_{m,i} f(\boldsymbol{\chi}_i)$$
+#
+# $$\boldsymbol{\Sigma}_y = \sum_{i=0}^{2D_x} w_{c,i} (f(\boldsymbol{\chi}_i) - \boldsymbol{\mu}_y) (f(\boldsymbol{\chi}_i) - \boldsymbol{\mu}_y)^\top$$
 #
 # The UT captures nonlinear effects up to third order for Gaussian inputs
 # (Julier & Uhlmann, 2004) and requires **no derivatives** of $f$.
@@ -202,15 +204,15 @@ state = gaussx.GaussianState(
 #
 # ### Monte Carlo moment matching
 #
-# Draw $S$ samples $x^{(s)} \sim \mathcal{N}(\mu, \Sigma)$, push them
+# Draw $N_{\mathcal{E}}$ members $\mathbf{x}^{(e)} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$ for $e \in \mathcal{E}$, push them
 # through $f$, and compute empirical moments:
 #
-# $$\mu_y \approx \frac{1}{S}\sum_{s=1}^S f(x^{(s)}), \qquad
-#   \Sigma_y \approx \frac{1}{S}\sum_{s=1}^S
-#   \bigl(f(x^{(s)}) - \mu_y\bigr)\bigl(f(x^{(s)}) - \mu_y\bigr)^\top.$$
+# $$\boldsymbol{\mu}_y \approx \frac{1}{N_{\mathcal{E}}} \sum_{e \in \mathcal{E}} f(\mathbf{x}^{(e)})$$
 #
-# This is unbiased and converges at rate $O(1/\sqrt{S})$ regardless of
-# dimension — making it the method of choice when $N$ is large or $f$ is
+# $$\boldsymbol{\Sigma}_y \approx \frac{1}{N_{\mathcal{E}}} \sum_{e \in \mathcal{E}} (f(\mathbf{x}^{(e)}) - \boldsymbol{\mu}_y) (f(\mathbf{x}^{(e)}) - \boldsymbol{\mu}_y)^\top$$
+#
+# This is unbiased and converges at rate $O(1/\sqrt{N_{\mathcal{E}}})$ regardless of
+# dimension — making it the method of choice when $D_x$ is large or $f$ is
 # very nonlinear. The moment-matched Gaussian is the best Gaussian
 # approximation in the KL sense and is used for "assumed density
 # filtering" in GP dynamics models (Deisenroth & Rasmussen, 2011).
@@ -221,53 +223,65 @@ state = gaussx.GaussianState(
 # %%
 # --- Taylor 1st order (EKF) ---
 taylor1 = gaussx.TaylorIntegrator(order=1)
-res_t1 = taylor1.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+taylor1_result = taylor1.integrate(
+    lambda x: jnp.atleast_1d(f_nonlinear(x[0])), input_state
+)
 
 # --- Taylor 2nd order (mean correction only) ---
 taylor2 = gaussx.TaylorIntegrator(order=2, correct_variance=False)
-res_t2 = taylor2.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+taylor2_result = taylor2.integrate(
+    lambda x: jnp.atleast_1d(f_nonlinear(x[0])), input_state
+)
 
 # --- Taylor 2nd order (mean + variance correction, default) ---
 taylor2v = gaussx.TaylorIntegrator(order=2, correct_variance=True)
-res_t2v = taylor2v.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+taylor2v_result = taylor2v.integrate(
+    lambda x: jnp.atleast_1d(f_nonlinear(x[0])), input_state
+)
 
 # --- Unscented transform ---
-ut = gaussx.UnscentedIntegrator(alpha=1.0, beta=2.0, kappa=0.0)
-res_ut = ut.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+unscented = gaussx.UnscentedIntegrator(alpha=1.0, beta=2.0, kappa=0.0)
+unscented_result = unscented.integrate(
+    lambda x: jnp.atleast_1d(f_nonlinear(x[0])), input_state
+)
 
 # --- Monte Carlo integrator (moment matching) ---
-mc = gaussx.MonteCarloIntegrator(n_samples=50_000, key=jr.key(42))
-res_mc = mc.integrate(lambda x: jnp.atleast_1d(f_nonlinear(x[0])), state)
+monte_carlo = gaussx.MonteCarloIntegrator(n_samples=50_000, key=jr.key(42))
+monte_carlo_result = monte_carlo.integrate(
+    lambda x: jnp.atleast_1d(f_nonlinear(x[0])), input_state
+)
 
 # --- Pure MC: raw histogram as ground truth ---
 key = jr.key(123)
-n_pure = 200_000
-x_samples = mu_x + jnp.sqrt(sigma2_x) * jr.normal(key, (n_pure,))
+num_pure_members = 200_000
+# x⁽ᵉ⁾ ~ 𝒩(μ_x, σ_x²)
+x_samples = input_mean + jnp.sqrt(input_variance) * jr.normal(key, (num_pure_members,))
+# y⁽ᵉ⁾ = f(x⁽ᵉ⁾)
 y_samples = f_vec(x_samples)
 pure_mc_mean = jnp.mean(y_samples)
 pure_mc_var = jnp.var(y_samples)
 
 
 # %%
-def _moments(res):
-    m = float(res.state.mean[0])
-    v = float(res.state.cov.as_matrix()[0, 0])
-    return m, v
+def _moments(result):
+    mean = float(result.state.mean[0])
+    variance = float(result.state.cov.as_matrix()[0, 0])
+    return mean, variance
 
 
 methods = {
-    "Taylor 1st": _moments(res_t1),
-    "Taylor 2nd": _moments(res_t2),
-    "Taylor 2nd (var)": _moments(res_t2v),
-    "Unscented": _moments(res_ut),
-    "MC (50k)": _moments(res_mc),
+    "Taylor 1st": _moments(taylor1_result),
+    "Taylor 2nd": _moments(taylor2_result),
+    "Taylor 2nd (var)": _moments(taylor2v_result),
+    "Unscented": _moments(unscented_result),
+    "MC (50k)": _moments(monte_carlo_result),
     "Pure MC (200k)": (float(pure_mc_mean), float(pure_mc_var)),
 }
 
 print(f"{'Method':<18s} {'Mean':>8s} {'Std':>8s}")
 print("-" * 36)
-for name, (m, v) in methods.items():
-    print(f"{name:<18s} {m:8.4f} {jnp.sqrt(v):8.4f}")
+for name, (mean, variance) in methods.items():
+    print(f"{name:<18s} {mean:8.4f} {jnp.sqrt(variance):8.4f}")
 
 # %% [markdown]
 # ## Visualisation
@@ -295,7 +309,7 @@ y_fn = f_vec(x_fn)
 ax.plot(x_fn, y_fn, "k-", lw=2.5, label="$f(x)$", zorder=5)
 
 # --- Input Gaussian (along x-axis) ---
-x_pdf = norm.pdf(x_grid, loc=mu_x, scale=jnp.sqrt(sigma2_x))
+x_pdf = norm.pdf(x_grid, loc=input_mean, scale=jnp.sqrt(input_variance))
 # Scale so the peak is visually ~0.8 units tall on the y-axis
 x_pdf_scaled = x_pdf / x_pdf.max() * 0.8
 y_base = -2.0  # shift below the function
@@ -309,7 +323,7 @@ ax.fill_between(
 )
 ax.plot(x_grid, y_base + x_pdf_scaled, "C0-", lw=1.5, zorder=3)
 ax.text(
-    mu_x,
+    input_mean,
     y_base - 0.15,
     r"$p(x)$",
     ha="center",
@@ -324,9 +338,9 @@ width = 1.0
 
 y_range = jnp.linspace(-2.5, 3.0, 400)
 
-for i, (name, (m, v)) in enumerate(methods.items()):
-    s = jnp.sqrt(v)
-    pdf_vals = norm.pdf(y_range, loc=m, scale=s)
+for i, (name, (mean, variance)) in enumerate(methods.items()):
+    std = jnp.sqrt(variance)
+    pdf_vals = norm.pdf(y_range, loc=mean, scale=std)
     pdf_scaled = pdf_vals / pdf_vals.max() * width
     x_pos = x_right + i * 0.9
 
@@ -345,7 +359,7 @@ for i, (name, (m, v)) in enumerate(methods.items()):
         lw=1.5,
         zorder=3,
     )
-    ax.plot(x_pos, m, "o", color=colours[i], ms=5, zorder=6)
+    ax.plot(x_pos, mean, "o", color=colours[i], ms=5, zorder=6)
     ax.text(
         x_pos + width * 0.5,
         3.3,
@@ -374,8 +388,8 @@ ax.barh(
 
 # --- Arrow showing the "propagation" ---
 arrow = FancyArrowPatch(
-    (mu_x, f_nonlinear(jnp.array(mu_x))),
-    (x_right - 0.3, float(res_ut.state.mean[0])),
+    (input_mean, f_nonlinear(jnp.array(input_mean))),
+    (x_right - 0.3, float(unscented_result.state.mean[0])),
     arrowstyle="-|>",
     color="grey",
     lw=1.5,
@@ -384,8 +398,8 @@ arrow = FancyArrowPatch(
 )
 ax.add_patch(arrow)
 ax.text(
-    (mu_x + x_right - 0.3) / 2,
-    float(res_ut.state.mean[0]) + 0.5,
+    (input_mean + x_right - 0.3) / 2,
+    float(unscented_result.state.mean[0]) + 0.5,
     "propagate\nuncertainty",
     ha="center",
     fontsize=9,
@@ -395,8 +409,8 @@ ax.text(
 # --- Formatting ---
 ax.set_xlim(-4, x_right + 6 * 0.9 + 1.5)
 ax.set_ylim(y_base - 0.4, 4.0)
-ax.set_xlabel("x", fontsize=12)
-ax.set_ylabel("y = f(x)", fontsize=12)
+ax.set_xlabel("$x$", fontsize=12)
+ax.set_ylabel("$y = f(x)$", fontsize=12)
 ax.set_title(
     r"Uncertainty propagation: input $\to$ nonlinear $f$ $\to$ output",
     fontsize=13,
@@ -412,19 +426,19 @@ plt.show()
 # %% [markdown]
 # ## Observations
 #
-# 1. **Taylor 1st order** uses only the local slope at $\mu$ -- it produces a
-#    symmetric Gaussian whose width depends on $|f'(\mu)|$. When $f$ curves
+# 1. **Taylor 1st order** uses only the local slope at $\mu_x$ -- it produces a
+#    symmetric Gaussian whose width depends on $|f'(\mu_x)|$. When $f$ curves
 #    strongly, this misses the mean shift.
 #
 # 2. **Taylor 2nd order** adds a Hessian correction to the mean
-#    ($\mu_y \mathrel{+}= \tfrac{1}{2}\operatorname{tr}(H \Sigma)$) and gets
+#    ($\frac{1}{2} \mathrm{tr}(\nabla^2 f_i(\boldsymbol{\mu}_x) \boldsymbol{\Sigma}_x)$) and gets
 #    closer to the true mean, but the covariance is still first-order.
 #
 # 3. **Taylor 2nd (var)** additionally corrects the covariance using fourth
 #    Gaussian moments. For this wiggly function the correction overshoots —
 #    a common failure mode for strongly nonlinear functions.
 #
-# 4. **Unscented transform** evaluates $f$ at $2N{+}1=3$ deterministic sigma
+# 4. **Unscented transform** evaluates $f$ at $2D_x+1=3$ deterministic sigma
 #    points and captures the nonlinearity much better -- even with just 3
 #    function evaluations.
 #
@@ -489,10 +503,10 @@ plt.show()
 #
 # | Method | Cost | Best for |
 # |--------|------|----------|
-# | Taylor 1st | $O(N^2)$ Jacobian | Mildly nonlinear, real-time EKF |
-# | Taylor 2nd | $O(N^3)$ Hessian | Moderate nonlinearity, small $N$ |
-# | Unscented | $O(N)$ function evals | Good default; no derivatives needed |
-# | Monte Carlo | $O(S)$ function evals | Complex functions, large $N$, reference |
+# | Taylor 1st | $O(D_x^2)$ Jacobian | Mildly nonlinear, real-time EKF |
+# | Taylor 2nd | $O(D_x^3)$ Hessian | Moderate nonlinearity, small $D_x$ |
+# | Unscented | $O(D_x)$ function evals | Good default; no derivatives needed |
+# | Monte Carlo | $O(N_{\mathcal{E}})$ function evals | Complex functions, large $D_x$, reference |
 #
 # All four methods are available in gaussx via the `AbstractIntegrator`
 # interface, so you can swap them with a single line change:
@@ -508,14 +522,11 @@ plt.show()
 # %% [markdown]
 # ## Connection to GP prediction with uncertain inputs
 #
-# In a trained GP with posterior mean $m(x)$ and variance $v(x)$, the
+# In a trained GP with posterior mean $m(\mathbf{x})$ and variance $v(\mathbf{x})$, the
 # total predictive variance under input uncertainty decomposes as
 # (Girard et al., 2003, Eq. 2.40):
 #
-# $$\operatorname{Var}[y_*] \;=\;
-#   \underbrace{\mathbb{E}_{x_*}[v(x_*)]}_{\text{noise / model variance}}
-#   \;+\;
-#   \underbrace{\operatorname{Var}_{x_*}[m(x_*)]}_{\text{input uncertainty}}.$$
+# $$\mathbb{V}[y_*] = \underbrace{\mathbb{E}_{\mathbf{x}_*}[v(\mathbf{x}_*)]}_{\text{noise / model variance}} + \underbrace{\mathbb{V}_{\mathbf{x}_*}[m(\mathbf{x}_*)]}_{\text{input uncertainty}}$$
 #
 # The first term averages the GP's own uncertainty over plausible inputs;
 # the second is exactly the output variance computed by the methods

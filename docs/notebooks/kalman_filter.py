@@ -31,13 +31,16 @@
 #
 # A linear-Gaussian state-space model (SSM) is defined by:
 #
-# $$x_t = A \, x_{t-1} + q_t, \quad q_t \sim \mathcal{N}(0, Q)$$
-# $$y_t = H \, x_t + r_t, \quad r_t \sim \mathcal{N}(0, R)$$
+# $$\mathbf{x}_t = \mathbf{F} \mathbf{x}_{t-1} + \boldsymbol{\eta}_t, \quad \boldsymbol{\eta}_t \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\eta)$$
+#
+# $$\mathbf{y}_t = \mathbf{H} \mathbf{x}_t + \boldsymbol{\varepsilon}_t, \quad \boldsymbol{\varepsilon}_t \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\varepsilon)$$
+#
+# Here $t = 1, \ldots, T$ indexes the time steps, $\mathbf{x}_t \in \mathbb{R}^{D_x}$ is the state, $\mathbf{y}_t \in \mathbb{R}^{D_y}$ the observation, $\mathbf{F} \in \mathbb{R}^{D_x \times D_x}$ the transition, $\mathbf{H} \in \mathbb{R}^{D_y \times D_x}$ the observation operator, $\boldsymbol{\Sigma}_\eta \in \mathbb{R}^{D_x \times D_x}$ the model-noise covariance and $\boldsymbol{\Sigma}_\varepsilon \in \mathbb{R}^{D_y \times D_y}$ the observation-noise covariance.
 #
 # The **Kalman filter** computes the filtering distribution
-# $p(x_t \mid y_{1:t})$ in a single forward pass.
+# $p(\mathbf{x}_t \mid \mathbf{y}_{1:t})$ in a single forward pass.
 # The **RTS smoother** then refines these estimates using future observations,
-# giving the smoothing distribution $p(x_t \mid y_{1:T})$.
+# giving the smoothing distribution $p(\mathbf{x}_t \mid \mathbf{y}_{1:T})$.
 #
 # The smoother always has lower (or equal) posterior variance than the filter,
 # because it conditions on strictly more data.
@@ -48,16 +51,23 @@
 #
 # **Predict:**
 #
-# $$\hat{x}_{t|t-1} = A \hat{x}_{t-1|t-1}, \qquad P_{t|t-1} = A P_{t-1|t-1} A^\top + Q$$
+# $$\boldsymbol{\mu}_{x,t \mid t-1} = \mathbf{F} \boldsymbol{\mu}_{x,t-1 \mid t-1}$$
+#
+# $$\boldsymbol{\Sigma}_{x,t \mid t-1} = \mathbf{F} \boldsymbol{\Sigma}_{x,t-1 \mid t-1} \mathbf{F}^\top + \boldsymbol{\Sigma}_\eta$$
 #
 # **Update:**
 #
-# $$S_t = H P_{t|t-1} H^\top + R \qquad \text{(innovation covariance)}$$
-# $$K_t = P_{t|t-1} H^\top S_t^{-1} \qquad \text{(Kalman gain)}$$
-# $$\hat{x}_{t|t} = \hat{x}_{t|t-1} + K_t(y_t - H \hat{x}_{t|t-1})$$
-# $$P_{t|t} = (I - K_t H) P_{t|t-1}$$
+# $$\boldsymbol{\Sigma}_{y,t} = \mathbf{H} \boldsymbol{\Sigma}_{x,t \mid t-1} \mathbf{H}^\top + \boldsymbol{\Sigma}_\varepsilon \quad \text{(innovation covariance)}$$
 #
-# Note that each step involves a linear system solve (for $K_t$), which is
+# $$\mathbf{G}_t = \boldsymbol{\Sigma}_{x,t \mid t-1} \mathbf{H}^\top \boldsymbol{\Sigma}_{y,t}^{-1} \quad \text{(Kalman gain)}$$
+#
+# $$\mathbf{r}_t = \mathbf{y}_t - \mathbf{H} \boldsymbol{\mu}_{x,t \mid t-1} \quad \text{(residual)}$$
+#
+# $$\boldsymbol{\mu}_{x,t \mid t} = \boldsymbol{\mu}_{x,t \mid t-1} + \mathbf{G}_t \mathbf{r}_t$$
+#
+# $$\boldsymbol{\Sigma}_{x,t \mid t} = (\mathbf{I} - \mathbf{G}_t \mathbf{H}) \boldsymbol{\Sigma}_{x,t \mid t-1}$$
+#
+# Note that each step involves a linear system solve (for $\mathbf{G}_t$), which is
 # where gaussx primitives are used.
 
 # %%
@@ -80,37 +90,50 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## Define the model
 #
-# We use a 2D state $x_t = [\text{position}, \text{velocity}]^\top$ with
+# We use a 2D state ($D_x = 2$) $\mathbf{x}_t = [\text{position}, \text{velocity}]^\top$ with
 # a **damped oscillator** transition (discretized spring-mass-damper).
-# Only position is observed with noise.
+# Only position is observed with noise ($D_y = 1$).
 #
-# - $A$: discretized spring-mass-damper transition
-# - $H = \begin{bmatrix} 1 & 0 \end{bmatrix}$ (observe position only)
-# - $Q$: process noise driving the oscillator
-# - $R = [0.5]$: observation noise variance
+# - $\mathbf{F}$: discretized spring-mass-damper transition
+# - $\mathbf{H} = \begin{bmatrix} 1 & 0 \end{bmatrix}$ (observe position only)
+# - $\boldsymbol{\Sigma}_\eta$: model noise driving the oscillator
+# - $\boldsymbol{\Sigma}_\varepsilon = [0.5]$: observation noise variance
 
 # %%
-dt = 0.1
-T = 200
+# Δt
+time_step = 0.1
+# T
+num_steps = 200
 
 # Damped oscillator: omega=1.0 rad/s, damping gamma=0.15
-omega, gamma = 1.0, 0.15
-A = jnp.array([[1.0, dt], [-(omega**2) * dt, 1.0 - gamma * dt]])
+angular_frequency, damping = 1.0, 0.15
+# F = [[1, Δt], [−ω² Δt, 1 − γ Δt]]
+transition = jnp.array(
+    [
+        [1.0, time_step],
+        [-(angular_frequency**2) * time_step, 1.0 - damping * time_step],
+    ]
+)
 
 # Observation matrix (observe position only)
-H = jnp.array([[1.0, 0.0]])
+# H ∈ ℝ^{D_y×D_x}
+obs_operator = jnp.array([[1.0, 0.0]])
 
-# Process noise covariance
-q_var = 0.3
-Q = q_var * jnp.array([[dt**3 / 3, dt**2 / 2], [dt**2 / 2, dt]])
+# Model noise covariance
+# Σ_η = q_c [[Δt³/3, Δt²/2], [Δt²/2, Δt]]
+noise_spectral_density = 0.3
+model_noise_covariance = noise_spectral_density * jnp.array(
+    [[time_step**3 / 3, time_step**2 / 2], [time_step**2 / 2, time_step]]
+)
 
 # Observation noise covariance
-R = jnp.array([[0.5]])
+# Σ_ε ∈ ℝ^{D_y×D_y}
+obs_noise_covariance = jnp.array([[0.5]])
 
-print("A =\n", A)
-print("H =", H)
-print("Q =\n", Q)
-print("R =", R)
+print("F =\n", transition)
+print("H =", obs_operator)
+print("Σ_η =\n", model_noise_covariance)
+print("Σ_ε =", obs_noise_covariance)
 
 # %% [markdown]
 # ## Generate data
@@ -126,20 +149,27 @@ key = jax.random.PRNGKey(42)
 
 # Simulate states from the model
 def simulate_step(carry, key_t):
-    x = carry
+    state = carry
     k1, k2 = jax.random.split(key_t)
-    q_t = jax.random.multivariate_normal(k1, jnp.zeros(2), Q)
-    x_new = A @ x + q_t
-    r_t = jax.random.multivariate_normal(k2, jnp.zeros(1), R)
-    y_t = H @ x_new + r_t
-    return x_new, (x_new, y_t)
+    # η_t ~ 𝒩(0, Σ_η)
+    model_noise = jax.random.multivariate_normal(
+        k1, jnp.zeros(2), model_noise_covariance
+    )
+    # x_t = F x_{t−1} + η_t
+    new_state = transition @ state + model_noise
+    # ε_t ~ 𝒩(0, Σ_ε)
+    obs_noise = jax.random.multivariate_normal(k2, jnp.zeros(1), obs_noise_covariance)
+    # y_t = H x_t + ε_t
+    obs_t = obs_operator @ new_state + obs_noise
+    return new_state, (new_state, obs_t)
 
 
-x0 = jnp.array([3.0, 0.0])  # displaced from equilibrium, at rest
-keys = jax.random.split(key, T)
-_, (true_states, observations) = jax.lax.scan(simulate_step, x0, keys)
+# x_0
+true_init_state = jnp.array([3.0, 0.0])  # displaced from equilibrium, at rest
+keys = jax.random.split(key, num_steps)
+_, (true_states, observations) = jax.lax.scan(simulate_step, true_init_state, keys)
 
-times = jnp.arange(T) * dt
+times = jnp.arange(num_steps) * time_step
 true_position = true_states[:, 0]
 
 print("true_states shape:", true_states.shape)
@@ -154,10 +184,20 @@ print("observations shape:", observations.shape)
 
 # %%
 # Initial state: zero mean, moderate uncertainty
-init_mean = jnp.zeros(2)
-init_cov = jnp.eye(2) * 4.0
+# μ_x,0 = 0
+prior_mean = jnp.zeros(2)
+# Σ_x,0 = 4 I
+prior_covariance = jnp.eye(2) * 4.0
 
-filter_state = gaussx.kalman_filter(A, H, Q, R, observations, init_mean, init_cov)
+filter_state = gaussx.kalman_filter(
+    transition,
+    obs_operator,
+    model_noise_covariance,
+    obs_noise_covariance,
+    observations,
+    prior_mean,
+    prior_covariance,
+)
 
 print("Filtered means shape:", filter_state.filtered_means.shape)
 print("Filtered covs shape:", filter_state.filtered_covs.shape)
@@ -238,15 +278,17 @@ plt.show()
 #
 # The smoother computes a backward recursion from $t = T-1$ down to $t = 1$:
 #
-# $$G_t = P_{t|t} A^\top P_{t+1|t}^{-1}$$
-# $$\hat{x}_{t|T} = \hat{x}_{t|t} + G_t(\hat{x}_{t+1|T} - A \hat{x}_{t|t})$$
-# $$P_{t|T} = P_{t|t} + G_t(P_{t+1|T} - P_{t+1|t}) G_t^\top$$
+# $$\mathbf{G}_{\text{smooth},t} = \boldsymbol{\Sigma}_{x,t \mid t} \mathbf{F}^\top \boldsymbol{\Sigma}_{x,t+1 \mid t}^{-1}$$
+#
+# $$\boldsymbol{\mu}_{x,t \mid T} = \boldsymbol{\mu}_{x,t \mid t} + \mathbf{G}_{\text{smooth},t} (\boldsymbol{\mu}_{x,t+1 \mid T} - \mathbf{F} \boldsymbol{\mu}_{x,t \mid t})$$
+#
+# $$\boldsymbol{\Sigma}_{x,t \mid T} = \boldsymbol{\Sigma}_{x,t \mid t} + \mathbf{G}_{\text{smooth},t} (\boldsymbol{\Sigma}_{x,t+1 \mid T} - \boldsymbol{\Sigma}_{x,t+1 \mid t}) \mathbf{G}_{\text{smooth},t}^\top$$
 #
 # The smoother refines filter estimates by incorporating future observations.
 # This optimal smoother was derived by Rauch, Tung, & Striebel (1965).
 
 # %%
-smoothed_means, smoothed_covs = gaussx.rts_smoother(filter_state, A)
+smoothed_means, smoothed_covs = gaussx.rts_smoother(filter_state, transition)
 
 print("Smoothed means shape:", smoothed_means.shape)
 print("Smoothed covs shape:", smoothed_covs.shape)
@@ -255,7 +297,7 @@ print("Smoothed covs shape:", smoothed_covs.shape)
 # ## Plot filtered vs smoothed
 #
 # The smoother uncertainty is everywhere less than or equal to the filter
-# uncertainty, because it conditions on all observations $y_{1:T}$.
+# uncertainty, because it conditions on all observations $\mathbf{y}_{1:T}$.
 
 # %%
 smooth_pos_mean = smoothed_means[:, 0]
@@ -348,19 +390,28 @@ plt.show()
 # %%
 def neg_log_likelihood(log_obs_noise_var):
     """Negative log-likelihood as a function of log observation noise variance."""
-    R_param = jnp.exp(log_obs_noise_var) * jnp.eye(1)
-    fs = gaussx.kalman_filter(A, H, Q, R_param, observations, init_mean, init_cov)
-    return -fs.log_likelihood
+    # Σ_ε = exp(log σ_ε²) I
+    obs_noise_covariance_param = jnp.exp(log_obs_noise_var) * jnp.eye(1)
+    filter_state_param = gaussx.kalman_filter(
+        transition,
+        obs_operator,
+        model_noise_covariance,
+        obs_noise_covariance_param,
+        observations,
+        prior_mean,
+        prior_covariance,
+    )
+    return -filter_state_param.log_likelihood
 
 
 # Evaluate at the true value
-log_R_true = jnp.log(R[0, 0])
-nll = neg_log_likelihood(log_R_true)
-grad_nll = jax.grad(neg_log_likelihood)(log_R_true)
+log_obs_noise_true = jnp.log(obs_noise_covariance[0, 0])
+nll = neg_log_likelihood(log_obs_noise_true)
+grad_nll = jax.grad(neg_log_likelihood)(log_obs_noise_true)
 
-print(f"log(R) = {log_R_true:.4f}")
+print(f"log(Σ_ε) = {log_obs_noise_true:.4f}")
 print(f"Negative log-likelihood = {nll:.4f}")
-print(f"Gradient d(-LL)/d(log R) = {grad_nll:.4f}")
+print(f"Gradient d(-LL)/d(log Σ_ε) = {grad_nll:.4f}")
 
 # %% [markdown]
 # ## Summary

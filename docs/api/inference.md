@@ -168,7 +168,7 @@ separate `y` argument; pass the same `projector` and `offset` as to
 
 ## Ensemble covariances, gain & analysis
 
-Bessel-corrected empirical (cross-)covariances from ensemble members, the
+Empirical (cross-)covariances from ensemble members (maximum likelihood by default, `bessel=True` for unbiased), the
 ensemble Kalman gain built from them, and the analysis step that applies it.
 
 The gain functions are the *pieces*; `enkf_analysis` is the *step* -- the

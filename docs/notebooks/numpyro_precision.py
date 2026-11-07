@@ -61,21 +61,20 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## Background
 #
-# In Bayesian linear regression with known noise variance $\sigma^2$:
+# In Bayesian linear regression on $N$ samples with known noise variance $\sigma_\varepsilon^2$, the observations $\mathbf{y} \in \mathbb{R}^N$ are a linear function of the parameters $\boldsymbol{\theta} \in \mathbb{R}^{D_\theta}$ through the design matrix $\boldsymbol{\Phi} \in \mathbb{R}^{N \times D_\theta}$:
 #
-# $$y = X w + \epsilon, \quad \epsilon \sim \mathcal{N}(0, \sigma^2 I)$$
+# $$\mathbf{y} = \boldsymbol{\Phi} \boldsymbol{\theta} + \boldsymbol{\varepsilon}, \quad \boldsymbol{\varepsilon} \sim \mathcal{N}(\mathbf{0}, \sigma_\varepsilon^2 \mathbf{I})$$
 #
-# With a Gaussian prior $w \sim \mathcal{N}(0, \Lambda_0^{-1})$
-# specified via **precision** $\Lambda_0$, the posterior is:
+# With a Gaussian prior $\boldsymbol{\theta} \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Lambda}_\theta^{-1})$
+# specified via **precision** $\boldsymbol{\Lambda}_\theta \in \mathbb{R}^{D_\theta \times D_\theta}$, the posterior is:
 #
-# $$w \mid y \sim \mathcal{N}(\mu_{\text{post}},
-# \Lambda_{\text{post}}^{-1})$$
+# $$\boldsymbol{\theta} \mid \mathbf{y} \sim \mathcal{N}(\boldsymbol{\mu}_{\theta \mid y}, \boldsymbol{\Lambda}_{\theta \mid y}^{-1})$$
 #
 # where:
 #
-# $$\Lambda_{\text{post}} = \Lambda_0 + \tfrac{1}{\sigma^2} X^\top X$$
-# $$\mu_{\text{post}} = \Lambda_{\text{post}}^{-1}
-# \bigl(\tfrac{1}{\sigma^2} X^\top y\bigr)$$
+# $$\boldsymbol{\Lambda}_{\theta \mid y} = \boldsymbol{\Lambda}_\theta + \frac{1}{\sigma_\varepsilon^2} \boldsymbol{\Phi}^\top \boldsymbol{\Phi}$$
+#
+# $$\boldsymbol{\mu}_{\theta \mid y} = \boldsymbol{\Lambda}_{\theta \mid y}^{-1} \left( \frac{1}{\sigma_\varepsilon^2} \boldsymbol{\Phi}^\top \mathbf{y} \right)$$
 #
 # The posterior precision is the **sum** of prior precision and data
 # precision -- this additivity is why precision parameterization is
@@ -94,33 +93,42 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## Generate data
 #
-# We create a polynomial regression problem with known true weights.
+# We create a polynomial regression problem with known true parameters $\boldsymbol{\theta}_\text{true}$. The design matrix has rows $\boldsymbol{\phi}(x_n) = (1, x_n, x_n^2, \ldots, x_n^{D_\theta - 1})$ for the scalar inputs $x_n$, $n = 1, \ldots, N$.
 
 # %%
 key = jax.random.PRNGKey(0)
-n = 50
+# N = 50
+num_train = 50
+# σ_ε
 noise_std = 0.5
 degree = 5
 
-# True weights
-w_true = jnp.array([0.5, -1.2, 0.3, 0.8, -0.4, 0.1])
+# True parameters
+# θ_true ∈ ℝ^{D_θ}
+params_true = jnp.array([0.5, -1.2, 0.3, 0.8, -0.4, 0.1])
 
 # Design matrix: polynomial features [1, x, x^2, ..., x^degree]
+# Φ ∈ ℝ^{N×D_θ}
 key, subkey = jax.random.split(key)
-x_train = jnp.sort(jax.random.uniform(subkey, (n,), minval=-2, maxval=2))
-X_train = jnp.column_stack([x_train**p for p in range(degree + 1)])
+train_inputs = jnp.sort(jax.random.uniform(subkey, (num_train,), minval=-2, maxval=2))
+train_features = jnp.column_stack([train_inputs**p for p in range(degree + 1)])
 
 # Observations
+# y = Φ θ_true + ε
 key, subkey = jax.random.split(key)
-y_train = X_train @ w_true + noise_std * jax.random.normal(subkey, (n,))
+train_obs = train_features @ params_true + noise_std * jax.random.normal(
+    subkey, (num_train,)
+)
 
 # Test grid
-x_test = jnp.linspace(-2.5, 2.5, 200)
-X_test = jnp.column_stack([x_test**p for p in range(degree + 1)])
+# Φ_* ∈ ℝ^{M×D_θ}
+test_inputs = jnp.linspace(-2.5, 2.5, 200)
+test_features = jnp.column_stack([test_inputs**p for p in range(degree + 1)])
 
-d = degree + 1
-print(f"Design matrix shape: {X_train.shape}")
-print(f"True weights: {w_true}")
+# D_θ = degree + 1
+num_params = degree + 1
+print(f"Design matrix shape: {train_features.shape}")
+print(f"True weights: {params_true}")
 
 # %% [markdown]
 # ## Analytic posterior (conjugate)
@@ -130,44 +138,54 @@ print(f"True weights: {w_true}")
 
 # %%
 # Prior: isotropic precision (ridge regularization)
-alpha = 1.0  # prior precision scalar
-Lambda_0 = alpha * jnp.eye(d)
+# Λ_θ = α I
+prior_precision_scale = 1.0  # prior precision scalar
+prior_precision = prior_precision_scale * jnp.eye(num_params)
 
 # Data precision contribution
-Lambda_data = (1 / noise_std**2) * X_train.T @ X_train
+# Λ_data = σ_ε⁻² Φᵀ Φ
+data_precision = (1 / noise_std**2) * train_features.T @ train_features
 
 # Posterior precision and mean
-Lambda_post = Lambda_0 + Lambda_data
-mu_post = jnp.linalg.solve(Lambda_post, (1 / noise_std**2) * X_train.T @ y_train)
-Sigma_post = jnp.linalg.inv(Lambda_post)
+# Λ_θ|y = Λ_θ + Λ_data
+post_precision = prior_precision + data_precision
+# μ_θ|y = Λ_θ|y⁻¹ σ_ε⁻² Φᵀ y
+post_mean = jnp.linalg.solve(
+    post_precision, (1 / noise_std**2) * train_features.T @ train_obs
+)
+# Σ_θ|y = Λ_θ|y⁻¹
+post_covariance = jnp.linalg.inv(post_precision)
 
-print("Posterior precision (diagonal):", jnp.diag(Lambda_post))
-print("Posterior mean:", mu_post)
-print("True weights:  ", w_true)
+print("Posterior precision (diagonal):", jnp.diag(post_precision))
+print("Posterior mean:", post_mean)
+print("True weights:  ", params_true)
 
 # %% [markdown]
 # ## NumPyro model with precision prior
 #
 # We define the model using `gaussx.MultivariateNormalPrecision` for
-# the prior on weights. This directly encodes the ridge
+# the prior on the parameters. This directly encodes the ridge
 # regularization as a precision matrix.
 
 
 # %%
-def blr_model(X, noise_std, y=None):
-    d = X.shape[1]
+def blr_model(features, noise_std, obs=None):
+    num_params = features.shape[1]
 
-    # Prior: w ~ N(0, Lambda_0^{-1}) with Lambda_0 = alpha * I
-    Lambda_0 = alpha * jnp.eye(d)
-    Lambda_0_op = lx.MatrixLinearOperator(Lambda_0, lx.positive_semidefinite_tag)
-    w = numpyro.sample(
-        "w", gaussx.MultivariateNormalPrecision(jnp.zeros(d), Lambda_0_op)
+    # Prior: θ ~ 𝒩(0, Λ_θ⁻¹) with Λ_θ = α I
+    prior_precision = prior_precision_scale * jnp.eye(num_params)
+    prior_precision_op = lx.MatrixLinearOperator(
+        prior_precision, lx.positive_semidefinite_tag
+    )
+    params = numpyro.sample(
+        "w",
+        gaussx.MultivariateNormalPrecision(jnp.zeros(num_params), prior_precision_op),
     )
 
-    # Likelihood: y | w ~ N(Xw, sigma^2 I)
-    mu = X @ w
-    with numpyro.plate("data", X.shape[0]):
-        numpyro.sample("obs", dist.Normal(mu, noise_std), obs=y)
+    # Likelihood: y | θ ~ 𝒩(Φ θ, σ_ε² I)
+    mean = features @ params
+    with numpyro.plate("data", features.shape[0]):
+        numpyro.sample("obs", dist.Normal(mean, noise_std), obs=obs)
 
 
 # %% [markdown]
@@ -180,26 +198,26 @@ def blr_model(X, noise_std, y=None):
 # %%
 kernel = NUTS(blr_model)
 mcmc = MCMC(kernel, num_warmup=500, num_samples=1000, progress_bar=False)
-mcmc.run(jax.random.PRNGKey(1), X_train, noise_std, y=y_train)
+mcmc.run(jax.random.PRNGKey(1), train_features, noise_std, obs=train_obs)
 mcmc.print_summary()
 
 # %%
-w_samples = mcmc.get_samples()["w"]
-print("MCMC weight samples shape:", w_samples.shape)
+param_samples = mcmc.get_samples()["w"]
+print("MCMC weight samples shape:", param_samples.shape)
 
 # %% [markdown]
 # ## Compare MCMC vs analytic posterior
 #
 # The MCMC samples should match the analytic conjugate posterior.
-# We compare marginal distributions for each weight.
+# We compare marginal distributions for each parameter $\theta_d$, $d = 0, \ldots, D_\theta - 1$.
 
 # %%
 fig, axes = plt.subplots(2, 3, figsize=(14, 7))
 
-for i, ax in enumerate(axes.flat):
+for d, ax in enumerate(axes.flat):
     # MCMC histogram
     ax.hist(
-        w_samples[:, i],
+        param_samples[:, d],
         bins=35,
         density=True,
         alpha=0.6,
@@ -208,19 +226,21 @@ for i, ax in enumerate(axes.flat):
     )
 
     # Analytic posterior
-    w_grid = jnp.linspace(
-        mu_post[i] - 4 * jnp.sqrt(Sigma_post[i, i]),
-        mu_post[i] + 4 * jnp.sqrt(Sigma_post[i, i]),
+    param_grid = jnp.linspace(
+        post_mean[d] - 4 * jnp.sqrt(post_covariance[d, d]),
+        post_mean[d] + 4 * jnp.sqrt(post_covariance[d, d]),
         200,
     )
-    pdf = jnp.exp(dist.Normal(mu_post[i], jnp.sqrt(Sigma_post[i, i])).log_prob(w_grid))
-    ax.plot(w_grid, pdf, "C3-", lw=2, label="Analytic")
+    pdf = jnp.exp(
+        dist.Normal(post_mean[d], jnp.sqrt(post_covariance[d, d])).log_prob(param_grid)
+    )
+    ax.plot(param_grid, pdf, "C3-", lw=2, label="Analytic")
 
     # True value
-    ax.axvline(w_true[i], color="k", ls="--", lw=1.5, label="True")
+    ax.axvline(params_true[d], color="k", ls="--", lw=1.5, label="True")
 
-    ax.set_title(f"$w_{i}$")
-    if i == 0:
+    ax.set_title(f"$\\theta_{d}$")
+    if d == 0:
         ax.legend(fontsize=9)
     ax.grid(True, which="major", alpha=0.3)
     ax.grid(True, which="minor", alpha=0.1)
@@ -233,20 +253,25 @@ plt.show()
 # %% [markdown]
 # ## Posterior predictive
 #
-# We compute the predictive distribution by pushing MCMC weight
+# We compute the predictive distribution by pushing MCMC parameter
 # samples through the model.
 
 # %%
 # Predictive mean for each sample
-y_pred = w_samples @ X_test.T  # (n_samples, n_test)
+# y_*⁽ᵉ⁾ = Φ_* θ⁽ᵉ⁾
+pred_samples = param_samples @ test_features.T  # (n_samples, n_test)
 
-pred_mean = jnp.mean(y_pred, axis=0)
-# Total predictive std: epistemic (weight uncertainty) + aleatoric (noise)
-pred_std = jnp.sqrt(jnp.var(y_pred, axis=0) + noise_std**2)
+pred_mean = jnp.mean(pred_samples, axis=0)
+# Total predictive std: epistemic (parameter uncertainty) + aleatoric (noise)
+pred_std = jnp.sqrt(jnp.var(pred_samples, axis=0) + noise_std**2)
 
 # Also compute analytic predictive
-analytic_mean = X_test @ mu_post
-analytic_var = jnp.sum(X_test @ Sigma_post * X_test, axis=1) + noise_std**2
+# μ_y* = Φ_* μ_θ|y
+analytic_mean = test_features @ post_mean
+# σ_y*² = diag(Φ_* Σ_θ|y Φ_*ᵀ) + σ_ε²
+analytic_var = (
+    jnp.sum(test_features @ post_covariance * test_features, axis=1) + noise_std**2
+)
 analytic_std = jnp.sqrt(analytic_var)
 
 print(f"MCMC pred mean shape: {pred_mean.shape}")
@@ -262,13 +287,14 @@ print(f"Analytic pred mean shape: {analytic_mean.shape}")
 fig, ax = plt.subplots(figsize=(12, 5))
 
 # True function
-y_true_test = X_test @ w_true
-ax.plot(x_test, y_true_test, "k--", lw=1.5, label="True function", zorder=4)
+# f_true = Φ_* θ_true
+true_test = test_features @ params_true
+ax.plot(test_inputs, true_test, "k--", lw=1.5, label="True function", zorder=4)
 
 # MCMC predictive
-ax.plot(x_test, pred_mean, "C0-", lw=2, label="MCMC mean", zorder=3)
+ax.plot(test_inputs, pred_mean, "C0-", lw=2, label="MCMC mean", zorder=3)
 ax.fill_between(
-    x_test,
+    test_inputs,
     pred_mean - 2 * pred_std,
     pred_mean + 2 * pred_std,
     color="C0",
@@ -277,9 +303,9 @@ ax.fill_between(
 )
 
 # Analytic predictive
-ax.plot(x_test, analytic_mean, "C3--", lw=1.5, label="Analytic mean", zorder=3)
+ax.plot(test_inputs, analytic_mean, "C3--", lw=1.5, label="Analytic mean", zorder=3)
 ax.fill_between(
-    x_test,
+    test_inputs,
     analytic_mean - 2 * analytic_std,
     analytic_mean + 2 * analytic_std,
     color="C3",
@@ -289,8 +315,8 @@ ax.fill_between(
 
 # Training data
 ax.scatter(
-    x_train,
-    y_train,
+    train_inputs,
+    train_obs,
     s=30,
     c="C1",
     edgecolors="k",
@@ -299,8 +325,8 @@ ax.scatter(
     zorder=5,
 )
 
-ax.set_xlabel("x")
-ax.set_ylabel("y")
+ax.set_xlabel("$x$")
+ax.set_ylabel("$y$")
 ax.set_title("Bayesian Linear Regression: MCMC vs Analytic Posterior")
 ax.legend(loc="upper left", fontsize=9, ncol=2)
 ax.set_ylim(-5, 5)
@@ -319,30 +345,38 @@ plt.show()
 #
 # Each observation adds information (in the Fisher sense) to the
 # posterior. The posterior precision
-# $\Lambda_{\text{post}} = \Lambda_0 + \Lambda_{\text{data}}$ directly
+# $\boldsymbol{\Lambda}_{\theta \mid y} = \boldsymbol{\Lambda}_\theta + \boldsymbol{\Lambda}_\text{data}$ directly
 # reflects this: the total information is the sum of prior information
 # and data information. This additivity is the defining property of the
 # natural parameters of the exponential family.
 
 # %%
 # Build operators
-Lambda_0_op = lx.MatrixLinearOperator(Lambda_0, lx.positive_semidefinite_tag)
-Lambda_data_op = lx.MatrixLinearOperator(Lambda_data, lx.positive_semidefinite_tag)
-Lambda_post_op = lx.MatrixLinearOperator(Lambda_post, lx.positive_semidefinite_tag)
+prior_precision_op = lx.MatrixLinearOperator(
+    prior_precision, lx.positive_semidefinite_tag
+)
+data_precision_op = lx.MatrixLinearOperator(
+    data_precision, lx.positive_semidefinite_tag
+)
+post_precision_op = lx.MatrixLinearOperator(
+    post_precision, lx.positive_semidefinite_tag
+)
 
 # Prior
-d_prior = gaussx.MultivariateNormalPrecision(jnp.zeros(d), Lambda_0_op)
-print("Prior entropy:", d_prior.entropy())
+prior_dist = gaussx.MultivariateNormalPrecision(
+    jnp.zeros(num_params), prior_precision_op
+)
+print("Prior entropy:", prior_dist.entropy())
 
 # Posterior
-d_post = gaussx.MultivariateNormalPrecision(mu_post, Lambda_post_op)
-print("Posterior entropy:", d_post.entropy())
+post_dist = gaussx.MultivariateNormalPrecision(post_mean, post_precision_op)
+print("Posterior entropy:", post_dist.entropy())
 
 # Entropy should decrease (more information)
-print("Entropy decreased:", float(d_prior.entropy()) > float(d_post.entropy()))
+print("Entropy decreased:", float(prior_dist.entropy()) > float(post_dist.entropy()))
 
 # Verify log-prob at posterior mean
-print("log p(mu_post | posterior):", d_post.log_prob(mu_post))
+print("log p(mu_post | posterior):", post_dist.log_prob(post_mean))
 
 # %% [markdown]
 # ## Summary
@@ -353,8 +387,7 @@ print("log p(mu_post | posterior):", d_post.log_prob(mu_post))
 #   through the precision-parameterized log-prob.
 # - For linear-Gaussian models, the MCMC posterior matches the
 #   analytic conjugate solution, validating the implementation.
-# - **Precision additivity** ($\Lambda_{\text{post}} =
-#   \Lambda_0 + \Lambda_{\text{data}}$) makes sequential updates
+# - **Precision additivity** ($\boldsymbol{\Lambda}_{\theta \mid y} = \boldsymbol{\Lambda}_\theta + \boldsymbol{\Lambda}_\text{data}$) makes sequential updates
 #   trivial — just add precision operators.
 # - The same pattern extends to structured precisions (banded,
 #   Kronecker, block-diagonal) for scalable models like GMRFs.
