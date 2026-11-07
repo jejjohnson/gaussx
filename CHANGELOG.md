@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.12](https://github.com/jejjohnson/gaussx/compare/v0.6.11...v0.6.12) (2026-11-07)
+
+
+### Bug Fixes
+
+* **inference:** return the particles from eki_step at a step that is not positive ([#800](https://github.com/jejjohnson/gaussx/issues/800)) ([917f4d0](https://github.com/jejjohnson/gaussx/commit/917f4d042d993e33e7d42c41a763141bf7b172ae))
+
 ## [0.6.11](https://github.com/jejjohnson/gaussx/compare/v0.6.10...v0.6.11) (2026-11-06)
 
 
