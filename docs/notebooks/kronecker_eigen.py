@@ -15,25 +15,21 @@
 # %% [markdown]
 # # Kronecker Eigendecomposition
 #
-# For a Kronecker product $A \otimes B$, all eigenvalues and
-# eigenvectors decompose per-factor:
+# For a Kronecker product $\mathbf{A} \otimes \mathbf{B}$, all eigenvalues and eigenvectors decompose per-factor:
 #
-# $$\lambda_{ij} = \lambda_i^A \cdot \lambda_j^B, \qquad
-#   v_{ij} = v_i^A \otimes v_j^B$$
+# $$\gamma_{ij} = \gamma^A_i \gamma^B_j$$
 #
-# This means we can compute the full spectrum of an $N \times N$
-# matrix ($N = n_1 n_2$) by only decomposing two small matrices.
+# $$\mathbf{v}_{ij} = \mathbf{v}^A_i \otimes \mathbf{v}^B_j$$
+#
+# This means we can compute the full spectrum of an $N \times N$ matrix ($N = N_1 N_2$) by only decomposing two small matrices, where $\mathbf{A} \in \mathbb{R}^{N_1 \times N_1}$, $\mathbf{B} \in \mathbb{R}^{N_2 \times N_2}$, and $i = 1, \ldots, N_1$ and $j = 1, \ldots, N_2$ index the factor eigenpairs.
 # gaussx exploits this for `cholesky`, `sqrt`, `logdet`, and `inv`.
 
 # %% [markdown]
 # ## Context
 #
-# The Kronecker eigendecomposition is a special case of the tensor
-# product spectral theorem. If $A = U_A \Lambda_A U_A^\top$ and
-# $B = U_B \Lambda_B U_B^\top$, then
+# The Kronecker eigendecomposition is a special case of the tensor product spectral theorem. If $\mathbf{A} = \mathbf{Q}_A \mathrm{diag}(\boldsymbol{\gamma}_A) \mathbf{Q}_A^\top$ and $\mathbf{B} = \mathbf{Q}_B \mathrm{diag}(\boldsymbol{\gamma}_B) \mathbf{Q}_B^\top$, then
 #
-# $$A \otimes B
-#   = (U_A \otimes U_B)\,(\Lambda_A \otimes \Lambda_B)\,(U_A \otimes U_B)^\top.$$
+# $$\mathbf{A} \otimes \mathbf{B} = (\mathbf{Q}_A \otimes \mathbf{Q}_B) (\mathrm{diag}(\boldsymbol{\gamma}_A) \otimes \mathrm{diag}(\boldsymbol{\gamma}_B)) (\mathbf{Q}_A \otimes \mathbf{Q}_B)^\top$$
 #
 # This result is foundational for:
 #
@@ -67,63 +63,66 @@ jax.config.update("jax_enable_x64", True)
 
 # %%
 key = jax.random.PRNGKey(42)
-k1, k2 = jax.random.split(key)
+key_a, key_b = jax.random.split(key)
 
-n1, n2 = 8, 10
-N = n1 * n2
+size_a, size_b = 8, 10
+size = size_a * size_b
 
 # Random PSD matrices
-M1 = jax.random.normal(k1, (n1, n1))
-A = M1 @ M1.T + 0.1 * jnp.eye(n1)
+random_a = jax.random.normal(key_a, (size_a, size_a))
+factor_a = random_a @ random_a.T + 0.1 * jnp.eye(size_a)
 
-M2 = jax.random.normal(k2, (n2, n2))
-B = M2 @ M2.T + 0.1 * jnp.eye(n2)
+random_b = jax.random.normal(key_b, (size_b, size_b))
+factor_b = random_b @ random_b.T + 0.1 * jnp.eye(size_b)
 
-A_op = lx.MatrixLinearOperator(A, lx.positive_semidefinite_tag)
-B_op = lx.MatrixLinearOperator(B, lx.positive_semidefinite_tag)
-K = gaussx.Kronecker(A_op, B_op)
+factor_a_op = lx.MatrixLinearOperator(factor_a, lx.positive_semidefinite_tag)
+factor_b_op = lx.MatrixLinearOperator(factor_b, lx.positive_semidefinite_tag)
+kronecker_op = gaussx.Kronecker(factor_a_op, factor_b_op)
 
-print(f"A: {n1}x{n1}, B: {n2}x{n2}")
-print(f"A kron B: {N}x{N} = {N**2:,} entries")
+print(f"A: {size_a}x{size_a}, B: {size_b}x{size_b}")
+print(f"A kron B: {size}x{size} = {size**2:,} entries")
 
 # %% [markdown]
 # ## Per-factor eigenvalues
 
 # %%
-eigs_A = jnp.linalg.eigvalsh(A)
-eigs_B = jnp.linalg.eigvalsh(B)
+eigenvalues_a = jnp.linalg.eigvalsh(factor_a)
+eigenvalues_b = jnp.linalg.eigvalsh(factor_b)
 
-# Kronecker eigenvalues = outer product of per-factor eigenvalues
-eigs_kron = jnp.sort(jnp.outer(eigs_A, eigs_B).ravel())
+# γ_ij = γ^A_i γ^B_j, the outer product of the per-factor eigenvalues
+eigenvalues_kron = jnp.sort(jnp.outer(eigenvalues_a, eigenvalues_b).ravel())
 
 # Dense eigenvalues (for verification)
-eigs_dense = jnp.linalg.eigvalsh(K.as_matrix())
+eigenvalues_dense = jnp.linalg.eigvalsh(kronecker_op.as_matrix())
 
-print(f"Per-factor eigenvalues: {n1} + {n2} = {n1 + n2} eigh calls")
-print(f"Dense eigenvalues: one {N}x{N} eigh call")
-print(f"Max eigenvalue error: {jnp.max(jnp.abs(eigs_kron - eigs_dense)):.2e}")
+print(f"Per-factor eigenvalues: {size_a} + {size_b} = {size_a + size_b} eigh calls")
+print(f"Dense eigenvalues: one {size}x{size} eigh call")
+eigenvalue_error = jnp.max(jnp.abs(eigenvalues_kron - eigenvalues_dense))
+print(f"Max eigenvalue error: {eigenvalue_error:.2e}")
 
 # %%
 fig, axes = plt.subplots(1, 3, figsize=(14, 3.5))
 
-axes[0].stem(range(n1), eigs_A, linefmt="C0-", markerfmt="C0o", basefmt="k-")
-axes[0].set_title(f"Eigenvalues of A ({n1}x{n1})")
+axes[0].stem(range(size_a), eigenvalues_a, linefmt="C0-", markerfmt="C0o", basefmt="k-")
+axes[0].set_title(f"Eigenvalues of $\\mathbf{{A}}$ ({size_a}x{size_a})")
 axes[0].set_xlabel("Index")
-axes[0].set_ylabel("$\\lambda$")
+axes[0].set_ylabel("$\\gamma$")
 axes[0].grid(True, which="major", alpha=0.3)
 axes[0].grid(True, which="minor", alpha=0.1)
 axes[0].minorticks_on()
 
-axes[1].stem(range(n2), eigs_B, linefmt="C1-", markerfmt="C1o", basefmt="k-")
-axes[1].set_title(f"Eigenvalues of B ({n2}x{n2})")
+axes[1].stem(range(size_b), eigenvalues_b, linefmt="C1-", markerfmt="C1o", basefmt="k-")
+axes[1].set_title(f"Eigenvalues of $\\mathbf{{B}}$ ({size_b}x{size_b})")
 axes[1].set_xlabel("Index")
 axes[1].grid(True, which="major", alpha=0.3)
 axes[1].grid(True, which="minor", alpha=0.1)
 axes[1].minorticks_on()
 
-axes[2].semilogy(eigs_kron, "C2-", lw=2, label="Kronecker (per-factor)")
-axes[2].semilogy(eigs_dense, "k--", lw=1.5, label="Dense (verification)")
-axes[2].set_title(f"Eigenvalues of A$\\otimes$B ({N}x{N})")
+axes[2].semilogy(eigenvalues_kron, "C2-", lw=2, label="Kronecker (per-factor)")
+axes[2].semilogy(eigenvalues_dense, "k--", lw=1.5, label="Dense (verification)")
+axes[2].set_title(
+    f"Eigenvalues of $\\mathbf{{A}} \\otimes \\mathbf{{B}}$ ({size}x{size})"
+)
 axes[2].set_xlabel("Index")
 axes[2].legend(fontsize=9)
 axes[2].grid(True, which="major", alpha=0.3)
@@ -136,61 +135,64 @@ plt.show()
 # %% [markdown]
 # ## Structured Cholesky
 #
-# `cholesky(A kron B) = cholesky(A) kron cholesky(B)`
+# $\mathrm{chol}(\mathbf{A} \otimes \mathbf{B}) = \mathrm{chol}(\mathbf{A}) \otimes \mathrm{chol}(\mathbf{B})$
 
 # %%
-L = gaussx.cholesky(K)
-print(f"cholesky type: {type(L).__name__}")
+cholesky_factor = gaussx.cholesky(kronecker_op)
+print(f"cholesky type: {type(cholesky_factor).__name__}")
 
 # Reconstruction error
-recon = L.as_matrix() @ L.as_matrix().T
-print(f"||L L^T - K||_max: {jnp.max(jnp.abs(recon - K.as_matrix())):.2e}")
+# L Lᵀ ≈ A ⊗ B
+cholesky_matrix = cholesky_factor.as_matrix()
+reconstruction = cholesky_matrix @ cholesky_factor.as_matrix().T
+reconstruction_error = jnp.max(jnp.abs(reconstruction - kronecker_op.as_matrix()))
+print(f"||L L^T - K||_max: {reconstruction_error:.2e}")
 
 # %% [markdown]
 # ## Structured sqrt
 #
-# `sqrt(A kron B) = sqrt(A) kron sqrt(B)`
+# $(\mathbf{A} \otimes \mathbf{B})^{1/2} = \mathbf{A}^{1/2} \otimes \mathbf{B}^{1/2}$
 
 # %%
-S = gaussx.sqrt(K)
-print(f"sqrt type: {type(S).__name__}")
+sqrt_op = gaussx.sqrt(kronecker_op)
+print(f"sqrt type: {type(sqrt_op).__name__}")
 
-# Verify S @ S = K
-recon_sqrt = S.as_matrix() @ S.as_matrix()
-print(f"||S S - K||_max: {jnp.max(jnp.abs(recon_sqrt - K.as_matrix())):.2e}")
+# Verify S S = A ⊗ B
+sqrt_matrix = sqrt_op.as_matrix()
+reconstruction_sqrt = sqrt_matrix @ sqrt_op.as_matrix()
+sqrt_error = jnp.max(jnp.abs(reconstruction_sqrt - kronecker_op.as_matrix()))
+print(f"||S S - K||_max: {sqrt_error:.2e}")
 
 # %% [markdown]
 # ## Structured logdet
 #
-# $\log|A \otimes B| = n_2 \log|A| + n_1 \log|B|$
+# $\log \det (\mathbf{A} \otimes \mathbf{B}) = N_2 \log \det \mathbf{A} + N_1 \log \det \mathbf{B}$
 #
-# **Derivation.** Using the Kronecker eigenvalues
-# $\lambda_{ij} = \lambda_i^A \lambda_j^B$:
+# **Derivation.** Using the Kronecker eigenvalues $\gamma_{ij} = \gamma^A_i \gamma^B_j$:
 #
-# $$\log|A \otimes B|
-#   = \sum_{i,j} \log(\lambda_i^A \, \lambda_j^B)
-#   = \sum_{i,j} \bigl(\log \lambda_i^A + \log \lambda_j^B\bigr)
-#   = n_2 \sum_i \log \lambda_i^A + n_1 \sum_j \log \lambda_j^B
-#   = n_2 \log|A| + n_1 \log|B|.$$
+# $$\log \det (\mathbf{A} \otimes \mathbf{B}) = \sum_{i,j} \log (\gamma^A_i \gamma^B_j) = \sum_{i,j} (\log \gamma^A_i + \log \gamma^B_j)$$
+#
+# $$\sum_{i,j} (\log \gamma^A_i + \log \gamma^B_j) = N_2 \sum_i \log \gamma^A_i + N_1 \sum_j \log \gamma^B_j = N_2 \log \det \mathbf{A} + N_1 \log \det \mathbf{B}$$
 
 # %%
-ld_structured = gaussx.logdet(K)
-ld_dense = jnp.linalg.slogdet(K.as_matrix())[1]
-ld_from_eigs = jnp.sum(jnp.log(eigs_kron))
+logdet_structured = gaussx.logdet(kronecker_op)
+logdet_dense = jnp.linalg.slogdet(kronecker_op.as_matrix())[1]
+# log det (A ⊗ B) = ∑ᵢⱼ log γ_ij
+logdet_from_eigs = jnp.sum(jnp.log(eigenvalues_kron))
 
-print(f"Structured logdet:  {ld_structured:.6f}")
-print(f"Dense logdet:       {ld_dense:.6f}")
-print(f"From eigenvalues:   {ld_from_eigs:.6f}")
+print(f"Structured logdet:  {logdet_structured:.6f}")
+print(f"Dense logdet:       {logdet_dense:.6f}")
+print(f"From eigenvalues:   {logdet_from_eigs:.6f}")
 
 # %% [markdown]
 # ## Summary
 #
 # | Operation | Dense cost | Kronecker cost | Speedup |
 # |-----------|-----------|---------------|---------|
-# | Eigenvalues | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
-# | Cholesky | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
-# | Logdet | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
-# | Solve | O(N^3) | O(n1^3 + n2^3) | ~N/n_max |
+# | Eigenvalues | $O(N^3)$ | $O(N_1^3 + N_2^3)$ | $\approx N / \max(N_1, N_2)$ |
+# | Cholesky | $O(N^3)$ | $O(N_1^3 + N_2^3)$ | $\approx N / \max(N_1, N_2)$ |
+# | Logdet | $O(N^3)$ | $O(N_1^3 + N_2^3)$ | $\approx N / \max(N_1, N_2)$ |
+# | Solve | $O(N^3)$ | $O(N_1^3 + N_2^3)$ | $\approx N / \max(N_1, N_2)$ |
 
 # %% [markdown]
 # ## References

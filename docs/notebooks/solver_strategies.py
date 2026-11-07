@@ -47,24 +47,17 @@
 # might use `DenseSolver`; at scale you switch to `CGSolver` or
 # `BBMMSolver` with a single-line change.
 #
-# **Conjugate Gradients (CG):** For a PSD system $Ax = b$, CG minimizes
-# $\|x - x_*\|_A$ over Krylov subspaces $\mathcal{K}_k(A, b)$. After
-# $k$ iterations, the error satisfies
+# **Conjugate Gradients (CG):** For a PSD system $\mathbf{A} \mathbf{x} = \mathbf{b}$, CG minimizes $\Vert \mathbf{x} - \mathbf{x}^\star \Vert_{\mathbf{A}}$ over Krylov subspaces $\mathcal{K}_j(\mathbf{A}, \mathbf{b})$, where $j$ counts CG iterations. After $j$ iterations, the error satisfies
 #
-# $$\|x_k - x_*\|_A \leq 2
-# \left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}
-# \right)^k \|x_0 - x_*\|_A$$
+# $$\Vert \mathbf{x}^{(j)} - \mathbf{x}^\star \Vert_{\mathbf{A}} \le 2 \left(\frac{\sqrt{\kappa} - 1}{\sqrt{\kappa} + 1}\right)^j \Vert \mathbf{x}^{(0)} - \mathbf{x}^\star \Vert_{\mathbf{A}}$$
 #
-# where $\kappa = \lambda_{\max}/\lambda_{\min}$ is the condition number
-# (Hestenes & Stiefel, 1952).
+# where $\kappa = \gamma_{\max} / \gamma_{\min}$ is the condition number (Hestenes & Stiefel, 1952).
 #
-# **Stochastic Lanczos Quadrature (SLQ):** Approximates
-# $\log|A| = \operatorname{tr}(\log A)$ using Hutchinson's trace
-# estimator:
+# **Stochastic Lanczos Quadrature (SLQ):** Approximates $\log \det \mathbf{A} = \mathrm{tr}(\log \mathbf{A})$ using Hutchinson's trace estimator:
 #
-# $$\log|A| \approx \frac{1}{S}\sum_{s=1}^S z_s^\top \log(A)\, z_s$$
+# $$\log \det \mathbf{A} \approx \frac{1}{S} \sum_{s=1}^S \mathbf{z}_s^\top \log(\mathbf{A}) \mathbf{z}_s$$
 #
-# where each $z_s^\top \log(A)\, z_s$ is evaluated via the Lanczos
+# where each $\mathbf{z}_s^\top \log(\mathbf{A}) \mathbf{z}_s$ is evaluated via the Lanczos
 # decomposition (Ubaru et al., 2017).
 
 # %% [markdown]
@@ -91,20 +84,21 @@ jax.config.update("jax_enable_x64", True)
 # %%
 # Create a 100x100 PSD kernel matrix (RBF + noise)
 key = jax.random.PRNGKey(0)
-n = 100
+size = 100
 
-x_pts = jnp.linspace(0, 5, n)
-sq_dist = (x_pts[:, None] - x_pts[None, :]) ** 2
-K = jnp.exp(-0.5 * sq_dist / 1.0**2) + 0.1 * jnp.eye(n)
+# A = K_XX + 0.1 I, with k(x, x′) = exp(−½ ‖x − x′‖² / ℓ²) and ℓ = 1
+inputs = jnp.linspace(0, 5, size)
+sq_dist = (inputs[:, None] - inputs[None, :]) ** 2
+matrix = jnp.exp(-0.5 * sq_dist / 1.0**2) + 0.1 * jnp.eye(size)
 
-op = lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)
-b = jax.random.normal(key, (n,))
+operator = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+rhs = jax.random.normal(key, (size,))
 
 # True logdet for reference
-ld_true = jnp.linalg.slogdet(K)[1]
+logdet_true = jnp.linalg.slogdet(matrix)[1]
 
-print(f"Problem size: {n}x{n}")
-print(f"True logdet:  {ld_true:.6f}")
+print(f"Problem size: {size}x{size}")
+print(f"True logdet:  {logdet_true:.6f}")
 
 # %% [markdown]
 # ## DenseSolver
@@ -117,14 +111,15 @@ print(f"True logdet:  {ld_true:.6f}")
 # %%
 dense = gaussx.DenseSolver()
 
-x_dense = dense.solve(op, b)
-ld_dense = dense.logdet(op)
+solution_dense = dense.solve(operator, rhs)
+logdet_dense = dense.logdet(operator)
 
-residual_dense = jnp.max(jnp.abs(op.mv(x_dense) - b))
+# max |A x − b|
+residual_dense = jnp.max(jnp.abs(operator.mv(solution_dense) - rhs))
 print("DenseSolver:")
 print(f"  solve residual: {residual_dense:.2e}")
-print(f"  logdet:         {ld_dense:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_dense - ld_true):.2e}")
+print(f"  logdet:         {logdet_dense:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_dense - logdet_true):.2e}")
 
 # %% [markdown]
 # ## CGSolver
@@ -136,14 +131,15 @@ print(f"  logdet error:   {jnp.abs(ld_dense - ld_true):.2e}")
 # %%
 cg = gaussx.CGSolver(rtol=1e-8, atol=1e-8, max_steps=500, num_probes=50)
 
-x_cg = cg.solve(op, b)
-ld_cg = cg.logdet(op, key=jax.random.PRNGKey(42))
+solution_cg = cg.solve(operator, rhs)
+logdet_cg = cg.logdet(operator, key=jax.random.PRNGKey(42))
 
-residual_cg = jnp.max(jnp.abs(op.mv(x_cg) - b))
+# max |A x − b|
+residual_cg = jnp.max(jnp.abs(operator.mv(solution_cg) - rhs))
 print("CGSolver:")
 print(f"  solve residual: {residual_cg:.2e}")
-print(f"  logdet:         {ld_cg:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_cg - ld_true):.2e}")
+print(f"  logdet:         {logdet_cg:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_cg - logdet_true):.2e}")
 
 # %% [markdown]
 # ## AutoSolver
@@ -156,15 +152,16 @@ print(f"  logdet error:   {jnp.abs(ld_cg - ld_true):.2e}")
 # %%
 auto = gaussx.AutoSolver(size_threshold=1000)
 
-x_auto = auto.solve(op, b)
-ld_auto = auto.logdet(op)
+solution_auto = auto.solve(operator, rhs)
+logdet_auto = auto.logdet(operator)
 
-residual_auto = jnp.max(jnp.abs(op.mv(x_auto) - b))
+# max |A x − b|
+residual_auto = jnp.max(jnp.abs(operator.mv(solution_auto) - rhs))
 print("AutoSolver (size_threshold=1000):")
 print(f"  solve residual: {residual_auto:.2e}")
-print(f"  logdet:         {ld_auto:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_auto - ld_true):.2e}")
-print(f"  (n={n} < 1000, so AutoSolver selects DenseSolver internally)")
+print(f"  logdet:         {logdet_auto:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_auto - logdet_true):.2e}")
+print(f"  (N={size} < 1000, so AutoSolver selects DenseSolver internally)")
 
 # %% [markdown]
 # ## BBMMSolver
@@ -190,37 +187,32 @@ bbmm = gaussx.BBMMSolver(
     max_steps=500, rtol=1e-6, atol=1e-6, lanczos_order=50, num_probes=20
 )
 
-x_bbmm = bbmm.solve(op, b)
-ld_bbmm = bbmm.logdet(op)
+solution_bbmm = bbmm.solve(operator, rhs)
+logdet_bbmm = bbmm.logdet(operator)
 
-residual_bbmm = jnp.max(jnp.abs(op.mv(x_bbmm) - b))
+# max |A x − b|
+residual_bbmm = jnp.max(jnp.abs(operator.mv(solution_bbmm) - rhs))
 print("BBMMSolver:")
 print(f"  solve residual: {residual_bbmm:.2e}")
-print(f"  logdet:         {ld_bbmm:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_bbmm - ld_true):.2e}")
+print(f"  logdet:         {logdet_bbmm:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_bbmm - logdet_true):.2e}")
 
 # %%
 # solve_and_logdet computes both in one call (no shared matvecs)
-x_bbmm_joint, ld_bbmm_joint = bbmm.solve_and_logdet(op, b)
+solution_bbmm_joint, logdet_bbmm_joint = bbmm.solve_and_logdet(operator, rhs)
 
 print("\nBBMMSolver.solve_and_logdet:")
-print(f"  solve residual: {jnp.max(jnp.abs(op.mv(x_bbmm_joint) - b)):.2e}")
-print(f"  logdet:         {ld_bbmm_joint:.6f}")
+print(
+    f"  solve residual: {jnp.max(jnp.abs(operator.mv(solution_bbmm_joint) - rhs)):.2e}"
+)
+print(f"  logdet:         {logdet_bbmm_joint:.6f}")
 
 # %% [markdown]
 # ## PreconditionedCGSolver
 #
-# `PreconditionedCGSolver` builds a low-rank partial Cholesky preconditioner
-# via matfree, then runs preconditioned CG. For operators of the form
-# $K + \sigma^2 I$ (common in GP regression), preconditioning dramatically
-# reduces the number of CG iterations required for convergence.
+# `PreconditionedCGSolver` builds a low-rank partial Cholesky preconditioner via matfree, then runs preconditioned CG. For operators of the form $\mathbf{K} + \sigma^2 \mathbf{I}$ (common in GP regression), preconditioning dramatically reduces the number of CG iterations required for convergence.
 #
-# Preconditioning transforms the system to $M^{-1}Ax = M^{-1}b$ where
-# $M \approx A$ is cheap to invert. For GP kernels of the form
-# $K + \sigma^2 I$, a rank-$r$ partial Cholesky approximation of $K$ gives
-# $M = LL^\top + \sigma^2 I$, which can be inverted via the Woodbury
-# identity in $O(Nr^2)$. This dramatically improves the effective condition
-# number.
+# Preconditioning transforms the system to $\mathbf{M}^{-1} \mathbf{A} \mathbf{x} = \mathbf{M}^{-1} \mathbf{b}$ where $\mathbf{M} \approx \mathbf{A}$ is cheap to invert. For GP kernels of the form $\mathbf{K} + \sigma^2 \mathbf{I}$, a rank-$r$ partial Cholesky approximation $\mathbf{R} \mathbf{R}^\top \approx \mathbf{K}$ gives $\mathbf{M} = \mathbf{R} \mathbf{R}^\top + \sigma^2 \mathbf{I}$, which can be inverted via the Woodbury identity in $O(Nr^2)$. This dramatically improves the effective condition number.
 #
 # The `shift` parameter should be set to the noise variance $\sigma^2$.
 
@@ -229,41 +221,36 @@ precond_cg = gaussx.PreconditionedCGSolver(
     preconditioner_rank=20, shift=0.1, rtol=1e-8, atol=1e-8
 )
 
-x_pcg = precond_cg.solve(op, b)
-ld_pcg = precond_cg.logdet(op)
+solution_pcg = precond_cg.solve(operator, rhs)
+logdet_pcg = precond_cg.logdet(operator)
 
-residual_pcg = jnp.max(jnp.abs(op.mv(x_pcg) - b))
+# max |A x − b|
+residual_pcg = jnp.max(jnp.abs(operator.mv(solution_pcg) - rhs))
 print("PreconditionedCGSolver:")
 print(f"  solve residual: {residual_pcg:.2e}")
-print(f"  logdet:         {ld_pcg:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_pcg - ld_true):.2e}")
+print(f"  logdet:         {logdet_pcg:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_pcg - logdet_true):.2e}")
 
 # %% [markdown]
 # ## LSMRSolver
 #
 # `LSMRSolver` implements the LSMR algorithm (Fong & Saunders 2011). Unlike
-# CG, LSMR works for **rectangular** and **ill-conditioned** systems too.
-# It only requires matvec and transpose-matvec, and supports Tikhonov
-# regularization via the `damp` parameter (minimizes
-# $\|Ax - b\|^2 + \lambda^2 \|x\|^2$).
+# CG, LSMR works for **rectangular** and **ill-conditioned** systems too. It only requires matvec and transpose-matvec, and supports Tikhonov regularization via the `damp` parameter (minimizes $\Vert \mathbf{A} \mathbf{x} - \mathbf{b} \Vert_2^2 + \beta \Vert \mathbf{x} \Vert_2^2$ with $\beta = \mathrm{damp}^2$).
 #
-# LSMR (Fong & Saunders, 2011) is mathematically equivalent to MINRES
-# applied to the normal equations $A^\top A x = A^\top b$, but is
-# numerically more stable. It is the natural choice when $A$ is rectangular
-# or when Tikhonov regularization
-# ($\min \|Ax - b\|^2 + \lambda^2\|x\|^2$) is desired.
+# LSMR (Fong & Saunders, 2011) is mathematically equivalent to MINRES applied to the normal equations $\mathbf{A}^\top \mathbf{A} \mathbf{x} = \mathbf{A}^\top \mathbf{b}$, but is numerically more stable. It is the natural choice when $\mathbf{A}$ is rectangular or when Tikhonov regularization ($\min \Vert \mathbf{A} \mathbf{x} - \mathbf{b} \Vert_2^2 + \beta \Vert \mathbf{x} \Vert_2^2$) is desired.
 
 # %%
 lsmr = gaussx.LSMRSolver(atol=1e-8, btol=1e-8, max_steps=500)
 
-x_lsmr = lsmr.solve(op, b)
-ld_lsmr = lsmr.logdet(op)
+solution_lsmr = lsmr.solve(operator, rhs)
+logdet_lsmr = lsmr.logdet(operator)
 
-residual_lsmr = jnp.max(jnp.abs(op.mv(x_lsmr) - b))
+# max |A x − b|
+residual_lsmr = jnp.max(jnp.abs(operator.mv(solution_lsmr) - rhs))
 print("LSMRSolver:")
 print(f"  solve residual: {residual_lsmr:.2e}")
-print(f"  logdet:         {ld_lsmr:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_lsmr - ld_true):.2e}")
+print(f"  logdet:         {logdet_lsmr:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_lsmr - logdet_true):.2e}")
 
 # %% [markdown]
 # ## ComposedSolver
@@ -283,14 +270,15 @@ composed = gaussx.ComposedSolver(
     logdet_strategy=gaussx.SLQLogdet(num_probes=50, lanczos_order=50),
 )
 
-x_composed = composed.solve(op, b)
-ld_composed = composed.logdet(op, key=jax.random.PRNGKey(99))
+solution_composed = composed.solve(operator, rhs)
+logdet_composed = composed.logdet(operator, key=jax.random.PRNGKey(99))
 
-residual_composed = jnp.max(jnp.abs(op.mv(x_composed) - b))
+# max |A x − b|
+residual_composed = jnp.max(jnp.abs(operator.mv(solution_composed) - rhs))
 print("ComposedSolver (DenseSolver solve + SLQLogdet):")
 print(f"  solve residual: {residual_composed:.2e}")
-print(f"  logdet:         {ld_composed:.6f}")
-print(f"  logdet error:   {jnp.abs(ld_composed - ld_true):.2e}")
+print(f"  logdet:         {logdet_composed:.6f}")
+print(f"  logdet error:   {jnp.abs(logdet_composed - logdet_true):.2e}")
 
 # %% [markdown]
 # Notice the solve residual matches DenseSolver (exact) while the logdet
@@ -305,8 +293,7 @@ print(f"  logdet error:   {jnp.abs(ld_composed - ld_true):.2e}")
 # `AbstractLogdetStrategy`:
 #
 # - **`SLQLogdet`** -- stochastic Lanczos quadrature for PSD operators
-# - **`IndefiniteSLQLogdet`** -- SLQ with $\log\lvert\lambda\rvert$ for
-#   symmetric indefinite operators, with optional diagonal shift
+# - **`IndefiniteSLQLogdet`** -- SLQ with $\log \vert \gamma \vert$ for symmetric indefinite operators, with optional diagonal shift
 # - **`DenseLogdet`** -- delegates to `gaussx.logdet` (structural dispatch)
 #
 # These are the building blocks that `CGSolver`, `BBMMSolver`, etc. use
@@ -316,23 +303,23 @@ print(f"  logdet error:   {jnp.abs(ld_composed - ld_true):.2e}")
 # %%
 # SLQLogdet: stochastic logdet for PSD operators
 slq = gaussx.SLQLogdet(num_probes=50, lanczos_order=50)
-ld_slq = slq.logdet(op, key=jax.random.PRNGKey(0))
+logdet_slq = slq.logdet(operator, key=jax.random.PRNGKey(0))
 
 # DenseLogdet: exact logdet via structural dispatch
-dense_ld = gaussx.DenseLogdet()
-ld_exact = dense_ld.logdet(op)
+dense_logdet = gaussx.DenseLogdet()
+logdet_exact = dense_logdet.logdet(operator)
 
 # IndefiniteSLQLogdet: handles indefinite matrices
-indef_slq = gaussx.IndefiniteSLQLogdet(num_probes=50, lanczos_order=50)
-ld_indef = indef_slq.logdet(op, key=jax.random.PRNGKey(0))
+indefinite_slq = gaussx.IndefiniteSLQLogdet(num_probes=50, lanczos_order=50)
+logdet_indef = indefinite_slq.logdet(operator, key=jax.random.PRNGKey(0))
 
 print("Standalone logdet strategies:")
-slq_err = jnp.abs(ld_slq - ld_true)
-exact_err = jnp.abs(ld_exact - ld_true)
-indef_err = jnp.abs(ld_indef - ld_true)
-print(f"  SLQLogdet:           {ld_slq:.6f}  (err {slq_err:.2e})")
-print(f"  DenseLogdet:         {ld_exact:.6f}  (err {exact_err:.2e})")
-print(f"  IndefiniteSLQLogdet: {ld_indef:.6f}  (err {indef_err:.2e})")
+slq_error = jnp.abs(logdet_slq - logdet_true)
+exact_error = jnp.abs(logdet_exact - logdet_true)
+indefinite_error = jnp.abs(logdet_indef - logdet_true)
+print(f"  SLQLogdet:           {logdet_slq:.6f}  (err {slq_error:.2e})")
+print(f"  DenseLogdet:         {logdet_exact:.6f}  (err {exact_error:.2e})")
+print(f"  IndefiniteSLQLogdet: {logdet_indef:.6f}  (err {indefinite_error:.2e})")
 
 # %% [markdown]
 # ## Comparison Table
@@ -341,22 +328,22 @@ print(f"  IndefiniteSLQLogdet: {ld_indef:.6f}  (err {indef_err:.2e})")
 
 # %%
 results = {
-    "DenseSolver": {"residual": residual_dense, "logdet": ld_dense},
-    "CGSolver": {"residual": residual_cg, "logdet": ld_cg},
-    "AutoSolver": {"residual": residual_auto, "logdet": ld_auto},
-    "BBMMSolver": {"residual": residual_bbmm, "logdet": ld_bbmm},
-    "PrecondCG": {"residual": residual_pcg, "logdet": ld_pcg},
-    "LSMRSolver": {"residual": residual_lsmr, "logdet": ld_lsmr},
-    "ComposedSolver": {"residual": residual_composed, "logdet": ld_composed},
+    "DenseSolver": {"residual": residual_dense, "logdet": logdet_dense},
+    "CGSolver": {"residual": residual_cg, "logdet": logdet_cg},
+    "AutoSolver": {"residual": residual_auto, "logdet": logdet_auto},
+    "BBMMSolver": {"residual": residual_bbmm, "logdet": logdet_bbmm},
+    "PrecondCG": {"residual": residual_pcg, "logdet": logdet_pcg},
+    "LSMRSolver": {"residual": residual_lsmr, "logdet": logdet_lsmr},
+    "ComposedSolver": {"residual": residual_composed, "logdet": logdet_composed},
 }
 
 print(f"{'Strategy':<20s}  {'Residual':>12s}  {'Logdet':>12s}  {'Logdet Err':>12s}")
 print("-" * 62)
 for name, stats in results.items():
-    ld_err = jnp.abs(stats["logdet"] - ld_true)
-    res = stats["residual"]
-    ld = stats["logdet"]
-    print(f"{name:<20s}  {res:12.2e}  {ld:12.6f}  {ld_err:12.2e}")
+    logdet_error = jnp.abs(stats["logdet"] - logdet_true)
+    residual = stats["residual"]
+    logdet_value = stats["logdet"]
+    print(f"{name:<20s}  {residual:12.2e}  {logdet_value:12.6f}  {logdet_error:12.2e}")
 
 # %% [markdown]
 # | Strategy | Solve Residual | Logdet | Logdet Error vs True |
@@ -376,8 +363,10 @@ for name, stats in results.items():
 
 # %%
 names = list(results.keys())
-residuals = [float(results[n]["residual"]) for n in names]
-logdet_errors = [float(jnp.abs(results[n]["logdet"] - ld_true)) for n in names]
+residuals = [float(results[name]["residual"]) for name in names]
+logdet_errors = [
+    float(jnp.abs(results[name]["logdet"] - logdet_true)) for name in names
+]
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -405,7 +394,7 @@ axes[1].grid(True, which="major", alpha=0.3)
 axes[1].grid(True, which="minor", alpha=0.1)
 axes[1].minorticks_on()
 
-fig.suptitle(f"Solver strategy comparison (n={n})", fontsize=14)
+fig.suptitle(f"Solver strategy comparison (N={size})", fontsize=14)
 plt.tight_layout()
 
 plt.show()
@@ -444,7 +433,7 @@ plt.show()
 # - **BBMMSolver**: GPyTorch-style settings; `inv_quad_logdet` runs its
 #   shared mBCG pass, while `solve_and_logdet` is a separate solve and SLQ.
 # - **PreconditionedCGSolver**: Low-rank Cholesky
-#   preconditioner accelerates convergence on $K + \sigma^2 I$.
+#   preconditioner accelerates convergence on $\mathbf{K} + \sigma^2 \mathbf{I}$.
 # - **LSMRSolver**: Supports Tikhonov damping; only needs
 #   matvec and transpose-matvec.
 # - **ComposedSolver**: Delegates solve and logdet to two
@@ -491,5 +480,4 @@ plt.show()
 #   for solving linear systems. *Journal of Research of the National Bureau
 #   of Standards*, 49(6), 409--436.
 # - Ubaru, S., Chen, J., & Saad, Y. (2017). Fast estimation of
-#   $\operatorname{tr}(f(A))$ via stochastic Lanczos quadrature. *SIAM J.
-#   Matrix Analysis*, 38(4), 1075--1099.
+#   $\mathrm{tr}(f(\mathbf{A}))$ via stochastic Lanczos quadrature. *SIAM J. Matrix Analysis*, 38(4), 1075--1099.

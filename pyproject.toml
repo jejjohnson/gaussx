@@ -97,6 +97,10 @@ allowed-confusables = ["−", "σ", "𝒩", "×", "μ", "Σ", "α", "β", "λ", 
 
 # The einx convention (AGENTS.md, gh-404): contractions, permutations and
 # reshapes go through gaussx._einx, so the jnp spellings are banned outright.
+[tool.ruff.lint.per-file-ignores]
+# Each maths expression in a notebook stays on one source line.
+"docs/notebooks/*.py" = ["E501"]
+
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "jax.numpy.einsum".msg = "use gaussx._einx.einsum"
 "jax.numpy.transpose".msg = "use gaussx._einx.rearrange (or .T on a lineax operator)"
