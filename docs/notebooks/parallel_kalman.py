@@ -65,37 +65,50 @@ jax.config.update("jax_enable_x64", True)
 # ## Define the model
 #
 # We reuse the **damped oscillator** from the sequential Kalman filter
-# notebook. The 2D state $x_t = [\text{position}, \text{velocity}]^\top$
+# notebook. The 2D state ($D_x = 2$) $\mathbf{x}_t = [\text{position}, \text{velocity}]^\top$
 # follows a discretized spring-mass-damper system, and only position is
-# observed with noise.
+# observed with noise ($D_y = 1$), with $\mathbf{x}_t = \mathbf{F} \mathbf{x}_{t-1} + \boldsymbol{\eta}_t$ and $\mathbf{y}_t = \mathbf{H} \mathbf{x}_t + \boldsymbol{\varepsilon}_t$.
 #
-# - $A$: discretized spring-mass-damper transition
-# - $H = \begin{bmatrix} 1 & 0 \end{bmatrix}$ (observe position only)
-# - $Q$: process noise driving the oscillator
-# - $R = [0.5]$: observation noise variance
+# - $\mathbf{F}$: discretized spring-mass-damper transition
+# - $\mathbf{H} = \begin{bmatrix} 1 & 0 \end{bmatrix}$ (observe position only)
+# - $\boldsymbol{\Sigma}_\eta$: model noise driving the oscillator
+# - $\boldsymbol{\Sigma}_\varepsilon = [0.5]$: observation noise variance
 
 # %%
-dt = 0.1
-T = 200
+# Δt
+time_step = 0.1
+# T
+num_steps = 200
 
 # Damped oscillator: omega=1.0 rad/s, damping gamma=0.15
-omega, gamma = 1.0, 0.15
-A = jnp.array([[1.0, dt], [-(omega**2) * dt, 1.0 - gamma * dt]])
+angular_frequency, damping = 1.0, 0.15
+# F = [[1, Δt], [−ω² Δt, 1 − γ Δt]]
+transition = jnp.array(
+    [
+        [1.0, time_step],
+        [-(angular_frequency**2) * time_step, 1.0 - damping * time_step],
+    ]
+)
 
 # Observation matrix (observe position only)
-H = jnp.array([[1.0, 0.0]])
+# H ∈ ℝ^{D_y×D_x}
+obs_operator = jnp.array([[1.0, 0.0]])
 
-# Process noise covariance
-q_var = 0.3
-Q = q_var * jnp.array([[dt**3 / 3, dt**2 / 2], [dt**2 / 2, dt]])
+# Model noise covariance
+# Σ_η = q_c [[Δt³/3, Δt²/2], [Δt²/2, Δt]]
+noise_spectral_density = 0.3
+model_noise_covariance = noise_spectral_density * jnp.array(
+    [[time_step**3 / 3, time_step**2 / 2], [time_step**2 / 2, time_step]]
+)
 
 # Observation noise covariance
-R = jnp.array([[0.5]])
+# Σ_ε ∈ ℝ^{D_y×D_y}
+obs_noise_covariance = jnp.array([[0.5]])
 
-print("A =\n", A)
-print("H =", H)
-print("Q =\n", Q)
-print("R =", R)
+print("F =\n", transition)
+print("H =", obs_operator)
+print("Σ_η =\n", model_noise_covariance)
+print("Σ_ε =", obs_noise_covariance)
 
 # %% [markdown]
 # ## Simulate data
@@ -109,20 +122,27 @@ key = jax.random.PRNGKey(42)
 
 
 def simulate_step(carry, key_t):
-    x = carry
+    state = carry
     k1, k2 = jax.random.split(key_t)
-    q_t = jax.random.multivariate_normal(k1, jnp.zeros(2), Q)
-    x_new = A @ x + q_t
-    r_t = jax.random.multivariate_normal(k2, jnp.zeros(1), R)
-    y_t = H @ x_new + r_t
-    return x_new, (x_new, y_t)
+    # η_t ~ 𝒩(0, Σ_η)
+    model_noise = jax.random.multivariate_normal(
+        k1, jnp.zeros(2), model_noise_covariance
+    )
+    # x_t = F x_{t−1} + η_t
+    new_state = transition @ state + model_noise
+    # ε_t ~ 𝒩(0, Σ_ε)
+    obs_noise = jax.random.multivariate_normal(k2, jnp.zeros(1), obs_noise_covariance)
+    # y_t = H x_t + ε_t
+    obs_t = obs_operator @ new_state + obs_noise
+    return new_state, (new_state, obs_t)
 
 
-x0 = jnp.array([3.0, 0.0])  # displaced from equilibrium, at rest
-keys = jax.random.split(key, T)
-_, (true_states, observations) = jax.lax.scan(simulate_step, x0, keys)
+# x_0
+true_init_state = jnp.array([3.0, 0.0])  # displaced from equilibrium, at rest
+keys = jax.random.split(key, num_steps)
+_, (true_states, observations) = jax.lax.scan(simulate_step, true_init_state, keys)
 
-times = jnp.arange(T) * dt
+times = jnp.arange(num_steps) * time_step
 true_position = true_states[:, 0]
 
 print("true_states shape:", true_states.shape)
@@ -132,12 +152,20 @@ print("observations shape:", observations.shape)
 # ## Run parallel Kalman filter and smoother
 
 # %%
-init_mean = jnp.zeros(2)
-init_cov = jnp.eye(2) * 4.0
+# μ_x,0 = 0
+prior_mean = jnp.zeros(2)
+# Σ_x,0 = 4 I
+prior_covariance = jnp.eye(2) * 4.0
 
 # Parallel filter
 par_filter_state = gaussx.parallel_kalman_filter(
-    A, H, Q, R, observations, init_mean, init_cov
+    transition,
+    obs_operator,
+    model_noise_covariance,
+    obs_noise_covariance,
+    observations,
+    prior_mean,
+    prior_covariance,
 )
 
 print("Parallel filtered means shape:", par_filter_state.filtered_means.shape)
@@ -145,7 +173,9 @@ print("Parallel log-likelihood:", par_filter_state.log_likelihood)
 
 # %%
 # Parallel smoother
-par_smooth_means, par_smooth_covs = gaussx.parallel_rts_smoother(par_filter_state, A)
+par_smooth_means, par_smooth_covs = gaussx.parallel_rts_smoother(
+    par_filter_state, transition
+)
 
 print("Parallel smoothed means shape:", par_smooth_means.shape)
 print("Parallel smoothed covs shape:", par_smooth_covs.shape)
@@ -159,10 +189,18 @@ print("Parallel smoothed covs shape:", par_smooth_covs.shape)
 
 # %%
 # Sequential filter
-seq_filter_state = gaussx.kalman_filter(A, H, Q, R, observations, init_mean, init_cov)
+seq_filter_state = gaussx.kalman_filter(
+    transition,
+    obs_operator,
+    model_noise_covariance,
+    obs_noise_covariance,
+    observations,
+    prior_mean,
+    prior_covariance,
+)
 
 # Sequential smoother
-seq_smooth_means, seq_smooth_covs = gaussx.rts_smoother(seq_filter_state, A)
+seq_smooth_means, seq_smooth_covs = gaussx.rts_smoother(seq_filter_state, transition)
 
 # Compare filtered means
 mean_diff = jnp.max(
@@ -192,145 +230,186 @@ print(f"Max abs diff (smoothed covs):  {smooth_cov_diff:.2e}")
 # ## Joseph-form covariance update
 #
 # The standard Kalman update computes the posterior covariance as
-# $P = (I - KH) P_{\text{pred}}$, but this can lose symmetry or positive
+# $\boldsymbol{\Sigma}_{x,t \mid t} = (\mathbf{I} - \mathbf{G}_t \mathbf{H}) \boldsymbol{\Sigma}_{x,t \mid t-1}$, but this can lose symmetry or positive
 # definiteness due to round-off. The **Joseph form** is more robust:
 #
-# $$P = (I - KH) P_{\text{pred}} (I - KH)^\top + K R K^\top$$
+# $$\boldsymbol{\Sigma}_{x,t \mid t} = (\mathbf{I} - \mathbf{G}_t \mathbf{H}) \boldsymbol{\Sigma}_{x,t \mid t-1} (\mathbf{I} - \mathbf{G}_t \mathbf{H})^\top + \mathbf{G}_t \boldsymbol{\Sigma}_\varepsilon \mathbf{G}_t^\top$$
 #
-# We manually compute the Kalman gain at one time step and compare both
+# We manually compute the Kalman gain $\mathbf{G}_t$ at one time step and compare both
 # formulas.
 
 # %%
 # Pick a time step to illustrate
-t_idx = 50
-P_pred = par_filter_state.predicted_covs[t_idx]  # (2, 2)
-x_pred = par_filter_state.predicted_means[t_idx]  # (2,)
+step = 50
+# Σ_x,t|t−1 ∈ ℝ^{D_x×D_x}
+predicted_covariance = par_filter_state.predicted_covs[step]  # (2, 2)
+# μ_x,t|t−1 ∈ ℝ^{D_x}
+predicted_mean = par_filter_state.predicted_means[step]  # (2,)
 
-# Compute Kalman gain K = P_pred H^T (H P_pred H^T + R)^{-1}
-S = H @ P_pred @ H.T + R
-K = P_pred @ H.T @ jnp.linalg.inv(S)
+# Compute Kalman gain G = Σ_x,t|t−1 Hᵀ (H Σ_x,t|t−1 Hᵀ + Σ_ε)⁻¹
+# Σ_y,t = H Σ_x,t|t−1 Hᵀ + Σ_ε
+obs_covariance = (
+    obs_operator @ predicted_covariance @ obs_operator.T + obs_noise_covariance
+)
+# G_t = Σ_x,t|t−1 Hᵀ Σ_y,t⁻¹
+gain = predicted_covariance @ obs_operator.T @ jnp.linalg.inv(obs_covariance)
 
-print(f"Time step {t_idx}:")
-print(f"Kalman gain K =\n{K}")
+print(f"Time step {step}:")
+print(f"Kalman gain G =\n{gain}")
 
-# Standard update: (I - KH) P_pred
-d_state = P_pred.shape[0]
-P_standard = (jnp.eye(d_state) - K @ H) @ P_pred
+# Standard update: (I - GH) Σ_x,t|t−1
+# Σ_x,t|t = (I − G_t H) Σ_x,t|t−1
+state_size = predicted_covariance.shape[0]
+standard_covariance = (jnp.eye(state_size) - gain @ obs_operator) @ predicted_covariance
 
 # Joseph-form update
-P_joseph = gaussx.joseph_update(P_pred, K, H, R)
+# Σ_x,t|t = (I − G_t H) Σ_x,t|t−1 (I − G_t H)ᵀ + G_t Σ_ε G_tᵀ
+joseph_covariance = gaussx.joseph_update(
+    predicted_covariance, gain, obs_operator, obs_noise_covariance
+)
 
-print(f"\nStandard update P =\n{P_standard}")
-print(f"\nJoseph update P =\n{P_joseph}")
-print(f"\nMax abs difference: {jnp.max(jnp.abs(P_standard - P_joseph)):.2e}")
+print(f"\nStandard update Σ_x,t|t =\n{standard_covariance}")
+print(f"\nJoseph update Σ_x,t|t =\n{joseph_covariance}")
+max_difference = jnp.max(jnp.abs(standard_covariance - joseph_covariance))
+print(f"\nMax abs difference: {max_difference:.2e}")
 
 # The Joseph form guarantees symmetry
-print(f"\nStandard symmetry error: {jnp.max(jnp.abs(P_standard - P_standard.T)):.2e}")
-print(f"Joseph symmetry error:   {jnp.max(jnp.abs(P_joseph - P_joseph.T)):.2e}")
+standard_asymmetry = jnp.max(jnp.abs(standard_covariance - standard_covariance.T))
+joseph_asymmetry = jnp.max(jnp.abs(joseph_covariance - joseph_covariance.T))
+print(f"\nStandard symmetry error: {standard_asymmetry:.2e}")
+print(f"Joseph symmetry error:   {joseph_asymmetry:.2e}")
 
 # %% [markdown]
 # ## SSM natural parameters
 #
 # A linear-Gaussian state-space model defines a joint Gaussian
-# $p(x_0, \ldots, x_{T-1})$ whose precision matrix is **block-tridiagonal**.
+# $p(\mathbf{x}_0, \ldots, \mathbf{x}_{T-1})$ on the stacked state $\mathbf{x} \in \mathbb{R}^{T D_x}$ whose precision matrix $\boldsymbol{\Lambda}_x$ is **block-tridiagonal**.
 # The function `ssm_to_naturals` extracts the natural parameters
-# $(\theta_1, \theta_2)$ where $\theta_2 = -\tfrac{1}{2}\Lambda$ is
+# $(\boldsymbol{\Lambda}_x \boldsymbol{\mu}_x, -\frac{1}{2} \boldsymbol{\Lambda}_x)$ where $-\frac{1}{2} \boldsymbol{\Lambda}_x$ is
 # stored as a `BlockTriDiag` operator.
 #
 # The API takes the chain in the same layout as `gaussx.MarkovGaussian`:
-# `A` and `Q` of shape `(N-1, d, d)`, where `Q[k]` is the noise of the
-# transition $x_k \to x_{k+1}$, and the initial covariance $P_0$ separately.
+# `A` and `Q` of shape `(T-1, D_x, D_x)`, where `Q[t]` is the model-noise covariance $\boldsymbol{\Sigma}_{\eta,t+1}$ of the
+# transition $\mathbf{x}_t \to \mathbf{x}_{t+1}$, and the initial covariance $\boldsymbol{\Sigma}_{x,0}$ separately.
 
 # %%
-A_full = jnp.tile(A, (T - 1, 1, 1))
-Q_full = jnp.tile(Q, (T - 1, 1, 1))
+# F_t = F for t = 0, …, T − 2
+transition_full = jnp.tile(transition, (num_steps - 1, 1, 1))
+# Σ_η,t+1 = Σ_η for t = 0, …, T − 2
+model_noise_full = jnp.tile(model_noise_covariance, (num_steps - 1, 1, 1))
 
-print("A_full shape:", A_full.shape)
-print("Q_full shape:", Q_full.shape)
+print("F_full shape:", transition_full.shape)
+print("Σ_η_full shape:", model_noise_full.shape)
 
 # %%
 # Convert to natural parameters
-theta_linear, theta_precision = gaussx.ssm_to_naturals(
-    A_full, Q_full, init_mean, init_cov
+# (Λ_x μ_x, −½ Λ_x)
+natural_linear, natural_precision = gaussx.ssm_to_naturals(
+    transition_full, model_noise_full, prior_mean, prior_covariance
 )
 
-print("theta_linear shape:", theta_linear.shape)
-print("theta_precision type:", type(theta_precision).__name__)
-print("theta_precision diagonal shape:", theta_precision.diagonal.shape)
-print("theta_precision sub_diagonal shape:", theta_precision.sub_diagonal.shape)
+print("natural_linear shape:", natural_linear.shape)
+print("natural_precision type:", type(natural_precision).__name__)
+print("natural_precision diagonal shape:", natural_precision.diagonal.shape)
+print("natural_precision sub_diagonal shape:", natural_precision.sub_diagonal.shape)
 
 # %% [markdown]
 # ### Inspect the `BlockTriDiag` structure
 #
-# The `BlockTriDiag` operator stores `(N, d, d)` diagonal blocks and
-# `(N-1, d, d)` sub-diagonal blocks. Its dense representation is a
-# $(Nd \times Nd)$ matrix with the characteristic banded sparsity
+# The `BlockTriDiag` operator stores `(T, D_x, D_x)` diagonal blocks and
+# `(T-1, D_x, D_x)` sub-diagonal blocks. Its dense representation is a
+# $(T D_x \times T D_x)$ matrix with the characteristic banded sparsity
 # pattern of a Gauss-Markov chain.
 
 # %%
-# Materialize the dense precision matrix (small enough for T=200, d=2)
-dense_precision = theta_precision.as_matrix()
+# Materialize the dense precision matrix (small enough for T=200, D_x=2)
+dense_precision = natural_precision.as_matrix()
 print("Dense precision shape:", dense_precision.shape)
 
 # %%
 # Round-trip: convert back to SSM parameters
-A_rt, Q_rt, mu0_rt, P0_rt = gaussx.naturals_to_ssm(
-    theta_linear, theta_precision, initial_in_q=False
+transition_rt, model_noise_rt, prior_mean_rt, prior_covariance_rt = (
+    gaussx.naturals_to_ssm(natural_linear, natural_precision, initial_in_q=False)
 )
 
-print("Round-trip A max error:", jnp.max(jnp.abs(A_rt - A_full)).item())
-print("Round-trip Q max error:", jnp.max(jnp.abs(Q_rt - Q_full)).item())
-print("Round-trip mu_0 max error:", jnp.max(jnp.abs(mu0_rt - init_mean)).item())
-print("Round-trip P_0 max error:", jnp.max(jnp.abs(P0_rt - init_cov)).item())
+print(
+    "Round-trip F max error:", jnp.max(jnp.abs(transition_rt - transition_full)).item()
+)
+print(
+    "Round-trip Σ_η max error:",
+    jnp.max(jnp.abs(model_noise_rt - model_noise_full)).item(),
+)
+print(
+    "Round-trip μ_x,0 max error:", jnp.max(jnp.abs(prior_mean_rt - prior_mean)).item()
+)
+print(
+    "Round-trip Σ_x,0 max error:",
+    jnp.max(jnp.abs(prior_covariance_rt - prior_covariance)).item(),
+)
 
 # %% [markdown]
 # ## SSM expectation parameters
 #
-# Given smoothed marginals $(m_t, P_t)$ and cross-covariances
-# $C_t = \text{Cov}(x_{t+1}, x_t \mid y_{1:T})$, we can compute the
-# expectation parameters of the joint Gaussian:
+# Given smoothed marginals $(\boldsymbol{\mu}_{x,t \mid T}, \boldsymbol{\Sigma}_{x,t \mid T})$ and cross-covariances
+# $[\boldsymbol{\Sigma}_x]_{t+1,t} = \mathrm{Cov}(\mathbf{x}_{t+1}, \mathbf{x}_t \mid \mathbf{y}_{1:T})$, we can compute the
+# expectation parameters $(\mathbb{E}[\mathbf{x}], \mathbb{E}[\mathbf{x} \mathbf{x}^\top])$ of the joint Gaussian:
 #
-# - $\eta_1 = E[x]$ (concatenated means)
-# - $\eta_2$: a `BlockTriDiag` with diagonal blocks $E[x_t x_t^\top]$
-#   and sub-diagonal blocks $E[x_{t+1} x_t^\top]$
+# - $\mathbb{E}[\mathbf{x}]$ (concatenated means)
+# - $\mathbb{E}[\mathbf{x} \mathbf{x}^\top]$: a `BlockTriDiag` with diagonal blocks $\mathbb{E}[\mathbf{x}_t \mathbf{x}_t^\top]$
+#   and sub-diagonal blocks $\mathbb{E}[\mathbf{x}_{t+1} \mathbf{x}_t^\top]$
 #
 # The cross-covariance is computed from the smoother gain:
-# $C_t = G_t P_{t+1|T}$ where $G_t = P_{t|t} A^\top P_{t+1|t}^{-1}$.
+# $[\boldsymbol{\Sigma}_x]_{t+1,t} = \boldsymbol{\Sigma}_{x,t+1 \mid T} \mathbf{G}_{\text{smooth},t}^\top$ where $\mathbf{G}_{\text{smooth},t} = \boldsymbol{\Sigma}_{x,t \mid t} \mathbf{F}^\top \boldsymbol{\Sigma}_{x,t+1 \mid t}^{-1}$.
 
 # %%
 # Compute cross-covariances from filter/smoother outputs
-# G_t = P_{t|t} A^T P_{t+1|t}^{-1}
-# C_t = G_t @ P_{t+1|T}
+# G_smooth,t = Σ_x,t|t Fᵀ Σ_x,t+1|t⁻¹
+# [Σ_x]_t+1,t = Σ_x,t+1|T G_smooth,tᵀ
 
 
-def compute_cross_covs(filter_state, smoothed_covs, A):
-    """Compute cross-covariances P_{t+1,t|T} = G_t @ P_{t+1|T}."""
-    P_filt = filter_state.filtered_covs[:-1]  # (T-1, d, d)
-    P_pred = filter_state.predicted_covs[1:]  # (T-1, d, d)
-    P_smooth_next = smoothed_covs[1:]  # (T-1, d, d)
+def compute_cross_covs(filter_state, smoothed_covs, transition):
+    """Compute cross-covariances [Σ_x]_{t+1,t} = Σ_x,t+1|T G_smooth,tᵀ."""
+    filtered_covs = filter_state.filtered_covs[:-1]  # (T-1, D_x, D_x)
+    predicted_covs = filter_state.predicted_covs[1:]  # (T-1, D_x, D_x)
+    smoothed_covs_next = smoothed_covs[1:]  # (T-1, D_x, D_x)
 
-    def _one_step(P_f, P_p, P_s_next):
-        G = jnp.linalg.solve(P_p.T, (P_f @ A.T).T).T
-        return G @ P_s_next
+    def _one_step(filtered_cov, predicted_cov, smoothed_cov_next):
+        # G_smooth,t = Σ_x,t|t Fᵀ Σ_x,t+1|t⁻¹
+        smoother_gain = jnp.linalg.solve(
+            predicted_cov.T, (filtered_cov @ transition.T).T
+        ).T
+        # Σ_x,t+1|T G_smooth,tᵀ
+        return smoothed_cov_next @ smoother_gain.T
 
-    return jax.vmap(_one_step)(P_filt, P_pred, P_smooth_next)
+    return jax.vmap(_one_step)(filtered_covs, predicted_covs, smoothed_covs_next)
 
 
-cross_covs = compute_cross_covs(par_filter_state, par_smooth_covs, A)
+cross_covs = compute_cross_covs(par_filter_state, par_smooth_covs, transition)
 print("Cross-covariances shape:", cross_covs.shape)
 
 # %%
 # Convert to expectation parameters
-eta1, eta2 = gaussx.ssm_to_expectations(par_smooth_means, par_smooth_covs, cross_covs)
+# (𝔼[x], 𝔼[x xᵀ])
+expectation_mean, expectation_second_moment = gaussx.ssm_to_expectations(
+    par_smooth_means, par_smooth_covs, cross_covs
+)
 
-print("eta1 shape:", eta1.shape)
-print("eta2 type:", type(eta2).__name__)
-print("eta2 diagonal shape:", eta2.diagonal.shape)
-print("eta2 sub_diagonal shape:", eta2.sub_diagonal.shape)
+print("expectation_mean shape:", expectation_mean.shape)
+print("expectation_second_moment type:", type(expectation_second_moment).__name__)
+print(
+    "expectation_second_moment diagonal shape:",
+    expectation_second_moment.diagonal.shape,
+)
+print(
+    "expectation_second_moment sub_diagonal shape:",
+    expectation_second_moment.sub_diagonal.shape,
+)
 
 # %%
 # Round-trip: convert back to SSM marginals
-means_rt, covs_rt, cross_covs_rt = gaussx.expectations_to_ssm(eta1, eta2)
+means_rt, covs_rt, cross_covs_rt = gaussx.expectations_to_ssm(
+    expectation_mean, expectation_second_moment
+)
 
 err_m = jnp.max(jnp.abs(means_rt - par_smooth_means)).item()
 err_c = jnp.max(jnp.abs(covs_rt - par_smooth_covs)).item()
@@ -352,8 +431,8 @@ print("Round-trip cross_covs max error:", err_cc)
 fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
 # Sparsity pattern of the precision (show first 20 blocks = 40x40)
-n_show = min(20, T)
-d_show = n_show * d_state
+n_show = min(20, num_steps)
+d_show = n_show * state_size
 prec_sub = dense_precision[:d_show, :d_show]
 
 ax = axes[0]
@@ -364,7 +443,7 @@ ax.set_ylabel("Row index")
 
 # Zoom into a 3-block region to see the structure
 n_zoom = 3
-d_zoom = n_zoom * d_state
+d_zoom = n_zoom * state_size
 prec_zoom = dense_precision[:d_zoom, :d_zoom]
 
 ax = axes[1]
@@ -374,8 +453,8 @@ ax.set_xlabel("Column index")
 ax.set_ylabel("Row index")
 # Draw block boundaries
 for i in range(1, n_zoom):
-    ax.axhline(i * d_state - 0.5, color="k", lw=0.5, ls="--")
-    ax.axvline(i * d_state - 0.5, color="k", lw=0.5, ls="--")
+    ax.axhline(i * state_size - 0.5, color="k", lw=0.5, ls="--")
+    ax.axvline(i * state_size - 0.5, color="k", lw=0.5, ls="--")
 plt.colorbar(im, ax=ax, shrink=0.8)
 
 plt.tight_layout()
@@ -488,7 +567,7 @@ plt.show()
 #   expectation parameters with `BlockTriDiag` second moments.
 #   `gaussx.expectations_to_ssm` inverts this exactly.
 # - The `BlockTriDiag` operator exploits Gauss-Markov sparsity for
-#   $O(Nd^3)$ operations instead of $O((Nd)^3)$ dense cost.
+#   $O(T D_x^3)$ operations instead of $O((T D_x)^3)$ dense cost.
 
 # %% [markdown]
 # ## References

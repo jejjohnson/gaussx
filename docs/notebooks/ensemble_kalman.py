@@ -34,8 +34,8 @@
 # The **Ensemble Kalman Filter** (Evensen, 1994) is a Monte Carlo
 # approximation to the Kalman filter designed for high-dimensional,
 # nonlinear systems. Instead of propagating a mean and covariance matrix
-# explicitly, it maintains an *ensemble* of $J$ particles
-# $\{x^{(j)}\}_{j=1}^{J}$ that collectively represent the state
+# explicitly, it maintains an *ensemble* of $N_{\mathcal{E}}$ members
+# $\{\mathbf{x}^{(e)}\}_{e \in \mathcal{E}}$, $\mathbf{x}^{(e)} \in \mathbb{R}^{D_x}$, that collectively represent the state
 # distribution.
 #
 # The key idea: at each step the forecast covariance is estimated
@@ -46,20 +46,21 @@
 # ### EnKF algorithm sketch
 #
 # **Forecast:**
-# Propagate each particle through the (possibly nonlinear) dynamics
-# $x^{(j)}_{t|t-1} = f(x^{(j)}_{t-1|t-1}) + q^{(j)}_t$.
+# Propagate each member through the (possibly nonlinear) dynamics $f$, with model noise $\boldsymbol{\eta}^{(e)}_t \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\eta)$:
 #
-# **Analysis:**
+# $$\mathbf{x}^{(e)}_{t \mid t-1} = f(\mathbf{x}^{(e)}_{t-1 \mid t-1}) + \boldsymbol{\eta}^{(e)}_t$$
+#
+# **Analysis:** with the observation operator $\mathbf{H} \in \mathbb{R}^{D_y \times D_x}$, the predicted observation $\mathbf{y}^{(e)} = \mathbf{H} \mathbf{x}^{(e)}_{t \mid t-1}$, the ensemble means $\bar{\mathbf{x}}$, $\bar{\mathbf{y}}$ and the anomalies $\tilde{\mathbf{x}}^{(e)} = \mathbf{x}^{(e)} - \bar{\mathbf{x}}$, $\tilde{\mathbf{y}}^{(e)} = \mathbf{y}^{(e)} - \bar{\mathbf{y}}$:
 #
 # 1. Compute ensemble covariance:
-#    $\hat{P} = \frac{1}{J}\sum_j (x^{(j)} - \bar{x})(x^{(j)} - \bar{x})^\top$
+#    $\hat{\boldsymbol{\Sigma}}_x = \frac{1}{N_{\mathcal{E}}} \sum_{e \in \mathcal{E}} \tilde{\mathbf{x}}^{(e)} \tilde{\mathbf{x}}^{(e) \top}$
 # 2. Compute cross-covariance between state and predicted observations:
-#    $C_{xy} = \frac{1}{J}\sum_j (x^{(j)} - \bar{x})(y^{(j)} - \bar{y})^\top$
+#    $\hat{\boldsymbol{\Sigma}}_{xy} = \frac{1}{N_{\mathcal{E}}} \sum_{e \in \mathcal{E}} \tilde{\mathbf{x}}^{(e)} \tilde{\mathbf{y}}^{(e) \top}$
 # 3. Compute innovation covariance:
-#    $C_{yy} = \frac{1}{J}\sum_j (y^{(j)} - \bar{y})(y^{(j)} - \bar{y})^\top + R$
-# 4. Kalman gain: $K = C_{xy} \, C_{yy}^{-1}$
-# 5. Perturbed-observation update:
-#    $x^{(j)}_{t|t} = x^{(j)}_{t|t-1} + K(y_t + \epsilon^{(j)} - H x^{(j)}_{t|t-1})$
+#    $\hat{\boldsymbol{\Sigma}}_y = \frac{1}{N_{\mathcal{E}}} \sum_{e \in \mathcal{E}} \tilde{\mathbf{y}}^{(e)} \tilde{\mathbf{y}}^{(e) \top} + \boldsymbol{\Sigma}_\varepsilon$
+# 4. Kalman gain: $\mathbf{G} = \hat{\boldsymbol{\Sigma}}_{xy} \hat{\boldsymbol{\Sigma}}_y^{-1}$
+# 5. Perturbed-observation update, with $\boldsymbol{\varepsilon}^{(e)} \sim \mathcal{N}(\mathbf{0}, \boldsymbol{\Sigma}_\varepsilon)$:
+#    $\mathbf{x}^{(e)}_{t \mid t} = \mathbf{x}^{(e)}_{t \mid t-1} + \mathbf{G} (\mathbf{y}_t + \boldsymbol{\varepsilon}^{(e)} - \mathbf{H} \mathbf{x}^{(e)}_{t \mid t-1})$
 
 # %%
 from __future__ import annotations
@@ -81,11 +82,13 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## Define the Lorenz-63 system
 #
-# The Lorenz-63 system is a classic chaotic dynamical system:
+# The Lorenz-63 system is a classic chaotic dynamical system with state $\mathbf{x} = (x_1, x_2, x_3)$, so $D_x = 3$:
 #
-# $$\frac{dx}{dt} = \sigma(y - x)$$
-# $$\frac{dy}{dt} = x(\rho - z) - y$$
-# $$\frac{dz}{dt} = xy - \beta z$$
+# $$\frac{\mathrm{d} x_1}{\mathrm{d} t} = \sigma (x_2 - x_1)$$
+#
+# $$\frac{\mathrm{d} x_2}{\mathrm{d} t} = x_1 (\rho - x_3) - x_2$$
+#
+# $$\frac{\mathrm{d} x_3}{\mathrm{d} t} = x_1 x_2 - \beta x_3$$
 #
 # With the standard parameters $\sigma = 10$, $\rho = 28$, $\beta = 8/3$,
 # the system exhibits the famous butterfly attractor.
@@ -96,19 +99,23 @@ jax.config.update("jax_enable_x64", True)
 sigma_l = 10.0
 rho = 28.0
 beta = 8.0 / 3.0
-dt = 0.01
+# Δt
+time_step = 0.01
 
 
 def lorenz63(state):
     """Lorenz-63 right-hand side."""
-    x, y, z = state[0], state[1], state[2]
-    dx = sigma_l * (y - x)
-    dy = x * (rho - z) - y
-    dz = x * y - beta * z
-    return jnp.array([dx, dy, dz])
+    x1, x2, x3 = state[0], state[1], state[2]
+    # dx₁/dt = σ (x₂ − x₁)
+    dx1 = sigma_l * (x2 - x1)
+    # dx₂/dt = x₁ (ρ − x₃) − x₂
+    dx2 = x1 * (rho - x3) - x2
+    # dx₃/dt = x₁ x₂ − β x₃
+    dx3 = x1 * x2 - beta * x3
+    return jnp.array([dx1, dx2, dx3])
 
 
-def rk4_step(state, _dt=dt):
+def rk4_step(state, _dt=time_step):
     """Single RK4 integration step."""
     k1 = lorenz63(state)
     k2 = lorenz63(state + 0.5 * _dt * k1)
@@ -118,62 +125,78 @@ def rk4_step(state, _dt=dt):
 
 
 # Quick sanity check: integrate a short trajectory
-x_test = jnp.array([1.0, 1.0, 1.0])
-x_test_next = rk4_step(x_test)
-print("One RK4 step: ", x_test, " -> ", x_test_next)
+test_state = jnp.array([1.0, 1.0, 1.0])
+test_state_next = rk4_step(test_state)
+print("One RK4 step: ", test_state, " -> ", test_state_next)
 
 # %% [markdown]
 # ## Generate the true trajectory and observations
 #
-# We observe only the $x$ and $y$ components of the Lorenz state with
-# additive Gaussian noise. The $z$ component must be inferred.
+# We observe only the $x_1$ and $x_2$ components of the Lorenz state with
+# additive Gaussian noise ($D_y = 2$). The $x_3$ component must be inferred.
 
 # %%
-T = 500  # number of time steps
+# T
+num_steps = 500  # number of time steps
+# σ_ε
 obs_noise_std = 2.0
 
-# Observation model: observe x and y only
-H = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
-R = obs_noise_std**2 * jnp.eye(2)
+# Observation model: observe x₁ and x₂ only
+# H ∈ ℝ^{D_y×D_x}
+obs_operator = jnp.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]])
+# Σ_ε = σ_ε² I
+obs_noise_covariance = obs_noise_std**2 * jnp.eye(2)
 
 # True initial condition (on the attractor)
-x_true_0 = jnp.array([1.508, -1.531, 25.46])
+true_init_state = jnp.array([1.508, -1.531, 25.46])
 
 key = jax.random.PRNGKey(42)
 
 
 def generate_truth(carry, key_t):
     """Propagate true state and generate noisy observation."""
-    x_true = carry
-    x_true_next = rk4_step(x_true)
+    true_state = carry
+    next_true_state = rk4_step(true_state)
+    # ε_t ~ 𝒩(0, Σ_ε)
     noise = obs_noise_std * jax.random.normal(key_t, shape=(2,))
-    y_t = H @ x_true_next + noise
-    return x_true_next, (x_true_next, y_t)
+    # y_t = H x_t + ε_t
+    obs_t = obs_operator @ next_true_state + noise
+    return next_true_state, (next_true_state, obs_t)
 
 
-keys_truth = jax.random.split(key, T)
-_, (true_states, observations) = jax.lax.scan(generate_truth, x_true_0, keys_truth)
+keys_truth = jax.random.split(key, num_steps)
+_, (true_states, observations) = jax.lax.scan(
+    generate_truth, true_init_state, keys_truth
+)
 
-times = jnp.arange(T) * dt
+times = jnp.arange(num_steps) * time_step
 print("True trajectory shape:", true_states.shape)
 print("Observations shape:", observations.shape)
 
 # %% [markdown]
 # ## Initialize the ensemble
 #
-# We draw $J = 50$ particles from a Gaussian centered at the true initial
+# We draw $N_{\mathcal{E}} = 50$ members from a Gaussian centered at the true initial
 # state with moderate uncertainty. In practice the initial ensemble
 # would come from a climatological prior.
 
 # %%
-J = 50  # ensemble size
-d = 3  # state dimension
+# N_ℰ
+num_members = 50  # ensemble size
+# D_x
+state_size = 3  # state dimension
 
-P0 = jnp.diag(jnp.array([2.0, 2.0, 2.0]))
+# Σ_x,0 = 2 I
+init_covariance = jnp.diag(jnp.array([2.0, 2.0, 2.0]))
 
 key, subkey = jax.random.split(key)
-L0 = jnp.linalg.cholesky(P0)
-ensemble = x_true_0[None, :] + jax.random.normal(subkey, shape=(J, d)) @ L0.T
+# L Lᵀ = Σ_x,0
+init_cholesky = jnp.linalg.cholesky(init_covariance)
+# x⁽ᵉ⁾ = x_true,0 + L z⁽ᵉ⁾,  z⁽ᵉ⁾ ~ 𝒩(0, I)
+ensemble = (
+    true_init_state[None, :]
+    + jax.random.normal(subkey, shape=(num_members, state_size)) @ init_cholesky.T
+)
 
 print("Initial ensemble shape:", ensemble.shape)
 print("Ensemble mean:", jnp.mean(ensemble, axis=0))
@@ -183,71 +206,86 @@ print("Ensemble mean:", jnp.mean(ensemble, axis=0))
 #
 # Before running the filter, let's see what `gaussx.ensemble_covariance`
 # returns. It produces a `LowRankUpdate` operator -- a structured
-# representation of $\hat{P} = (1/J)\sum_j \delta_j \delta_j^\top$
-# where $\delta_j = x^{(j)} - \bar{x}$. This is rank $\leq J$ and
-# avoids materializing the full $d \times d$ matrix (crucial when $d$
+# representation of $\hat{\boldsymbol{\Sigma}}_x = (1/N_{\mathcal{E}}) \sum_{e \in \mathcal{E}} \tilde{\mathbf{x}}^{(e)} \tilde{\mathbf{x}}^{(e) \top}$
+# where $\tilde{\mathbf{x}}^{(e)} = \mathbf{x}^{(e)} - \bar{\mathbf{x}}$. This is rank $\leq N_{\mathcal{E}}$ and
+# avoids materializing the full $D_x \times D_x$ matrix (crucial when $D_x$
 # is large).
 
 # %%
-P_ens = gaussx.ensemble_covariance(ensemble)
-print("Type:", type(P_ens).__name__)
-print("Materialized covariance:\n", P_ens.as_matrix())
+ensemble_cov_op = gaussx.ensemble_covariance(ensemble)
+print("Type:", type(ensemble_cov_op).__name__)
+print("Materialized covariance:\n", ensemble_cov_op.as_matrix())
 
 # Compare with naive computation
-mean_ens = jnp.mean(ensemble, axis=0)
-devs = ensemble - mean_ens[None, :]
-P_naive = (devs.T @ devs) / J
-print("\nNaive covariance:\n", P_naive)
-print("Max difference:", jnp.max(jnp.abs(P_ens.as_matrix() - P_naive)))
+ensemble_mean = jnp.mean(ensemble, axis=0)
+# x̃⁽ᵉ⁾ = x⁽ᵉ⁾ − x̄
+anomalies = ensemble - ensemble_mean[None, :]
+# Σ̂_x = (1/N_ℰ) ∑ₑ x̃⁽ᵉ⁾ x̃⁽ᵉ⁾ᵀ
+naive_covariance = (anomalies.T @ anomalies) / num_members
+print("\nNaive covariance:\n", naive_covariance)
+print(
+    "Max difference:", jnp.max(jnp.abs(ensemble_cov_op.as_matrix() - naive_covariance))
+)
 
 # %% [markdown]
 # ## Run the Ensemble Kalman Filter
 #
-# The main loop: forecast each particle through the nonlinear Lorenz
+# The main loop: forecast each member through the nonlinear Lorenz
 # dynamics, then perform the EnKF analysis update using gaussx ensemble
 # primitives.
 #
-# We add a small amount of process noise (additive inflation) to prevent
+# We add a small amount of model noise (additive inflation) to prevent
 # ensemble collapse, a common practical technique.
 
 # %%
-process_noise_std = 0.1
-Q_enkf = process_noise_std**2 * jnp.eye(d)
+# σ_η
+model_noise_std = 0.1
+# Σ_η = σ_η² I
+model_noise_covariance = model_noise_std**2 * jnp.eye(state_size)
 
 
 def enkf_step(carry, inputs):
     """Single EnKF forecast + analysis step."""
     ensemble_prev, _key_prev = carry
-    y_obs, key_t = inputs
+    obs_t, key_t = inputs
 
     k1, k2, k3 = jax.random.split(key_t, 3)
 
-    # --- Forecast: propagate each particle through nonlinear dynamics ---
+    # --- Forecast: propagate each member through nonlinear dynamics ---
     ensemble_pred = jax.vmap(rk4_step)(ensemble_prev)
 
-    # Add process noise (additive inflation)
-    q_noise = process_noise_std * jax.random.normal(k1, shape=(J, d))
-    ensemble_pred = ensemble_pred + q_noise
+    # Add model noise (additive inflation)
+    # η⁽ᵉ⁾ ~ 𝒩(0, Σ_η)
+    model_noise = model_noise_std * jax.random.normal(
+        k1, shape=(num_members, state_size)
+    )
+    # x⁽ᵉ⁾_t|t−1 = f(x⁽ᵉ⁾_t−1|t−1) + η⁽ᵉ⁾
+    ensemble_pred = ensemble_pred + model_noise
 
     # --- Analysis: compute ensemble statistics using gaussx ---
 
-    # Predicted observation ensemble: y_j = H @ x_j
-    obs_pred = ensemble_pred @ H.T  # (J, 2)
+    # Predicted observation ensemble: y⁽ᵉ⁾ = H x⁽ᵉ⁾
+    obs_pred = ensemble_pred @ obs_operator.T  # (N_ℰ, D_y)
 
-    # Cross-covariance C_xy between state and predicted observations
-    C_xy = gaussx.ensemble_cross_covariance(ensemble_pred, obs_pred)  # (3, 2)
+    # Cross-covariance Σ̂_xy between state and predicted observations
+    cross_covariance = gaussx.ensemble_cross_covariance(
+        ensemble_pred, obs_pred
+    )  # (D_x, D_y)
 
-    # Innovation covariance C_yy + R
-    C_yy_op = gaussx.ensemble_covariance(obs_pred)
-    C_yy = C_yy_op.as_matrix() + R  # (2, 2)
+    # Innovation covariance Σ̂_y = (1/N_ℰ) ∑ₑ ỹ⁽ᵉ⁾ ỹ⁽ᵉ⁾ᵀ + Σ_ε
+    obs_cov_op = gaussx.ensemble_covariance(obs_pred)
+    obs_covariance = obs_cov_op.as_matrix() + obs_noise_covariance  # (D_y, D_y)
 
-    # Kalman gain K = C_xy @ inv(C_yy)
-    K = C_xy @ jnp.linalg.inv(C_yy)  # (3, 2)
+    # Kalman gain G = Σ̂_xy Σ̂_y⁻¹
+    gain = cross_covariance @ jnp.linalg.inv(obs_covariance)  # (D_x, D_y)
 
     # Perturbed-observation update
-    obs_noise = obs_noise_std * jax.random.normal(k2, shape=(J, 2))
-    innovations = y_obs[None, :] + obs_noise - obs_pred  # (J, 2)
-    ensemble_upd = ensemble_pred + innovations @ K.T  # (J, 3)
+    # ε⁽ᵉ⁾ ~ 𝒩(0, Σ_ε)
+    obs_noise = obs_noise_std * jax.random.normal(k2, shape=(num_members, 2))
+    # y_t + ε⁽ᵉ⁾ − H x⁽ᵉ⁾_t|t−1
+    innovations = obs_t[None, :] + obs_noise - obs_pred  # (N_ℰ, D_y)
+    # x⁽ᵉ⁾_t|t = x⁽ᵉ⁾_t|t−1 + G (y_t + ε⁽ᵉ⁾ − H x⁽ᵉ⁾_t|t−1)
+    ensemble_upd = ensemble_pred + innovations @ gain.T  # (N_ℰ, D_x)
 
     # Ensemble mean for diagnostics
     mean_upd = jnp.mean(ensemble_upd, axis=0)
@@ -256,7 +294,7 @@ def enkf_step(carry, inputs):
 
 
 # Prepare inputs
-keys_enkf = jax.random.split(jax.random.PRNGKey(123), T)
+keys_enkf = jax.random.split(jax.random.PRNGKey(123), num_steps)
 inputs = (observations, keys_enkf)
 
 # Run the filter
@@ -273,64 +311,83 @@ print("EnKF ensembles shape:", enkf_ensembles.shape)
 # For diagnostics or hybrid filters, one sometimes needs the *explicit*
 # updated covariance. The Joseph form
 #
-# $$P_{\text{upd}} = (I - KH)\,P_{\text{pred}}\,(I - KH)^\top + K R K^\top$$
+# $$\boldsymbol{\Sigma}_{x,t \mid t} = (\mathbf{I} - \mathbf{G} \mathbf{H}) \boldsymbol{\Sigma}_{x,t \mid t-1} (\mathbf{I} - \mathbf{G} \mathbf{H})^\top + \mathbf{G} \boldsymbol{\Sigma}_\varepsilon \mathbf{G}^\top$$
 #
-# is numerically more stable than the naive $(I - KH) P_{\text{pred}}$
+# is numerically more stable than the naive $(\mathbf{I} - \mathbf{G} \mathbf{H}) \boldsymbol{\Sigma}_{x,t \mid t-1}$
 # formula. Let's demonstrate `gaussx.joseph_update` on the final step.
 
 # %%
-# Use the final forecast ensemble to get P_pred
+# Use the final forecast ensemble to get Σ_x,t|t−1
 final_ensemble_pred = jax.vmap(rk4_step)(enkf_ensembles[-1])
-P_pred_op = gaussx.ensemble_covariance(final_ensemble_pred)
-P_pred = P_pred_op.as_matrix()
+pred_cov_op = gaussx.ensemble_covariance(final_ensemble_pred)
+pred_covariance = pred_cov_op.as_matrix()
 
 # Recompute the Kalman gain for this step
-obs_pred_final = final_ensemble_pred @ H.T
-C_xy_final = gaussx.ensemble_cross_covariance(final_ensemble_pred, obs_pred_final)
-C_yy_final = gaussx.ensemble_covariance(obs_pred_final).as_matrix() + R
-K_final = C_xy_final @ jnp.linalg.inv(C_yy_final)
+obs_pred_final = final_ensemble_pred @ obs_operator.T
+cross_covariance_final = gaussx.ensemble_cross_covariance(
+    final_ensemble_pred, obs_pred_final
+)
+obs_covariance_final = (
+    gaussx.ensemble_covariance(obs_pred_final).as_matrix() + obs_noise_covariance
+)
+# G = Σ̂_xy Σ̂_y⁻¹
+gain_final = cross_covariance_final @ jnp.linalg.inv(obs_covariance_final)
 
 # Joseph-form update
-P_upd_joseph = gaussx.joseph_update(P_pred, K_final, H, R)
+# Σ_x,t|t = (I − G H) Σ_x,t|t−1 (I − G H)ᵀ + G Σ_ε Gᵀ
+joseph_covariance = gaussx.joseph_update(
+    pred_covariance, gain_final, obs_operator, obs_noise_covariance
+)
 
 # Compare with naive formula
-I_KH = jnp.eye(d) - K_final @ H
-P_upd_naive = I_KH @ P_pred
+# (I − G H)
+identity_minus_gain_obs = jnp.eye(state_size) - gain_final @ obs_operator
+# Σ_x,t|t = (I − G H) Σ_x,t|t−1
+naive_updated_covariance = identity_minus_gain_obs @ pred_covariance
 
-print("Joseph-form updated covariance:\n", P_upd_joseph)
-print("\nNaive updated covariance:\n", P_upd_naive)
-print("\nJoseph form is symmetric:", jnp.allclose(P_upd_joseph, P_upd_joseph.T))
+print("Joseph-form updated covariance:\n", joseph_covariance)
+print("\nNaive updated covariance:\n", naive_updated_covariance)
+print(
+    "\nJoseph form is symmetric:", jnp.allclose(joseph_covariance, joseph_covariance.T)
+)
 
 # %% [markdown]
 # ## Process noise from stationary covariance
 #
 # For a *linearized* version of the Lorenz system, we can compute the
 # Jacobian at a fixed point and use `gaussx.process_noise_covariance`
-# to derive the process noise $Q$ that is consistent with a given
-# stationary covariance $P_\infty$:
+# to derive the model noise $\boldsymbol{\Sigma}_\eta$ that is consistent with a given
+# stationary covariance $\boldsymbol{\Sigma}_{x,\infty}$:
 #
-# $$Q = P_\infty - A \, P_\infty \, A^\top$$
+# $$\boldsymbol{\Sigma}_\eta = \boldsymbol{\Sigma}_{x,\infty} - \mathbf{F} \boldsymbol{\Sigma}_{x,\infty} \mathbf{F}^\top$$
 #
 # This is useful when you know the long-run statistics but need the
 # step-to-step noise for a filter.
 
 # %%
 # Jacobian of the Lorenz system at the origin (one of three fixed points)
-# For x=y=z=0: dF/dx = [[-sigma, sigma, 0], [rho, -1, 0], [0, 0, -beta]]
-F_lin = jnp.array([[-sigma_l, sigma_l, 0.0], [rho, -1.0, 0.0], [0.0, 0.0, -beta]])
+# F_c = ∂f/∂x at x = 0 = [[−σ, σ, 0], [ρ, −1, 0], [0, 0, −β]]
+drift_jacobian = jnp.array(
+    [[-sigma_l, sigma_l, 0.0], [rho, -1.0, 0.0], [0.0, 0.0, -beta]]
+)
 
-# Discretize the linearized system (first-order: A ~ I + dt*F)
-A_lin = jnp.eye(d) + dt * F_lin
-print("Linearized transition A:\n", A_lin)
+# Discretize the linearized system (first-order: F ~ I + Δt F_c)
+# F = I + Δt F_c
+linear_transition = jnp.eye(state_size) + time_step * drift_jacobian
+print("Linearized transition F:\n", linear_transition)
 
 # Choose a stationary covariance (e.g., from long-run ensemble statistics)
-Pinf = jnp.cov(true_states.T)
-print("\nEmpirical stationary covariance Pinf:\n", Pinf)
+# Σ_x,∞
+stationary_covariance = jnp.cov(true_states.T)
+print("\nEmpirical stationary covariance Σ_x,∞:\n", stationary_covariance)
 
-# Compute the implied process noise
-Q_implied = gaussx.process_noise_covariance(A_lin, Pinf)
-print("\nImplied process noise Q:\n", Q_implied)
-print("Q is symmetric:", jnp.allclose(Q_implied, Q_implied.T))
+# Compute the implied model noise
+# Σ_η = Σ_x,∞ − F Σ_x,∞ Fᵀ
+implied_model_noise = gaussx.process_noise_covariance(
+    linear_transition, stationary_covariance
+)
+print("\nImplied process noise Σ_η:\n", implied_model_noise)
+print("Σ_η is symmetric:", jnp.allclose(implied_model_noise, implied_model_noise.T))
 
 # %% [markdown]
 # ## Plot: 3D Lorenz attractor
@@ -362,20 +419,20 @@ ax.plot(
 )
 
 # Plot a few ensemble members at the final time
-for j in range(min(10, J)):
-    traj_j = enkf_ensembles[:, j, :]
+for e in range(min(10, num_members)):
+    member_trajectory = enkf_ensembles[:, e, :]
     ax.plot(
-        traj_j[:, 0],
-        traj_j[:, 1],
-        traj_j[:, 2],
+        member_trajectory[:, 0],
+        member_trajectory[:, 1],
+        member_trajectory[:, 2],
         "C0-",
         lw=0.2,
         alpha=0.15,
     )
 
-ax.set_xlabel("x")
-ax.set_ylabel("y")
-ax.set_zlabel("z")
+ax.set_xlabel("$x_1$")
+ax.set_ylabel("$x_2$")
+ax.set_zlabel("$x_3$")
 ax.set_title("Lorenz-63: True vs EnKF Estimate")
 ax.legend(loc="upper left", fontsize=9)
 ax.grid(True, which="major", alpha=0.3)
@@ -392,24 +449,24 @@ plt.show()
 # Compute ensemble standard deviation at each time step
 enkf_std = jnp.std(enkf_ensembles, axis=1)  # (T, 3)
 
-labels = ["x", "y", "z"]
+labels = ["$x_1$", "$x_2$", "$x_3$"]
 fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True)
 
-for i, (ax, label) in enumerate(zip(axes, labels, strict=True)):
-    ax.plot(times, true_states[:, i], "k--", lw=1.5, label="True", zorder=4)
-    ax.plot(times, enkf_means[:, i], "C1-", lw=2, label="EnKF mean", zorder=3)
+for d, (ax, label) in enumerate(zip(axes, labels, strict=True)):
+    ax.plot(times, true_states[:, d], "k--", lw=1.5, label="True", zorder=4)
+    ax.plot(times, enkf_means[:, d], "C1-", lw=2, label="EnKF mean", zorder=3)
     ax.fill_between(
         times,
-        enkf_means[:, i] - 2 * enkf_std[:, i],
-        enkf_means[:, i] + 2 * enkf_std[:, i],
+        enkf_means[:, d] - 2 * enkf_std[:, d],
+        enkf_means[:, d] + 2 * enkf_std[:, d],
         color="C1",
         alpha=0.2,
         label=r"$\pm 2\sigma$",
     )
-    if i < 2:
+    if d < 2:
         ax.scatter(
             times,
-            observations[:, i],
+            observations[:, d],
             s=30,
             c="C0",
             edgecolors="k",
@@ -454,20 +511,20 @@ print(f"Final RMSE: {rmse[-1]:.3f}")
 #
 # - **`gaussx.ensemble_covariance(particles)`** returns a `LowRankUpdate`
 #   operator representing the empirical covariance. This structured
-#   representation avoids materializing a full $d \times d$ matrix and
+#   representation avoids materializing a full $D_x \times D_x$ matrix and
 #   enables efficient Woodbury-based solves when the ensemble size
-#   $J \ll d$.
+#   $N_{\mathcal{E}} \ll D_x$.
 #
 # - **`gaussx.ensemble_cross_covariance(particles_theta, particles_G)`**
 #   computes the cross-covariance matrix between two ensembles, giving
-#   the $(d_1, d_2)$ array needed for the Kalman gain.
+#   the $D_x \times D_y$ array needed for the Kalman gain.
 #
 # - **`gaussx.joseph_update(P_pred, K, H, R)`** provides the numerically
 #   stable Joseph-form covariance update, guaranteeing symmetry even
 #   when the Kalman gain is approximate.
 #
-# - **`gaussx.process_noise_covariance(A, Pinf)`** derives the process
-#   noise $Q = P_\infty - A P_\infty A^\top$ from a stationary covariance,
+# - **`gaussx.process_noise_covariance(A, Pinf)`** derives the model
+#   noise $\boldsymbol{\Sigma}_\eta = \boldsymbol{\Sigma}_{x,\infty} - \mathbf{F} \boldsymbol{\Sigma}_{x,\infty} \mathbf{F}^\top$ from a stationary covariance,
 #   useful when calibrating a filter from long-run statistics.
 #
 # Together these primitives let you build ensemble Kalman methods that

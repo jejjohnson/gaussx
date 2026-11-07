@@ -33,47 +33,23 @@
 # %% [markdown]
 # ## 1. The Gaussian Bayes Rule
 #
-# Suppose we have a Gaussian prior and a linear-Gaussian likelihood:
+# Suppose we have a Gaussian prior on the state $\mathbf{x} \in \mathbb{R}^{D_x}$ and a linear-Gaussian likelihood for the observation $\mathbf{y} \in \mathbb{R}^{D_y}$, with observation operator $\mathbf{H} \in \mathbb{R}^{D_y \times D_x}$ and precisions $\boldsymbol{\Lambda}_x = \boldsymbol{\Sigma}_x^{-1}$, $\boldsymbol{\Lambda}_\varepsilon = \boldsymbol{\Sigma}_\varepsilon^{-1}$:
 #
-# $$
-# \text{Prior:} \quad p(\mathbf{x})
-#   = \mathcal{N}(\boldsymbol{\mu}_0, \boldsymbol{\Sigma}_0)
-# $$
+# $$\text{Prior:} \quad p(\mathbf{x}) = \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$$
 #
-# $$
-# \text{Likelihood:} \quad p(\mathbf{y} \mid \mathbf{x})
-#   = \mathcal{N}(\mathbf{H}\mathbf{x},\, \mathbf{R})
-# $$
+# $$\text{Likelihood:} \quad p(\mathbf{y} \mid \mathbf{x}) = \mathcal{N}(\mathbf{H} \mathbf{x}, \boldsymbol{\Sigma}_\varepsilon)$$
 #
-# Bayes' rule gives a Gaussian posterior
-# $p(\mathbf{x} \mid \mathbf{y})
-#   = \mathcal{N}(\boldsymbol{\mu}_1, \boldsymbol{\Sigma}_1)$
-# with:
+# Bayes' rule gives a Gaussian posterior $p(\mathbf{x} \mid \mathbf{y}) = \mathcal{N}(\boldsymbol{\mu}_{x \mid y}, \boldsymbol{\Sigma}_{x \mid y})$ with:
 #
-# $$
-# \boldsymbol{\Sigma}_1^{-1}
-#   = \boldsymbol{\Sigma}_0^{-1}
-#   + \mathbf{H}^\top \mathbf{R}^{-1} \mathbf{H}
-# \qquad\text{(precisions add!)}
-# $$
+# $$\boldsymbol{\Lambda}_{x \mid y} = \boldsymbol{\Lambda}_x + \mathbf{H}^\top \boldsymbol{\Lambda}_\varepsilon \mathbf{H} \quad \text{(precisions add!)}$$
 #
-# $$
-# \boldsymbol{\mu}_1
-#   = \boldsymbol{\Sigma}_1
-#     \bigl(\boldsymbol{\Sigma}_0^{-1}\boldsymbol{\mu}_0
-#           + \mathbf{H}^\top \mathbf{R}^{-1}\mathbf{y}\bigr)
-# $$
+# $$\boldsymbol{\mu}_{x \mid y} = \boldsymbol{\Sigma}_{x \mid y} (\boldsymbol{\Lambda}_x \boldsymbol{\mu}_x + \mathbf{H}^\top \boldsymbol{\Lambda}_\varepsilon \mathbf{y})$$
 #
-# In **natural parameters** the update is pure addition:
+# In **natural parameters** $(\boldsymbol{\Lambda}_x \boldsymbol{\mu}_x, -\frac{1}{2} \boldsymbol{\Lambda}_x)$ the update is pure addition of the likelihood's natural parameters $(\boldsymbol{\Lambda\mu}_\text{lik}, -\frac{1}{2} \boldsymbol{\Lambda}_\text{lik})$, with $\boldsymbol{\Lambda\mu}_\text{lik} = \mathbf{H}^\top \boldsymbol{\Lambda}_\varepsilon \mathbf{y}$ and $\boldsymbol{\Lambda}_\text{lik} = \mathbf{H}^\top \boldsymbol{\Lambda}_\varepsilon \mathbf{H}$:
 #
-# $$
-# \eta_1 = \boldsymbol{\Lambda}\boldsymbol{\mu}, \qquad
-# \eta_2 = -\tfrac{1}{2}\boldsymbol{\Lambda}
-# $$
+# $$\boldsymbol{\Lambda}_{x \mid y} \boldsymbol{\mu}_{x \mid y} = \boldsymbol{\Lambda}_x \boldsymbol{\mu}_x + \boldsymbol{\Lambda\mu}_\text{lik}$$
 #
-# $$
-# \eta_{\text{post}} = \eta_{\text{prior}} + \eta_{\text{lik}}
-# $$
+# $$-\frac{1}{2} \boldsymbol{\Lambda}_{x \mid y} = -\frac{1}{2} \boldsymbol{\Lambda}_x - \frac{1}{2} \boldsymbol{\Lambda}_\text{lik}$$
 #
 # This is exactly why the exponential family form is so powerful:
 # incorporating new evidence is just vector addition.
@@ -101,23 +77,24 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## 2. Setup
 #
-# We set up a 2D problem: estimating an unknown location
-# $\mathbf{x} = (x, y)$ from noisy measurements.
+# We set up a 2D problem ($D_x = 2$): estimating an unknown location
+# $\mathbf{x} = (x_1, x_2)$ from noisy measurements.
 
 # %%
 key = jax.random.PRNGKey(42)
 
 # Ground truth location we are trying to estimate
+# x_true ∈ ℝ^{D_x}
 x_true = jnp.array([3.0, -1.0])
 
 
-def ellipse_points(mu, cov, n_std=2, n_points=100):
+def ellipse_points(mean, covariance, n_std=2, n_points=100):
     """Compute points on a confidence ellipse from mean and covariance."""
-    theta = jnp.linspace(0, 2 * jnp.pi, n_points)
-    circle = jnp.stack([jnp.cos(theta), jnp.sin(theta)])
-    eigvals, eigvecs = jnp.linalg.eigh(cov)
+    angle = jnp.linspace(0, 2 * jnp.pi, n_points)
+    circle = jnp.stack([jnp.cos(angle), jnp.sin(angle)])
+    eigvals, eigvecs = jnp.linalg.eigh(covariance)
     transform = eigvecs @ jnp.diag(jnp.sqrt(eigvals)) * n_std
-    return mu[:, None] + transform @ circle
+    return mean[:, None] + transform @ circle
 
 
 # %% [markdown]
@@ -125,84 +102,96 @@ def ellipse_points(mu, cov, n_std=2, n_points=100):
 #
 # We start with a vague prior centred at the origin:
 #
-# $$
-# p(\mathbf{x}) = \mathcal{N}\!\bigl(\mathbf{0},\, 4\mathbf{I}\bigr)
-# $$
+# $$p(\mathbf{x}) = \mathcal{N}(\mathbf{0}, 4 \mathbf{I})$$
 
 # %%
-mu_0 = jnp.zeros(2)
-Sigma_0 = 4.0 * jnp.eye(2)
-Sigma_0_op = lx.MatrixLinearOperator(Sigma_0, lx.symmetric_tag)
+# μ_x = 0
+prior_mean = jnp.zeros(2)
+# Σ_x = 4 I
+prior_covariance = 4.0 * jnp.eye(2)
+prior_covariance_op = lx.MatrixLinearOperator(prior_covariance, lx.symmetric_tag)
 
 # Convert to natural parameters using gaussx
-eta1_prior, eta2_prior = gaussx.mean_cov_to_natural(mu_0, Sigma_0_op)
+# (Λ_x μ_x, −½ Λ_x)
+prior_nat1, prior_nat2 = gaussx.mean_cov_to_natural(prior_mean, prior_covariance_op)
 
 print("Prior natural parameters:")
-print("  eta1 =", eta1_prior)
+print("  eta1 =", prior_nat1)
 print("  eta2 =")
-print(eta2_prior.as_matrix())
+print(prior_nat2.as_matrix())
 
 # %% [markdown]
 # ## 4. Single Observation Update
 #
-# We observe the x-coordinate through
-# $\mathbf{H}_1 = \begin{bmatrix}1 & 0\end{bmatrix}$
-# with noise variance $R_1 = 1$:
+# We observe the first coordinate through $\mathbf{H}_1 = \begin{bmatrix} 1 & 0 \end{bmatrix} \in \mathbb{R}^{1 \times D_x}$ with noise variance $\Sigma_{\varepsilon,1} = 1$, so $D_y = 1$:
 #
-# $$
-# y_1 = H_1 \mathbf{x}_{\text{true}} + \varepsilon, \qquad
-# \varepsilon \sim \mathcal{N}(0, 1)
-# $$
+# $$y_1 = \mathbf{H}_1 \mathbf{x}_\text{true} + \varepsilon_1, \quad \varepsilon_1 \sim \mathcal{N}(0, 1)$$
 
 # %%
 # Observation model
-H_1 = jnp.array([[1.0, 0.0]])  # observe x-coordinate
-R_1 = jnp.array([[1.0]])  # noise covariance
+# H_1 ∈ ℝ^{1×D_x}
+obs_operator = jnp.array([[1.0, 0.0]])  # observe x-coordinate
+# Σ_ε,1 ∈ ℝ^{1×1}
+obs_noise_covariance = jnp.array([[1.0]])  # noise covariance
 
 # Simulate observation
+# y_1 = H_1 x_true + ε_1
 key, subkey = jax.random.split(key)
-y_1 = H_1 @ x_true + jax.random.normal(subkey, (1,)) * jnp.sqrt(R_1[0, 0])
-print("Observed y_1 =", y_1)
+obs = obs_operator @ x_true + jax.random.normal(subkey, (1,)) * jnp.sqrt(
+    obs_noise_covariance[0, 0]
+)
+print("Observed y_1 =", obs)
 
 # --- Natural parameter update ---
-R_1_inv = jnp.linalg.inv(R_1)
-eta1_lik = H_1.T @ R_1_inv @ y_1
-eta2_lik_mat = -0.5 * H_1.T @ R_1_inv @ H_1
+# Λ_ε = Σ_ε⁻¹
+obs_noise_precision = jnp.linalg.inv(obs_noise_covariance)
+# Λμ_lik = H_1ᵀ Λ_ε y_1
+lik_nat1 = obs_operator.T @ obs_noise_precision @ obs
+# −½ Λ_lik = −½ H_1ᵀ Λ_ε H_1
+lik_nat2_matrix = -0.5 * obs_operator.T @ obs_noise_precision @ obs_operator
 
 # Add to prior (the key insight: natural params are additive)
-eta1_post = eta1_prior + eta1_lik
-eta2_post_mat = eta2_prior.as_matrix() + eta2_lik_mat
-eta2_post_op = lx.MatrixLinearOperator(eta2_post_mat, lx.symmetric_tag)
+post_nat1 = prior_nat1 + lik_nat1
+post_nat2_matrix = prior_nat2.as_matrix() + lik_nat2_matrix
+post_nat2 = lx.MatrixLinearOperator(post_nat2_matrix, lx.symmetric_tag)
 
 # Convert back to mean and covariance
-post_expfam = GaussianExpFam(eta1=eta1_post, eta2=eta2_post_op)
-mu_1, Sigma_1_op = gaussx.to_mean_cov(post_expfam)
-Sigma_1 = Sigma_1_op.as_matrix()
+post_expfam = GaussianExpFam(eta1=post_nat1, eta2=post_nat2)
+post_mean, post_covariance_op = gaussx.to_mean_cov(post_expfam)
+post_covariance = post_covariance_op.as_matrix()
 
 print("\nNatural parameter posterior:")
-print("  mu_1 =", mu_1)
+print("  mu_1 =", post_mean)
 print("  Sigma_1 =")
-print(Sigma_1)
+print(post_covariance)
 
 # --- Covariance-form update (classic Kalman formula) ---
-# S = H Sigma_0 H^T + R  (innovation covariance)
-S = H_1 @ Sigma_0 @ H_1.T + R_1
+# Σ_y = H Σ_x Hᵀ + Σ_ε  (innovation covariance)
+obs_covariance = obs_operator @ prior_covariance @ obs_operator.T + obs_noise_covariance
 
-# K = Sigma_0 H^T S^{-1}  (Kalman gain)
-K_gain = Sigma_0 @ H_1.T @ jnp.linalg.inv(S)
+# G = Σ_x Hᵀ Σ_y⁻¹  (Kalman gain)
+gain = prior_covariance @ obs_operator.T @ jnp.linalg.inv(obs_covariance)
 
 # Posterior
-mu_1_cov = mu_0 + K_gain @ (y_1 - H_1 @ mu_0)
-Sigma_1_cov = Sigma_0 - K_gain @ S @ K_gain.T
+# μ_x|y = μ_x + G (y − H μ_x)
+post_mean_cov_form = prior_mean + gain @ (obs - obs_operator @ prior_mean)
+# Σ_x|y = Σ_x − G Σ_y Gᵀ
+post_covariance_cov_form = prior_covariance - gain @ obs_covariance @ gain.T
 
 print("\nCovariance-form posterior:")
-print("  mu_1 =", mu_1_cov.squeeze())
+print("  mu_1 =", post_mean_cov_form.squeeze())
 print("  Sigma_1 =")
-print(Sigma_1_cov)
+print(post_covariance_cov_form)
 
 # Verify both forms agree
-print("\nMax difference (mu):", float(jnp.max(jnp.abs(mu_1 - mu_1_cov.squeeze()))))
-print("Max difference (Sigma):", float(jnp.max(jnp.abs(Sigma_1 - Sigma_1_cov))))
+print(
+    "\nMax difference (mu):",
+    float(jnp.max(jnp.abs(post_mean - post_mean_cov_form.squeeze()))),
+)
+print(
+    "Max difference (Sigma):",
+    float(jnp.max(jnp.abs(post_covariance - post_covariance_cov_form))),
+)
 
 # %% [markdown]
 # Both the natural-parameter and covariance-form updates give the same
@@ -216,7 +205,7 @@ print("Max difference (Sigma):", float(jnp.max(jnp.abs(Sigma_1 - Sigma_1_cov))))
 fig, ax = plt.subplots(1, 1, figsize=(6, 6))
 
 # Prior ellipse
-pts_prior = ellipse_points(mu_0, Sigma_0)
+pts_prior = ellipse_points(prior_mean, prior_covariance)
 ax.plot(
     np.asarray(pts_prior[0]),
     np.asarray(pts_prior[1]),
@@ -226,7 +215,7 @@ ax.plot(
 )
 
 # Posterior ellipse
-pts_post = ellipse_points(mu_1, Sigma_1)
+pts_post = ellipse_points(post_mean, post_covariance)
 ax.plot(
     np.asarray(pts_post[0]),
     np.asarray(pts_post[1]),
@@ -238,11 +227,11 @@ ax.plot(
 # True location and observation
 ax.plot(*np.asarray(x_true), "k*", markersize=15, label="True location")
 ax.axvline(
-    float(y_1[0]),
+    float(obs[0]),
     color="green",
     linestyle="--",
     alpha=0.7,
-    label=f"$y_1 = {float(y_1[0]):.2f}$",
+    label=f"$y_1 = {float(obs[0]):.2f}$",
 )
 
 ax.set_xlabel("$x_1$")
@@ -265,7 +254,7 @@ plt.show()
 
 # %%
 # Observation matrices: mix of x-only, y-only, and joint observations
-H_list = [
+obs_operators = [
     jnp.array([[0.0, 1.0]]),  # y-coordinate
     jnp.array([[1.0, 1.0]]) / jnp.sqrt(2.0),  # diagonal
     jnp.array([[1.0, 0.0]]),  # x-coordinate again
@@ -273,43 +262,50 @@ H_list = [
     jnp.array([[1.0, -1.0]]) / jnp.sqrt(2.0),  # anti-diagonal
 ]
 
-R_obs = jnp.array([[0.5]])  # all observations share the same noise
+# Σ_ε
+seq_noise_covariance = jnp.array([[0.5]])  # all observations share the same noise
 
 # Simulate observations
+# y_n = H_n x_true + ε_n
 observations = []
-for H_i in H_list:
+for H_n in obs_operators:
     key, subkey = jax.random.split(key)
-    y_i = H_i @ x_true + jax.random.normal(subkey, (1,)) * jnp.sqrt(R_obs[0, 0])
-    observations.append(y_i)
+    y_n = H_n @ x_true + jax.random.normal(subkey, (1,)) * jnp.sqrt(
+        seq_noise_covariance[0, 0]
+    )
+    observations.append(y_n)
 
 # Sequential Bayesian updating starting from posterior after first obs
-trajectory_mu = [mu_0, mu_1]
-trajectory_Sigma = [Sigma_0, Sigma_1]
+trajectory_means = [prior_mean, post_mean]
+trajectory_covariances = [prior_covariance, post_covariance]
 
 # Current natural parameters (after first observation)
-eta1_curr = eta1_post.copy()
-eta2_curr_mat = eta2_post_mat.copy()
+curr_nat1 = post_nat1.copy()
+curr_nat2_matrix = post_nat2_matrix.copy()
 
-R_obs_inv = jnp.linalg.inv(R_obs)
+# Λ_ε = Σ_ε⁻¹
+seq_noise_precision = jnp.linalg.inv(seq_noise_covariance)
 
-for i, (H_i, y_i) in enumerate(zip(H_list, observations, strict=True)):
+for i, (H_n, y_n) in enumerate(zip(obs_operators, observations, strict=True)):
     # Likelihood natural parameters
-    eta1_lik_i = H_i.T @ R_obs_inv @ y_i
-    eta2_lik_i = -0.5 * H_i.T @ R_obs_inv @ H_i
+    # Λμ_lik = H_nᵀ Λ_ε y_n
+    lik_nat1_n = H_n.T @ seq_noise_precision @ y_n
+    # −½ Λ_lik = −½ H_nᵀ Λ_ε H_n
+    lik_nat2_n = -0.5 * H_n.T @ seq_noise_precision @ H_n
 
     # Update: just add!
-    eta1_curr = eta1_curr + eta1_lik_i
-    eta2_curr_mat = eta2_curr_mat + eta2_lik_i
+    curr_nat1 = curr_nat1 + lik_nat1_n
+    curr_nat2_matrix = curr_nat2_matrix + lik_nat2_n
 
     # Convert back for plotting
-    eta2_curr_op = lx.MatrixLinearOperator(eta2_curr_mat, lx.symmetric_tag)
-    post_i = GaussianExpFam(eta1=eta1_curr, eta2=eta2_curr_op)
-    mu_i, Sigma_i_op = gaussx.to_mean_cov(post_i)
+    curr_nat2 = lx.MatrixLinearOperator(curr_nat2_matrix, lx.symmetric_tag)
+    post_n = GaussianExpFam(eta1=curr_nat1, eta2=curr_nat2)
+    mean_n, covariance_n_op = gaussx.to_mean_cov(post_n)
 
-    trajectory_mu.append(mu_i)
-    trajectory_Sigma.append(Sigma_i_op.as_matrix())
+    trajectory_means.append(mean_n)
+    trajectory_covariances.append(covariance_n_op.as_matrix())
 
-    print(f"After obs {i + 2}: mu = [{float(mu_i[0]):.3f}, {float(mu_i[1]):.3f}]")
+    print(f"After obs {i + 2}: mu = [{float(mean_n[0]):.3f}, {float(mean_n[1]):.3f}]")
 
 print(f"\nTrue location: [{float(x_true[0]):.3f}, {float(x_true[1]):.3f}]")
 
@@ -319,13 +315,13 @@ print(f"\nTrue location: [{float(x_true[0]):.3f}, {float(x_true[1]):.3f}]")
 # %%
 fig, ax = plt.subplots(1, 1, figsize=(7, 7))
 
-n_steps = len(trajectory_mu)
+n_steps = len(trajectory_means)
 colors = plt.cm.viridis(np.linspace(0.1, 0.9, n_steps))
 
 for k in range(n_steps):
-    mu_k = trajectory_mu[k]
-    Sigma_k = trajectory_Sigma[k]
-    pts = ellipse_points(mu_k, Sigma_k)
+    mean_k = trajectory_means[k]
+    covariance_k = trajectory_covariances[k]
+    pts = ellipse_points(mean_k, covariance_k)
     label = "Prior" if k == 0 else f"After obs {k}"
     ax.plot(
         np.asarray(pts[0]),
@@ -334,7 +330,7 @@ for k in range(n_steps):
         linewidth=2,
         label=label,
     )
-    ax.plot(float(mu_k[0]), float(mu_k[1]), "o", color=colors[k], markersize=4)
+    ax.plot(float(mean_k[0]), float(mean_k[1]), "o", color=colors[k], markersize=4)
 
 ax.plot(*np.asarray(x_true), "r*", markersize=18, label="True location", zorder=10)
 
@@ -358,36 +354,42 @@ plt.show()
 
 # %%
 # Collect ALL observations (including the first one)
-H_all_list = [H_1, *H_list]
-y_all_list = [y_1, *observations]
-R_all_list = [R_1, *([R_obs] * len(observations))]
+all_obs_operators = [obs_operator, *obs_operators]
+all_observations = [obs, *observations]
+all_noise_covariances = [
+    obs_noise_covariance,
+    *([seq_noise_covariance] * len(observations)),
+]
 
 # Batch: sum all likelihood natural parameters at once
-eta1_batch = eta1_prior.copy()
-eta2_batch_mat = eta2_prior.as_matrix().copy()
+batch_nat1 = prior_nat1.copy()
+batch_nat2_matrix = prior_nat2.as_matrix().copy()
 
-for H_i, y_i, R_i in zip(H_all_list, y_all_list, R_all_list, strict=True):
-    R_i_inv = jnp.linalg.inv(R_i)
-    eta1_batch = eta1_batch + H_i.T @ R_i_inv @ y_i
-    eta2_batch_mat = eta2_batch_mat + (-0.5 * H_i.T @ R_i_inv @ H_i)
+for H_n, y_n, noise_covariance_n in zip(
+    all_obs_operators, all_observations, all_noise_covariances, strict=True
+):
+    # Λ_ε = Σ_ε⁻¹
+    noise_precision_n = jnp.linalg.inv(noise_covariance_n)
+    batch_nat1 = batch_nat1 + H_n.T @ noise_precision_n @ y_n
+    batch_nat2_matrix = batch_nat2_matrix + (-0.5 * H_n.T @ noise_precision_n @ H_n)
 
 # Convert to mean/cov
-eta2_batch_op = lx.MatrixLinearOperator(eta2_batch_mat, lx.symmetric_tag)
-batch_expfam = GaussianExpFam(eta1=eta1_batch, eta2=eta2_batch_op)
-mu_batch, Sigma_batch_op = gaussx.to_mean_cov(batch_expfam)
-Sigma_batch = Sigma_batch_op.as_matrix()
+batch_nat2 = lx.MatrixLinearOperator(batch_nat2_matrix, lx.symmetric_tag)
+batch_expfam = GaussianExpFam(eta1=batch_nat1, eta2=batch_nat2)
+batch_mean, batch_covariance_op = gaussx.to_mean_cov(batch_expfam)
+batch_covariance = batch_covariance_op.as_matrix()
 
 # Compare with sequential result (last entry in trajectory)
-mu_seq = trajectory_mu[-1]
-Sigma_seq = trajectory_Sigma[-1]
+seq_mean = trajectory_means[-1]
+seq_covariance = trajectory_covariances[-1]
 
-diff_mu = float(jnp.max(jnp.abs(mu_batch - mu_seq)))
-diff_Sigma = float(jnp.max(jnp.abs(Sigma_batch - Sigma_seq)))
+diff_mean = float(jnp.max(jnp.abs(batch_mean - seq_mean)))
+diff_covariance = float(jnp.max(jnp.abs(batch_covariance - seq_covariance)))
 
-print("Batch posterior mean:     ", np.asarray(mu_batch))
-print("Sequential posterior mean:", np.asarray(mu_seq))
-print(f"Max |mu_batch - mu_seq|     = {diff_mu:.2e}")
-print(f"Max |Sigma_batch - Sigma_seq| = {diff_Sigma:.2e}")
+print("Batch posterior mean:     ", np.asarray(batch_mean))
+print("Sequential posterior mean:", np.asarray(seq_mean))
+print(f"Max |mu_batch - mu_seq|     = {diff_mean:.2e}")
+print(f"Max |Sigma_batch - Sigma_seq| = {diff_covariance:.2e}")
 
 # %% [markdown]
 # The batch and sequential results agree to machine precision ($\sim 10^{-15}$),
@@ -397,69 +399,61 @@ print(f"Max |Sigma_batch - Sigma_seq| = {diff_Sigma:.2e}")
 # ## 9. Connection to GP Regression
 #
 # Gaussian process regression **is** Bayes' rule applied to a
-# function-valued prior:
+# function-valued prior. On $N$ training inputs $\mathbf{X}$, the function values $\mathbf{f} \in \mathbb{R}^N$ have kernel matrix $\mathbf{K}_{XX} \in \mathbb{R}^{N \times N}$:
 #
-# $$
-# \text{Prior:} \quad \mathbf{f} \sim \mathcal{GP}(\mathbf{0}, \mathbf{K})
-# $$
+# $$\text{Prior:} \quad \mathbf{f} \sim \mathcal{N}(\mathbf{0}, \mathbf{K}_{XX})$$
 #
-# $$
-# \text{Likelihood:} \quad \mathbf{y} \mid \mathbf{f}
-#   \sim \mathcal{N}(\mathbf{f},\, \sigma^2 \mathbf{I})
-# $$
+# $$\text{Likelihood:} \quad \mathbf{y} \mid \mathbf{f} \sim \mathcal{N}(\mathbf{f}, \sigma_\varepsilon^2 \mathbf{I})$$
 #
-# Applying the Gaussian Bayes rule with $\mathbf{H} = \mathbf{I}$
-# and $\mathbf{R} = \sigma^2 \mathbf{I}$:
+# Applying the Gaussian Bayes rule with $\mathbf{H} = \mathbf{I}$ and $\boldsymbol{\Sigma}_\varepsilon = \sigma_\varepsilon^2 \mathbf{I}$:
 #
-# $$
-# \boldsymbol{\Lambda}_{\text{post}}
-#   = \mathbf{K}^{-1} + \sigma^{-2}\mathbf{I}
-# $$
+# $$\boldsymbol{\Lambda}_{f \mid y} = \mathbf{K}_{XX}^{-1} + \sigma_\varepsilon^{-2} \mathbf{I}$$
 #
-# $$
-# \boldsymbol{\mu}_{\text{post}}
-#   = \boldsymbol{\Lambda}_{\text{post}}^{-1}\,
-#     \sigma^{-2}\mathbf{y}
-#   = \mathbf{K}(\mathbf{K} + \sigma^2\mathbf{I})^{-1}\mathbf{y}
-# $$
+# $$\boldsymbol{\mu}_{f \mid y} = \boldsymbol{\Lambda}_{f \mid y}^{-1} \sigma_\varepsilon^{-2} \mathbf{y} = \mathbf{K}_{XX} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y}$$
 #
 # This is the standard GP posterior mean formula. We can compute it
 # directly with `gaussx.solve`.
 
 # %%
 # Small GP regression example
-N_gp = 30
+# N = 30
+num_train = 30
 key, subkey = jax.random.split(key)
-x_gp = jnp.sort(jax.random.uniform(subkey, (N_gp,), minval=0.0, maxval=5.0))
+train_inputs = jnp.sort(
+    jax.random.uniform(subkey, (num_train,), minval=0.0, maxval=5.0)
+)
 
 # RBF kernel
-ls = 1.0
-diff = x_gp[:, None] - x_gp[None, :]
-K_gp = jnp.exp(-0.5 * diff**2 / ls**2)
+# K_XX = exp(−½ (x − x')² / ℓ²)
+lengthscale = 1.0
+diff = train_inputs[:, None] - train_inputs[None, :]
+gram_train = jnp.exp(-0.5 * diff**2 / lengthscale**2)
 
 # Observations with noise
-sigma2 = 0.1
+# y = f + ε, ε ~ 𝒩(0, σ_ε² I)
+noise_variance = 0.1
 key, subkey = jax.random.split(key)
-f_true = jnp.sin(x_gp)
-y_gp = f_true + jax.random.normal(subkey, (N_gp,)) * jnp.sqrt(sigma2)
+f_true = jnp.sin(train_inputs)
+train_obs = f_true + jax.random.normal(subkey, (num_train,)) * jnp.sqrt(noise_variance)
 
 # GP posterior via gaussx.solve (the Bayes rule result)
-K_plus_noise = K_gp + sigma2 * jnp.eye(N_gp)
-K_plus_noise_op = lx.MatrixLinearOperator(K_plus_noise, lx.symmetric_tag)
+# K_XX + σ_ε² I
+gram_plus_noise = gram_train + noise_variance * jnp.eye(num_train)
+gram_plus_noise_op = lx.MatrixLinearOperator(gram_plus_noise, lx.symmetric_tag)
 
-# mu_post = K (K + sigma^2 I)^{-1} y
-alpha = gaussx.solve(K_plus_noise_op, y_gp)
-mu_gp_post = K_gp @ alpha
+# μ_f|y = K_XX (K_XX + σ_ε² I)⁻¹ y
+alpha = gaussx.solve(gram_plus_noise_op, train_obs)
+post_mean_gp = gram_train @ alpha
 
 # Also compute the log marginal likelihood
 lml = gaussx.log_marginal_likelihood(
-    loc=jnp.zeros(N_gp),
-    cov_operator=K_plus_noise_op,
-    y=y_gp,
+    loc=jnp.zeros(num_train),
+    cov_operator=gram_plus_noise_op,
+    y=train_obs,
 )
 
 print(f"GP log marginal likelihood: {float(lml):.3f}")
-rmse = float(jnp.sqrt(jnp.mean((mu_gp_post - f_true) ** 2)))
+rmse = float(jnp.sqrt(jnp.mean((post_mean_gp - f_true) ** 2)))
 print(f"Posterior mean RMSE vs truth: {rmse:.4f}")
 
 # %% [markdown]
@@ -474,9 +468,9 @@ print(f"Posterior mean RMSE vs truth: {rmse:.4f}")
 #
 # Bayes' rule for Gaussians is **addition in natural parameter space**:
 #
-# $$
-# \eta_{\text{post}} = \eta_{\text{prior}} + \eta_{\text{lik}}
-# $$
+# $$\boldsymbol{\Lambda}_{x \mid y} \boldsymbol{\mu}_{x \mid y} = \boldsymbol{\Lambda}_x \boldsymbol{\mu}_x + \boldsymbol{\Lambda\mu}_\text{lik}$$
+#
+# $$\boldsymbol{\Lambda}_{x \mid y} = \boldsymbol{\Lambda}_x + \boldsymbol{\Lambda}_\text{lik}$$
 #
 # This single insight underlies:
 #
