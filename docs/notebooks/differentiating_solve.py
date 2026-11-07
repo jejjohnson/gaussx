@@ -23,17 +23,11 @@
 # %% [markdown]
 # ## Mathematical background: implicit differentiation
 #
-# When a linear system $A(\theta)\, x(\theta) = b$ defines the
-# solution $x$ implicitly as a function of parameters $\theta$,
-# differentiating both sides with respect to $\theta$ gives
+# When a linear system $\mathbf{A}(\theta) \mathbf{x}(\theta) = \mathbf{b}$ defines the solution $\mathbf{x}$ implicitly as a function of a parameter $\theta$, differentiating both sides with respect to $\theta$ gives
 #
-# $$\frac{\partial x}{\partial \theta}
-# = -A^{-1} \frac{\partial A}{\partial \theta}\, x$$
+# $$\frac{\partial \mathbf{x}}{\partial \theta} = -\mathbf{A}^{-1} \frac{\partial \mathbf{A}}{\partial \theta} \mathbf{x}$$
 #
-# This is the implicit function theorem applied to the linear case.
-# Computing $\partial x / \partial \theta$ requires one additional
-# linear solve (with the same matrix $A$), but never requires forming
-# or storing the full Jacobian $\partial x / \partial \theta$ explicitly.
+# This is the implicit function theorem applied to the linear case. Computing $\partial \mathbf{x} / \partial \theta$ requires one additional linear solve (with the same matrix $\mathbf{A}$), but never requires forming or storing the full Jacobian $\partial \mathbf{x} / \partial \theta$ explicitly.
 
 # %% [markdown]
 # ## How lineax computes gradients under the hood
@@ -46,19 +40,12 @@
 #
 # ### Forward mode (JVP)
 #
-# Given primals $(A, b)$ and tangents $(\dot{A}, \dot{b})$, lineax
-# computes the tangent of the solution $\dot{x}$ by solving a single
-# linear system with the **same** operator $A$:
+# Given primals $(\mathbf{A}, \mathbf{b})$ and tangents $(\dot{\mathbf{A}}, \dot{\mathbf{b}})$, lineax computes the tangent of the solution $\dot{\mathbf{x}}$ by solving a single linear system with the **same** operator $\mathbf{A}$:
 #
-# $$\dot{x} = A^{-1}\bigl(\dot{b} - \dot{A}\, x\bigr)$$
+# $$\dot{\mathbf{x}} = \mathbf{A}^{-1} (\dot{\mathbf{b}} - \dot{\mathbf{A}} \mathbf{x})$$
 #
-# This follows from differentiating $A x = b$ in the forward direction:
-# $\dot{A}\,x + A\,\dot{x} = \dot{b}$, rearranged. In lineax's
-# implementation, $\dot{A}\,x$ is computed via a `TangentLinearOperator`
-# that wraps the primal and tangent operators together, using JAX's own
-# `jvp` to differentiate the matvec. This means lineax never needs to
-# form $\dot{A}$ as a dense matrix — it only needs the action
-# $\dot{A}\,v$ for specific vectors $v$.
+# This follows from differentiating $\mathbf{A} \mathbf{x} = \mathbf{b}$ in the forward direction: $\dot{\mathbf{A}} \mathbf{x} + \mathbf{A} \dot{\mathbf{x}} = \dot{\mathbf{b}}$, rearranged. In lineax's implementation, $\dot{\mathbf{A}} \mathbf{x}$ is computed via a `TangentLinearOperator`
+# that wraps the primal and tangent operators together, using JAX's own `jvp` to differentiate the matvec. This means lineax never needs to form $\dot{\mathbf{A}}$ as a dense matrix — it only needs the action $\dot{\mathbf{A}} \mathbf{v}$ for specific vectors $\mathbf{v}$.
 #
 # More generally, lineax implements the full **Moore--Penrose
 # pseudoinverse derivative** (Golub & Pereyra, 1973), which handles
@@ -68,25 +55,16 @@
 #
 # ### Reverse mode (VJP / adjoint method)
 #
-# Reverse-mode AD is what `jax.grad` uses. Given a scalar loss
-# $\ell(x)$ where $x = A^{-1} b$, the backward pass needs to propagate
-# the cotangent $\bar{x} = \partial \ell / \partial x$ back to
-# cotangents for $A$ and $b$.
+# Reverse-mode AD is what `jax.grad` uses. Given a scalar loss $\mathcal{L}(\mathbf{x})$ where $\mathbf{x} = \mathbf{A}^{-1} \mathbf{b}$, the backward pass needs to propagate the cotangent $\bar{\mathbf{x}} = \partial \mathcal{L} / \partial \mathbf{x}$ back to cotangents for $\mathbf{A}$ and $\mathbf{b}$.
 #
 # Lineax implements this by solving an **adjoint system** with the
 # transposed operator:
 #
-# $$\lambda = A^{-\top} \bar{x}$$
+# $$\boldsymbol{\lambda} = \mathbf{A}^{-\top} \bar{\mathbf{x}}$$
 #
-# The cotangent with respect to $b$ is then $\bar{b} = \lambda$, and
-# the cotangent with respect to $A$ (as a linear map acting on
-# perturbations $\delta A$) is
-# $\bar{A} : \delta A \mapsto -\lambda^\top (\delta A)\, x$.
+# The cotangent with respect to $\mathbf{b}$ is then $\bar{\mathbf{b}} = \boldsymbol{\lambda}$, and the cotangent with respect to $\mathbf{A}$ (as a linear map acting on perturbations $\Delta \mathbf{A}$) is $\bar{\mathbf{A}} : \Delta \mathbf{A} \mapsto -\boldsymbol{\lambda}^\top (\Delta \mathbf{A}) \mathbf{x}$.
 #
-# Crucially, lineax **reuses the solver's factorization** for the
-# adjoint solve. For direct solvers (Cholesky, LU), the `transpose()`
-# method flips a flag on the existing factorization rather than
-# recomputing it. For Cholesky ($A = LL^\top$, so $A^\top = A$), the
+# Crucially, lineax **reuses the solver's factorization** for the adjoint solve. For direct solvers (Cholesky, LU), the `transpose()` method flips a flag on the existing factorization rather than recomputing it. For Cholesky ($\mathbf{A} = \mathbf{L} \mathbf{L}^\top$, so $\mathbf{A}^\top = \mathbf{A}$), the
 # adjoint solve is essentially free. For iterative solvers (CG), the
 # transposed system is solved with the same algorithm since PSD
 # operators are self-adjoint.
@@ -126,28 +104,30 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## 1. Gradient of a loss through solve
 #
-# Consider optimizing a parameter $\theta$ that appears in the
-# matrix $A(\theta)$. We want $\nabla_\theta \|A(\theta)^{-1} b - x^*\|^2$.
+# Consider optimizing a parameter $\theta$ that appears in the matrix $\mathbf{A}(\theta)$. We want $\nabla_\theta \Vert \mathbf{A}(\theta)^{-1} \mathbf{b} - \mathbf{x}_\text{target} \Vert_2^2$.
 
 
 # %%
 def build_op(theta):
     """Build a PSD matrix parameterized by theta."""
     # Diagonal + scaled off-diagonal coupling
-    diag = jnp.array([1.0, 2.0, 3.0]) + theta
-    off = theta * 0.1
-    mat = jnp.diag(diag) + off * (jnp.ones((3, 3)) - jnp.eye(3))
-    return lx.MatrixLinearOperator(mat, lx.positive_semidefinite_tag)
+    # A(θ) = diag([1, 2, 3] + θ) + 0.1 θ (1 1ᵀ − I)
+    diagonal = jnp.array([1.0, 2.0, 3.0]) + theta
+    coupling = theta * 0.1
+    matrix = jnp.diag(diagonal) + coupling * (jnp.ones((3, 3)) - jnp.eye(3))
+    return lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
 
 
-b = jnp.array([1.0, 2.0, 3.0])
-x_target = jnp.array([0.5, 0.5, 0.5])
+rhs = jnp.array([1.0, 2.0, 3.0])
+target = jnp.array([0.5, 0.5, 0.5])
 
 
 def loss(theta):
-    op = build_op(theta)
-    x = gaussx.solve(op, b)
-    return jnp.sum((x - x_target) ** 2)
+    operator = build_op(theta)
+    # x = A(θ)⁻¹ b
+    solution = gaussx.solve(operator, rhs)
+    # ℒ(θ) = ‖x − x_target‖₂²
+    return jnp.sum((solution - target) ** 2)
 
 
 theta = 1.0
@@ -157,8 +137,9 @@ grad_loss = jax.grad(loss)
 print(f"grad(theta={theta}): {grad_loss(theta):.6f}")
 
 # Verify with finite differences
-eps = 1e-5
-fd_grad = (loss(theta + eps) - loss(theta - eps)) / (2 * eps)
+# (ℒ(θ + h) − ℒ(θ − h)) / 2h
+fd_step = 1e-5
+fd_grad = (loss(theta + fd_step) - loss(theta - fd_step)) / (2 * fd_step)
 print(f"finite diff grad:    {fd_grad:.6f}")
 print(f"match: {jnp.allclose(grad_loss(theta), fd_grad, rtol=1e-4)}")
 
@@ -175,7 +156,11 @@ fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 axes[0].plot(thetas, losses, "C0-", lw=2)
 axes[0].set_xlabel("$\\theta$")
 axes[0].set_ylabel("Loss")
-axes[0].set_title("$\\|A(\\theta)^{-1}b - x^*\\|^2$")
+loss_title = (
+    "$\\Vert \\mathbf{A}(\\theta)^{-1} \\mathbf{b}"
+    " - \\mathbf{x}_\\mathrm{target} \\Vert_2^2$"
+)
+axes[0].set_title(loss_title)
 axes[0].grid(True, which="major", alpha=0.3)
 axes[0].grid(True, which="minor", alpha=0.1)
 axes[0].minorticks_on()
@@ -196,13 +181,15 @@ plt.show()
 # ## 3. Gradient descent to find optimal theta
 
 # %%
-theta = 3.0  # starting point
-lr = 0.5
+# starting point
+theta = 3.0
+learning_rate = 0.5
 trajectory = [theta]
 
 for _i in range(30):
-    g = grad_loss(theta)
-    theta = theta - lr * g
+    gradient = grad_loss(theta)
+    # θ ← θ − γ ∇_θ ℒ
+    theta = theta - learning_rate * gradient
     trajectory.append(float(theta))
 
 trajectory = jnp.array(trajectory)
@@ -253,16 +240,11 @@ plt.show()
 # %% [markdown]
 # ## 4. Differentiating logdet
 #
-# The derivative of the log-determinant with respect to a parameter
-# $\theta$ is given by Jacobi's formula:
+# The derivative of the log-determinant with respect to a parameter $\theta$ is given by Jacobi's formula:
 #
-# $$\frac{\partial}{\partial \theta} \log|A(\theta)|
-# = \operatorname{tr}\!\bigl(A(\theta)^{-1}
-# \frac{\partial A}{\partial \theta}\bigr)$$
+# $$\frac{\partial}{\partial \theta} \log \det \mathbf{A}(\theta) = \mathrm{tr}\left(\mathbf{A}(\theta)^{-1} \frac{\partial \mathbf{A}}{\partial \theta}\right)$$
 #
-# This identity is central to many applications. In GP inference, it
-# appears in the gradient of the log-marginal likelihood, where the
-# complexity penalty term involves $\log|K + \sigma^2 I|$ and its
+# This identity is central to many applications. In GP inference, it appears in the gradient of the log-marginal likelihood, where the complexity penalty term involves $\log \det (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})$ and its
 # derivative with respect to kernel hyperparameters.
 #
 # gaussx + JAX computes this automatically via reverse-mode AD.
@@ -270,8 +252,8 @@ plt.show()
 
 # %%
 def logdet_of_theta(theta):
-    op = build_op(theta)
-    return gaussx.logdet(op)
+    operator = build_op(theta)
+    return gaussx.logdet(operator)
 
 
 grad_logdet = jax.grad(logdet_of_theta)
@@ -282,7 +264,7 @@ grad_logdets = jax.vmap(grad_logdet)(thetas)
 fig, axes = plt.subplots(1, 2, figsize=(12, 4))
 axes[0].plot(thetas, logdets, "C0-", lw=2)
 axes[0].set_xlabel("$\\theta$")
-axes[0].set_ylabel("$\\log|A(\\theta)|$")
+axes[0].set_ylabel("$\\log \\det \\mathbf{A}(\\theta)$")
 axes[0].set_title("Log-determinant")
 axes[0].grid(True, which="major", alpha=0.3)
 axes[0].grid(True, which="minor", alpha=0.1)
@@ -290,7 +272,7 @@ axes[0].minorticks_on()
 
 axes[1].plot(thetas, grad_logdets, "C1-", lw=2)
 axes[1].set_xlabel("$\\theta$")
-axes[1].set_ylabel("$\\nabla_\\theta \\log|A(\\theta)|$")
+axes[1].set_ylabel("$\\nabla_\\theta \\log \\det \\mathbf{A}(\\theta)$")
 axes[1].set_title("Gradient of log-determinant")
 axes[1].grid(True, which="major", alpha=0.3)
 axes[1].grid(True, which="minor", alpha=0.1)
@@ -305,12 +287,9 @@ plt.show()
 # Both the solve and logdet gradients appear together in the gradient
 # of the GP log-marginal likelihood:
 #
-# $$\log p(y|X,\theta) = -\tfrac{1}{2} y^\top K_y^{-1} y
-# - \tfrac{1}{2} \log|K_y| - \tfrac{n}{2} \log 2\pi$$
+# $$\log p(\mathbf{y} \mid \mathbf{X}; \theta) = -\frac{1}{2} \mathbf{y}^\top \boldsymbol{\Sigma}_y^{-1} \mathbf{y} - \frac{1}{2} \log \det \boldsymbol{\Sigma}_y - \frac{N}{2} \log 2\pi$$
 #
-# Differentiating with respect to hyperparameters requires
-# $\partial(K_y^{-1} y)/\partial\theta$ (a solve gradient) and
-# $\partial \log|K_y|/\partial\theta$ (a logdet gradient). gaussx + JAX
+# Differentiating with respect to hyperparameters requires $\partial (\boldsymbol{\Sigma}_y^{-1} \mathbf{y}) / \partial \theta$ (a solve gradient) and $\partial \log \det \boldsymbol{\Sigma}_y / \partial \theta$ (a logdet gradient). gaussx + JAX
 # computes both simultaneously via reverse-mode AD through a single
 # evaluation of the log-marginal likelihood. This is more efficient than
 # implementing the analytic gradient expressions manually, and it
@@ -323,7 +302,7 @@ plt.show()
 # | What | How |
 # |------|-----|
 # | grad of solve | `jax.grad(lambda t: f(gaussx.solve(A(t), b)))` |
-# | $\nabla_\theta \log|A(\theta)|$ | `jax.grad(lambda t: gaussx.logdet(A(t)))` |
+# | $\nabla_\theta \log \det \mathbf{A}(\theta)$ | `jax.grad(lambda t: gaussx.logdet(A(t)))` |
 # | Jacobian | `jax.jacobian(lambda t: gaussx.solve(A(t), b))` |
 # | Batched gradients | `jax.vmap(jax.grad(loss))` |
 #

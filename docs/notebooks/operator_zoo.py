@@ -22,9 +22,7 @@
 # Kronecker products in multi-dimensional PDEs and separable covariance
 # kernels, block-diagonal matrices in independent subsystems and mixture
 # models, and low-rank updates in Kalman filtering and spatial statistics.
-# By representing these operators in factored form, we avoid forming and
-# factorizing dense $n \times n$ matrices -- often reducing $O(n^3)$
-# operations to $O(n)$ or $O(n \log n)$.
+# By representing these operators in factored form, we avoid forming and factorizing dense $N \times N$ matrices -- often reducing $O(N^3)$ operations to $O(N)$ or $O(N \log N)$.
 
 # %%
 from __future__ import annotations
@@ -47,19 +45,18 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## 1. Diagonal
 #
-# The simplest operator. Lineax provides `DiagonalLinearOperator`
-# and gaussx gives it O(n) fast paths for every primitive.
+# The simplest operator. Lineax provides `DiagonalLinearOperator` and gaussx gives it $O(N)$ fast paths for every primitive.
 
 # %%
-d = jnp.array([1.0, 4.0, 9.0, 16.0])
-D = lx.DiagonalLinearOperator(d)
+diagonal = jnp.array([1.0, 4.0, 9.0, 16.0])
+diagonal_op = lx.DiagonalLinearOperator(diagonal)
 
-print(f"Type:    {type(D).__name__}")
-print(f"Size:    {D.in_size()} x {D.out_size()}")
-print(f"mv([1,1,1,1]): {D.mv(jnp.ones(4))}")
-print(f"solve:   {gaussx.solve(D, jnp.ones(4))}")
-print(f"logdet:  {gaussx.logdet(D):.4f}")
-print(f"trace:   {gaussx.trace(D):.1f}")
+print(f"Type:    {type(diagonal_op).__name__}")
+print(f"Size:    {diagonal_op.in_size()} x {diagonal_op.out_size()}")
+print(f"mv([1,1,1,1]): {diagonal_op.mv(jnp.ones(4))}")
+print(f"solve:   {gaussx.solve(diagonal_op, jnp.ones(4))}")
+print(f"logdet:  {gaussx.logdet(diagonal_op):.4f}")
+print(f"trace:   {gaussx.trace(diagonal_op):.1f}")
 
 # %% [markdown]
 # ## 2. BlockDiag
@@ -68,79 +65,79 @@ print(f"trace:   {gaussx.trace(D):.1f}")
 # Every primitive decomposes per-block.
 
 # %%
-A = lx.MatrixLinearOperator(jnp.array([[2.0, 0.5], [0.5, 3.0]]))
-B = lx.DiagonalLinearOperator(jnp.array([1.0, 5.0, 7.0]))
+block_a = lx.MatrixLinearOperator(jnp.array([[2.0, 0.5], [0.5, 3.0]]))
+block_b = lx.DiagonalLinearOperator(jnp.array([1.0, 5.0, 7.0]))
 
-BD = gaussx.BlockDiag(A, B)
+block_diag_op = gaussx.BlockDiag(block_a, block_b)
 
-print(f"Type:    {type(BD).__name__}")
-print(f"Size:    {BD.in_size()} x {BD.out_size()}")
-print(f"Blocks:  {len(BD.operators)}")
-print(f"logdet:  {gaussx.logdet(BD):.4f}")
-print(f"trace:   {gaussx.trace(BD):.1f}")
+print(f"Type:    {type(block_diag_op).__name__}")
+print(f"Size:    {block_diag_op.in_size()} x {block_diag_op.out_size()}")
+print(f"Blocks:  {len(block_diag_op.operators)}")
+print(f"logdet:  {gaussx.logdet(block_diag_op):.4f}")
+print(f"trace:   {gaussx.trace(block_diag_op):.1f}")
 
 # %% [markdown]
 # ## 3. Kronecker
 #
-# $A \otimes B$ stored as two small matrices.
-# Matvec via Roth's column lemma, logdet/solve/cholesky per-factor.
+# $\mathbf{A} \otimes \mathbf{B}$ stored as two small matrices. Matvec via Roth's column lemma, logdet/solve/cholesky per-factor.
 #
-# The eigenvalue decomposition of $A \otimes B$ inherits from its factors:
-# if $A v_i^A = \lambda_i^A v_i^A$ and $B v_j^B = \lambda_j^B v_j^B$, then
+# The eigenvalue decomposition of $\mathbf{A} \otimes \mathbf{B}$ inherits from its factors: if $\mathbf{A} \mathbf{v}^A_i = \gamma^A_i \mathbf{v}^A_i$ and $\mathbf{B} \mathbf{v}^B_j = \gamma^B_j \mathbf{v}^B_j$, then
 #
-# $$\lambda_{ij} = \lambda_i^A \lambda_j^B, \qquad v_{ij} = v_i^A \otimes v_j^B$$
+# $$\gamma_{ij} = \gamma^A_i \gamma^B_j$$
 #
-# This means all spectral operations on the product decompose into
-# operations on the factors, reducing $O((n_1 n_2)^3)$ to
-# $O(n_1^3 + n_2^3)$ (Van Loan, 2000).
+# $$\mathbf{v}_{ij} = \mathbf{v}^A_i \otimes \mathbf{v}^B_j$$
+#
+# This means all spectral operations on the product decompose into operations on the factors, reducing $O((N_1 N_2)^3)$ to $O(N_1^3 + N_2^3)$ (Van Loan, 2000).
 
 # %%
-K1 = lx.MatrixLinearOperator(jnp.array([[2.0, 0.5], [0.5, 3.0]]))
-K2 = lx.MatrixLinearOperator(jnp.array([[1.0, 0.3], [0.3, 2.0]]))
+factor_1 = lx.MatrixLinearOperator(jnp.array([[2.0, 0.5], [0.5, 3.0]]))
+factor_2 = lx.MatrixLinearOperator(jnp.array([[1.0, 0.3], [0.3, 2.0]]))
 
-K = gaussx.Kronecker(K1, K2)
+kronecker_op = gaussx.Kronecker(factor_1, factor_2)
 
-print(f"Type:    {type(K).__name__}")
-print(f"Size:    {K.in_size()} x {K.out_size()}")
-print(f"Factors: {len(K.operators)}")
-print(f"logdet:  {gaussx.logdet(K):.4f}")
-print(f"trace:   {gaussx.trace(K):.1f}")
+print(f"Type:    {type(kronecker_op).__name__}")
+print(f"Size:    {kronecker_op.in_size()} x {kronecker_op.out_size()}")
+print(f"Factors: {len(kronecker_op.operators)}")
+print(f"logdet:  {gaussx.logdet(kronecker_op):.4f}")
+print(f"trace:   {gaussx.trace(kronecker_op):.1f}")
 
 # 3-factor Kronecker
-K3 = gaussx.Kronecker(K1, K2, lx.DiagonalLinearOperator(jnp.array([1.0, 2.0])))
-print(f"\n3-factor Kronecker size: {K3.in_size()}")
-print(f"3-factor logdet: {gaussx.logdet(K3):.4f}")
+kronecker_3_op = gaussx.Kronecker(
+    factor_1, factor_2, lx.DiagonalLinearOperator(jnp.array([1.0, 2.0]))
+)
+print(f"\n3-factor Kronecker size: {kronecker_3_op.in_size()}")
+print(f"3-factor logdet: {gaussx.logdet(kronecker_3_op):.4f}")
 
 # %% [markdown]
 # ## 4. LowRankUpdate
 #
-# $L + U \mathrm{diag}(d) V^\top$. Woodbury solve, determinant lemma logdet.
+# $\mathbf{A}_0 + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{V}^\top$. Woodbury solve, determinant lemma logdet.
 #
 # **Woodbury identity** (Hager, 1989):
-# $$(A + UCV)^{-1} = A^{-1} - A^{-1}U\bigl(C^{-1} + VA^{-1}U\bigr)^{-1}VA^{-1}$$
+# $$(\mathbf{A} + \mathbf{U} \mathbf{C} \mathbf{V})^{-1} = \mathbf{A}^{-1} - \mathbf{A}^{-1} \mathbf{U} (\mathbf{C}^{-1} + \mathbf{V} \mathbf{A}^{-1} \mathbf{U})^{-1} \mathbf{V} \mathbf{A}^{-1}$$
 #
 # **Matrix determinant lemma:**
-# $$\log|A + UCV| = \log|C^{-1} + VA^{-1}U| + \log|C| + \log|A|$$
+# $$\log \det (\mathbf{A} + \mathbf{U} \mathbf{C} \mathbf{V}) = \log \det (\mathbf{C}^{-1} + \mathbf{V} \mathbf{A}^{-1} \mathbf{U}) + \log \det \mathbf{C} + \log \det \mathbf{A}$$
 #
-# Both reduce an $n \times n$ problem to a $k \times k$ problem on the
-# capacitance matrix, where $k$ is the rank of the update.
+# Both reduce an $N \times N$ problem to a $k \times k$ problem on the capacitance matrix, where $k$ is the rank of the update.
 
 # %%
-base = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0, 4.0]))
-U = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0], [0.0, 0.0]])
-d_vals = jnp.array([0.5, 0.3])
+base_op = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0, 4.0]))
+low_rank_factor = jnp.array([[1.0, 0.0], [0.5, 0.5], [0.0, 1.0], [0.0, 0.0]])
+update_diagonal = jnp.array([0.5, 0.3])
 
-lr = gaussx.LowRankUpdate(base, U, d_vals)
+# A = A₀ + U diag(d) Uᵀ
+low_rank_op = gaussx.LowRankUpdate(base_op, low_rank_factor, update_diagonal)
 
-print(f"Type:    {type(lr).__name__}")
-print(f"Size:    {lr.in_size()} x {lr.out_size()}")
-print(f"Rank:    {lr.rank}")
-print(f"logdet:  {gaussx.logdet(lr):.4f}")
+print(f"Type:    {type(low_rank_op).__name__}")
+print(f"Size:    {low_rank_op.in_size()} x {low_rank_op.out_size()}")
+print(f"Rank:    {low_rank_op.rank}")
+print(f"logdet:  {gaussx.logdet(low_rank_op):.4f}")
 
 # Convenience constructors
-lr2 = gaussx.low_rank_plus_diag(jnp.ones(4), U)
-print(f"\nlow_rank_plus_diag rank: {lr2.rank}")
-print(f"is_low_rank: {gaussx.is_low_rank(lr2)}")
+low_rank_op_2 = gaussx.low_rank_plus_diag(jnp.ones(4), low_rank_factor)
+print(f"\nlow_rank_plus_diag rank: {low_rank_op_2.rank}")
+print(f"is_low_rank: {gaussx.is_low_rank(low_rank_op_2)}")
 
 # %% [markdown]
 # ## 5. Visualizing operator structure
@@ -149,16 +146,16 @@ print(f"is_low_rank: {gaussx.is_low_rank(lr2)}")
 
 # %%
 operators = {
-    "Diagonal": D,
-    "BlockDiag": BD,
-    "Kronecker": K,
-    "LowRankUpdate": lr,
+    "Diagonal": diagonal_op,
+    "BlockDiag": block_diag_op,
+    "Kronecker": kronecker_op,
+    "LowRankUpdate": low_rank_op,
 }
 
 fig, axes = plt.subplots(1, 4, figsize=(14, 3))
 for ax, (name, op) in zip(axes, operators.items(), strict=False):
-    mat = op.as_matrix()
-    im = ax.imshow(jnp.abs(mat), cmap="Blues", interpolation="nearest")
+    matrix = op.as_matrix()
+    im = ax.imshow(jnp.abs(matrix), cmap="Blues", interpolation="nearest")
     ax.set_title(f"{name}\n({op.in_size()}x{op.out_size()})")
     ax.set_xticks([])
     ax.set_yticks([])
@@ -173,16 +170,15 @@ plt.show()
 
 # %%
 # Kronecker + diagonal perturbation
-D_small = lx.DiagonalLinearOperator(0.1 * jnp.ones(4))
-perturbed = K + D_small
+small_diagonal_op = lx.DiagonalLinearOperator(0.1 * jnp.ones(4))
+perturbed = kronecker_op + small_diagonal_op
 print(f"K + 0.1*I type: {type(perturbed).__name__}")
-print(
-    f"(K + 0.1*I).mv == K.mv + 0.1*v: "
-    f"{jnp.allclose((K + D_small).mv(jnp.ones(4)), K.mv(jnp.ones(4)) + 0.1)}"
-)
+sum_mv = (kronecker_op + small_diagonal_op).mv(jnp.ones(4))
+split_mv = kronecker_op.mv(jnp.ones(4)) + 0.1
+print(f"(K + 0.1*I).mv == K.mv + 0.1*v: {jnp.allclose(sum_mv, split_mv)}")
 
 # Scalar multiplication
-scaled = K * 2.0
+scaled = kronecker_op * 2.0
 print(f"2*K type: {type(scaled).__name__}")
 
 # %% [markdown]
@@ -192,28 +188,28 @@ print(f"2*K type: {type(scaled).__name__}")
 
 # %%
 print("Diagonal:")
-print(f"  is_symmetric:  {gaussx.is_symmetric(D)}")
-print(f"  is_diagonal:   {gaussx.is_diagonal(D)}")
+print(f"  is_symmetric:  {gaussx.is_symmetric(diagonal_op)}")
+print(f"  is_diagonal:   {gaussx.is_diagonal(diagonal_op)}")
 
 print("\nKronecker:")
-print(f"  is_kronecker:  {gaussx.is_kronecker(K)}")
-print(f"  is_symmetric:  {gaussx.is_symmetric(K)}")
+print(f"  is_kronecker:  {gaussx.is_kronecker(kronecker_op)}")
+print(f"  is_symmetric:  {gaussx.is_symmetric(kronecker_op)}")
 
 print("\nBlockDiag:")
-print(f"  is_block_diagonal: {gaussx.is_block_diagonal(BD)}")
+print(f"  is_block_diagonal: {gaussx.is_block_diagonal(block_diag_op)}")
 
 print("\nLowRankUpdate:")
-print(f"  is_low_rank:   {gaussx.is_low_rank(lr)}")
+print(f"  is_low_rank:   {gaussx.is_low_rank(low_rank_op)}")
 
 # %% [markdown]
 # ## Summary
 #
 # | Operator | Storage | mv cost | Key identity |
 # |----------|---------|---------|-------------|
-# | `Diagonal` | O(n) | O(n) | Built into lineax |
-# | `BlockDiag` | sum O(n_i^2) | sum O(n_i^2) | Per-block decomposition |
-# | `Kronecker` | sum O(n_i^2) | O(sum n_i^3) | Roth's column lemma |
-# | `LowRankUpdate` | O(nk) | O(nk) | Woodbury identity |
+# | `Diagonal` | $O(N)$ | $O(N)$ | Built into lineax |
+# | `BlockDiag` | sum $O(N_i^2)$ | sum $O(N_i^2)$ | Per-block decomposition |
+# | `Kronecker` | sum $O(N_i^2)$ | $O(N \sum_i N_i)$ | Roth's column lemma |
+# | `LowRankUpdate` | $O(Nk)$ | $O(Nk)$ | Woodbury identity |
 
 # %% [markdown]
 # ## References
