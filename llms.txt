@@ -1,0 +1,40 @@
+# gaussx
+
+> Structured linear algebra, Gaussian distributions and exponential-family primitives for JAX, built on lineax, equinox and matfree. Covariance and precision matrices are lineax operators that keep their structure (Kronecker, Kronecker sums, block-diagonal, block-tridiagonal, low-rank + diagonal, Toeplitz, sparse), and every solve, log-determinant, Cholesky and sample dispatches on that structure instead of calling dense LAPACK. Use these primitives instead of re-implementing them with jnp.linalg.
+
+One package, `gaussx` (`pip install gaussx`; `gaussx[numpyro]` for the NumPyro distributions). Five layers: primitives (`solve`, `logdet`, `cholesky`, `sqrt`, `inv`, `diag`, `trace`), operators (`Kronecker`, `BlockDiag`, `LowRankUpdate`, `BlockTriDiag`, `Toeplitz`, `SparseOperator`, …), solver strategies (`DenseSolver`, `CGSolver`, `BBMMSolver`, `SLQLogdet`, preconditioners, the `linear_solve` front door), distributions (`MultivariateNormal`, `gaussian_log_prob`, `gaussian_kl`, `conditional`, natural parameters), and recipes (GPs, Kalman filters and smoothers, quadrature, ensemble Kalman, natural-gradient updates). Before writing a helper, search the capability index — it lists every public name with a one-line summary, plus the lineax, matfree and optimistix APIs underneath. Code you add should keep three rules:
+
+- **Operators, not arrays:** a covariance is a `lineax.AbstractLinearOperator`, PSD-tagged (`lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)`) and built with the structure it has; never `.as_matrix()` before a solve.
+- **Numerics through `solver=`:** pass a strategy (`CGSolver()`, `BBMMSolver()`) instead of rewriting the math; `None` means structural dispatch.
+- **JAX:** pure functions, explicit PRNG keys, float32 stays float32, safe under `jit` / `grad` / `vmap`.
+
+Claude Code users can install the `gaussx` plugin: `/plugin marketplace add jejjohnson/gaussx`, then `/plugin install gaussx@gaussx`.
+
+## Start here
+
+- [Home](https://jejjohnson.github.io/gaussx/): what gaussx is, the quick start and a GP computed five ways
+- [Capability index](https://jejjohnson.github.io/gaussx/capabilities/): every public name, grouped by layer, with a summary; then lineax, matfree and optimistix
+- [Building with agents](https://jejjohnson.github.io/gaussx/agents/): the Claude Code plugin, this file, and rules to paste into your project's AGENTS.md
+- [Architecture](https://jejjohnson.github.io/gaussx/architecture/): the layers and the operator × primitive dispatch table (which structure gets which fast path)
+
+## API reference
+
+- [Overview and conventions](https://jejjohnson.github.io/gaussx/api/): tags, `solver=`, lazy results, naming, deprecation policy
+- [Primitives](https://jejjohnson.github.io/gaussx/api/primitives/): `solve`, `logdet`, `cholesky`, `trace`, `diag`, `sqrt`, `inv`, `eig`, `svd`, root decompositions
+- [Operators & tags](https://jejjohnson.github.io/gaussx/api/operators/): Kronecker, low-rank, banded, Toeplitz, interpolated, masked operators and structural tags
+- [Sparse operators](https://jejjohnson.github.io/gaussx/api/sparse/): `SparseOperator`, sparse Cholesky, selected inverse
+- [GMRF precision builders](https://jejjohnson.github.io/gaussx/api/gmrf/): RW1 / RW2, AR(1), Besag / BYM2, SPDE Matérn
+- [Solvers & preconditioners](https://jejjohnson.github.io/gaussx/api/solvers/): strategies, `linear_solve`, preconditioners
+- [Linear-algebra utilities](https://jejjohnson.github.io/gaussx/api/linalg/): `safe_cholesky`, Woodbury, Schur, tridiagonal and Lyapunov solves
+- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/api/distributions/): `MultivariateNormal(Precision)`, GMRFs, LGSSM, KL, natural parameters
+- [Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/): conditioning, prediction caches, ELBOs, whitening, LOVE, OILMM
+- [State-space models & Kalman](https://jejjohnson.github.io/gaussx/api/ssm/): SDE kernels, Kalman / RTS (sequential, parallel, infinite-horizon), SpInGP, CVI
+- [Quadrature & moment matching](https://jejjohnson.github.io/gaussx/api/quadrature/): integrators, likelihoods, expectations, uncertain-input GPs
+- [Bayesian inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/): BLR, natural gradients, Laplace, EnKF / ETKF, localisation, inflation
+
+## Optional
+
+- [Vision](https://jejjohnson.github.io/gaussx/vision/): why structure matters, and what gaussx deliberately is not
+- [Unified solvers design](https://jejjohnson.github.io/gaussx/design/unified-solvers/): how the PDE packages share gaussx's solver layer
+- [Basics notebook](https://jejjohnson.github.io/gaussx/notebooks/basics/) and [Operator zoo](https://jejjohnson.github.io/gaussx/notebooks/operator_zoo/)
+- [Source code](https://github.com/jejjohnson/gaussx)
