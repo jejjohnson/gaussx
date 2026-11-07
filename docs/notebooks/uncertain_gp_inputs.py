@@ -15,11 +15,7 @@
 # %% [markdown]
 # # GP with Uncertain Inputs (PILCO-style)
 #
-# When a Gaussian process (GP) is queried at an uncertain input
-# $x_* \sim \mathcal{N}(\mu_*, \Sigma_*)$, the predictive distribution
-# $p(f(x_*))$ is **no longer Gaussian** -- it is a mixture of Gaussians
-# weighted by the input density. Approximating this distribution is
-# central to several important models:
+# When a Gaussian process (GP) is queried at an uncertain input $\mathbf{x}_* \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$, the predictive distribution $p(f(\mathbf{x}_*))$ is **no longer Gaussian** -- it is a mixture of Gaussians weighted by the input density. Approximating this distribution is central to several important models:
 #
 # - **Multi-step dynamics prediction** (Girard et al., 2003): the GP
 #   predicts the next state, and that uncertain prediction becomes
@@ -36,16 +32,11 @@
 #
 # ## Predictive moments
 #
-# Given the GP posterior $f \mid \mathcal{D}$ with weights
-# $\alpha = (K + \sigma^2 I)^{-1} y$ and an uncertain input
-# $x_* \sim \mathcal{N}(\mu_*, \Sigma_*)$, the predictive moments are
+# Given the GP posterior $f \mid \mathcal{D}$ with weights $\boldsymbol{\alpha} = \boldsymbol{\Sigma}_y^{-1} \mathbf{y}$, where $\boldsymbol{\Sigma}_y = \mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I}$, and an uncertain input $\mathbf{x}_* \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$, the predictive moments are
 #
-# $$\mathbb{E}[f(x_*)] = \int \mathbf{k}(x_*)^\top \alpha
-#   \;\mathcal{N}(x_* \mid \mu_*, \Sigma_*)\,dx_*,$$
+# $$\mathbb{E}[f(\mathbf{x}_*)] = \int \mathbf{k}_{X*}^\top \boldsymbol{\alpha} \mathcal{N}(\mathbf{x}_*; \boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x) \mathrm{d}\mathbf{x}_*,$$
 #
-# $$\mathrm{Var}[f(x_*)] = \int \bigl(f(x_*)
-#   - \mathbb{E}[f(x_*)]\bigr)^2
-#   \;\mathcal{N}(x_* \mid \mu_*, \Sigma_*)\,dx_*.$$
+# $$\mathbb{V}[f(\mathbf{x}_*)] = \int \left(f(\mathbf{x}_*) - \mathbb{E}[f(\mathbf{x}_*)]\right)^2 \mathcal{N}(\mathbf{x}_*; \boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x) \mathrm{d}\mathbf{x}_*.$$
 #
 # For the squared-exponential kernel, these integrals have closed-form
 # solutions. For general kernels, we need numerical integration --
@@ -82,9 +73,7 @@ jax.config.update("jax_enable_x64", True)
 # %% [markdown]
 # ## 1. Setup: 1D GP regression on sin(x)
 #
-# We train a standard GP with an RBF kernel on noisy observations of
-# $\sin(x)$, then extract the weight vector $\alpha = K^{-1} y$ and the
-# inverse kernel operator $K^{-1}$.
+# We train a standard GP with an RBF kernel on noisy observations of $\sin(x)$, then extract the weight vector $\boldsymbol{\alpha} = \boldsymbol{\Sigma}_y^{-1} \mathbf{y}$ and the inverse kernel operator $\boldsymbol{\Sigma}_y^{-1}$.
 
 # %%
 key = jr.PRNGKey(42)
@@ -110,22 +99,25 @@ def rbf_kernel(x1, x2):
     return variance * jnp.exp(-0.5 * sq_dist / lengthscale**2)
 
 
-# Build the kernel matrix K(X_train, X_train) + noise * I
+# Build the kernel matrix Σ_y = K_XX + σ_ε² I
 def kernel_matrix(X):
     """Compute the full kernel matrix for training points."""
     n = X.shape[0]
-    K = jax.vmap(lambda x1: jax.vmap(lambda x2: rbf_kernel(x1, x2))(X))(X)
-    return K + noise_var * jnp.eye(n)
+    kernel = jax.vmap(lambda x1: jax.vmap(lambda x2: rbf_kernel(x1, x2))(X))(X)
+    return kernel + noise_var * jnp.eye(n)
 
 
-K_noisy = kernel_matrix(X_train)
-K_op = lx.MatrixLinearOperator(K_noisy, lx.positive_semidefinite_tag)
+# Σ_y  (N, N)
+noisy_kernel = kernel_matrix(X_train)
+noisy_kernel_op = lx.MatrixLinearOperator(noisy_kernel, lx.positive_semidefinite_tag)
 
-# Solve for alpha = K^{-1} y
-alpha = gaussx.solve(K_op, y_train)
+# Solve for α = Σ_y⁻¹ y
+alpha = gaussx.solve(noisy_kernel_op, y_train)
 
-# K_inv operator (needed for predictive variance)
-K_inv = lx.MatrixLinearOperator(jnp.linalg.inv(K_noisy), lx.positive_semidefinite_tag)
+# Σ_y⁻¹ operator (needed for predictive variance)
+noisy_kernel_inv = lx.MatrixLinearOperator(
+    jnp.linalg.inv(noisy_kernel), lx.positive_semidefinite_tag
+)
 
 # %% [markdown]
 # Quick sanity check: plot the GP posterior at deterministic test points.
@@ -136,9 +128,12 @@ x_grid = jnp.linspace(-5, 5, 300)
 
 def gp_predict_scalar(x_star):
     """Standard GP prediction at a single point. (D,) -> (mean, var)."""
+    # k_X*  (N,)
     k_star = jax.vmap(lambda xi: rbf_kernel(x_star, xi))(X_train)
+    # μ_* = k_X*ᵀ α
     mu = jnp.dot(k_star, alpha)
-    solved = lx.linear_solve(K_op, k_star).value
+    solved = lx.linear_solve(noisy_kernel_op, k_star).value
+    # σ²_* = k_** − k_X*ᵀ Σ_y⁻¹ k_X*
     v = rbf_kernel(x_star, x_star) - jnp.dot(k_star, solved)
     return mu, jnp.maximum(v, 0.0)
 
@@ -177,10 +172,7 @@ plt.show()
 # %% [markdown]
 # ## 2. Single uncertain prediction
 #
-# Now suppose our test input is uncertain:
-# $x_* \sim \mathcal{N}(1.5, \; 0.3)$. We compare three approaches
-# to computing the predictive moments $\mathbb{E}[f(x_*)]$ and
-# $\mathrm{Var}[f(x_*)]$.
+# Now suppose our test input is uncertain: $x_* \sim \mathcal{N}(1.5, 0.3)$. We compare three approaches to computing the predictive moments $\mathbb{E}[f(x_*)]$ and $\mathbb{V}[f(x_*)]$.
 
 # %%
 # Define the uncertain test input as a GaussianState
@@ -194,7 +186,7 @@ state_test = gaussx.GaussianState(mean=mu_test, cov=cov_test)
 # %%
 taylor_integrator = gaussx.TaylorIntegrator()
 mu_taylor, var_taylor = gaussx.uncertain_gp_predict(
-    rbf_kernel, X_train, alpha, K_inv, state_test, taylor_integrator
+    rbf_kernel, X_train, alpha, noisy_kernel_inv, state_test, taylor_integrator
 )
 print(f"Taylor:     mean = {mu_taylor:.4f},  var = {var_taylor:.4f}")
 
@@ -204,7 +196,7 @@ print(f"Taylor:     mean = {mu_taylor:.4f},  var = {var_taylor:.4f}")
 # %%
 unscented_integrator = gaussx.UnscentedIntegrator()
 mu_ut, var_ut = gaussx.uncertain_gp_predict(
-    rbf_kernel, X_train, alpha, K_inv, state_test, unscented_integrator
+    rbf_kernel, X_train, alpha, noisy_kernel_inv, state_test, unscented_integrator
 )
 print(f"Unscented:  mean = {mu_ut:.4f},  var = {var_ut:.4f}")
 
@@ -238,9 +230,7 @@ print(f"{'MC (1000)':<14} {mu_mc:8.4f} {var_mc:8.4f}")
 # to roll out a trajectory. At each step, the output distribution
 # becomes the input for the next step, and uncertainty grows.
 #
-# We use a simple 1D dynamical system:
-# $x_{t+1} = \sin(x_t) + 0.1\,x_t + \varepsilon$, with
-# $\varepsilon \sim \mathcal{N}(0, 0.01)$.
+# We use a simple 1D dynamical system: $x_{t+1} = \sin(x_t) + 0.1 x_t + \varepsilon$, with $\varepsilon \sim \mathcal{N}(0, 0.01)$.
 
 # %% [markdown]
 # ### Generate dynamics data
@@ -258,20 +248,28 @@ y_dyn = (
 )
 
 # Train dynamics GP
-K_dyn = jax.vmap(lambda x1: jax.vmap(lambda x2: rbf_kernel(x1, x2))(x_dyn))(x_dyn)
-K_dyn_noisy = K_dyn + dynamics_noise * jnp.eye(x_dyn.shape[0])
-K_dyn_op = lx.MatrixLinearOperator(K_dyn_noisy, lx.positive_semidefinite_tag)
-alpha_dyn = gaussx.solve(K_dyn_op, y_dyn)
-K_dyn_inv = lx.MatrixLinearOperator(
-    jnp.linalg.inv(K_dyn_noisy), lx.positive_semidefinite_tag
+# K_XX  (N, N)
+kernel_dyn = jax.vmap(lambda x1: jax.vmap(lambda x2: rbf_kernel(x1, x2))(x_dyn))(x_dyn)
+# Σ_y = K_XX + σ_ε² I  (N, N)
+noisy_kernel_dyn = kernel_dyn + dynamics_noise * jnp.eye(x_dyn.shape[0])
+noisy_kernel_dyn_op = lx.MatrixLinearOperator(
+    noisy_kernel_dyn, lx.positive_semidefinite_tag
+)
+# α = Σ_y⁻¹ y  (N,)
+alpha_dyn = gaussx.solve(noisy_kernel_dyn_op, y_dyn)
+noisy_kernel_dyn_inv = lx.MatrixLinearOperator(
+    jnp.linalg.inv(noisy_kernel_dyn), lx.positive_semidefinite_tag
 )
 
 
 def gp_predict_dyn(x_star):
     """Dynamics GP prediction: (D,) -> (mean, var)."""
+    # k_X*  (N,)
     k_star = jax.vmap(lambda xi: rbf_kernel(x_star, xi))(x_dyn)
+    # μ_* = k_X*ᵀ α
     mu = jnp.dot(k_star, alpha_dyn)
-    solved = lx.linear_solve(K_dyn_op, k_star).value
+    solved = lx.linear_solve(noisy_kernel_dyn_op, k_star).value
+    # σ²_* = k_** − k_X*ᵀ Σ_y⁻¹ k_X*
     v = rbf_kernel(x_star, x_star) - jnp.dot(k_star, solved)
     return mu, jnp.maximum(v, 0.0)
 
@@ -279,9 +277,7 @@ def gp_predict_dyn(x_star):
 # %% [markdown]
 # ### Roll out with uncertainty propagation
 #
-# Starting from $x_0 \sim \mathcal{N}(0.5, 0.01)$, we chain uncertain
-# GP predictions for $H = 15$ steps. At each step we use
-# `AssumedDensityFilter` for KL-optimal Gaussian moment matching.
+# Starting from $x_0 \sim \mathcal{N}(0.5, 0.01)$, we chain uncertain GP predictions for $T = 15$ steps. At each step we use `AssumedDensityFilter` for KL-optimal Gaussian moment matching.
 
 # %%
 horizon = 15
@@ -301,7 +297,7 @@ pred_vars = [float(jnp.diag(state_t.cov.as_matrix())[0])]
 
 for _t in range(horizon):
     mu_t, var_t = gaussx.uncertain_gp_predict(
-        rbf_kernel, x_dyn, alpha_dyn, K_dyn_inv, state_t, integrator
+        rbf_kernel, x_dyn, alpha_dyn, noisy_kernel_dyn_inv, state_t, integrator
     )
     # Build the next state from predicted moments
     next_mean = jnp.atleast_1d(mu_t)
@@ -428,7 +424,7 @@ print(f"Expected quadratic cost: {expected_cost:.4f}")
 # uncertain GP machinery above.
 
 # %% [markdown]
-# ### 5a. Mean expectation: $\mathbb{E}[f(x)]$
+# ### 5a. Mean expectation: $\mathbb{E}[f(\mathbf{x})]$
 #
 # Compute the expected value of a function under a Gaussian input.
 
@@ -444,20 +440,20 @@ state_exp = gaussx.GaussianState(
     cov=lx.MatrixLinearOperator(jnp.array([[0.5]]), lx.positive_semidefinite_tag),
 )
 
-E_f = gaussx.mean_expectation(cubic_fn, state_exp, integrator)
-print(f"E[f(x)] with Unscented: {E_f}")
+expected_f = gaussx.mean_expectation(cubic_fn, state_exp, integrator)
+print(f"E[f(x)] with Unscented: {expected_f}")
 
-# Analytic check: E[x^3 - 2x] = mu^3 + 3*mu*sigma^2 - 2*mu
+# Analytic check: 𝔼[x³ − 2x] = μ³ + 3 μ σ² − 2 μ
 mu_val, sig2_val = 1.0, 0.5
 analytic = mu_val**3 + 3.0 * mu_val * sig2_val - 2.0 * mu_val
 print(f"Analytic E[x^3 - 2x]:  {analytic:.4f}")
 
 # %% [markdown]
-# ### 5b. Gradient expectation: $\mathbb{E}[\nabla f(x)]$ via Stein's lemma
+# ### 5b. Gradient expectation: $\mathbb{E}[\nabla f(\mathbf{x})]$ via Stein's lemma
 #
-# Stein's lemma states that for $x \sim \mathcal{N}(\mu, \Sigma)$:
+# Stein's lemma states that for $\mathbf{x} \sim \mathcal{N}(\boldsymbol{\mu}_x, \boldsymbol{\Sigma}_x)$:
 #
-# $$\mathbb{E}[\nabla f(x)] = \Sigma^{-1}\,\mathrm{Cov}[x, f(x)]$$
+# $$\mathbb{E}[\nabla f(\mathbf{x})] = \boldsymbol{\Sigma}_x^{-1} \mathrm{Cov}[\mathbf{x}, f(\mathbf{x})]$$
 #
 # This is useful for computing expected gradients without differentiating
 # through the expectation integral.
@@ -469,15 +465,15 @@ def scalar_fn(x):
     return jnp.sum(jnp.sin(x))
 
 
-E_grad = gaussx.gradient_expectation(scalar_fn, state_exp, integrator)
-print(f"E[nabla sin(x)] at mu=1, sigma^2=0.5: {E_grad}")
+expected_grad = gaussx.gradient_expectation(scalar_fn, state_exp, integrator)
+print(f"E[nabla sin(x)] at mu=1, sigma^2=0.5: {expected_grad}")
 
-# Compare: analytic E[cos(x)] = cos(mu) * exp(-sigma^2/2)
+# Compare: analytic 𝔼[cos(x)] = cos(μ) exp(−σ²/2)
 analytic_grad = jnp.cos(1.0) * jnp.exp(-0.5 * 0.5)
 print(f"Analytic E[cos(x)] (moment generating fn):  {analytic_grad:.4f}")
 
 # %% [markdown]
-# ### 5c. Log-likelihood expectation: $\mathbb{E}[\log p(y \mid f(x))]$
+# ### 5c. Log-likelihood expectation: $\mathbb{E}[\log p(y \mid f(\mathbf{x}))]$
 #
 # For variational inference and EM with uncertain inputs, we need the
 # expected log-likelihood under the input distribution.
@@ -494,8 +490,10 @@ def log_likelihood_fn(x):
     )
 
 
-E_ll = gaussx.log_likelihood_expectation(log_likelihood_fn, state_exp, integrator)
-print(f"E[log p(y|f(x))]: {E_ll:.4f}")
+expected_ll = gaussx.log_likelihood_expectation(
+    log_likelihood_fn, state_exp, integrator
+)
+print(f"E[log p(y|f(x))]: {expected_ll:.4f}")
 
 # %% [markdown]
 # ## 6. AssumedDensityFilter with diagnostics
@@ -571,10 +569,10 @@ print("  (Deviations from 0 / 3 indicate non-Gaussianity)")
 # | `uncertain_gp_predict` | Uncertain-input GP via quadrature |
 # | `uncertain_gp_predict_mc` | GP prediction with uncertain inputs via Monte Carlo |
 # | `AssumedDensityFilter` | KL-optimal Gaussian projection with diagnostics |
-# | `mean_expectation` | $\mathbb{E}[f(x)]$ under Gaussian input |
-# | `gradient_expectation` | $\mathbb{E}[\nabla f(x)]$ via Stein's lemma |
+# | `mean_expectation` | $\mathbb{E}[f(\mathbf{x})]$ under Gaussian input |
+# | `gradient_expectation` | $\mathbb{E}[\nabla f(\mathbf{x})]$ via Stein's lemma |
 # | `cost_expectation` | Expected cost under input uncertainty |
-# | `log_likelihood_expectation` | $\mathbb{E}[\log p(y \mid f(x))]$ |
+# | `log_likelihood_expectation` | $\mathbb{E}[\log p(y \mid f(\mathbf{x}))]$ |
 #
 # These building blocks compose naturally:
 #

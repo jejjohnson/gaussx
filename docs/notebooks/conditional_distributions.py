@@ -22,7 +22,7 @@
 # **What you'll learn:**
 #
 # 1. How GP prediction is just conditioning a joint Gaussian
-# 2. `gaussx.conditional` for computing $p(x_A \mid x_B = b)$
+# 2. `gaussx.conditional` for computing $p(\mathbf{x}_A \mid \mathbf{x}_B = \boldsymbol{\beta})$
 # 3. `gaussx.schur_complement` for the conditional covariance block
 # 4. `gaussx.gaussian_kl` to verify equivalence of two approaches
 # 5. `gaussx.conditional_variance` for predictive variances
@@ -30,35 +30,17 @@
 # %% [markdown]
 # ## 1. Background: GP Prediction as Joint Conditioning
 #
-# A Gaussian process defines a joint Gaussian over any finite collection
-# of function values. Given training inputs $X$ with noisy observations
-# $y$ and test inputs $X_*$, we can stack them into a single joint:
+# A Gaussian process defines a joint Gaussian over any finite collection of function values. Given training inputs $\mathbf{X}$ with noisy observations $\mathbf{y}$ and test inputs $\mathbf{X}_*$, we can stack them into a single joint:
 #
-# $$
-# \begin{bmatrix} \mathbf{y} \\ \mathbf{f}_* \end{bmatrix}
-# \sim \mathcal{N}\!\left(
-# \mathbf{0},\;
-# \begin{bmatrix}
-#   K_{ff} + \sigma^2 I & K_{f*} \\
-#   K_{*f} & K_{**}
-# \end{bmatrix}
-# \right)
-# $$
+# $$\begin{bmatrix} \mathbf{y} \\ \mathbf{f}_* \end{bmatrix} \sim \mathcal{N}\left(\mathbf{0}, \begin{bmatrix} \mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I} & \mathbf{K}_{X*} \\ \mathbf{K}_{*X} & \mathbf{K}_{**} \end{bmatrix}\right)$$
 #
 # Conditioning on $\mathbf{y}$ gives the posterior predictive:
 #
-# $$
-# \mu_{*|y} = K_{*f} (K_{ff} + \sigma^2 I)^{-1} \mathbf{y}
-# $$
+# $$\boldsymbol{\mu}_{* \mid y} = \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y}$$
 #
-# $$
-# \Sigma_{*|y} = K_{**} - K_{*f} (K_{ff} + \sigma^2 I)^{-1} K_{f*}
-# $$
+# $$\boldsymbol{\Sigma}_{* \mid y} = \mathbf{K}_{**} - \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{K}_{X*}$$
 #
-# This is exactly the Gaussian conditioning formula
-# $\mu_{A|B} = \mu_A + \Sigma_{AB} \Sigma_{BB}^{-1}(b - \mu_B)$
-# applied to the joint above. We will verify this with both
-# `gaussx.conditional` and manual computation.
+# This is exactly the Gaussian conditioning formula $\boldsymbol{\mu}_{A \mid B} = \boldsymbol{\mu}_A + \boldsymbol{\Sigma}_{AB} \boldsymbol{\Sigma}_{BB}^{-1} (\boldsymbol{\beta} - \boldsymbol{\mu}_B)$ applied to the joint above. We will verify this with both `gaussx.conditional` and manual computation.
 
 # %%
 from __future__ import annotations
@@ -84,10 +66,7 @@ jax.config.update("jax_enable_x64", True)
 # We define a squared-exponential (RBF) kernel and sample noisy
 # observations from a known function.
 #
-# $$
-# k(x, x') = \sigma_f^2
-#   \exp\!\left(-\frac{(x - x')^2}{2\ell^2}\right)
-# $$
+# $$k_\text{RBF}(x, x') = \sigma_k^2 \exp\left(-\frac{(x - x')^2}{2 \ell^2}\right)$$
 
 
 # %%
@@ -119,43 +98,39 @@ x_test = jnp.linspace(-3.5, 3.5, n_test)
 # %% [markdown]
 # ## 3. Form the Joint Distribution
 #
-# We build the full joint covariance over
-# $[\mathbf{y},\, \mathbf{f}_*]$ of size
-# $(n_\text{train} + n_\text{test}) \times (n_\text{train} + n_\text{test})$.
-# Noise $\sigma^2 I$ is added only to the training block.
+# We build the full joint covariance over $[\mathbf{y}, \mathbf{f}_*]$ of size $(N + M) \times (N + M)$, with $N$ training and $M$ test points. Noise $\sigma_\varepsilon^2 \mathbf{I}$ is added only to the training block.
 
 # %%
 x_all = jnp.concatenate([x_train, x_test])
-K_joint = rbf_kernel(x_all, x_all, lengthscale, variance)
+# Joint covariance over [y, f_*]  (N + M, N + M)
+joint_cov = rbf_kernel(x_all, x_all, lengthscale, variance)
 
 # Add noise to the training block only
 noise_block = jnp.zeros(n_train + n_test)
 noise_block = noise_block.at[:n_train].set(noise_var)
-K_joint = K_joint + jnp.diag(noise_block)
+joint_cov = joint_cov + jnp.diag(noise_block)
 
 # Add small jitter to the entire joint for numerical stability
-K_joint = K_joint + 1e-6 * jnp.eye(n_train + n_test)
+joint_cov = joint_cov + 1e-6 * jnp.eye(n_train + n_test)
 
 # Joint mean is zero
 mu_joint = jnp.zeros(n_train + n_test)
 
 # Wrap as lineax operator
-K_joint_op = lx.MatrixLinearOperator(K_joint, lx.positive_semidefinite_tag)
+joint_cov_op = lx.MatrixLinearOperator(joint_cov, lx.positive_semidefinite_tag)
 
-print(f"Joint covariance shape: {K_joint.shape}")
+print(f"Joint covariance shape: {joint_cov.shape}")
 print(f"Training indices: 0..{n_train - 1}")
 print(f"Test indices: {n_train}..{n_train + n_test - 1}")
 
 # %% [markdown]
 # ## 4. Condition with `gaussx.conditional`
 #
-# `gaussx.conditional(loc, cov, obs_idx, obs_values)` computes
-# $p(x_A \mid x_B = b)$ from a joint Gaussian. The training indices
-# are the observed set $B$, and the test indices are the free set $A$.
+# `gaussx.conditional(loc, cov, obs_idx, obs_values)` computes $p(\mathbf{x}_A \mid \mathbf{x}_B = \boldsymbol{\beta})$ from a joint Gaussian. The training indices are the observed set $B$, and the test indices are the free set $A$.
 
 # %%
 obs_idx = jnp.arange(n_train, dtype=jnp.int32)
-cond_mean, cond_cov_op = gaussx.conditional(mu_joint, K_joint_op, obs_idx, y_train)
+cond_mean, cond_cov_op = gaussx.conditional(mu_joint, joint_cov_op, obs_idx, y_train)
 
 cond_cov = cond_cov_op.as_matrix()
 
@@ -167,47 +142,48 @@ print(f"Conditional cov shape:  {cond_cov.shape}")
 #
 # The standard GP prediction formulas are:
 #
-# $$
-# \mu_* = K_{*f}\,(K_{ff} + \sigma^2 I)^{-1}\,\mathbf{y}
-# $$
+# $$\boldsymbol{\mu}_* = \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y}$$
 #
-# $$
-# \Sigma_* = K_{**} - K_{*f}\,(K_{ff} + \sigma^2 I)^{-1}\,K_{f*}
-# $$
+# $$\boldsymbol{\Sigma}_* = \mathbf{K}_{**} - \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{K}_{X*}$$
 #
 # We compute these manually using `gaussx.solve` and compare.
 
 # %%
-K_ff = rbf_kernel(x_train, x_train, lengthscale, variance) + noise_var * jnp.eye(
-    n_train
+# Σ_y = K_XX + σ_ε² I  (N, N)
+noisy_kernel_train = rbf_kernel(
+    x_train, x_train, lengthscale, variance
+) + noise_var * jnp.eye(n_train)
+# K_*X  (M, N)
+kernel_test_train = rbf_kernel(x_test, x_train, lengthscale, variance)
+# K_**  (M, M)
+kernel_test = rbf_kernel(x_test, x_test, lengthscale, variance)
+
+noisy_kernel_train_op = lx.MatrixLinearOperator(
+    noisy_kernel_train, lx.positive_semidefinite_tag
 )
-K_sf = rbf_kernel(x_test, x_train, lengthscale, variance)
-K_ss = rbf_kernel(x_test, x_test, lengthscale, variance)
 
-K_ff_op = lx.MatrixLinearOperator(K_ff, lx.positive_semidefinite_tag)
+# GP mean: μ_* = K_*X Σ_y⁻¹ y
+# α = Σ_y⁻¹ y  (N,)
+alpha = gaussx.solve(noisy_kernel_train_op, y_train)
+mu_manual = kernel_test_train @ alpha
 
-# GP mean: K_sf @ (K_ff)^{-1} @ y
-alpha = gaussx.solve(K_ff_op, y_train)
-mu_manual = K_sf @ alpha
-
-# GP covariance: K_ss - K_sf @ (K_ff)^{-1} @ K_fs
-V = jax.vmap(lambda k: gaussx.solve(K_ff_op, k))(K_sf)  # (n_test, n_train)
-cov_manual = K_ss - K_sf @ V.T
+# GP covariance: Σ_* = K_** − K_*X Σ_y⁻¹ K_X*
+# W = (Σ_y⁻¹ K_X*)ᵀ  (M, N)
+solved_cross = jax.vmap(lambda k: gaussx.solve(noisy_kernel_train_op, k))(
+    kernel_test_train
+)
+cov_manual = kernel_test - kernel_test_train @ solved_cross.T
 
 print("Max |mean difference|: ", jnp.max(jnp.abs(cond_mean - mu_manual)))
 print("Max |cov difference|:  ", jnp.max(jnp.abs(cond_cov - cov_manual)))
 
 # %% [markdown]
-# Both should be near machine precision ($\sim 10^{-12}$), confirming
-# that `gaussx.conditional` implements exactly the standard GP formulas.
+# Both should be near machine precision ($\sim 10^{-12}$), confirming that `gaussx.conditional` implements exactly the standard GP formulas.
 
 # %% [markdown]
 # ## 6. KL Divergence: Verify Equivalence
 #
-# As a further check, we compute
-# $\text{KL}(p_\text{conditional} \| p_\text{manual})$.
-# For identical distributions this should be exactly zero (up to
-# floating-point noise).
+# As a further check, we compute $\mathrm{KL}[p_\text{conditional} \Vert p_\text{manual}]$. For identical distributions this should be exactly zero (up to floating-point noise).
 
 # %%
 # Add jitter for numerical stability (Schur complement can lose PSD)
@@ -264,17 +240,17 @@ plt.show()
 #
 # The conditional covariance is a **Schur complement**:
 #
-# $$
-# \Sigma_{A|B} = K_{**} - K_{*f}\,(K_{ff} + \sigma^2 I)^{-1}\,K_{f*}
-# $$
+# $$\boldsymbol{\Sigma}_{A \mid B} = \mathbf{K}_{**} - \mathbf{K}_{*X} (\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{K}_{X*}$$
 #
 # `gaussx.schur_complement` returns a `LowRankUpdate` operator
 # representing this expression without materializing the full matrix.
 
 # %%
-K_ss_op = lx.MatrixLinearOperator(K_ss, lx.positive_semidefinite_tag)
+kernel_test_op = lx.MatrixLinearOperator(kernel_test, lx.positive_semidefinite_tag)
 
-schur_op = gaussx.schur_complement(K_ss_op, K_sf, K_ff_op)
+schur_op = gaussx.schur_complement(
+    kernel_test_op, kernel_test_train, noisy_kernel_train_op
+)
 schur_mat = schur_op.as_matrix()
 
 print(f"Schur complement shape: {schur_mat.shape}")
@@ -289,32 +265,29 @@ print("Max |Schur - conditional cov|:", jnp.max(jnp.abs(schur_mat - cond_cov)))
 # %% [markdown]
 # ## 9. Conditional Variance with `conditional_variance`
 #
-# For large-scale GP prediction we often only need the **diagonal**
-# of the predictive covariance (i.e., the marginal variances).
-# `gaussx.conditional_variance` computes this efficiently without
-# forming the full $n_* \times n_*$ matrix.
+# For large-scale GP prediction we often only need the **diagonal** of the predictive covariance (i.e., the marginal variances). `gaussx.conditional_variance` computes this efficiently without forming the full $M \times M$ matrix.
 #
-# It expects the prior diagonal $K_{**,\text{diag}}$, the cross
-# covariance $K_{*f}$, and the projection $A_X = K_{*f}\,K_{ff}^{-1}$,
-# and computes the Schur complement diagonal
-# $\text{diag}(K_{**}) - \text{diag}(A_X\,K_{f*})$.  Pass an optional
-# variational covariance ``S_u`` to add the variational correction
-# $\text{diag}(A_X\,S_u\,A_X^\top)$ used in sparse-GP predictives.
+# It expects the prior diagonal $\mathrm{diag}(\mathbf{K}_{**})$, the cross covariance $\mathbf{K}_{*X}$, and the projection $\mathbf{A}_X = \mathbf{K}_{*X} \boldsymbol{\Sigma}_y^{-1}$, and computes the Schur complement diagonal $\mathrm{diag}(\mathbf{K}_{**}) - \mathrm{diag}(\mathbf{A}_X \mathbf{K}_{X*})$.  Pass an optional variational covariance ``S_u`` to add the variational correction $\mathrm{diag}(\mathbf{A}_X \boldsymbol{\Sigma}_{\mathcal{I}} \mathbf{A}_X^\top)$ used in sparse-GP predictives.
 
 # %%
-# Projection: A = K_sf @ K_ff^{-1}, shape (n_test, n_train)
-A = V  # already computed above as vmap(solve(K_ff, .))(K_sf)
+# Projection: A_X = K_*X Σ_y⁻¹, shape (M, N)
+projection = solved_cross  # already computed above as vmap(solve(Σ_y, .))(K_*X)
 
 # Diagonal of the prior
-K_ss_diag = variance * jnp.ones(n_test)
+# diag(K_**)  (M,)
+kernel_test_diag = variance * jnp.ones(n_test)
 
-# For exact GP: predictive_var = diag(K_**) - diag(A @ K_f*).
+# For exact GP: predictive_var = diag(K_**) − diag(A_X K_X*).
 # conditional_variance(K_XX_diag, K_XZ, A_X) returns exactly this
 # Schur-complement diagonal (clamped to >= 0).
-var_reduction = jnp.sum(K_sf * V, axis=1)  # diag(K_sf @ K_ff^{-1} @ K_fs)
-pred_var_manual = K_ss_diag - var_reduction
+var_reduction = jnp.sum(
+    kernel_test_train * solved_cross, axis=1
+)  # diag(K_*X Σ_y⁻¹ K_X*)
+pred_var_manual = kernel_test_diag - var_reduction
 
-pred_var_cv = gaussx.conditional_variance(K_ss_diag, K_sf, A)
+pred_var_cv = gaussx.conditional_variance(
+    kernel_test_diag, kernel_test_train, projection
+)
 
 print("Max |variance difference|:", jnp.max(jnp.abs(pred_var_cv - pred_var_manual)))
 # cond_cov carries the 1e-6 jitter added to the whole joint in section 3,
@@ -330,8 +303,8 @@ print(
 #
 # | gaussx function | What it does |
 # |----------------|--------------|
-# | `conditional` | $p(x_A \mid x_B = b)$ |
-# | `solve` | $(K + \sigma^2 I)^{-1} y$ |
+# | `conditional` | $p(\mathbf{x}_A \mid \mathbf{x}_B = \boldsymbol{\beta})$ |
+# | `solve` | $(\mathbf{K}_{XX} + \sigma_\varepsilon^2 \mathbf{I})^{-1} \mathbf{y}$ |
 # | `gaussian_kl` | KL between two MVNs |
 # | `schur_complement` | Structured cond. cov. |
 # | `conditional_variance` | Diagonal pred. var. |

@@ -15,30 +15,23 @@
 # %% [markdown]
 # # Sparse Variational GP with Inducing Points
 #
-# Sparse GPs approximate the full kernel with $M \ll N$ inducing points:
+# Sparse GPs approximate the full kernel with $N_{\mathcal{I}} \ll N$ inducing points:
 #
-# $$K \approx K_{NM} K_{MM}^{-1} K_{MN}$$
+# $$\mathbf{K}_{XX} \approx \mathbf{K}_{X\mathcal{I}} \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} \mathbf{K}_{\mathcal{I}X}$$
 #
-# The resulting covariance is $\sigma^2 I + U U^\top$ — a `LowRankUpdate`
-# in gaussx. We optimize the ELBO with respect to inducing point
-# locations and kernel hyperparameters via `jax.grad`.
+# The resulting covariance is $\sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top$ — a `LowRankUpdate` in gaussx. We optimize the ELBO with respect to inducing point locations and kernel hyperparameters via `jax.grad`.
 
 # %% [markdown]
 # ## Background
 #
-# Sparse GP methods address the $O(N^3)$ cost of exact GP inference by
-# introducing $M \ll N$ inducing points $Z = \{z_m\}_{m=1}^M$. The key
-# idea is to approximate the full GP posterior via a variational
-# distribution that conditions on the inducing variables $u = f(Z)$.
-# The Nystrom approximation gives:
+# Sparse GP methods address the $O(N^3)$ cost of exact GP inference by introducing $N_{\mathcal{I}} \ll N$ inducing inputs $\mathbf{X}_{\mathcal{I}} \in \mathbb{R}^{N_{\mathcal{I}} \times D_x}$. The key idea is to approximate the full GP posterior via a variational distribution that conditions on the inducing values $\mathbf{f}_{\mathcal{I}} = f(\mathbf{X}_{\mathcal{I}})$. The Nystrom approximation gives:
 #
-# $$K_{ff} \approx Q_{ff} = K_{fM} K_{MM}^{-1} K_{Mf}$$
+# $$\mathbf{K}_{XX} \approx \mathbf{Q}_{XX} = \mathbf{K}_{X\mathcal{I}} \mathbf{K}_{\mathcal{I}\mathcal{I}}^{-1} \mathbf{K}_{\mathcal{I}X}$$
 #
 # The variational free energy (VFE) framework (Titsias, 2009) optimizes
 # a lower bound on the log-marginal likelihood:
 #
-# $$\mathcal{L}_{\text{VFE}} = \log \mathcal{N}(y \mid 0, Q_{ff} + \sigma^2 I)
-#   - \frac{1}{2\sigma^2}\operatorname{tr}(K_{ff} - Q_{ff})$$
+# $$\mathrm{ELBO}_\text{VFE} = \log \mathcal{N}(\mathbf{y}; \mathbf{0}, \mathbf{Q}_{XX} + \sigma_\varepsilon^2 \mathbf{I}) - \frac{1}{2 \sigma_\varepsilon^2} \mathrm{tr}(\mathbf{K}_{XX} - \mathbf{Q}_{XX})$$
 #
 # The trace correction penalizes the approximation error, and the bound
 # is tight when the inducing points explain all the data.
@@ -80,12 +73,7 @@ x_plot = jnp.linspace(-4.5, 4.5, 500)
 # %% [markdown]
 # ## Build Nystrom approximation
 #
-# The Nystrom factor $U = K_{NM} L_{MM}^{-\top}$ gives
-# $Q_{NN} = UU^\top$, so the noisy covariance $\sigma^2 I + UU^\top$
-# is a rank-$M$ update of a diagonal -- exactly a `LowRankUpdate`.
-# This is why gaussx can apply the Woodbury identity for
-# $O(NM^2 + M^3)$ solve and the matrix determinant lemma for
-# $O(NM^2 + M^3)$ logdet.
+# The Nystrom factor $\mathbf{U} = \mathbf{K}_{X\mathcal{I}} \mathbf{L}_{\mathcal{I}\mathcal{I}}^{-\top} \in \mathbb{R}^{N \times N_{\mathcal{I}}}$ gives $\mathbf{Q}_{XX} = \mathbf{U} \mathbf{U}^\top$, so the noisy covariance $\sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top$ is a rank-$N_{\mathcal{I}}$ update of a diagonal -- exactly a `LowRankUpdate`. This is why gaussx can apply the Woodbury identity for $O(N N_{\mathcal{I}}^2 + N_{\mathcal{I}}^3)$ solve and the matrix determinant lemma for $O(N N_{\mathcal{I}}^2 + N_{\mathcal{I}}^3)$ logdet.
 
 # %%
 n_inducing = 12
@@ -97,16 +85,20 @@ def rbf(x1, x2, ls, var):
 
 def build_sparse_gp(x_data, x_inducing, ls, var, noise):
     """Build the sparse GP covariance as a LowRankUpdate."""
-    K_nm = rbf(x_data, x_inducing, ls, var)
-    K_mm = rbf(x_inducing, x_inducing, ls, var)
+    # K_XI  (N, N_I)
+    kernel_data_inducing = rbf(x_data, x_inducing, ls, var)
+    # K_II  (N_I, N_I)
+    kernel_inducing = rbf(x_inducing, x_inducing, ls, var)
 
-    # Nystrom: U = K_nm @ chol(K_mm)^{-T}
+    # Nystrom: U = K_XI L_IIᵀ⁻¹ with L_II L_IIᵀ = K_II
     jitter = 1e-5 * jnp.eye(len(x_inducing))
-    L_mm = jnp.linalg.cholesky(K_mm + jitter)
-    U = jax.scipy.linalg.solve_triangular(L_mm, K_nm.T, lower=True).T
+    chol_inducing = jnp.linalg.cholesky(kernel_inducing + jitter)
+    nystrom_factor = jax.scipy.linalg.solve_triangular(
+        chol_inducing, kernel_data_inducing.T, lower=True
+    ).T
 
-    # Sigma = noise * I + U U^T
-    return gaussx.low_rank_plus_diag(noise * jnp.ones(len(x_data)), U)
+    # Σ_y = σ_ε² I + U Uᵀ
+    return gaussx.low_rank_plus_diag(noise * jnp.ones(len(x_data)), nystrom_factor)
 
 
 # Initial setup
@@ -120,8 +112,7 @@ print(f"Operator rank: {sigma.rank}")
 # %% [markdown]
 # ## ELBO (variational lower bound)
 #
-# $$\mathcal{L} = \log \mathcal{N}(y \mid 0, \sigma^2 I + U U^\top)
-#               - \frac{1}{2\sigma^2} \mathrm{tr}(K_{NN} - Q_{NN})$$
+# $$\mathrm{ELBO} = \log \mathcal{N}(\mathbf{y}; \mathbf{0}, \sigma_\varepsilon^2 \mathbf{I} + \mathbf{U} \mathbf{U}^\top) - \frac{1}{2 \sigma_\varepsilon^2} \mathrm{tr}(\mathbf{K}_{XX} - \mathbf{Q}_{XX})$$
 #
 # The first term uses gaussx solve + logdet. The trace correction
 # penalizes information lost by the approximation.
@@ -136,16 +127,21 @@ def elbo(log_params, x_data, y_data, x_inducing):
     sigma_op = build_sparse_gp(x_data, x_inducing, ls, var, noise)
 
     # Log-likelihood term
+    # α = Σ_y⁻¹ y
     alpha = gaussx.solve(sigma_op, y_data)
+    # −½ yᵀ α
     data_fit = -0.5 * jnp.dot(y_data, alpha)
+    # −½ log det Σ_y
     complexity = -0.5 * gaussx.logdet(sigma_op)
+    # −(N/2) log 2π
     const = -0.5 * len(y_data) * jnp.log(2 * jnp.pi)
 
-    # Trace correction: tr(K_nn - Q_nn) / (2 * noise)
-    # K_nn diagonal = var (for RBF with same point)
-    # Q_nn diagonal = diag(U U^T)
-    Q_diag = jnp.sum(sigma_op.U**2, axis=1)
-    trace_correction = -0.5 * jnp.sum(var - Q_diag) / noise
+    # Trace correction: tr(K_XX − Q_XX) / (2 σ_ε²)
+    # K_XX diagonal = σ_k² (for RBF with same point)
+    # Q_XX diagonal = diag(U Uᵀ)
+    q_diag = jnp.sum(sigma_op.U**2, axis=1)
+    # −(1 / 2σ_ε²) tr(K_XX − Q_XX)
+    trace_correction = -0.5 * jnp.sum(var - q_diag) / noise
 
     return data_fit + complexity + const + trace_correction
 
@@ -175,18 +171,24 @@ print(f"Final ELBO: {elbo(log_params, x_data, y_data, x_inducing):.2f}")
 
 # %%
 sigma_opt = build_sparse_gp(x_data, x_inducing, ls_opt, var_opt, noise_opt)
+# α = Σ_y⁻¹ y  (N,)
 alpha_opt = gaussx.solve(sigma_opt, y_data)
 
 # Prediction via inducing points
-K_star_m = rbf(x_plot, x_inducing, ls_opt, var_opt)
-K_mm = rbf(x_inducing, x_inducing, ls_opt, var_opt)
-K_nm = rbf(x_data, x_inducing, ls_opt, var_opt)
+# K_*I  (N_plot, N_I)
+kernel_plot_inducing = rbf(x_plot, x_inducing, ls_opt, var_opt)
+# K_II  (N_I, N_I)
+kernel_inducing = rbf(x_inducing, x_inducing, ls_opt, var_opt)
+# K_XI  (N, N_I)
+kernel_data_inducing = rbf(x_data, x_inducing, ls_opt, var_opt)
 
+# w = K_II⁻¹ K_IX α  (N_I,)
 weights = jnp.linalg.solve(
-    K_mm + 1e-5 * jnp.eye(n_inducing),
-    K_nm.T @ alpha_opt,
+    kernel_inducing + 1e-5 * jnp.eye(n_inducing),
+    kernel_data_inducing.T @ alpha_opt,
 )
-y_pred = K_star_m @ weights
+# μ_* = K_*I w  (N_plot,)
+y_pred = kernel_plot_inducing @ weights
 
 # %% [markdown]
 # ## Visualize
