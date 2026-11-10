@@ -45,7 +45,7 @@ negative binomial supply closed forms.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [AbstractLikelihood, GaussianLikelihood, HeteroscedasticGaussianLikelihood, BernoulliLikelihood, BinomialLikelihood, PoissonLikelihood, NegativeBinomialLikelihood, SoftmaxLikelihood, StudentTLikelihood]
+      members: [AbstractLikelihood, GaussianLikelihood, HeteroscedasticGaussianLikelihood, BernoulliLikelihood, BinomialLikelihood, PoissonLikelihood, NegativeBinomialLikelihood, SoftmaxLikelihood, StudentTLikelihood, CallableLikelihood]
 
 ## Expectations & EP moments
 
