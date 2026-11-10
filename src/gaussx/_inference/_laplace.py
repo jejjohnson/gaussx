@@ -25,6 +25,7 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Bool, Float, Int
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gmrf import GaussianMRF, IntrinsicGMRF, _scaled, _unwrap
 from gaussx._einx import einsum, rearrange
 from gaussx._inference._inference import newton_update
@@ -745,6 +746,11 @@ def laplace_mode(
         Λ_x|y⁽ʲ⁾ x̃ = Λ_x μ_x + Aᵀ (g⁽ʲ⁾ + Λ_site⁽ʲ⁾ A x⁽ʲ⁾)
         x⁽ʲ⁺¹⁾ = x⁽ʲ⁾ + α (x̃ − x⁽ʲ⁾)
 
+    Deprecated: use ``argminax.solve.laplace_mode``, which runs this loop on
+    gaussx's single step (`laplace_model`, `laplace_result`) and returns the same
+    fields. This function emits a `GaussxDeprecationWarning` and will be removed
+    in gaussx 0.7.0.
+
     The latent Gaussian model is x ~ ``prior`` (precision Λ_x, mean μ_x),
     η = A x + o and y ∣ η ~ ``likelihood``, which holds y and must factorise over
     sites (its Hessian in η is diagonal). The iteration is Newton on the cost
@@ -877,6 +883,10 @@ def laplace_mode(
         ...
         TypeError: laplace_mode needs a GaussianMRF or IntrinsicGMRF prior
     """
+    warn_deprecated(
+        "gaussx.laplace_mode is deprecated and will be removed in gaussx 0.7.0; "
+        "use argminax.solve.laplace_mode."
+    )
     model = laplace_model(prior, likelihood, projector=projector, offset=offset)
     state_size = prior.event_shape[0]
     dtype = prior.loc.dtype

@@ -69,7 +69,7 @@ def theta_design(
         Δ₀ ∝ 1 − f₀⁻²
         Δ_shell ∝ exp(D_θ f₀² / 2) / ((K − 1) f₀²)
 
-    In INLA, run one `gaussx.laplace_mode` per design point under `jax.vmap` and
+    In INLA, run one `argminax.solve.laplace_mode` per design point under `jax.vmap` and
     mix the fits with exp(log w_k).
 
     Algorithm:

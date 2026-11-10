@@ -240,7 +240,7 @@ How to solve, decoupled from what: `DenseSolver` · `AutoSolver` · `CGSolver` �
 - **[Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/)**: `sparse_conditional`, `collapsed_elbo`, `kronecker_mll`, `love_cache`, `matheron_update`, `oilmm_project`
 - **[State-space models](https://jejjohnson.github.io/gaussx/api/ssm/)**: `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `dare`, `sde_kl_divergence`, SDE kernels such as `MaternSDE`
 - **[Quadrature & uncertainty propagation](https://jejjohnson.github.io/gaussx/api/quadrature/)**: `UnscentedIntegrator`, `GaussHermiteIntegrator`, `ep_tilted_moments`, `uncertain_gp_predict`
-- **[Inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/)**: `blr_full_update`, `damped_natural_update`, `ensemble_kalman_gain`, `etkf_transform`, `laplace_mode`
+- **[Inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/)**: `blr_full_update`, `damped_natural_update`, `ensemble_kalman_gain`, `etkf_transform`, `laplace_model`
 
 ### Outside the stack
 

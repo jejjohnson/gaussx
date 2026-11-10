@@ -744,7 +744,6 @@ public API (`tests/test_capabilities.py` checks it is current).
 
 | Name | Kind | What it does |
 |---|---|---|
-| `laplace_mode` | function | Mode, Hessian and log-marginal of the Laplace approximation, in precision form. |
 | `LaplaceResult` | class | The Gaussian approximation 𝒩(x̂, Λ_x\|y⁻¹) at the mode. |
 | `laplace_model` | function | Collect and check the pieces of the latent Gaussian model of `laplace_mode`. |
 | `LaplaceModel` | class | The latent Gaussian model of `laplace_mode`, with the maps one Newton step needs. |
@@ -796,6 +795,12 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `euclidean_distance` | function | Pairwise Euclidean distances ‖aₙ − bₘ‖₂. |
 | `haversine_distance` | function | Pairwise great-circle (haversine) distances on a sphere. |
+
+### Deprecated aliases
+
+| Name | Kind | What it does |
+|---|---|---|
+| `laplace_mode` | function | Mode, Hessian and log-marginal of the Laplace approximation, in precision form. |
 
 <!-- upstream -->
 

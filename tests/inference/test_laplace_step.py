@@ -16,7 +16,11 @@ import pytest
 import gaussx as gx
 
 
-pytestmark = pytest.mark.x64_only(reason="the rebuild is compared to 1e-12")
+pytestmark = [
+    pytest.mark.x64_only(reason="the rebuild is compared to 1e-12"),
+    # the reference is the deprecated loop, until gaussx 0.7.0 removes it
+    pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated"),
+]
 
 
 def _poisson_counts(n: int) -> gx.PoissonLikelihood:

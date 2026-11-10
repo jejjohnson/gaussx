@@ -1627,7 +1627,7 @@ class BYM2GMRF(IntrinsicGMRF):
 
     It is an `IntrinsicGMRF` whose ``structure`` is Λ, ``precision_scale``
     is 1 and ``null_space`` is V padded with zeros on the b rows, so
-    `laplace_mode` and `vb_mean_correction` take it as a prior unchanged
+    `argminax.solve.laplace_mode` and `vb_mean_correction` take it as a prior unchanged
     (their log-marginal then has the correct θ-dependence).
 
     Args:

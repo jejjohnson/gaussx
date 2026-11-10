@@ -58,7 +58,7 @@ class AbstractLikelihood(eqx.Module):
 
         For a likelihood that factorises over sites the Hessian is diagonal and
         this returns (∂ log p / ∂fᵢ, ∂² log p / ∂fᵢ²), the inputs of
-        `gaussx.newton_update`'s diagonal path and of `gaussx.laplace_mode`. The
+        `gaussx.newton_update`'s diagonal path and of `argminax.solve.laplace_mode`. The
         default differentiates ``log_prob``: one reverse pass for the gradient
         and one forward pass of it along ``1`` for the diagonal (exact only when
         the Hessian is diagonal, so not for `SoftmaxLikelihood` or
