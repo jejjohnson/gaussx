@@ -322,8 +322,15 @@ def _hessian(
 # ---------------------------------------------------------------------------
 
 
-class _Model(eqx.Module):
-    """(Λ_x, μ_x, A, o, likelihood, V) with the maps the Newton loop needs.
+class LaplaceModel(eqx.Module):
+    """The latent Gaussian model of `laplace_mode`, with the maps one Newton step needs.
+
+    x ~ 𝒩(μ_x, Λ_x⁻¹), η = A x + o, y ∣ η ~ ``likelihood``; build one with
+    `laplace_model`. Its methods are one step's algebra: `newton` is the Newton
+    target x̃ (kriged onto Vᵀ x = 0 for a hard constraint), `grad` the ascent
+    direction −∇_x 𝒥, and `hessian` the site information and Λ_x|y at x. The loop
+    that iterates them to a tolerance lives in the caller (`laplace_mode`, and
+    ``argminax.solve.laplace_mode``).
 
     Attributes:
         precision: Prior precision Λ_x.
@@ -342,10 +349,12 @@ class _Model(eqx.Module):
     null_space: Float[Array, "N c"] | None
 
     def project(self, x: Array) -> Array:
+        """The linear predictor without its offset, A x."""
         # A x
         return x if self.projector is None else self.projector.mv(x)
 
     def project_t(self, r: Array) -> Array:
+        """The transpose of the projector applied to r, Aᵀ r."""
         # Aᵀ r
         return r if self.projector is None else self.projector.transpose().mv(r)
 
@@ -439,7 +448,7 @@ def _stop_gradient(tree: Any) -> Any:
 
 @eqx.filter_jit
 def _newton_loop(
-    model: _Model,
+    model: LaplaceModel,
     init_state: Float[Array, " N"],
     max_iter: int,
     tol: float,
@@ -498,7 +507,7 @@ def _newton_loop(
 
 
 def _implicit_mode(
-    model: _Model, mode_estimate: Float[Array, " N"]
+    model: LaplaceModel, mode_estimate: Float[Array, " N"]
 ) -> Float[Array, " N"]:
     """Attach implicit-function tangents to a converged mode.
 
@@ -553,13 +562,18 @@ def _implicit_mode(
     )
 
 
-def _model(
+def laplace_model(
     prior: GaussianMRF | IntrinsicGMRF,
     likelihood: AbstractLikelihood,
-    projector: lx.AbstractLinearOperator | None,
-    offset: ArrayLike | None,
-) -> _Model:
-    """Collect and check the pieces of the latent Gaussian model.
+    *,
+    projector: lx.AbstractLinearOperator | None = None,
+    offset: ArrayLike | None = None,
+) -> LaplaceModel:
+    """Collect and check the pieces of the latent Gaussian model of `laplace_mode`.
+
+    The single Newton step of `laplace_mode` is `LaplaceModel.newton` on this
+    model; a caller that runs its own loop builds the model here and the result
+    with `laplace_result`.
 
     Args:
         prior: The latent field.
@@ -568,7 +582,22 @@ def _model(
         offset: The offset o; ``None`` is zero.
 
     Returns:
-        The `_Model`.
+        The `LaplaceModel`.
+
+    Examples:
+        One Newton step of a Poisson model on a diagonal prior:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> prior = gaussx.GaussianMRF(
+        ...     jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3))
+        ... )
+        >>> model = gaussx.laplace_model(
+        ...     prior, gaussx.PoissonLikelihood(jnp.array([0.0, 1.0, 4.0]))
+        ... )
+        >>> model.newton(jnp.zeros(3)).shape
+        (3,)
 
     Raises:
         NotImplementedError: For an `IntrinsicGMRF` with ``constraint="soft"``.
@@ -600,7 +629,103 @@ def _model(
         )
     dtype = prior.loc.dtype
     offset = jnp.zeros((), dtype=dtype) if offset is None else jnp.asarray(offset)
-    return _Model(precision, prior.loc, projector, offset, likelihood, null_space)
+    return LaplaceModel(precision, prior.loc, projector, offset, likelihood, null_space)
+
+
+def laplace_result(
+    model: LaplaceModel,
+    prior: GaussianMRF | IntrinsicGMRF,
+    mode: Float[Array, " N"],
+    n_iter: Int[ArrayLike, ""],
+    converged: Bool[ArrayLike, ""],
+) -> LaplaceResult:
+    """The Gaussian approximation and the Laplace log-marginal at a mode.
+
+        log π̃(y ∣ θ) = log p(y ∣ A x̂ + o) + log π(x̂) − log π̃_G(x̂)
+
+    Step 4 of `laplace_mode`: refactorise Λ_x|y at the mode x̂ and assemble the
+    log-marginal, with the constraint terms of an `IntrinsicGMRF` with
+    ``constraint="hard"`` (see `laplace_mode` for the formula and its constants).
+    A caller running its own Newton loop on a `LaplaceModel` builds its result
+    here, so the result is the one `laplace_mode` returns.
+
+    Args:
+        model: The model, from `laplace_model`.
+        prior: The prior the model was built from; its ``log_prob`` enters the
+            log-marginal.
+        mode: The mode x̂, made implicitly differentiable by the caller if its
+            gradients are wanted.
+        n_iter: Newton steps taken, recorded in the result.
+        converged: Whether the loop converged, recorded in the result.
+
+    Returns:
+        The `LaplaceResult` at x̂.
+
+    Examples:
+        Rebuild `laplace_mode` from its parts on a Poisson model:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> prior = gaussx.GaussianMRF(
+        ...     jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3))
+        ... )
+        >>> likelihood = gaussx.PoissonLikelihood(jnp.array([0.0, 1.0, 4.0]))
+        >>> fit = gaussx.laplace_mode(prior, likelihood)
+        >>> model = gaussx.laplace_model(prior, likelihood)
+        >>> rebuilt = gaussx.laplace_result(
+        ...     model, prior, fit.mode, fit.n_iter, fit.converged
+        ... )
+        >>> bool(jnp.allclose(rebuilt.log_marginal, fit.log_marginal))
+        True
+    """
+    _, hessian = model.hessian(mode)
+    factor = _factor(hessian)
+    # η̂ = A x̂ + o
+    predictor = model.project(mode) + model.offset
+    # log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
+    state_size = mode.shape[0]
+    log_gaussian = 0.5 * factor.logdet() - 0.5 * state_size * _LOG_2PI
+    _, schur = model.krige(factor, mode)
+    if schur is not None:
+        null_space = model.null_space
+        assert null_space is not None
+        num_constraints = null_space.shape[1]
+        # Vᵀ V
+        gram = einsum(null_space, null_space, "state con, state other -> con other")
+        # S = L_S L_Sᵀ
+        schur_factor = jnp.linalg.cholesky(schur)
+        # jnp, not einx: einx cannot resolve an empty constraint (D_c = 0).
+        # ½ log det S = ∑_c log [L_S]_cc
+        half_log_det_schur = jnp.sum(jnp.log(jnp.diagonal(schur_factor)))
+        # + ½ log det S
+        log_gaussian = log_gaussian + half_log_det_schur
+        # ½ log det(Vᵀ V)
+        half_log_det_gram = 0.5 * jnp.linalg.slogdet(gram)[1]
+        # − ½ log det(Vᵀ V) + (D_c / 2) log 2π
+        log_gaussian = log_gaussian - half_log_det_gram
+        log_gaussian = log_gaussian + 0.5 * num_constraints * _LOG_2PI
+    # log π̃(y ∣ θ) = log p(y ∣ η̂) + log π(x̂) − log π̃_G(x̂)
+    log_marginal = (
+        model.likelihood.log_prob(predictor) + prior.log_prob(mode) - log_gaussian
+    )
+    return LaplaceResult(
+        mode, hessian, factor, log_marginal, jnp.asarray(n_iter), jnp.asarray(converged)
+    )
+
+
+# The private names vb_mean_correction (and its tests) import.
+_Model = LaplaceModel
+
+
+def _model(
+    prior: GaussianMRF | IntrinsicGMRF,
+    likelihood: AbstractLikelihood,
+    projector: lx.AbstractLinearOperator | None,
+    offset: ArrayLike | None,
+) -> LaplaceModel:
+    """`laplace_model` with positional arguments, as `vb_mean_correction` calls it."""
+    return laplace_model(prior, likelihood, projector=projector, offset=offset)
 
 
 def laplace_mode(
@@ -752,7 +877,7 @@ def laplace_mode(
         ...
         TypeError: laplace_mode needs a GaussianMRF or IntrinsicGMRF prior
     """
-    model = _model(prior, likelihood, projector, offset)
+    model = laplace_model(prior, likelihood, projector=projector, offset=offset)
     state_size = prior.event_shape[0]
     dtype = prior.loc.dtype
     if init is None:
@@ -770,32 +895,4 @@ def laplace_mode(
     )
     mode = _implicit_mode(model, mode_estimate)
 
-    # --- log-marginal ---
-    _, hessian = model.hessian(mode)
-    factor = _factor(hessian)
-    # η̂ = A x̂ + o
-    predictor = model.project(mode) + model.offset
-    # log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
-    log_gaussian = 0.5 * factor.logdet() - 0.5 * state_size * _LOG_2PI
-    _, schur = model.krige(factor, mode)
-    if schur is not None:
-        null_space = model.null_space
-        assert null_space is not None
-        num_constraints = null_space.shape[1]
-        # Vᵀ V
-        gram = einsum(null_space, null_space, "state con, state other -> con other")
-        # S = L_S L_Sᵀ
-        schur_factor = jnp.linalg.cholesky(schur)
-        # jnp, not einx: einx cannot resolve an empty constraint (D_c = 0).
-        # ½ log det S = ∑_c log [L_S]_cc
-        half_log_det_schur = jnp.sum(jnp.log(jnp.diagonal(schur_factor)))
-        # + ½ log det S
-        log_gaussian = log_gaussian + half_log_det_schur
-        # ½ log det(Vᵀ V)
-        half_log_det_gram = 0.5 * jnp.linalg.slogdet(gram)[1]
-        # − ½ log det(Vᵀ V) + (D_c / 2) log 2π
-        log_gaussian = log_gaussian - half_log_det_gram
-        log_gaussian = log_gaussian + 0.5 * num_constraints * _LOG_2PI
-    # log π̃(y ∣ θ) = log p(y ∣ η̂) + log π(x̂) − log π̃_G(x̂)
-    log_marginal = likelihood.log_prob(predictor) + prior.log_prob(mode) - log_gaussian
-    return LaplaceResult(mode, hessian, factor, log_marginal, n_iter, converged)
+    return laplace_result(model, prior, mode, n_iter, converged)

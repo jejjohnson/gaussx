@@ -813,8 +813,11 @@ try:
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
     from gaussx._inference._laplace import (
+        LaplaceModel as LaplaceModel,
         LaplaceResult as LaplaceResult,
         laplace_mode as laplace_mode,
+        laplace_model as laplace_model,
+        laplace_result as laplace_result,
     )
     from gaussx._inference._vb_correction import (
         vb_mean_correction as vb_mean_correction,
@@ -828,12 +831,15 @@ try:
         "GaussianMRF",
         "IntrinsicGMRF",
         "LGSSMFactory",
+        "LaplaceModel",
         "LaplaceResult",
         "MarkovGaussian",
         "MaskedLGSSM",
         "MultivariateNormal",
         "MultivariateNormalPrecision",
         "laplace_mode",
+        "laplace_model",
+        "laplace_result",
         "vb_mean_correction",
     ]
 except ModuleNotFoundError as _e:

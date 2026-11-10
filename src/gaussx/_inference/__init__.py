@@ -57,6 +57,7 @@ from gaussx._ssm._discretise import process_noise_covariance
 
 
 __all__ = [
+    "LaplaceModel",
     "LaplaceResult",
     "blr_diag_update",
     "blr_full_update",
@@ -84,6 +85,8 @@ __all__ = [
     "inflate_rtpp",
     "inflate_rtps",
     "laplace_mode",
+    "laplace_model",
+    "laplace_result",
     "ledoit_wolf_shrinkage",
     "localization_matrix",
     "localized_kalman_gain",
@@ -103,7 +106,13 @@ __all__ = [
 # ``gaussx._distributions``, resolve them lazily (PEP 562) so importing
 # ``gaussx._inference`` works in a base install.
 def __getattr__(name: str) -> Any:
-    if name in ("LaplaceResult", "laplace_mode"):
+    if name in (
+        "LaplaceModel",
+        "LaplaceResult",
+        "laplace_mode",
+        "laplace_model",
+        "laplace_result",
+    ):
         from gaussx._inference import _laplace
 
         return getattr(_laplace, name)

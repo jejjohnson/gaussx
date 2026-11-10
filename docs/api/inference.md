@@ -102,11 +102,13 @@ takes no separate `y`. For an odd number of nodes `rw2_structure(n)` returns
 selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, n + 1))`
 (which keeps $\boldsymbol{\Lambda}_{x \mid y}$ banded), and drop `mode[n]`.
 
+One Newton step is public, so a caller can run its own loop around it (`argminax.solve.laplace_mode` does): `laplace_model` builds the `LaplaceModel`, whose `newton` is the Newton target and `hessian` the site information and $\boldsymbol{\Lambda}_{x \mid y}$, and `laplace_result` refactorises at the mode and assembles the log-marginal, so the result is the one `laplace_mode` returns.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [laplace_mode, LaplaceResult]
+      members: [laplace_mode, LaplaceResult, laplace_model, LaplaceModel, laplace_result]
 
 ## Low-rank VB mean correction (INLA)
 
