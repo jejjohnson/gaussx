@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.14](https://github.com/jejjohnson/gaussx/compare/v0.6.13...v0.6.14) (2026-11-10)
+
+
+### Deprecations
+
+* **inference:** laplace_mode in favour of argminax.solve.laplace_mode ([#820](https://github.com/jejjohnson/gaussx/issues/820)) ([680b529](https://github.com/jejjohnson/gaussx/commit/680b52997d740c6e49e7ed2ff93e8b7dbd910370))
+
 ## [0.6.13](https://github.com/jejjohnson/gaussx/compare/v0.6.12...v0.6.13) (2026-11-10)
 
 
