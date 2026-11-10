@@ -25,6 +25,7 @@ from gaussx._quadrature._likelihood import AbstractLikelihood, GaussianLikelihoo
 from gaussx._quadrature._likelihoods import (
     BernoulliLikelihood,
     BinomialLikelihood,
+    CallableLikelihood,
     HeteroscedasticGaussianLikelihood,
     NegativeBinomialLikelihood,
     PoissonLikelihood,
@@ -58,6 +59,7 @@ __all__ = [
     "AssumedDensityFilter",
     "BernoulliLikelihood",
     "BinomialLikelihood",
+    "CallableLikelihood",
     "CubatureIntegrator",
     "FifthOrderCubatureIntegrator",
     "GaussHermiteIntegrator",

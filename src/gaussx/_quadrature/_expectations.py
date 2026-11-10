@@ -6,12 +6,15 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float
+import lineax as lx
+from jaxtyping import Array, Float, PyTree
 
 from gaussx._einx import einsum
+from gaussx._primitives._diag import diag
 from gaussx._primitives._solve import solve
 from gaussx._quadrature._integrator import AbstractIntegrator
 from gaussx._quadrature._likelihood import AbstractLikelihood
+from gaussx._quadrature._likelihoods import CallableLikelihood
 from gaussx._quadrature._types import GaussianState
 
 
@@ -205,6 +208,16 @@ def expected_log_likelihood(
     ``GaussianLikelihood``), it is used directly without an integrator.
     Otherwise, an ``integrator`` must be provided for numerical approximation.
 
+    A `CallableLikelihood` factorises over sites, so its ELL depends on the
+    marginals only and is integrated site by site,
+
+        𝔼_q[log p(y ∣ f)] = ∑ᵢ 𝔼[ℓ(fᵢ, dᵢ)],    fᵢ ~ 𝒩(μ_f,i, Σ_f,ii)
+
+    with the integrator applied to N one-dimensional Gaussians (vmapped)
+    instead of one N-dimensional joint, so a tensor-product rule costs
+    N × order evaluations rather than order^N. A `MonteCarloIntegrator`
+    reuses its key at every site. Other likelihoods integrate the joint.
+
     Args:
         likelihood: Likelihood object with a ``log_prob`` method.
         state: Variational Gaussian q(f).
@@ -251,7 +264,56 @@ def expected_log_likelihood(
             f"{type(likelihood).__name__} has no analytical ELL; provide an integrator"
         )
         raise ValueError(msg)
+    if isinstance(likelihood, CallableLikelihood):
+        return _site_log_likelihood_expectation(
+            likelihood.log_density, likelihood.data, state, integrator
+        )
     return log_likelihood_expectation(likelihood.log_prob, state, integrator)
+
+
+def _site_log_likelihood_expectation(
+    log_density: Callable[[Float[Array, ""], PyTree], Float[Array, ""]],
+    data: PyTree,
+    state: GaussianState,
+    integrator: AbstractIntegrator,
+) -> Float[Array, ""]:
+    """Sum of per-site expectations of a factorised log density.
+
+        ∑ᵢ 𝔼[ℓ(fᵢ, dᵢ)],    fᵢ ~ 𝒩(μ_f,i, Σ_f,ii)
+
+    Args:
+        log_density: Per-site log density ℓ(fᵢ, dᵢ).
+        data: Per-site data, every leaf with a leading site axis of length N.
+        state: Variational Gaussian q(f); only its marginals are used.
+        integrator: Integration method, applied to each one-dimensional
+            marginal.
+
+    Returns:
+        The scalar expected log-likelihood.
+    """
+    # Σ_f,ii, through the structural diagonal of Σ_f
+    marginal_variances = diag(state.cov)
+
+    def site_expectation(
+        site_mean: Float[Array, ""],
+        site_variance: Float[Array, ""],
+        site_data: PyTree,
+    ) -> Float[Array, ""]:
+        # 𝒩(μ_f,i, Σ_f,ii) as a one-dimensional state
+        site_state = GaussianState(
+            mean=jnp.atleast_1d(site_mean),
+            cov=lx.DiagonalLinearOperator(jnp.atleast_1d(site_variance)),
+        )
+
+        def site_log_density(site_latent: Float[Array, " 1"]) -> Float[Array, ""]:
+            return log_density(site_latent[0], site_data)
+
+        # 𝔼[ℓ(fᵢ, dᵢ)]
+        return log_likelihood_expectation(site_log_density, site_state, integrator)
+
+    site_expectations = jax.vmap(site_expectation)(state.mean, marginal_variances, data)
+    # ∑ᵢ 𝔼[ℓ(fᵢ, dᵢ)]
+    return jnp.sum(site_expectations)
 
 
 def elbo(

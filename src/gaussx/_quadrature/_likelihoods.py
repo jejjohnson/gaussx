@@ -2,13 +2,84 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-from jaxtyping import Array, Float, Int
+from jaxtyping import Array, Float, Int, PyTree
 
 from gaussx._einx import rearrange
 from gaussx._quadrature._likelihood import AbstractLikelihood
+
+
+class CallableLikelihood(AbstractLikelihood):
+    """A factorised likelihood from a per-site log density.
+
+        log p(y ∣ f) = ∑ᵢ ℓ(fᵢ, dᵢ),    i = 1, …, N
+
+    where dᵢ is site i's data: the i-th slice along the leading axis of every
+    leaf of ``data`` (its yᵢ and any per-site inputs). ℓ is a plain JAX
+    function of a scalar latent and one site's data, so any factorised
+    observation model gets ``log_prob``, ``site_derivatives`` and
+    `gaussx.expected_log_likelihood` without a subclass per family.
+
+    Because the sum factorises, the Hessian in f is diagonal and the inherited
+    ``site_derivatives`` returns the exact pair
+
+        gᵢ = ∂ℓ(fᵢ, dᵢ)/∂fᵢ,    hᵢ = ∂²ℓ(fᵢ, dᵢ)/∂fᵢ²
+
+    and `gaussx.expected_log_likelihood` integrates each site against its
+    marginal, ∑ᵢ 𝔼[ℓ(fᵢ, dᵢ)] with fᵢ ~ 𝒩(mᵢ, Σᵢᵢ), with the integrator
+    applied in one dimension per site rather than in N jointly. Parameters of
+    ℓ (a noise scale, a dispersion) are differentiable when ℓ closes over
+    them or is an `equinox.Module` holding them.
+
+    Reference: Rasmussen and Williams (2006), Gaussian Processes for Machine
+    Learning, §3.4 (factorised likelihoods, diagonal W = −∇∇ log p(y ∣ f)).
+
+    Attributes:
+        log_density: Per-site log density ℓ(fᵢ, dᵢ) ↦ log p(yᵢ ∣ fᵢ), taking a
+            scalar latent and one site's slice of ``data``.
+        data: Pytree of per-site data; every leaf has a leading site axis of
+            length N.
+
+    Examples:
+        A Bernoulli likelihood written as a function of one site:
+
+        >>> import jax
+        >>> import jax.numpy as jnp
+        >>> import jax.scipy.stats as jss
+        >>> import gaussx
+        >>> y = jnp.array([1.0, 0.0, 1.0])
+        >>> lik = gaussx.CallableLikelihood(
+        ...     lambda f_i, y_i: jss.bernoulli.logpmf(y_i, jax.nn.sigmoid(f_i)), y
+        ... )
+        >>> gradient, hessian_diagonal = lik.site_derivatives(jnp.zeros(3))
+        >>> gradient.shape
+        (3,)
+        >>> bool(jnp.allclose(gradient, jnp.array([0.5, -0.5, 0.5])))
+        True
+        >>> bool(jnp.allclose(hessian_diagonal, -0.25))
+        True
+    """
+
+    log_density: Callable[[Float[Array, ""], PyTree], Float[Array, ""]]
+    data: PyTree
+
+    def log_prob(self, f: Float[Array, " N"]) -> Float[Array, ""]:
+        """Evaluate ∑ᵢ ℓ(fᵢ, dᵢ).
+
+        Args:
+            f: Latent function values f, one per site.
+
+        Returns:
+            The scalar log-likelihood.
+        """
+        # ℓ(fᵢ, dᵢ) for every site
+        site_log_densities = jax.vmap(self.log_density)(f, self.data)
+        # log p(y ∣ f) = ∑ᵢ ℓ(fᵢ, dᵢ)
+        return jnp.sum(site_log_densities)
 
 
 class BernoulliLikelihood(AbstractLikelihood):
