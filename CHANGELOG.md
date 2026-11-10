@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.13](https://github.com/jejjohnson/gaussx/compare/v0.6.12...v0.6.13) (2026-11-10)
+
+
+### Features
+
+* **inference:** expose the Newton step of laplace_mode, so a caller can own the loop ([#818](https://github.com/jejjohnson/gaussx/issues/818)) ([04b8241](https://github.com/jejjohnson/gaussx/commit/04b824172708e1ec30c2e5ac3eda0857f700ad3b)), closes [#816](https://github.com/jejjohnson/gaussx/issues/816)
+
 ## [0.6.12](https://github.com/jejjohnson/gaussx/compare/v0.6.11...v0.6.12) (2026-11-07)
 
 
