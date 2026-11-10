@@ -153,6 +153,7 @@ def test_gradients_in_theta_match_finite_differences():
 
 
 @pytest.mark.slow
+@pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
 @pytest.mark.parametrize(("tau", "phi"), THETAS)
 def test_laplace_log_marginal_is_the_exact_gaussian_marginal(tau, phi):
     # y = b + noise: Laplace is exact, and p(y | theta) is N(0, cov_b + s2 I).

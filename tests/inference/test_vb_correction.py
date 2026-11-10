@@ -27,6 +27,10 @@ from gaussx._einx import einsum, rearrange, reduce
 from gaussx._inference._vb_correction import _pair_plan, _unconstrained_variances
 
 
+# the corrections are taken at laplace_mode's fit until gaussx 0.7.0
+pytestmark = pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
+
+
 GOLDEN = Path(__file__).parents[2] / "scripts" / "golden" / "inla"
 
 

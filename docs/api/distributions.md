@@ -56,7 +56,7 @@ An odd-length `rw2_structure(n)` has one decoupled padding node: build the
 `IntrinsicGMRF` on all `n + 1` nodes with `null_space` zero on it, and drop
 it from draws. All four require `numpyro` to be installed.
 
-**BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair $(\mathbf{b}, \mathbf{u}^\star)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision $\boldsymbol{\Lambda}(\tau, \phi)$ has the null vector $(\sqrt{\phi / \tau} \mathbf{1}, \mathbf{1})$, which depends on $\boldsymbol{\theta} = (\tau, \phi)$. So the bracket `IntrinsicGMRF` drops by default is not constant (it holds $\frac{n}{2} \log \frac{\tau}{1 - \phi}$), and projecting draws along `null_space` does not remove the singular direction. `BYM2GMRF` uses the exact density on $\{\mathbf{V}^\top \mathbf{u}^\star = \mathbf{0}\}$, $-\frac{1}{2} \mathbf{r}^\top \boldsymbol{\Lambda} \mathbf{r} + \frac{n}{2} \log \frac{\tau}{1 - \phi}$ with $\mathbf{r} = (\mathbf{b}, \mathbf{u}^\star) - \boldsymbol{\mu}$ (plus the constant $\frac{1}{2} \log \det_+ \mathbf{R}^\star - \frac{2n - D_c}{2} \log 2\pi$ with `include_normalizer`), and draws $\mathbf{u}^\star$ from the ICAR on $\mathbf{R}^\star$, then $\mathbf{b}$ from its definition. It is an `IntrinsicGMRF`, so `laplace_mode` takes it as a prior, and its log-marginal is then correct in $(\tau, \phi)$:
+**BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair $(\mathbf{b}, \mathbf{u}^\star)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision $\boldsymbol{\Lambda}(\tau, \phi)$ has the null vector $(\sqrt{\phi / \tau} \mathbf{1}, \mathbf{1})$, which depends on $\boldsymbol{\theta} = (\tau, \phi)$. So the bracket `IntrinsicGMRF` drops by default is not constant (it holds $\frac{n}{2} \log \frac{\tau}{1 - \phi}$), and projecting draws along `null_space` does not remove the singular direction. `BYM2GMRF` uses the exact density on $\{\mathbf{V}^\top \mathbf{u}^\star = \mathbf{0}\}$, $-\frac{1}{2} \mathbf{r}^\top \boldsymbol{\Lambda} \mathbf{r} + \frac{n}{2} \log \frac{\tau}{1 - \phi}$ with $\mathbf{r} = (\mathbf{b}, \mathbf{u}^\star) - \boldsymbol{\mu}$ (plus the constant $\frac{1}{2} \log \det_+ \mathbf{R}^\star - \frac{2n - D_c}{2} \log 2\pi$ with `include_normalizer`), and draws $\mathbf{u}^\star$ from the ICAR on $\mathbf{R}^\star$, then $\mathbf{b}$ from its definition. It is an `IntrinsicGMRF`, so `argminax.solve.laplace_mode` takes it as a prior, and its log-marginal is then correct in $(\tau, \phi)$:
 
 ```python
 scale = gx.generalized_variance_scale(R, V)  # R: the Besag structure, n areas
@@ -67,7 +67,7 @@ log_pdet = gx.pseudo_logdet(R, structure="laplacian") + (n - 1) * jnp.log(scale)
 
 def log_marginal(tau, phi):
     prior = gx.BYM2GMRF(R_star, tau, phi, V, include_normalizer=True, log_pdet=log_pdet)
-    return gx.laplace_mode(
+    return amx.solve.laplace_mode(
         prior, gx.PoissonLikelihood(counts), projector=A
     ).log_marginal
 ```

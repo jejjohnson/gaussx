@@ -38,7 +38,7 @@ control.
 Observation models with quadrature-friendly `log_prob` surfaces, shared by the
 expectation helpers and the SSM / CVI recipes. Site-factorising likelihoods
 also give `site_derivatives`, the per-site gradient and Hessian diagonal that
-Newton-type inference (`newton_update`, `laplace_mode`) consumes; binomial and
+Newton-type inference (`newton_update`, `argminax.solve.laplace_mode`) consumes; binomial and
 negative binomial supply closed forms.
 
 ::: gaussx
@@ -94,7 +94,7 @@ a single `vmap`:
 
 ```python
 pts, logw = gaussx.theta_design(log_post, theta_star, method="ccd")  # (15, 3), (15,)
-fits = jax.vmap(lambda th: gaussx.laplace_mode(prior_at(th), lik))(pts)
+fits = jax.vmap(lambda th: argminax.solve.laplace_mode(prior_at(th), lik))(pts)
 post_mean = einx.dot("k, k n -> n", jnp.exp(logw), fits.mode)
 ```
 

@@ -23,7 +23,12 @@ import pytest
 import scipy.stats
 
 import gaussx as gx
+from gaussx._deprecation import GaussxDeprecationWarning
 from gaussx._einx import einsum
+
+
+# laplace_mode stays tested until gaussx 0.7.0 removes it
+pytestmark = pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
 
 
 # ---------------------------------------------------------------------------
@@ -685,3 +690,16 @@ class TestOptions:
             2.0 * R.as_matrix(), jnp.zeros(n), gx.PoissonLikelihood(counts)
         )
         assert jnp.allclose(result.mode, mode, atol=1e-10)
+
+
+def test_laplace_mode_warns_naming_its_replacement_and_removal() -> None:
+    prior = gx.GaussianMRF(jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3)))
+    likelihood = gx.PoissonLikelihood(jnp.array([0.0, 1.0, 4.0]))
+    with pytest.warns(GaussxDeprecationWarning) as record:
+        gx.laplace_mode(prior, likelihood)
+    assert len(record) == 1
+    message = str(record[0].message)
+    assert "argminax.solve.laplace_mode" in message
+    assert "gaussx 0.7.0" in message
+    # attributed to the caller's line, not to gaussx
+    assert record[0].filename == __file__

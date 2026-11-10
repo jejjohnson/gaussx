@@ -42,6 +42,8 @@ Two conventions for the second natural parameter coexist. Both share the first o
 
 ## Precision-form Laplace (INLA)
 
+`laplace_mode` is deprecated and will be removed in gaussx 0.7.0: the loop now lives in `argminax.solve.laplace_mode`, which iterates gaussx's single step (below) and returns the same fields. The algebra on this page describes both, and the examples call argminax.
+
 `laplace_mode` is the inner loop of INLA: the Gaussian approximation $\mathcal{N}(\hat{\mathbf{x}}, \boldsymbol{\Lambda}_{x \mid y}^{-1})$ of a latent Gaussian model at fixed hyperparameters $\boldsymbol{\theta}$, computed entirely in precision form. With the linear predictor $\boldsymbol{\eta} = \mathbf{A} \mathbf{x} + \mathbf{o}$, $\mathbf{g} = \nabla_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta})$ and the site precision $\boldsymbol{\Lambda}_\text{site} = -\mathrm{diag}(\nabla^2_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta}))$ (floored at $10^{-6}$), each Newton step solves
 
 $$
@@ -65,6 +67,7 @@ log-determinants through their structured or sparse (Takahashi) VJPs, so
 exact.
 
 ```python
+import argminax as amx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -86,7 +89,7 @@ def log_marginal(log_tau):
         null_space=rw2_null,
         constraint="hard",
     )
-    result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts))
+    result = amx.solve.laplace_mode(prior, gx.PoissonLikelihood(counts))
     return result.log_marginal  # H stays BlockTriDiag
 
 
@@ -108,7 +111,7 @@ One Newton step is public, so a caller can run its own loop around it (`argminax
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [laplace_mode, LaplaceResult, laplace_model, LaplaceModel, laplace_result]
+      members: [LaplaceResult, laplace_model, LaplaceModel, laplace_result]
 
 ## Low-rank VB mean correction (INLA)
 
@@ -121,6 +124,7 @@ $$
 with $\boldsymbol{\mu}_\eta = \mathbf{A} \bar{\mathbf{x}} + \mathbf{o}$ and $v_m = [\mathbf{A} \boldsymbol{\Sigma} \mathbf{A}^\top]_{mm}$. The expectations are 1-D Gauss-Hermite per site, the predictor variances come from the same Takahashi selected inverse as the marginal variances, and the Newton steps on $\boldsymbol{\delta}$ are $p$-dimensional, so it costs $p$ solves with the Laplace factor. For a Gaussian likelihood the correction is exactly zero. Typically $\mathbf{S}$ spans the fixed effects:
 
 ```python
+import argminax as amx
 import jax.numpy as jnp
 import numpy as np
 
@@ -151,7 +155,7 @@ A = gx.SparseOperator.from_coo(  # η = u + β₀
 )
 detection = gx.BernoulliLikelihood(detected)
 
-res = gx.laplace_mode(prior, detection, projector=A)
+res = amx.solve.laplace_mode(prior, detection, projector=A)
 fixed_effect_idx = jnp.array([n])
 mean_vb = gx.vb_mean_correction(
     res, prior, detection, projector=A, subspace=fixed_effect_idx
@@ -286,3 +290,13 @@ RTPP / RTPS inflation.
       show_root_heading: false
       show_root_toc_entry: false
       members: [euclidean_distance, haversine_distance]
+
+## Deprecated aliases
+
+These names still work but warn on use and will be removed in gaussx 0.7.0 (see the [deprecation policy](index.md#deprecation-policy)). Use `argminax.solve.laplace_mode` instead of `laplace_mode`.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [laplace_mode]
