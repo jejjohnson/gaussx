@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.15](https://github.com/jejjohnson/gaussx/compare/v0.6.14...v0.6.15) (2026-11-10)
+
+
+### Features
+
+* **quadrature:** add CallableLikelihood, a likelihood from a per-site log density ([#832](https://github.com/jejjohnson/gaussx/issues/832)) ([48cd4b2](https://github.com/jejjohnson/gaussx/commit/48cd4b2c2f2c7547fb8565b736d1223bf0fc9400)), closes [#831](https://github.com/jejjohnson/gaussx/issues/831)
+
 ## [0.6.14](https://github.com/jejjohnson/gaussx/compare/v0.6.13...v0.6.14) (2026-11-10)
 
 
