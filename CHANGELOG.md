@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.16](https://github.com/jejjohnson/gaussx/compare/v0.6.15...v0.6.16) (2026-11-11)
+
+
+### Deprecations
+
+* **operators:** deprecate the interpolation weights in favour of functax stencils ([#834](https://github.com/jejjohnson/gaussx/issues/834)) ([57bd26e](https://github.com/jejjohnson/gaussx/commit/57bd26ef4208ee02ccb40db5585e667da418d098))
+
 ## [0.6.15](https://github.com/jejjohnson/gaussx/compare/v0.6.14...v0.6.15) (2026-11-10)
 
 
