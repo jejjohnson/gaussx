@@ -22,7 +22,7 @@ import lineax as lx
 import pytest
 
 import gaussx
-from gaussx._einx import einsum
+from gaussx._einx import einsum, repeat
 from gaussx._testing import default_tolerances
 
 
@@ -63,7 +63,7 @@ def _grid_size(case) -> int:
 
 def _dense_interpolation(indices, weights, grid_size):
     """W with [W]_m,j = ∑_s w_m,s [i_m,s = j], built by scatter-add."""
-    rows = jnp.broadcast_to(jnp.arange(indices.shape[0])[:, None], indices.shape)
+    rows = repeat(jnp.arange(indices.shape[0]), "row -> row tap", tap=indices.shape[1])
     W = jnp.zeros((indices.shape[0], grid_size), weights.dtype)
     return W.at[rows, indices].add(weights)
 
