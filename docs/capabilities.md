@@ -141,8 +141,6 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `grid_coupling_indices` | function | Flat indices of masked-out grid cells adjacent to the masked-in region. |
 | `create_grid` | function | Regular grid axes g_d = linspace(lo_d, hi_d, N_d), one per dimension. |
 | `grid_data` | function | Inducing inputs X_ℐ, the Cartesian product of the grid axes. |
-| `cubic_interpolation_weights` | function | Sparse rows of the cubic SKI interpolation matrix W_interp. |
-| `linear_interpolation_weights` | function | Sparse rows of the multilinear interpolation matrix on a rectilinear grid. |
 | `interpolation_operator` | function | The interpolation matrix W as a matrix-free operator, B × G. |
 
 ### Lazy algebra & sampling
@@ -195,6 +193,8 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `SumKroneckerSqrt` | class | Deprecated alias for `SumOfKroneckersSqrt` (gh-297). |
 | `sumkronecker_sample` | function | Deprecated alias for `sum_of_kroneckers_sample` (gh-297). |
 | `SVDLowRankUpdate` | class | Deprecated subclass of `LowRankUpdate` with ``orthonormal=True``. |
+| `cubic_interpolation_weights` | function | Deprecated: sparse rows of the cubic SKI interpolation matrix W_interp. |
+| `linear_interpolation_weights` | function | Deprecated: sparse rows of the multilinear interpolation matrix on a grid. |
 
 ## [Sparse Operators](api/sparse.md)
 

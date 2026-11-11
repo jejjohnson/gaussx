@@ -1,5 +1,7 @@
 """Tests for grid construction and cubic interpolation weights."""
 
+import warnings
+
 import jax
 import jax.numpy as jnp
 import jax.random as jr
@@ -14,8 +16,21 @@ from gaussx import (
     interpolation_operator,
     linear_interpolation_weights,
 )
+from gaussx._deprecation import GaussxDeprecationWarning
 from gaussx._einx import einsum, reduce
 from gaussx._testing import default_tolerances
+
+
+# The two weight builders are deprecated in favour of functax stencils (gh-813);
+# their behaviour is tested here until gaussx 0.7.0 removes them.
+pytestmark = [
+    pytest.mark.filterwarnings(
+        "ignore:gaussx.cubic_interpolation_weights is deprecated"
+    ),
+    pytest.mark.filterwarnings(
+        "ignore:gaussx.linear_interpolation_weights is deprecated"
+    ),
+]
 
 
 class TestCreateGrid:
@@ -283,3 +298,27 @@ class TestInterpolationOperator:
         by_point = jax.grad(sample, argnums=1)(field, point)
         slope = jnp.array([[2.0]], dtype=axis.dtype)  # (4 − 1) / (2 − 0.5)
         assert jnp.allclose(by_point, slope, rtol=10 * rtol, atol=10 * atol)
+
+
+class TestDeprecation:
+    @pytest.mark.parametrize(
+        ("function", "replacement"),
+        [
+            (cubic_interpolation_weights, "functax.interp.Cubic()"),
+            (linear_interpolation_weights, "functax.interp.Linear()"),
+        ],
+    )
+    def test_warns_once_per_call_site_and_names_functax(self, function, replacement):
+        grid = create_grid([6], [(0.0, 1.0)])
+        x = jnp.array([[0.31]], dtype=grid[0].dtype)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("default", GaussxDeprecationWarning)
+            for _ in range(3):
+                function(x, grid)
+        assert len(caught) == 1
+        assert caught[0].category is GaussxDeprecationWarning
+        assert caught[0].filename == __file__
+        message = str(caught[0].message)
+        assert replacement in message
+        assert "to_gaussx()" in message
+        assert "gaussx 0.7.0" in message
