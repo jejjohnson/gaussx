@@ -188,6 +188,9 @@ class TestTags:
         op = InterpolatedOperator(K_uu, indices, values, tags=lx.symmetric_tag)
         assert lx.is_symmetric(op) is True
 
+    @pytest.mark.filterwarnings(
+        "ignore:gaussx.cubic_interpolation_weights is deprecated"
+    )
     def test_inherits_symmetric_and_psd_from_base(self):
         # gh-352: the KISS-GP default (PSD Toeplitz base, no explicit tags).
         m = 8

@@ -138,18 +138,34 @@ product $\mathbf{A}_1 \otimes f(\mathbf{A}_2) + c\mathbf{I}$ it keeps its eigenb
 
 ## Interpolated & masked operators
 
-Grid-interpolated (KISS-GP style) and masked operators, plus the grid and
-cubic-interpolation helpers that build them. Kernel operators themselves
+Grid-interpolated (KISS-GP style) and masked operators, plus the grid helpers
+that build them. Kernel operators themselves
 (`KernelOperator`, `ImplicitKernelOperator`, `ImplicitCrossKernelOperator`)
 moved to [kernellib](https://github.com/jejjohnson/kernellib) in gaussx 0.2.0;
 they are lineax operators, so every gaussx primitive and solver strategy works
 on them unchanged.
 
+Interpolation stencils come from [functax](https://github.com/jejjohnson/functax); gaussx takes their arrays. A local `functax.interp` plan exports `(indices, weights)` with `Plan.to_gaussx()`, each of shape (M, S) for M targets and S taps (S = 4^D for cubic, 2^D for linear): row m holds the flat row-major grid indices of target m and their weights, repeated indices add, and a target off the domain gets a row of zero weights. `InterpolatedOperator`, `interpolation_operator` and `SparseOperator` take those arrays as they are. gaussx does not import functax, so the caller builds the plan:
+
+```python
+import functax
+import gaussx
+
+axes = [functax.geometry.Axis(g) for g in grid]  # grid: D evenly spaced axes
+plan = functax.interp.Cubic().plan(
+    functax.geometry.RectilinearGrid(axes), functax.geometry.Points(x_target)
+)
+indices, weights = plan.to_gaussx()  # (M, 4^D) each
+A = gaussx.InterpolatedOperator(K_grid, indices, weights)  # W K_II Wᵀ
+```
+
+On a single axis the source is `functax.geometry.Axis(g)` itself. For the multilinear weights use `functax.interp.Linear()` with `policies=functax.interp.Policies(outside="clamp")`, which is what `linear_interpolation_weights` does by default (`outside="extrapolate"` matches `clamp=False`). The cubic rows agree with `cubic_interpolation_weights` wherever the target's cell needs no clipping; in the edge cells gaussx shifts the stencil inward, while functax reflects the taps by default (`boundary="mirror"`). gaussx's own builders, `cubic_interpolation_weights` and `linear_interpolation_weights`, are deprecated (see below).
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [InterpolatedOperator, MaskedOperator, masked_obs_covariance, grid_coupling_indices, create_grid, grid_data, cubic_interpolation_weights, linear_interpolation_weights, interpolation_operator]
+      members: [InterpolatedOperator, MaskedOperator, masked_obs_covariance, grid_coupling_indices, create_grid, grid_data, interpolation_operator]
 
 ## Lazy algebra & sampling
 
@@ -213,4 +229,4 @@ replacement.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [SumKronecker, SumKroneckerSqrt, sumkronecker_sample, SVDLowRankUpdate]
+      members: [SumKronecker, SumKroneckerSqrt, sumkronecker_sample, SVDLowRankUpdate, cubic_interpolation_weights, linear_interpolation_weights]

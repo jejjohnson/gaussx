@@ -24,9 +24,13 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
 
         A x = W_interp (K_ℐℐ (W_interpᵀ x))
 
-    W_interp is a sparse interpolation matrix with P nonzeros per row (cubic
-    interpolation weights, say), and the base operator K_ℐℐ acts on the
-    inducing grid (typically Toeplitz for a stationary kernel). A matvec
+    W_interp is a sparse interpolation matrix with P nonzeros per row, given
+    as the two arrays any stencil builder returns, and the base operator K_ℐℐ
+    acts on the inducing grid (typically Toeplitz for a stationary kernel).
+    The stencils come from functax: ``Plan.to_gaussx()`` of a local
+    ``functax.interp`` plan returns ``(interp_indices, interp_values)`` in this
+    layout, with each invalid row given index 0 and weight 0 (a zero row of
+    W_interp). gaussx does not import functax; it takes the arrays. A matvec
     costs O(N P + N_ℐ log N_ℐ) with a Toeplitz base, essentially linear in N.
 
     Args:
@@ -45,7 +49,10 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
             shape, or ``base_operator`` is not square.
 
     Examples:
-        A Toeplitz RBF kernel on 10 grid points, interpolated to 3 targets:
+        A Toeplitz RBF kernel on 10 grid points, interpolated to 3 targets
+        (the weights here come from gaussx's deprecated builder; functax's
+        ``Cubic().plan(...).to_gaussx()`` gives the same arrays away from the
+        grid edges):
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx

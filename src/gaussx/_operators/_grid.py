@@ -9,6 +9,10 @@ X ∈ ℝ^{N × D_x}; cubic convolution gives each row 4^{D_x} nonzero weights,
 the products of four per-axis weights w_k(δ) of the fractional offset
 δ ∈ [0, 1) of the target from its grid cell. Multilinear interpolation gives
 2^{D_x} nonzero weights on axes that may be non-uniform.
+
+The two weight builders are deprecated (gh-813): interpolation stencils belong
+to functax, whose ``Plan.to_gaussx()`` returns ``(indices, weights)`` in the
+layout `InterpolatedOperator` and `interpolation_operator` take.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float, Int
 
+from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 
 
@@ -127,13 +132,25 @@ def cubic_interpolation_weights(
     x_target: Float[Array, "B D"],
     grid: list[Float[Array, " n"]],
 ) -> tuple[Int[Array, "B K"], Float[Array, "B K"]]:
-    """Sparse rows of the cubic SKI interpolation matrix W_interp.
+    """Deprecated: sparse rows of the cubic SKI interpolation matrix W_interp.
 
         [W_interp]_n,j = ∏_d w_k_d(δ_n,d),   j = ∑_d (i_n,d + k_d) s_d
 
     Each target x_n takes the 4^{D_x} grid points around it: on axis d the
     neighbours i_n,d + k_d, k_d ∈ {−1, 0, 1, 2}, of its cell i_n,d, weighted
     by the Keys cubic weights of its fractional offset δ_n,d.
+
+    Deprecated: build the stencil with functax,
+    ``functax.interp.Cubic().plan(source, functax.geometry.Points(x_target))``
+    with ``source`` a ``functax.geometry.RectilinearGrid`` of one
+    ``functax.geometry.Axis`` per grid axis, then ``.to_gaussx()``, and pass the
+    arrays to `InterpolatedOperator` or `interpolation_operator`. The rows agree
+    wherever the target's cell needs no clipping; in the edge cells this
+    function shifts the stencil inward, while functax reflects the taps (its
+    ``boundary="mirror"`` policy). This function emits a
+    `GaussxDeprecationWarning` and will be removed in gaussx 0.7.0. Until then,
+    zero targets on a grid of two or more dimensions raise an einx
+    ``AxisSizeError`` (gh-703).
 
     Algorithm:
         1. Compute the row-major strides s_d = ∏_{d′>d} N_d′ of the grid.
@@ -177,6 +194,12 @@ def cubic_interpolation_weights(
         >>> gaussx.cubic_interpolation_weights(x2, grid2)[0].shape
         (1, 16)
     """
+    warn_deprecated(
+        "gaussx.cubic_interpolation_weights is deprecated and will be removed in "
+        "gaussx 0.7.0; build the stencil with functax.interp.Cubic().plan(source, "
+        "functax.geometry.Points(x_target)).to_gaussx() and pass the arrays to "
+        "gaussx.InterpolatedOperator (gh-813)."
+    )
     D = len(grid)
     # N_d
     grid_sizes = [g.shape[0] for g in grid]
@@ -229,7 +252,7 @@ def linear_interpolation_weights(
     *,
     clamp: bool = True,
 ) -> tuple[Int[Array, "B K"], Float[Array, "B K"]]:
-    """Sparse rows of the multilinear interpolation matrix on a rectilinear grid.
+    """Deprecated: sparse rows of the multilinear interpolation matrix on a grid.
 
         i_d = clip(searchsorted(g_d, p_d) − 1, 0, N_d − 2)
         t_d = (p_d − g_d,i_d) / (g_d,i_d+1 − g_d,i_d)
@@ -240,6 +263,15 @@ def linear_interpolation_weights(
     be non-uniform. Weights sum to one per target, and grid nodes are
     reproduced exactly. The result is piecewise linear in p, as in the KISS-GP
     setting of Wilson & Nickisch (2015), arXiv:1503.01057.
+
+    Deprecated: build the stencil with functax,
+    ``functax.interp.Linear().plan(source, functax.geometry.Points(x_target),
+    policies=functax.interp.Policies(outside="clamp"))`` with ``source`` a
+    ``functax.geometry.RectilinearGrid`` of one ``functax.geometry.Axis`` per
+    grid axis (``outside="extrapolate"`` for ``clamp=False``), then
+    ``.to_gaussx()``, and pass the arrays to `InterpolatedOperator` or
+    `interpolation_operator`. This function emits a `GaussxDeprecationWarning`
+    and will be removed in gaussx 0.7.0.
 
     Algorithm:
         1. Compute the row-major strides s_d = ∏_{d′>d} N_d′ of the grid.
@@ -282,6 +314,13 @@ def linear_interpolation_weights(
         ... )[0].shape
         (1, 4)
     """
+    warn_deprecated(
+        "gaussx.linear_interpolation_weights is deprecated and will be removed in "
+        "gaussx 0.7.0; build the stencil with functax.interp.Linear().plan(source, "
+        "functax.geometry.Points(x_target), policies=functax.interp.Policies("
+        "outside='clamp')).to_gaussx() (outside='extrapolate' for clamp=False) and "
+        "pass the arrays to gaussx.InterpolatedOperator (gh-813)."
+    )
     # N_d
     grid_sizes = [axis.shape[0] for axis in grid]
     for d, n in enumerate(grid_sizes):
@@ -321,8 +360,8 @@ def interpolation_operator(
         (W f)_n = ∑_k w_n,k f_{j_n,k}
 
     Each matvec is a gather at O(B K), and ``W.T`` is the matching scatter-add
-    (`jax.linear_transpose` of the gather). Takes the output of
-    `linear_interpolation_weights` or `cubic_interpolation_weights`, and the
+    (`jax.linear_transpose` of the gather). Takes any ``(indices, weights)``
+    stencil in that row layout, such as functax's ``Plan.to_gaussx()``, and the
     indices may be traced. `gaussx.InterpolatedOperator` is the W K Wᵀ form.
 
     Args:

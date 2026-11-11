@@ -54,9 +54,12 @@ def _module_names() -> list[str]:
     return sorted(names)
 
 
-# laplace_mode and vb_mean_correction document the deprecated loop until
-# gaussx 0.7.0 removes it
+# laplace_mode and vb_mean_correction document the deprecated loop, and the grid
+# and interpolated-operator examples the deprecated weight builders (gh-813),
+# until gaussx 0.7.0 removes them
 @pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
+@pytest.mark.filterwarnings("ignore:gaussx.cubic_interpolation_weights is deprecated")
+@pytest.mark.filterwarnings("ignore:gaussx.linear_interpolation_weights is deprecated")
 @pytest.mark.parametrize("module_name", _module_names())
 def test_docstring_examples(module_name):
     try:
