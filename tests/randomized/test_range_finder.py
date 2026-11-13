@@ -236,3 +236,14 @@ def test_power_iterations_monotonically_improve_matern12():
     assert all(a > b for a, b in itertools.pairwise(errs))
     # With q = 3 the truncated SVD is within 10% of the optimal error σ_{k+1}.
     assert errs[-1] <= 1.1 * float(s_true[k])
+
+
+def test_range_finder_sketch_caps_ell_independent_of_power_iterations():
+    op = lx.MatrixLinearOperator(jr.normal(jr.key(5), (8, 6)))
+    sketch = gx.GaussianSketch.sample(jr.key(6), d=12, m=6)
+
+    Q_no_power = gx.range_finder(op, 2, sketch=sketch, n_power_iter=0)
+    Q_with_power = gx.range_finder(op, 2, sketch=sketch, n_power_iter=1)
+
+    assert Q_no_power.shape == (8, 6)
+    assert Q_with_power.shape == (8, 6)
