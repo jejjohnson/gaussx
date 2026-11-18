@@ -1,0 +1,7 @@
+- **Provides.** Update steps for Gaussian approximations: ensemble Kalman analyses, and natural-gradient and Newton updates.
+- **Nouns.** An ensemble is an array `(J, N)`; observation noise is an operator; a Gaussian approximation is its natural parameters.
+- **Verbs.** `gaussx.enkf_analysis`, `gaussx.etkf_transform`, `gaussx.eki_step`; `gaussx.localization_matrix`, `gaussx.gaspari_cohn`; `gaussx.inflate_multiplicative`, `gaussx.inflate_rtps`; `gaussx.blr_full_update`, `gaussx.blr_diag_update`, `gaussx.damped_natural_update`, `gaussx.newton_update`, `gaussx.gauss_newton_precision`.
+- **Adverbs.** `solver=`; `key=` or `perturbed_obs=` on `gaussx.enkf_analysis`, exactly one of them; `localization=`.
+- **Keep.** These are single steps: the loop over time or over iterations belongs to the library above gaussx.
+- **Never.** Form an ensemble covariance and invert it by hand, or write a natural-parameter update as mean and covariance algebra.
+- **One rung down.** Open `gaussx:gaussians-and-recipes` and its `ensemble-kalman` or `natural-gradient` entry to add a variant.

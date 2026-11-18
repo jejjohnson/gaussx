@@ -1,0 +1,7 @@
+- **Provides.** Linear-Gaussian state-space models: SDE kernels, their discretisation, filters, smoothers and site updates.
+- **Nouns.** `gaussx.MaternSDE`, `gaussx.PeriodicSDE`, `gaussx.SumSDE`, `gaussx.ProductSDE`; `gaussx.FilterState`; `gaussx.GaussianSites`.
+- **Verbs.** `gaussx.discretize_mfd(F, Q_c, dt)`; `gaussx.kalman_filter`, `gaussx.rts_smoother`; `gaussx.parallel_kalman_filter`, `gaussx.parallel_rts_smoother`; `gaussx.nonlinear_kalman_filter`; `gaussx.cvi_update_sites`.
+- **Adverbs.** `solver=` on the filter and the smoother; `mask=` for missing observations; an integrator for the nonlinear filter.
+- **Keep.** The filter predicts before each update, so `observations[0]` observes the first predicted state; `rts_smoother` takes the `FilterState` the filter returned.
+- **Never.** Write a predict and update loop or a backward pass by hand.
+- **One rung down.** Open `gaussx:gaussians-and-recipes` and its `kalman`, `nonlinear-filtering` or `sde-kernels` entry to add a model or a filter variant.
