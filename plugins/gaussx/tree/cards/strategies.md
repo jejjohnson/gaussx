@@ -1,0 +1,7 @@
+- **Provides.** The ways a solve or a log-determinant is computed, as objects a caller passes in.
+- **Nouns.** `gaussx.AutoSolver`, `gaussx.DenseSolver`, `gaussx.CGSolver`, `gaussx.PreconditionedCGSolver`, `gaussx.BBMMSolver`, `gaussx.MINRESSolver`, `gaussx.LSMRSolver`, `gaussx.SparseCholeskySolver`; `gaussx.SLQLogdet`, `gaussx.DenseLogdet`; `gaussx.NystromPreconditioner`, `gaussx.PartialCholeskyPreconditioner`.
+- **Verbs.** `strategy.solve(operator, vector)` and `strategy.logdet(operator, key=key)`; `gaussx.linear_solve(operator, vector, solver=...)` for an operator or a `(matvec, shape)` pair.
+- **Adverbs.** `preconditioner=` on the CG family; `key=` for a stochastic log-determinant, or `gaussx.KeyedSolver`; `gaussx.ComposedSolver` to take the solve from one strategy and the log-determinant from another.
+- **Keep.** A function above gaussx takes `solver: gaussx.AbstractSolverStrategy | None = None` and hands it down unchanged; `None` means structural dispatch.
+- **Never.** Write a CG, Lanczos or Hutchinson loop, or fix a solver inside a function that could take one.
+- **One rung down.** Open `gaussx:solvers-and-preconditioners` to choose between strategies, tune a preconditioner or build a randomized factorisation.

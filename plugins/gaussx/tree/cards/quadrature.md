@@ -1,0 +1,7 @@
+- **Provides.** Expectations of a function under a Gaussian, and the likelihoods they are taken of.
+- **Nouns.** `gaussx.GaussianState(mean, cov)`; `gaussx.GaussianLikelihood`, `gaussx.PoissonLikelihood`, `gaussx.BernoulliLikelihood`, `gaussx.StudentTLikelihood`.
+- **Verbs.** `gaussx.expected_log_likelihood(likelihood, state, integrator)`, `gaussx.elbo`, `gaussx.mean_expectation(fn, state, integrator)`, `gaussx.moment_match`, `gaussx.ep_tilted_moments`.
+- **Adverbs.** The integrator: `gaussx.GaussHermiteIntegrator`, `gaussx.UnscentedIntegrator`, `gaussx.CubatureIntegrator`, `gaussx.TaylorIntegrator`, `gaussx.MonteCarloIntegrator`.
+- **Keep.** Only `gaussx.GaussianLikelihood` has a closed form; every other likelihood needs an integrator, and a function above gaussx takes it as an argument.
+- **Never.** Write Gauss–Hermite or sigma points and weights by hand; use Gauss–Hermite on a long vector, where it costs `order ** N` points.
+- **One rung down.** Open `gaussx:gaussians-and-recipes` and its `likelihoods`, `integrators` or `expectations` entry to write a new likelihood.

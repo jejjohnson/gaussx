@@ -25,11 +25,22 @@ The repository is a Claude Code plugin marketplace. In any project:
 
 The plugin adds:
 
-- **`structured-gaussian-linalg`** (skill) — loads whenever a task solves a
-  linear system, takes a log-determinant, factorises or samples from a
-  covariance, or builds a GP / state-space / Bayesian model in JAX: which
-  layer to enter, the rules (operators not arrays, PSD tags, `solver=`, JAX
-  purity), a worked example, and a "don't write it — use gaussx" table.
+- **`structured-gaussian-linalg`** (skill) — the front door: loads whenever
+  a task builds a covariance or precision matrix, solves a linear system,
+  takes a log-determinant or factorises a matrix in JAX. Structured
+  operators, tags and the structure-aware verbs, a worked example, and a
+  "don't write it — use gaussx" table.
+- **`solvers-and-preconditioners`** (skill) — how a solve or a
+  log-determinant is computed: the solver and log-determinant strategies,
+  preconditioners, randomized factorisations, and passing `solver=` through.
+- **`gaussians-and-recipes`** (skill) — Gaussian distributions and
+  exponential-family conversions, likelihoods and quadrature, GP and
+  variational-GP recipes, Kalman filters and smoothers, natural-gradient
+  updates and the ensemble Kalman family.
+
+  Each skill holds a table of entries, one file per job with the names it
+  covers, a runnable example, the rules and what goes wrong; an agent opens
+  only the entry it needs. Every public name belongs to exactly one entry.
 - **`gaussx-reuse-reviewer`** (subagent) — a read-only check of a diff for
   dense linear algebra and Gaussian code that gaussx already provides.
 

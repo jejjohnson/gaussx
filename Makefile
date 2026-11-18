@@ -65,7 +65,7 @@ check-env-%: FORCE
 # ---------------------------------------------------------------------------
 .PHONY: help version install init lint format typecheck test test-fast \
         test-slow test-no-x64 test-cov precommit build clean docs docs-serve \
-        docs-deploy capabilities FORCE
+        docs-deploy capabilities skill-shelf FORCE
 
 FORCE:
 
@@ -224,3 +224,6 @@ docs-deploy: ## 🚀 Deploy documentation to GitHub Pages
 
 capabilities: ## 🗂️  Regenerate docs/capabilities.md (every public name, for reuse)
 	uv run python scripts/capabilities.py
+
+skill-shelf: ## 🧭 Regenerate the generated parts of the plugin's skills (plugins/gaussx)
+	uv run python scripts/skill_shelf.py

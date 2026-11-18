@@ -1,0 +1,7 @@
+- **Provides.** Covariance and precision operators that keep their structure, and the verbs that use it.
+- **Nouns.** `gaussx.Kronecker`, `gaussx.SumOfKroneckers`, `gaussx.BlockDiag`, `gaussx.BlockTriDiag`, `gaussx.Toeplitz`, `gaussx.SparseOperator`, `gaussx.low_rank_plus_diag`; any `lineax.AbstractLinearOperator`, tagged.
+- **Verbs.** `gaussx.solve`, `gaussx.logdet`, `gaussx.cholesky`, `gaussx.sqrt`, `gaussx.inv`, `gaussx.diag`, `gaussx.trace`; `gaussx.solve_matrix`, `gaussx.woodbury_solve`, `gaussx.safe_cholesky`.
+- **Adverbs.** `solver=` on `gaussx.solve`; left out, the verb dispatches on the structure.
+- **Keep.** A dense matrix enters as `lx.MatrixLinearOperator(K, lx.positive_semidefinite_tag)`; factors are operators, not arrays.
+- **Never.** Call `as_matrix()` and then a dense `jnp.linalg` solve, or build `jnp.kron(A, B)`.
+- **One rung down.** Open `gaussx:structured-gaussian-linalg` to build a new structure or to see which verb has a fast path for which noun.

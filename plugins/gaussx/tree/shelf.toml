@@ -1,0 +1,405 @@
+# gaussx's shelf: its listed skills, its units and its 24 entries.
+#
+# Every name in gaussx.__all__ belongs to exactly one entry (gate GX-1), and the
+# entry's file names it. scripts/skill_shelf.py writes the generated parts of the
+# three SKILL.md files from this file and checks the gates.
+
+[skills.structured-gaussian-linalg]
+builds_on_units = []
+
+[skills.solvers-and-preconditioners]
+builds_on_units = ["structures-and-primitives"]
+
+[skills.gaussians-and-recipes]
+builds_on_units = ["structures-and-primitives", "strategies"]
+
+[units.structures-and-primitives]
+title = "Structures and primitives"
+rungs = "⓪ ①"
+skill = "structured-gaussian-linalg"
+
+[units.strategies]
+title = "Strategies"
+rungs = "②, setup"
+skill = "solvers-and-preconditioners"
+
+[units.gaussians]
+title = "Gaussians"
+rungs = "③"
+skill = "gaussians-and-recipes"
+
+[units.gaussian-processes]
+title = "Gaussian processes"
+rungs = "④"
+skill = "gaussians-and-recipes"
+
+[units.state-space]
+title = "State space"
+rungs = "③ ④"
+skill = "gaussians-and-recipes"
+
+[units.quadrature]
+title = "Quadrature"
+rungs = "② to ④"
+skill = "gaussians-and-recipes"
+
+[units.inference-and-ensembles]
+title = "Inference and ensembles"
+rungs = "④"
+skill = "gaussians-and-recipes"
+
+[[entries]]
+file = "operators"
+title = "Structured operators"
+role = "structure"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "the Kronecker family, block, low-rank, Toeplitz and circulant, masked and interpolated operators"
+names = [
+    "as_diagonalized", "BlockDiag", "BlockTriDiag", "CapacitanceSolver", "circulant",
+    "circulant_from_symbol", "create_grid", "cubic_interpolation_weights",
+    "DiagonalizedOperator", "grid_coupling_indices", "grid_data",
+    "InterpolatedOperator", "interpolation_operator", "is_eigen_reducible", "Kronecker",
+    "kronecker_sum_sample", "KroneckerSum", "KroneckerSumSqrt",
+    "linear_interpolation_weights", "low_rank_plus_diag", "low_rank_plus_identity",
+    "LowerBlockTriDiag", "LowRankUpdate", "masked_obs_covariance", "MaskedOperator",
+    "product_operator", "scaled_operator", "SpectralFunction",
+    "sum_of_kroneckers_sample", "sum_operator", "SumKronecker", "sumkronecker_sample",
+    "SumOfKroneckers", "svd_low_rank_plus_diag", "SVDLowRankUpdate", "Toeplitz",
+    "toeplitz_sample", "ToeplitzCholesky", "UpperBlockTriDiag",
+]
+
+[[entries]]
+file = "tags"
+title = "Tags and predicates"
+role = "structure"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "PSD, symmetric, Kronecker and the other tags, and what each unlocks"
+names = [
+    "block_diagonal_tag", "block_tridiagonal_tag", "diagonal_tag", "is_block_diagonal",
+    "is_block_tridiagonal", "is_diagonal", "is_kronecker", "is_kronecker_sum",
+    "is_low_rank", "is_lower_triangular", "is_negative_semidefinite",
+    "is_positive_semidefinite", "is_symmetric", "is_upper_triangular",
+    "kronecker_sum_tag", "kronecker_tag", "low_rank_tag", "lower_triangular_tag",
+    "negative_semidefinite_tag", "positive_semidefinite_tag", "symmetric_tag",
+    "tridiagonal_tag", "unit_diagonal_tag", "upper_triangular_tag",
+]
+
+[[entries]]
+file = "sparse"
+title = "Sparse operators"
+role = "structure"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "`SparseOperator`, patterns, symbolic and numeric sparse Cholesky"
+names = [
+    "sparse_cholesky", "SparseCholeskyFactor", "SparseOperator", "SparsityPattern",
+    "symbolic_cholesky", "SymbolicCholesky",
+]
+
+[[entries]]
+file = "gmrf"
+title = "GMRF precisions"
+role = "structure"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "SPDE, random-walk, AR1, Besag and BYM2 precision builders"
+names = [
+    "ar1_precision", "besag_structure", "bym2_precision", "fem_matrices",
+    "fem_projector", "generalized_variance_scale", "iid_precision",
+    "matern_spde_params", "rw1_structure", "rw2_structure", "spde_precision",
+    "spde_precision_grid",
+]
+
+[[entries]]
+file = "solves"
+title = "Solves and factorisations"
+role = "primitive"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "`solve`, `logdet`, `cholesky`, `sqrt`, `inv`, `diag`, `trace`, `eig`, `svd` and the root decompositions"
+names = [
+    "Chandrupatla", "cholesky", "cholesky_logdet", "DenseFallbackWarning", "diag",
+    "eig", "eigh_generalized", "eigvals", "estimate_spectral_bounds", "frobenius_norm",
+    "inv", "inv_quad_logdet", "logdet", "mixture_quantile",
+    "mixture_quantile_gaussian_approx", "pseudo_logdet", "root_decomposition",
+    "root_inv_decomposition", "RootDecomposition", "solve", "sqrt", "sqrt_inv_matmul",
+    "sqrt_matmul", "submatrix", "SumKroneckerSqrt", "SumOfKroneckersSqrt", "svd",
+    "trace", "trace_and_diag",
+]
+
+[[entries]]
+file = "identities"
+title = "Linear-algebra identities"
+role = "primitive"
+unit = "structures-and-primitives"
+skill = "structured-gaussian-linalg"
+covers = "Woodbury, Schur complements, Lyapunov, tridiagonal solves, selected inverse"
+names = [
+    "conditional_variance", "cov_transform", "diag_conditional_variance", "diag_inv",
+    "discrete_lyapunov_solve", "EigenDecomposition", "kronecker_sum_solve",
+    "safe_cholesky", "sandwich", "schur_complement", "selected_inverse",
+    "solve_columns", "solve_matrix", "solve_rows", "stable_squared_distances",
+    "symmetrize", "trace_product", "tridiagonal_solve", "tridiagonal_solve_batched",
+    "woodbury_solve",
+]
+
+[[entries]]
+file = "solvers"
+title = "Choosing a solver"
+role = "strategy"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "dense, CG, preconditioned CG, BBMM, MINRES, LSMR, sparse Cholesky, and composing them"
+names = [
+    "AutoSolver", "BBMMSolver", "CGSolver", "ComposedSolver", "DenseSolver",
+    "KeyedSolver", "LineaxSolver", "LSMRSolver", "MINRESSolver",
+    "PreconditionedCGSolver", "sketch_and_solve", "SketchAndPrecondLSMR",
+    "SparseCholeskySolver",
+]
+
+[[entries]]
+file = "logdet"
+title = "Log-determinant strategies"
+role = "strategy"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "dense, stochastic Lanczos quadrature, Nyström"
+names = [
+    "AbstractLogdetStrategy", "DenseLogdet", "IndefiniteSLQLogdet", "NystromLogdet",
+    "SLQLogdet",
+]
+
+[[entries]]
+file = "preconditioners"
+title = "Preconditioners"
+role = "strategy"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "Jacobi, Nyström, partial Cholesky, and wrapping your own"
+names = [
+    "AbstractPreconditioner", "JacobiPreconditioner", "NystromPreconditioner",
+    "OperatorPreconditioner", "PartialCholeskyPreconditioner",
+]
+
+[[entries]]
+file = "pass-through"
+title = "Passing a strategy through"
+role = "strategy"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "how a library above gaussx exposes `solver=`; `linear_solve` for a bare matvec"
+names = [
+    "AbstractSolverStrategy", "AbstractSolveStrategy", "as_linear_operator",
+    "linear_solve",
+]
+
+[[entries]]
+file = "randomized"
+title = "Randomized factorisations"
+role = "setup"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "randomized SVD and eigh, Nyström, RP-Cholesky, CUR, sketches"
+names = [
+    "AbstractSketch", "column_id", "ColumnID", "CUR", "cur", "GaussianSketch",
+    "hadamard_transform", "OrthonormalSketch", "qb", "randomized_eigh",
+    "randomized_nystrom", "randomized_svd", "range_finder", "RowSamplingSketch",
+    "rp_cholesky", "SparseSignSketch", "SRHTSketch",
+]
+
+[[entries]]
+file = "integrators"
+title = "Integrators"
+role = "strategy"
+unit = "quadrature"
+skill = "gaussians-and-recipes"
+covers = "Gauss–Hermite, unscented, cubature, Taylor, Monte Carlo"
+names = [
+    "AbstractIntegrator", "cubature_points", "CubatureIntegrator",
+    "fifth_order_cubature_points", "FifthOrderCubatureIntegrator",
+    "gauss_hermite_points", "GaussHermiteIntegrator", "GaussianState",
+    "MonteCarloIntegrator", "PropagationResult", "sigma_points", "TaylorIntegrator",
+    "UnscentedIntegrator",
+]
+
+[[entries]]
+file = "gaussians"
+title = "Gaussians"
+role = "model"
+unit = "gaussians"
+skill = "gaussians-and-recipes"
+covers = "densities, KL, entropy, conditioning, sampling"
+names = [
+    "add_jitter", "conditional", "gaussian_entropy", "gaussian_kl", "gaussian_log_prob",
+    "information_diagnostics", "InformationDiagnostics", "joseph_update",
+    "kl_standard_normal", "linear_gaussian_update", "LinearGaussianPosterior",
+    "project", "quadratic_form", "sample_joint_conditional", "sample_mvn",
+]
+
+[[entries]]
+file = "distributions"
+title = "Distribution objects"
+role = "model"
+unit = "gaussians"
+skill = "gaussians-and-recipes"
+covers = "`MultivariateNormal`, `LGSSM`, `MarkovGaussian`, the GMRF distributions; all need the numpyro extra"
+names = [
+    "AbstractMultivariateNormal", "BYM2GMRF", "ConstrainedGMRF", "GaussianMRF",
+    "IntrinsicGMRF", "LGSSM", "LGSSMFactory", "MarkovGaussian", "MaskedLGSSM",
+    "MultivariateNormal", "MultivariateNormalPrecision",
+]
+
+[[entries]]
+file = "expfam"
+title = "Exponential-family forms"
+role = "model"
+unit = "gaussians"
+skill = "gaussians-and-recipes"
+covers = "natural, expectation and mean-covariance conversions"
+names = [
+    "expectation_to_mean_chol", "expectation_to_natural", "fisher_info",
+    "GaussianExpFam", "kl_divergence", "log_partition", "mean_chol_to_expectation",
+    "mean_chol_to_natural", "mean_cov_to_natural", "natural_to_expectation",
+    "natural_to_mean_chol", "natural_to_mean_cov", "sufficient_stats", "to_expectation",
+    "to_mean_cov", "to_natural",
+]
+
+[[entries]]
+file = "likelihoods"
+title = "Likelihoods"
+role = "model"
+unit = "quadrature"
+skill = "gaussians-and-recipes"
+covers = "Gaussian, Poisson, Bernoulli, Student-t and the rest"
+names = [
+    "AbstractLikelihood", "BernoulliLikelihood", "BinomialLikelihood",
+    "CallableLikelihood", "GaussianLikelihood", "HeteroscedasticGaussianLikelihood",
+    "NegativeBinomialLikelihood", "PoissonLikelihood", "SoftmaxLikelihood",
+    "StudentTLikelihood",
+]
+
+[[entries]]
+file = "sde-kernels"
+title = "SDE kernels"
+role = "model"
+unit = "state-space"
+skill = "gaussians-and-recipes"
+covers = "Matérn, periodic, quasi-periodic, sums and products, and their discretisation"
+names = [
+    "ConstantSDE", "CosineSDE", "discretize_mfd", "discretize_mfd_sequence",
+    "IntegratedWienerSDE", "linearize_sde", "LinearizedSDE", "MaternSDE", "PeriodicSDE",
+    "process_noise_covariance", "ProductSDE", "QuasiPeriodicSDE", "sde_autocovariance",
+    "sde_kl_divergence", "SDEKernel", "SDEParams", "SumSDE",
+]
+
+[[entries]]
+file = "gp"
+title = "GP conditioning and prediction"
+role = "algorithm"
+unit = "gaussian-processes"
+skill = "gaussians-and-recipes"
+covers = "conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out"
+names = [
+    "base_conditional", "build_prediction_cache", "conditional_interpolate",
+    "kronecker_mll", "kronecker_posterior_predictive", "leave_one_out_cv", "LOOResult",
+    "love_cache", "love_residual", "love_variance", "love_variance_error_bound",
+    "LOVECache", "matheron_update", "oilmm_back_project", "oilmm_project",
+    "predict_mean", "predict_variance", "PredictionCache", "rts_interpolate",
+    "sparse_conditional",
+]
+
+[[entries]]
+file = "variational-gp"
+title = "Variational GPs"
+role = "algorithm"
+unit = "gaussian-processes"
+skill = "gaussians-and-recipes"
+covers = "ELBOs, the collapsed bound, whitening"
+names = [
+    "collapsed_elbo", "gauss_kl", "svgp_variance_adjustment", "unwhiten",
+    "unwhiten_covariance", "variational_elbo_gaussian", "variational_elbo_mc",
+    "whiten_covariance", "whitened_svgp_predict",
+]
+
+[[entries]]
+file = "kalman"
+title = "Kalman filtering and smoothing"
+role = "algorithm"
+unit = "state-space"
+skill = "gaussians-and-recipes"
+covers = "sequential, parallel, mean-field and infinite-horizon filters and smoothers"
+names = [
+    "dare", "DAREResult", "EmissionModel", "expectations_to_ssm", "FilterState",
+    "infinite_horizon_filter", "infinite_horizon_smoother", "kalman_filter",
+    "kalman_gain", "masked_moment_inputs", "meanfield_kalman_filter",
+    "meanfield_rts_smoother", "naturals_to_ssm", "pairwise_marginals",
+    "parallel_kalman_filter", "parallel_rts_smoother", "rts_smoother",
+    "ssm_to_expectations", "ssm_to_naturals", "udl_decomposition",
+    "udl_from_ssm_params", "udl_to_ssm_params", "UDLDecomposition",
+]
+
+[[entries]]
+file = "nonlinear-filtering"
+title = "Nonlinear filtering and sites"
+role = "algorithm"
+unit = "state-space"
+skill = "gaussians-and-recipes"
+covers = "nonlinear Kalman, CVI site updates, SpInGP"
+names = [
+    "cavity_from_marginal", "cvi_update_sites", "GaussianSites",
+    "nonlinear_kalman_filter", "nonlinear_kalman_predict", "nonlinear_kalman_update",
+    "nonlinear_rts_smoother", "nonlinear_rts_step", "sigma_point_kalman_update",
+    "site_mean_var_from_natural", "site_natural_from_tilted", "sites_to_precision",
+    "spingp_log_likelihood", "spingp_posterior",
+]
+
+[[entries]]
+file = "expectations"
+title = "Expectations and moment matching"
+role = "algorithm"
+unit = "quadrature"
+skill = "gaussians-and-recipes"
+covers = "expected log-likelihood, EP moments, psi statistics, uncertain inputs"
+names = [
+    "AnalyticalPsiStatistics", "AssumedDensityFilter", "compute_psi_statistics",
+    "cost_expectation", "elbo", "ep_tilted_moments", "expected_log_likelihood",
+    "gradient_expectation", "kernel_expectations", "log_likelihood_expectation",
+    "mean_expectation", "moment_match", "moment_transform", "MomentMatchResult",
+    "SLRResult", "statistical_linear_regression", "theta_design",
+    "uncertain_bgplvm_predict", "uncertain_gp_predict", "uncertain_gp_predict_mc",
+    "uncertain_svgp_predict", "uncertain_vgp_predict",
+]
+
+[[entries]]
+file = "natural-gradient"
+title = "Natural-gradient and Newton updates"
+role = "algorithm"
+unit = "inference-and-ensembles"
+skill = "gaussians-and-recipes"
+covers = "BLR, damped natural updates, Gauss–Newton, Laplace"
+names = [
+    "blr_diag_update", "blr_full_update", "cavity_distribution",
+    "damped_natural_update", "gauss_newton_operator", "gauss_newton_precision",
+    "gaussian_expected_log_lik", "ggn_diagonal", "hutchinson_hessian_diag",
+    "laplace_mode", "laplace_model", "laplace_result", "LaplaceModel", "LaplaceResult",
+    "log_marginal_likelihood", "newton_update", "riemannian_psd_correction",
+    "trace_correction", "vb_mean_correction",
+]
+
+[[entries]]
+file = "ensemble-kalman"
+title = "Ensemble Kalman"
+role = "algorithm"
+unit = "inference-and-ensembles"
+skill = "gaussians-and-recipes"
+covers = "analysis, ETKF, EKI, localisation, inflation"
+names = [
+    "discrepancy_step_size", "eki_step", "enkf_analysis", "ensemble_covariance",
+    "ensemble_cross_covariance", "ensemble_kalman_gain", "ensemble_rts_step",
+    "etkf_analysis", "etkf_transform", "euclidean_distance", "gaspari_cohn",
+    "gaussian_taper", "haversine_distance", "inflate_multiplicative", "inflate_rtpp",
+    "inflate_rtps", "ledoit_wolf_shrinkage", "localization_matrix",
+    "localized_kalman_gain", "soar_taper", "tikhonov_augment",
+]

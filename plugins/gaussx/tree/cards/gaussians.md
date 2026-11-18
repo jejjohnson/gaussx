@@ -1,0 +1,7 @@
+- **Provides.** A Gaussian as a mean and a covariance operator, with its density, divergences, conditioning and sampling.
+- **Nouns.** `(mean, covariance operator)`; `gaussx.GaussianExpFam` for natural and expectation parameters; `gaussx.MultivariateNormal` and `gaussx.MultivariateNormalPrecision` as distribution objects, which need the numpyro extra.
+- **Verbs.** `gaussx.gaussian_log_prob(loc, cov, value)`, `gaussx.gaussian_kl(p_loc, p_cov, q_loc, q_cov)`, `gaussx.gaussian_entropy`, `gaussx.conditional`, `gaussx.sample_mvn(mean, cov, key=key)`; `gaussx.mean_cov_to_natural`, `gaussx.natural_to_mean_cov`.
+- **Adverbs.** `solver=` on the density and the conditional; `key=` is explicit wherever a draw is made.
+- **Keep.** The covariance stays an operator from end to end, so a Kronecker covariance gives a Kronecker-cost density.
+- **Never.** Write `-0.5 * (r @ solve(K, r) + logdet + n log 2π)`, a KL or `mean + L @ noise` by hand.
+- **One rung down.** Open `gaussx:gaussians-and-recipes` for the exponential-family conversions or the distribution objects.

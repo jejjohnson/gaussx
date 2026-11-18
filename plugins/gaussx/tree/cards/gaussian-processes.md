@@ -1,0 +1,7 @@
+- **Provides.** The linear algebra of GP regression and sparse variational GPs, on kernel matrices the caller builds.
+- **Nouns.** `gaussx.PredictionCache`, `gaussx.LOVECache`; kernel matrices as operators or arrays.
+- **Verbs.** `gaussx.build_prediction_cache(K_y, y)`, `gaussx.predict_mean(cache, K_cross)`, `gaussx.predict_variance(cache, K_cross, K_test_diag)`; `gaussx.sparse_conditional`, `gaussx.collapsed_elbo`, `gaussx.variational_elbo_gaussian`, `gaussx.gauss_kl`; `gaussx.love_cache`, `gaussx.leave_one_out_cv`, `gaussx.kronecker_mll`.
+- **Adverbs.** `solver=` on the cache and the predictive variance.
+- **Keep.** gaussx never evaluates a kernel: the caller supplies `K`, `K_cross` and the test diagonal, and the kernel's structure arrives as the operator's.
+- **Never.** Re-solve against `K_y` for every test batch, or write a Titsias bound by hand.
+- **One rung down.** Open `gaussx:gaussians-and-recipes` and its `gp` or `variational-gp` entry to write a new predictive or bound.
