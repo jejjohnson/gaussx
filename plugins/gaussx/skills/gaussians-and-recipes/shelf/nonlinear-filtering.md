@@ -74,7 +74,7 @@ assert jnp.allclose(mean, jnp.linalg.solve(dense, rhs), atol=1e-3)
 - `validate=None` checks positive semi-definiteness only when the integrator does not guarantee it; a negative-weight rule can make the moment triple inconsistent and raise.
 - `mask=` takes shape `(T,)` or `(T, M)`; masked channels are marginalised out exactly and may be `NaN`.
 - `process_noise` passed to `nonlinear_rts_smoother` is deprecated and ignored, and its `solver=` is unused.
-- Site natural parameters use `nat2 = −½ Λ`, whereas `site_natural_from_tilted` and `site_mean_var_from_natural` work with the precision itself as `nat2`.
+- Site natural parameters use `nat2 = −½ Λ`, whereas `site_natural_from_tilted`, `site_mean_var_from_natural` and `cavity_from_marginal` work with the precision itself, `nat2 = Λ`; multiply an exponential-family `nat2` by `−2` before passing it to them.
 - `spingp_*` take `solver=` (see skill `gaussx:solvers-and-preconditioners`) for the posterior precision solve; `obs_noise` must be a lineax operator.
 - `emission_model` is `(d_obs, d)` when shared or `(N, d_obs, d)` per time step.
 
