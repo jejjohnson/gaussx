@@ -242,7 +242,7 @@ def _diag_inv_structured(
 ) -> Float[Array, " N"] | None:
     """The exact structured path for diag(A⁻¹), or ``None`` if none applies.
 
-    Also used by `gaussx.MultivariateNormalPrecision` for its marginal variances.
+    Also used by `pyrox_gauss.MultivariateNormalPrecision` for its marginal variances.
 
     Args:
         operator: The operator A.

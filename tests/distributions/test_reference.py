@@ -1,6 +1,6 @@
 """Independent reference values for the Gaussian layer (gh-355).
 
-Every quantity is checked against scipy or numpyro, or a closed form,
+Every quantity is checked against scipy or a dense closed form,
 on random dense SPD covariances with N in {1, 3, 7} and pinned keys.
 rtol=1e-10 throughout: float64 closed forms on well-conditioned matrices
 (eigenvalues >= 1), so only round-off separates the two sides.
@@ -8,17 +8,11 @@ rtol=1e-10 throughout: float64 closed forms on well-conditioned matrices
 
 from __future__ import annotations
 
-import pytest
-
-
-pytest.importorskip("numpyro")
-
-import jax
 import jax.numpy as jnp
 import jax.random as jr
 import lineax as lx
 import numpy as np
-import numpyro.distributions as nd
+import pytest
 import scipy.stats
 
 import gaussx
@@ -39,29 +33,37 @@ def _problem(n):
     return S, T, jr.normal(k3, (n,)), jr.normal(k4, (n,)), jr.normal(k5, (n,))
 
 
+def _dense_kl(mu, S, nu, T):
+    """KL(𝒩(μ, S) ‖ 𝒩(ν, T)) = ½ (tr(T⁻¹ S) + dᵀ T⁻¹ d − N + log det T − log det S)."""
+    d = nu - mu
+    return 0.5 * (
+        jnp.trace(jnp.linalg.solve(T, S))
+        + d @ jnp.linalg.solve(T, d)
+        - S.shape[0]
+        + jnp.linalg.slogdet(T)[1]
+        - jnp.linalg.slogdet(S)[1]
+    )
+
+
 @pytest.mark.parametrize("n", SIZES)
 def test_log_prob_and_entropy_match_scipy(n):
     S, _, mu, _, x = _problem(n)
     ref = scipy.stats.multivariate_normal(np.asarray(mu), np.asarray(S))
     ref_lp, ref_h = ref.logpdf(np.asarray(x)), ref.entropy()
     precision = psd_operator(jnp.linalg.inv(S))
-    mvn = gaussx.MultivariateNormal(mu, psd_operator(S))
-    prec = gaussx.MultivariateNormalPrecision(mu, precision)
-    for value in (gaussx.gaussian_log_prob(mu, psd_operator(S), x), mvn.log_prob(x)):
-        assert jnp.allclose(value, ref_lp, rtol=RTOL)
-    assert jnp.allclose(prec.log_prob(x), ref_lp, rtol=1e-9)  # one more inverse
-    for value in (gaussx.gaussian_entropy(psd_operator(S)), mvn.entropy()):
-        assert jnp.allclose(value, ref_h, rtol=RTOL)
-    assert jnp.allclose(prec.entropy(), ref_h, rtol=1e-9)
+    lp = gaussx.gaussian_log_prob(mu, psd_operator(S), x)
+    assert jnp.allclose(lp, ref_lp, rtol=RTOL)
+    field = gaussx.GaussianMRF(mu, precision)
+    assert jnp.allclose(field.log_prob(x), ref_lp, rtol=1e-9)  # one more inverse
+    assert jnp.allclose(gaussx.gaussian_entropy(psd_operator(S)), ref_h, rtol=RTOL)
+    h_prec = gaussx.gaussian_entropy(gaussx.inv(precision))
+    assert jnp.allclose(h_prec, ref_h, rtol=1e-9)  # one more inverse
 
 
 @pytest.mark.parametrize("n", SIZES)
-def test_kl_matches_numpyro(n):
+def test_kl_matches_closed_form(n):
     S, T, mu, nu, _ = _problem(n)
-    ref = nd.kl_divergence(
-        nd.MultivariateNormal(mu, covariance_matrix=S),
-        nd.MultivariateNormal(nu, covariance_matrix=T),
-    )
+    ref = _dense_kl(mu, S, nu, T)
     dist_kl = gaussx.gaussian_kl(mu, psd_operator(S), nu, psd_operator(T))
     expfam_kl = gaussx.kl_divergence(
         gaussx.GaussianExpFam.from_mean_cov(mu, psd_operator(S)),
@@ -82,20 +84,6 @@ def test_log_partition_matches_closed_form(n):
     )
     q = gaussx.GaussianExpFam.from_mean_cov(mu, psd_operator(S))
     assert jnp.allclose(gaussx.log_partition(q), expected, rtol=1e-9)
-
-
-@pytest.mark.parametrize("cls", ["MultivariateNormal", "MultivariateNormalPrecision"])
-def test_distribution_as_a_jit_argument(cls):
-    """The distribution is traced, not closed over (default solver)."""
-    S, _, mu, _, x = _problem(3)
-    d = getattr(gaussx, cls)(mu, psd_operator(S))
-    lp = jax.jit(lambda d, x: d.log_prob(x))(d, x)
-    h = jax.jit(lambda d: d.entropy())(d)
-    draws = jax.jit(lambda d, key: d.sample(key, (2,)))(d, jr.key(0))
-    assert jnp.allclose(lp, d.log_prob(x), rtol=RTOL)
-    assert jnp.allclose(h, d.entropy(), rtol=RTOL)
-    assert draws.shape == (2, 3)
-    assert jnp.all(jnp.isfinite(draws))
 
 
 def _diagonal_tagged(d):
@@ -125,10 +113,7 @@ def test_expfam_edge_cases(cov):
         + 0.5 * jnp.linalg.slogdet(S)[1]
         + 0.5 * n * jnp.log(2 * jnp.pi)
     )
-    expected_kl = nd.kl_divergence(
-        nd.MultivariateNormal(mu, covariance_matrix=S),
-        nd.MultivariateNormal(nu, covariance_matrix=S + jnp.eye(n)),
-    )
+    expected_kl = _dense_kl(mu, S, nu, S + jnp.eye(n))
     assert jnp.allclose(q.eta1, jnp.linalg.solve(S, mu), rtol=RTOL)
     assert jnp.allclose(gaussx.log_partition(q), expected_A, rtol=1e-9)
     assert jnp.allclose(gaussx.kl_divergence(q, p), expected_kl, rtol=1e-9)

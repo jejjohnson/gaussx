@@ -148,7 +148,7 @@ def test_log_prob_is_exact_when_x64_is_enabled_after_import():
         cov = lx.DiagonalLinearOperator(jnp.ones(n))
         ref = multivariate_normal(np.zeros(n), np.eye(n)).logpdf(np.asarray(x))
         lp = gaussx.gaussian_log_prob(jnp.zeros(n), cov, x)
-        lp_prec = gaussx.MultivariateNormalPrecision(jnp.zeros(n), cov).log_prob(x)
+        lp_prec = gaussx.GaussianMRF(jnp.zeros(n), cov).log_prob(x)
         assert lp.dtype == jnp.float64, lp.dtype
         # The bug was an offset of 3.1e-8 per dimension (8.8e-6 here).
         assert abs(float(lp) - ref) < 1e-9, float(lp) - ref

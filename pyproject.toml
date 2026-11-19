@@ -33,11 +33,6 @@ dependencies = [
 [project.urls]
 Repository = "https://github.com/jejjohnson/gaussx"
 
-[project.optional-dependencies]
-numpyro = [
-    "numpyro>=0.21",
-]
-
 [dependency-groups]
 dev = [
     "pytest>=8.0",
@@ -46,7 +41,6 @@ dev = [
     "pytest-timeout>=2.3",
     "pre-commit>=3.7",
     "beartype>=0.18",
-    "numpyro>=0.21",
     "jupytext>=1.19.1",
 ]
 lint = [
@@ -54,7 +48,6 @@ lint = [
 ]
 typecheck = [
     "ty>=0.0.34",
-    "numpyro>=0.21",
 ]
 docs = [
     "matplotlib>=3.8",
@@ -124,7 +117,7 @@ testpaths = ["tests"]
 timeout = 120
 markers = [
     "slow: individually expensive tests (>~1.5s: heavy numerics, jit+grad+vmap sweeps)",
-    "integration: end-to-end workflows (MCMC/SVI fits through numpyro)",
+    "integration: end-to-end workflows and optional external backends",
     "x64_only: needs float64 (tight tolerances or float64 references); skipped in the no-x64 lane, with a reason in the marker",
 ]
 

@@ -669,11 +669,10 @@ class TestOptions:
             gx.laplace_mode(prior, gx.PoissonLikelihood(jnp.ones(4)))
 
     def test_bad_prior_and_projector_raise(self):
-        mvn = gx.MultivariateNormalPrecision(
-            jnp.zeros(3), lx.MatrixLinearOperator(jnp.eye(3))
-        )
+        # A bare precision operator is not a prior.
+        precision = lx.MatrixLinearOperator(jnp.eye(3))
         with pytest.raises(TypeError, match="GaussianMRF"):
-            gx.laplace_mode(mvn, gx.PoissonLikelihood(jnp.ones(3)))
+            gx.laplace_mode(precision, gx.PoissonLikelihood(jnp.ones(3)))
         prior = gx.GaussianMRF(jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3)))
         A = lx.MatrixLinearOperator(jnp.ones((2, 4)))
         with pytest.raises(ValueError, match="columns"):

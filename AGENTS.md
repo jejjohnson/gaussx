@@ -25,13 +25,11 @@ layers ([`docs/architecture.md`](docs/architecture.md) has the long form):
 | 0 · Primitives | `_primitives/`, `_linalg/` | `solve`, `logdet`, `cholesky`, `diag`, `trace`, `sqrt`, `inv`, `eig`, `svd`, root decompositions; Woodbury, Schur, `safe_cholesky`, tridiagonal and Lyapunov solves |
 | 1 · Operators | `_operators/`, `_tags.py`, `_sparse/`, `_gmrf/` | `Kronecker`, `BlockDiag`, `LowRankUpdate`, `KroneckerSum`, `SumOfKroneckers`, `BlockTriDiag`, `Toeplitz`, interpolated / masked operators, structural tags; `SparseOperator` + sparse Cholesky; GMRF precision builders |
 | 1.5 · Strategies | `_strategies/`, `_preconditioners/`, `_solve_frontend.py` | *How* a solve / logdet is computed: `DenseSolver`, `CGSolver`, `BBMMSolver`, `MINRESSolver`, SLQ logdets, preconditioners, the `linear_solve` front door |
-| 2 · Distributions | `_distributions/`, `_expfam/` | `MultivariateNormal(Precision)`, GMRFs, `LGSSM`; log-prob / entropy / KL sugar; natural ↔ expectation parameters |
+| 2 · Distributions | `_distributions/`, `_expfam/` | GMRFs; log-prob / entropy / KL sugar, conditioning, sampling; natural ↔ expectation parameters |
 | 3 · Recipes | `_gp/`, `_ssm/`, `_quadrature/`, `_inference/` | GP conditioning, ELBOs, LOVE; SDE kernels, Kalman / RTS (sequential, parallel, infinite-horizon); quadrature and moment matching; BLR, natural gradients, ensemble Kalman |
 | Outside the stack | `_sketching/`, `_randomized/` | Subspace embeddings, randomized SVD / eigh / Nyström, RP-Cholesky |
 
-Recipes build on the layers below them (one exception: `_distributions`
-uses the Kalman and pairwise-marginal routines in `_ssm` for `LGSSM` and
-`MarkovGaussian`). Layers 0, 1 and 1.5 form one dispatch core with import
+Recipes build on the layers below them. Layers 0, 1 and 1.5 form one dispatch core with import
 cycles. Import gaussx modules at module scope; an in-function import is
 allowed only on an import-cycle edge listed in `ALLOWED_LAZY_IMPORTS`
 (`tests/test_lazy_imports.py`), with a `# lazy import, cycle: …` comment
@@ -51,7 +49,8 @@ under `jit`, `grad` or `vmap`, or in someone else's pipeline.
 | **einx** | Every array operation that names axes | Contractions, transposes, reshapes, axis reductions and inserted-axis broadcasts go through `gaussx._einx` (rules below). |
 | **jaxtyping** | Shape annotations (`Float[Array, "n n"]`) | Annotate every public array argument and return. |
 | **jax** | `jit`, `grad`, `vmap`, x64, PRNG | Pure functions, explicit keys, the input dtype preserved, no Python control flow on traced values. |
-| **numpyro** (extra `gaussx[numpyro]`) | `MultivariateNormal` as a numpyro distribution | Optional. Names that need it are appended to `__all__` only when it is installed; never import it at module scope elsewhere. |
+
+gaussx imports no NumPyro. The NumPyro distribution classes built on it (`MultivariateNormal`, `MultivariateNormalPrecision`, `MarkovGaussian`, the `LGSSM` family, `GMRFDistribution`) live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss); `tests/test_lazy_imports.py` checks that `import gaussx` loads no numpyro module.
 
 ## Reuse before you write
 
@@ -83,7 +82,7 @@ whether it exists:
 | A CG loop, a preconditioner, a matrix-free solve | `CGSolver`, `PreconditionedCGSolver`, `*Preconditioner`, `linear_solve` / `as_linear_operator` for a bare `matvec` |
 | Stochastic logdet / trace / diagonal | `SLQLogdet`, `BBMMSolver`, `inv_quad_logdet`, `trace_and_diag`; below them, `matfree.stochtrace` / `matfree.funm` |
 | Lanczos, Arnoldi, bidiagonalisation | `matfree.decomp` (`tridiag_sym`, `hessenberg`, `bidiag`) |
-| Gaussian log-density, entropy, KL, conditioning, sampling | `gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, `conditional`, `sample_mvn`; as objects, `MultivariateNormal(Precision)` |
+| Gaussian log-density, entropy, KL, conditioning, sampling | `gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, `conditional`, `sample_mvn`; for a structured precision, `GaussianMRF` |
 | Natural ↔ mean / expectation parameter conversions | `gaussx._expfam` conversions (`mean_cov_to_natural`, `natural_to_mean_cov`, …) |
 | A Kalman filter / RTS smoother, SDE → state space | `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `MaternSDE` and the other `SDEKernel`s, `discretize_mfd` |
 | Gauss-Hermite / unscented / cubature expectations | `GaussHermiteIntegrator`, `UnscentedIntegrator`, `CubatureIntegrator`, `expected_log_likelihood` |
@@ -300,8 +299,8 @@ coverage gated by `fail_under` in `pyproject.toml`, a ratchet that is never
 lowered to make a PR pass) on Python 3.12 and 3.13, plus the float32 lane.
 The "Extended Tests" workflow (`tests-extended.yml`) runs the entire suite
 weekly on 3.12 and 3.13, the heavy lane (slow + integration) on PRs labelled
-`run-slow` (add it to PRs that touch the SSM filters, distributions,
-numpyro paths or a strategy's contract cases), and either on demand. The
+`run-slow` (add it to PRs that touch the SSM filters, distributions
+or a strategy's contract cases), and either on demand. The
 weekly "Latest Dependencies" workflow re-resolves at the newest versions and
 at the declared floors; a failure opens a `ci-failure` issue.
 
@@ -309,8 +308,7 @@ at the declared floors; a failure opens a `ci-failure` issue.
 - **`@pytest.mark.slow`:** over ~1.5 s (heavy numerics, `jit`+`grad`+`vmap`
   sweeps, long scans). For a parametrised test, mark only the expensive
   cases slow (`pytest.param(64, marks=pytest.mark.slow)`).
-- **`@pytest.mark.integration`:** end-to-end workflows (MCMC / SVI through
-  numpyro), usually also `slow`.
+- **`@pytest.mark.integration`:** end-to-end workflows and optional external backends (such as CHOLMOD), usually also `slow`.
 
 Most runtime is XLA compiling each eagerly run operation, so a test's cost is
 the number of distinct programs it compiles. `tests/conftest.py` turns on

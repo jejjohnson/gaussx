@@ -6,7 +6,6 @@ import jax.numpy as jnp
 import pytest
 import scipy.stats
 from jax import random
-from numpyro.distributions import NegativeBinomial2
 
 from gaussx import (
     BernoulliLikelihood,
@@ -143,14 +142,12 @@ class TestNegativeBinomialLikelihood:
     f = jnp.array([-0.5, 0.1, 1.2, 2.0])
 
     @pytest.mark.parametrize("r", [0.5, 3.0, jnp.array([1.0, 2.0, 5.0, 40.0])])
-    def test_log_prob_matches_scipy_and_numpyro(self, r):
+    def test_log_prob_matches_scipy(self, r):
         lik = NegativeBinomialLikelihood(self.y, r)
         mu = jnp.exp(self.f)
         r_ = jnp.broadcast_to(jnp.asarray(r), mu.shape)
         expected = scipy.stats.nbinom.logpmf(self.y, r_, r_ / (r_ + mu)).sum()
-        numpyro_lp = NegativeBinomial2(mu, r_).log_prob(self.y).sum()
         assert jnp.allclose(lik.log_prob(self.f), expected, atol=1e-10)
-        assert jnp.allclose(lik.log_prob(self.f), numpyro_lp, atol=1e-10)
 
     @pytest.mark.parametrize("r", [0.5, 3.0])
     def test_site_derivatives_match_autodiff(self, r):

@@ -74,10 +74,7 @@ def _parameters(obj) -> list[str]:
 def _public_objects() -> list[tuple[str, object]]:
     objects = []
     for name in sorted(gaussx.__all__):
-        try:
-            obj = getattr(gaussx, name)
-        except AttributeError:  # a numpyro-backed name without numpyro
-            continue
+        obj = getattr(gaussx, name)
         module = getattr(obj, "__module__", None) or ""
         if not module.startswith("gaussx"):
             continue

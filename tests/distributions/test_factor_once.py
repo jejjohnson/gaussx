@@ -47,13 +47,6 @@ def test_gaussian_log_prob_factors_once():
     assert _count(f, _S, _X) == {"cholesky": 1, "lu": 0}
 
 
-def test_mvn_log_prob_factors_once():
-    def f(S, x):
-        return gaussx.MultivariateNormal(jnp.zeros(3), psd_operator(S)).log_prob(x)
-
-    assert _count(f, _S, _X) == {"cholesky": 1, "lu": 0}
-
-
 def test_entropy_factors_once():
     assert _count(lambda S: gaussx.gaussian_entropy(psd_operator(S)), _S) == {
         "cholesky": 1,
@@ -71,9 +64,8 @@ def test_kl_factors_each_covariance_once():
 
 
 @pytest.mark.parametrize("n", [1, 3, 7])
-def test_values_match_scipy_and_numpyro(n):
+def test_values_match_scipy_and_closed_forms(n):
     """rtol=1e-10: float64 closed forms on well-conditioned SPD matrices."""
-    nd = pytest.importorskip("numpyro.distributions")
     k1, k2, k3, k4 = jr.split(jr.key(n), 4)
     S, T = random_pd_matrix(k1, n, jitter=n), random_pd_matrix(k2, n, jitter=n)
     mu, x = jr.normal(k3, (n,)), jr.normal(k4, (n,))
@@ -86,9 +78,14 @@ def test_values_match_scipy_and_numpyro(n):
     assert np.allclose(
         gaussx.gaussian_entropy(psd_operator(S)), ref.entropy(), rtol=1e-10
     )
-    kl_ref = nd.kl_divergence(
-        nd.MultivariateNormal(mu, covariance_matrix=S),
-        nd.MultivariateNormal(x, covariance_matrix=T),
+    # KL(𝒩(μ, S) ‖ 𝒩(x, T)) = ½ (tr(T⁻¹ S) + dᵀ T⁻¹ d − n + log det T − log det S)
+    S_np, T_np, d = np.asarray(S), np.asarray(T), np.asarray(x - mu)
+    kl_ref = 0.5 * (
+        np.trace(np.linalg.solve(T_np, S_np))
+        + d @ np.linalg.solve(T_np, d)
+        - n
+        + np.linalg.slogdet(T_np)[1]
+        - np.linalg.slogdet(S_np)[1]
     )
     kl = gaussx.gaussian_kl(mu, psd_operator(S), x, psd_operator(T))
     assert jnp.allclose(kl, kl_ref, rtol=1e-10)

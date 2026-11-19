@@ -90,12 +90,11 @@ def test_grad_wrt_rhs_matches_dense(name):
 
 
 @pytest.mark.slow
-def test_mvn_log_prob_grad_with_preconditioned_cg():
+def test_gaussian_log_prob_grad_with_preconditioned_cg():
     def log_prob(lengthscale, solver):
-        mvn = gaussx.MultivariateNormal(
-            jnp.zeros(_X.shape[0]), _op(lengthscale), solver=solver
+        return gaussx.gaussian_log_prob(
+            jnp.zeros(_X.shape[0]), _op(lengthscale), _Y, solver=solver
         )
-        return mvn.log_prob(_Y)
 
     # The logdet is stochastic for CG, so compare against the same strategy's
     # logdet paired with a dense solve: only the solve's gradient is at issue.

@@ -244,15 +244,13 @@ names = [
 
 [[entries]]
 file = "distributions"
-title = "Distribution objects"
+title = "GMRF fields"
 role = "model"
 unit = "gaussians"
 skill = "gaussians-and-recipes"
-covers = "`MultivariateNormal`, `LGSSM`, `MarkovGaussian` (numpyro extra), and the GMRF fields (no extra)"
+covers = "The GMRF fields `GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF` and `BYM2GMRF`"
 names = [
-    "AbstractMultivariateNormal", "BYM2GMRF", "ConstrainedGMRF",
-    "GaussianMRF", "IntrinsicGMRF", "LGSSM", "LGSSMFactory", "MarkovGaussian", "MaskedLGSSM",
-    "MultivariateNormal", "MultivariateNormalPrecision",
+    "BYM2GMRF", "ConstrainedGMRF", "GaussianMRF", "IntrinsicGMRF",
 ]
 
 [[entries]]

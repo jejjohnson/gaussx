@@ -28,6 +28,5 @@ updates:
           - "matfree"
           - "jaxtyping"
           - "einx"
-          - "numpyro"
       dev-tools:
         dependency-type: "development"

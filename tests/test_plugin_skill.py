@@ -59,11 +59,8 @@ def test_shelf_is_current_and_covers_the_public_api():
 
 
 def test_public_names_read_from_source_match_the_package():
-    # The script reads __all__ from the source; numpyro-only names are there
-    # whether or not the extra is installed.
-    assert set(gaussx.__all__) <= ss.public_names()
-    if "MultivariateNormal" in gaussx.__all__:
-        assert set(gaussx.__all__) == ss.public_names()
+    # The script reads __all__ from the source.
+    assert set(gaussx.__all__) == ss.public_names()
 
 
 @pytest.mark.parametrize("path", _PAGES, ids=lambda p: str(p.relative_to(PLUGIN)))

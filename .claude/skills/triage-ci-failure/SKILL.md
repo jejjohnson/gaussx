@@ -1,6 +1,6 @@
 ---
 name: triage-ci-failure
-description: Triage a failed scheduled CI run in gaussx — a ci-failure issue opened by the weekly "Latest Dependencies" (newest versions or declared floors) or "Extended Tests" (slow + integration) workflow — by reproducing it at the resolved versions, finding the upstream change or flaky test, and proposing the fix. Use when asked to look at a ci-failure issue, a red scheduled run, or a breakage after a jax / lineax / equinox / matfree / numpyro release.
+description: Triage a failed scheduled CI run in gaussx — a ci-failure issue opened by the weekly "Latest Dependencies" (newest versions or declared floors) or "Extended Tests" (slow + integration) workflow — by reproducing it at the resolved versions, finding the upstream change or flaky test, and proposing the fix. Use when asked to look at a ci-failure issue, a red scheduled run, or a breakage after a jax / lineax / equinox / matfree release.
 ---
 
 # Triage a scheduled CI failure
@@ -10,7 +10,7 @@ go red, through `.github/actions/report-scheduled-failure`:
 
 | Workflow | What it runs | Usual cause |
 |---|---|---|
-| `latest-deps.yml`, `resolution: highest` | Fast lane at the newest jax, jaxlib, equinox, lineax, matfree, jaxtyping, einx, numpyro | An upstream release changed behaviour or removed an API |
+| `latest-deps.yml`, `resolution: highest` | Fast lane at the newest jax, jaxlib, equinox, lineax, matfree, jaxtyping, einx | An upstream release changed behaviour or removed an API |
 | `latest-deps.yml`, `resolution: lowest-direct` | Fast lane at the `>=` floors in `pyproject.toml` | gaussx started using something newer than its floor |
 | `tests-extended.yml` (weekly) | The entire suite, on 3.12 and 3.13 | A slow test regressed, a tolerance tuned on one draw, a timeout |
 

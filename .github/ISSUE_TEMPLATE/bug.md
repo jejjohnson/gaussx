@@ -24,7 +24,6 @@ labels: ["bug"]
 - gaussx:
 - jax / jaxlib:
 - equinox / lineax / matfree:
-- numpyro (if involved):
 - Python / platform / device (CPU, GPU):
 - x64 enabled:
 

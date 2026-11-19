@@ -188,13 +188,3 @@ def test_udl_from_ssm_params_layouts():
         old = udl_from_ssm_params(A, jnp.concatenate([P0[None], Q]))
     assert jnp.array_equal(new.D_diag, old.D_diag)
     assert jnp.array_equal(new.U_sub, old.U_sub)
-
-
-def test_markov_gaussian_no_longer_translates_layouts():
-    pytest.importorskip("numpyro")
-    A, Q, mu_0, P0 = _chain()
-    chain = gaussx.MarkovGaussian(A, Q, mu_0, P0)
-    assert not hasattr(chain, "_Q_with_initial")
-    precision = _no_warnings(lambda: chain.precision)
-    expected = -2.0 * ssm_to_naturals(A, Q, mu_0, P0)[1].as_matrix()
-    assert jnp.allclose(precision.as_matrix(), expected, atol=1e-10)

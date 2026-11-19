@@ -1,7 +1,8 @@
 """Gaussian distributions x ~ 𝒩(μ, Σ) with log-density, entropy and KL helpers.
 
 The array-level helpers (`gaussian_log_prob`, `gaussian_kl`, `conditional`, …)
-import eagerly; the numpyro-backed distribution classes load lazily.
+import eagerly; the GMRF fields load lazily. The NumPyro distribution classes
+(`MultivariateNormal`, `LGSSM`, …) live in the pyrox-gauss package.
 """
 
 from __future__ import annotations
@@ -32,18 +33,11 @@ from gaussx._distributions._sample import sample_joint_conditional, sample_mvn
 
 __all__ = [
     "BYM2GMRF",
-    "LGSSM",
-    "AbstractMultivariateNormal",
     "ConstrainedGMRF",
     "GaussianMRF",
     "InformationDiagnostics",
     "IntrinsicGMRF",
-    "LGSSMFactory",
     "LinearGaussianPosterior",
-    "MarkovGaussian",
-    "MaskedLGSSM",
-    "MultivariateNormal",
-    "MultivariateNormalPrecision",
     "add_jitter",
     "conditional",
     "gaussian_entropy",
@@ -60,38 +54,10 @@ __all__ = [
 ]
 
 
-# The distribution classes (MultivariateNormal, MultivariateNormalPrecision,
-# MarkovGaussian, the LGSSM family) need the optional numpyro
-# extra, so they load through the PEP 562 ``__getattr__`` below; the GMRF
-# fields need no numpyro but load the same way. Importing
-# ``gaussx._distributions`` then always succeeds, which keeps the helpers
-# above available in a base install. Accessing a class without numpyro raises
-# ``ModuleNotFoundError`` with ``name='numpyro'`` rather than a confusing
-# ``ImportError``, and the optional-dependency guard in
-# ``gaussx/__init__.py`` catches exactly that error.
+# The GMRF fields load through the PEP 562 ``__getattr__`` below.
 def __getattr__(name: str) -> Any:
-    if name in ("LGSSM", "MaskedLGSSM", "LGSSMFactory"):
-        from gaussx._distributions import _lgssm
-
-        return getattr(_lgssm, name)
     if name in ("GaussianMRF", "IntrinsicGMRF", "ConstrainedGMRF", "BYM2GMRF"):
         from gaussx._distributions import _gmrf
 
         return getattr(_gmrf, name)
-    if name == "MarkovGaussian":
-        from gaussx._distributions._markov_gaussian import MarkovGaussian
-
-        return MarkovGaussian
-    if name == "AbstractMultivariateNormal":
-        from gaussx._distributions._mvn_base import AbstractMultivariateNormal
-
-        return AbstractMultivariateNormal
-    if name == "MultivariateNormal":
-        from gaussx._distributions._mvn import MultivariateNormal
-
-        return MultivariateNormal
-    if name == "MultivariateNormalPrecision":
-        from gaussx._distributions._mvn_prec import MultivariateNormalPrecision
-
-        return MultivariateNormalPrecision
     raise AttributeError(f"module 'gaussx._distributions' has no attribute {name!r}")

@@ -79,8 +79,6 @@ nav:
       - Solver Strategies: notebooks/solver_strategies.ipynb
       - Bayesian Updates: notebooks/bayesian_updates.ipynb
       - Uncertainty Propagation: notebooks/uncertainty_propagation.ipynb
-      - "NumPyro: GP Regression": notebooks/numpyro_gp.ipynb
-      - "NumPyro: Precision BLR": notebooks/numpyro_precision.ipynb
       - Conditional Distributions: notebooks/conditional_distributions.ipynb
       - Parallel Kalman Filter: notebooks/parallel_kalman.ipynb
       - Expectation Propagation: notebooks/expectation_propagation.ipynb

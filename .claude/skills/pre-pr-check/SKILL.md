@@ -30,7 +30,7 @@ its docstring, which says how to fix it, rather than loosening it.
 
 ## When you touched slow code
 
-SSM filters, distributions, numpyro paths, long scans and `jit`+`grad`+`vmap`
+SSM filters, distributions, long scans and `jit`+`grad`+`vmap`
 sweeps have `slow` / `integration` tests:
 
 ```bash

@@ -8,7 +8,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from gaussx._distributions import MultivariateNormal
+from gaussx._distributions import gaussian_entropy, gaussian_log_prob
 from gaussx._strategies import CGSolver, ComposedSolver, DenseSolver
 from gaussx._testing import random_pd_operator, tree_allclose
 
@@ -91,8 +91,8 @@ def test_pytree_roundtrip():
     assert isinstance(restored, ComposedSolver)
 
 
-def test_mvn_log_prob_end_to_end(getkey):
-    """log_prob through MultivariateNormal matches DenseSolver."""
+def test_gaussian_log_prob_end_to_end(getkey):
+    """gaussian_log_prob through ComposedSolver matches DenseSolver."""
     n = 4
     A = jr.normal(getkey(), (n, n))
     M = A @ A.T + n * jnp.eye(n)
@@ -103,22 +103,21 @@ def test_mvn_log_prob_end_to_end(getkey):
     dense = DenseSolver()
     composed = ComposedSolver(solve_strategy=dense, logdet_strategy=dense)
 
-    lp_ref = MultivariateNormal(mu, op, solver=dense).log_prob(x)
-    lp_composed = MultivariateNormal(mu, op, solver=composed).log_prob(x)
+    lp_ref = gaussian_log_prob(mu, op, x, solver=dense)
+    lp_composed = gaussian_log_prob(mu, op, x, solver=composed)
     assert tree_allclose(lp_composed, lp_ref, rtol=1e-5)
 
 
-def test_mvn_entropy_end_to_end(getkey):
-    """entropy through MultivariateNormal matches DenseSolver."""
+def test_gaussian_entropy_end_to_end(getkey):
+    """gaussian_entropy through ComposedSolver matches DenseSolver."""
     n = 4
     A = jr.normal(getkey(), (n, n))
     M = A @ A.T + n * jnp.eye(n)
     op = lx.MatrixLinearOperator(M, lx.positive_semidefinite_tag)
-    mu = jnp.zeros(n)
 
     dense = DenseSolver()
     composed = ComposedSolver(solve_strategy=dense, logdet_strategy=dense)
 
-    h_ref = MultivariateNormal(mu, op, solver=dense).entropy()
-    h_composed = MultivariateNormal(mu, op, solver=composed).entropy()
+    h_ref = gaussian_entropy(op, solver=dense)
+    h_composed = gaussian_entropy(op, solver=composed)
     assert tree_allclose(h_composed, h_ref, rtol=1e-5)

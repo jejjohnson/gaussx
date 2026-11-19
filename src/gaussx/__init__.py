@@ -2,10 +2,9 @@
 
 __version__ = "0.6.16"
 
-# Import the non-numpyro helpers directly from submodules. Avoid
-# ``from gaussx._distributions import ...`` so the optional numpyro guard
-# at the bottom of this file remains the single entry point that handles
-# missing numpyro.
+# Import the distribution helpers directly from their submodules rather than
+# through ``gaussx._distributions``, whose package ``__init__`` loads the GMRF
+# fields lazily.
 from gaussx._distributions._conditional import (
     LinearGaussianPosterior as LinearGaussianPosterior,
     conditional as conditional,
@@ -431,9 +430,7 @@ from gaussx._tags import (
 )
 
 
-# The public API. Names that need the optional numpyro extra are appended
-# below only when it is installed, so `from gaussx import *` never names a
-# missing attribute; tests/test_docs_api_coverage.py checks this against
+# The public API; tests/test_docs_api_coverage.py checks it against
 # dir(gaussx) and the API reference (gh-322).
 __all__ = [
     "BYM2GMRF",
@@ -816,40 +813,9 @@ __all__ = [
 ]
 
 
-try:
-    # Registers numpyro kl_divergence for the two MVN classes (gh-313).
-    from gaussx._distributions import _numpyro_kl  # noqa: F401
-    from gaussx._distributions._lgssm import (
-        LGSSM as LGSSM,
-        LGSSMFactory as LGSSMFactory,
-        MaskedLGSSM as MaskedLGSSM,
-    )
-    from gaussx._distributions._markov_gaussian import (
-        MarkovGaussian as MarkovGaussian,
-    )
-    from gaussx._distributions._mvn import MultivariateNormal as MultivariateNormal
-    from gaussx._distributions._mvn_base import (
-        AbstractMultivariateNormal as AbstractMultivariateNormal,
-    )
-    from gaussx._distributions._mvn_prec import (
-        MultivariateNormalPrecision as MultivariateNormalPrecision,
-    )
-
-    __all__ += [
-        "LGSSM",
-        "AbstractMultivariateNormal",
-        "LGSSMFactory",
-        "MarkovGaussian",
-        "MaskedLGSSM",
-        "MultivariateNormal",
-        "MultivariateNormalPrecision",
-    ]
-except ModuleNotFoundError as _e:
-    if _e.name != "numpyro":
-        raise
-
-
-_NUMPYRO_NAMES = frozenset(
+# The NumPyro distribution classes moved to the pyrox-gauss package;
+# accessing one raises an AttributeError that says where it went.
+_MOVED_TO_PYROX_GAUSS = frozenset(
     {
         "AbstractMultivariateNormal",
         "MultivariateNormal",
@@ -877,10 +843,10 @@ def __getattr__(name: str):
         return _deprecated_alias(name)
     if name in _RENAMED:
         return _renamed_attribute(name, globals())
-    if name in _NUMPYRO_NAMES:
+    if name in _MOVED_TO_PYROX_GAUSS:
         raise AttributeError(
-            f"module 'gaussx' has no attribute {name!r}. "
-            f"This feature requires the 'numpyro' extra. "
-            f"Install it with: pip install 'gaussx[numpyro]'"
+            f"module 'gaussx' has no attribute {name!r}: it moved to the "
+            f"pyrox-gauss package. Use `from pyrox_gauss import {name}` "
+            f"(pip install pyrox-gauss)."
         )
     raise AttributeError(f"module 'gaussx' has no attribute {name!r}")

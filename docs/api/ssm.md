@@ -194,7 +194,7 @@ $$
 
 in $O(T D_x^3)$. Unlike the banded Cholesky factor behind [`cholesky`](primitives.md), its blocks have a physical reading: they *are* the state-space model with that precision, $\mathbf{F}_t = -\mathbf{U}_t^\top$ and $\boldsymbol{\Sigma}_{\eta,t}^{-1} = \mathbf{D}_t$ for $t \ge 1$, with $\boldsymbol{\Sigma}_{x,0}^{-1} = \mathbf{D}_0$. One pass therefore turns a precision-form posterior — the output of `spingp_posterior`, or a CVI / natural-gradient site update — into a chain that the Kalman machinery can sample, predict and interpolate from, without materialising the $(T D_x) \times (T D_x)$ covariance.
 
-[`MarkovGaussian`](distributions.md#gaussx.MarkovGaussian) is the
+`pyrox_gauss.MarkovGaussian` (in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss)) is the
 distribution that carries both views: its canonical parameterisation is the
 generative tuple $(\mathbf{F}_t, \mathbf{c}_t, \boldsymbol{\Sigma}_{\eta,t}, \boldsymbol{\mu}_{x,0}, \boldsymbol{\Sigma}_{x,0})$, and `to_precision_form` /
 `from_precision_form` round-trip through the UDL factors exactly.

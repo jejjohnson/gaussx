@@ -4,43 +4,9 @@ Layer 2: Gaussian distributions over structured covariance operators, the sugar
 operations that probabilistic code actually calls, and the exponential-family
 (natural-parameter) view used by variational and EP-style inference.
 
-## Multivariate normal distributions
+## NumPyro distributions
 
-NumPyro-compatible distributions whose covariance (or precision) is a lineax
-operator, so `sample` / `log_prob` inherit every structured fast path.
-`MultivariateNormalPrecision` carries $\boldsymbol{\Lambda} = \boldsymbol{\Sigma}^{-1}$ directly — the natural home for natural-parameter guides, where materializing $\boldsymbol{\Sigma}$ would be wasted work. Both require `numpyro` to be installed.
-
-Both subclass `AbstractMultivariateNormal`, so code written against the base
-works for either parameterisation. It provides `covariance_operator` and
-`precision_operator` (one native, the other a lazy `inv`), numpyro's dense
-`covariance_matrix` / `precision_matrix` / `scale_tril`, and `p.kl(q)` for any
-mix of the two classes:
-
-$$
-\mathrm{KL}[p \Vert q] = \frac{1}{2} (\mathrm{tr}(\boldsymbol{\Lambda}_q \boldsymbol{\Sigma}_p) + (\boldsymbol{\mu}_q - \boldsymbol{\mu}_p)^\top \boldsymbol{\Lambda}_q (\boldsymbol{\mu}_q - \boldsymbol{\mu}_p) - D_x + \log \det \boldsymbol{\Sigma}_q - \log \det \boldsymbol{\Sigma}_p)
-$$
-
-with $\boldsymbol{\Lambda}_q = \boldsymbol{\Sigma}_q^{-1}$ and $D_x$ the event size.
-
-When `q` is precision-parameterised, $\boldsymbol{\Lambda}_q$ is its native operator, so
-the trace and quadratic terms need no solve. `MultivariateNormalPrecision.variance`
-takes `diag_inv`'s exact structured paths (for example, the $O(N d^3)$ selected
-inverse of a `BlockTriDiag` precision) and densifies only an unstructured
-precision.
-
-With a stochastic `solver` (e.g. `CGSolver()`), `log_prob` and `entropy`
-estimate the log-determinant from the strategy's fixed seed, so every call
-reuses the same probes. That is fine for SVI gradients, but averaging calls
-reduces no variance and MCMC targets a fixed pseudo-likelihood. To vary the
-probes, pass `solver=KeyedSolver(CGSolver(), key)` with a fresh key per step
-(see [Solvers](solvers.md)). The functional `gaussian_log_prob`,
-`gaussian_entropy` and `kl_standard_normal` take `key=` directly.
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [AbstractMultivariateNormal, MultivariateNormal, MultivariateNormalPrecision]
+The NumPyro distribution classes (`AbstractMultivariateNormal`, `MultivariateNormal`, `MultivariateNormalPrecision`, `MarkovGaussian`, `LGSSM`, `MaskedLGSSM` and `LGSSMFactory`) live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss), which builds them on the functions and operators on this page; import them with `from pyrox_gauss import MultivariateNormal`. gaussx itself imports no NumPyro.
 
 ## Gaussian Markov random fields
 
@@ -119,38 +85,6 @@ lp = icar.log_prob(u)  # ((D_x − D_c) / 2) log τ − (τ / 2) uᵀ R u, with 
       show_root_heading: false
       show_root_toc_entry: false
       members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF, BYM2GMRF]
-
-## Sequential distributions
-
-The linear-Gaussian state-space model as a *density* rather than a set of
-functions: `log_prob` is the Kalman marginal likelihood $\log p(\mathbf{y}_{1:T})$ (delegated to [`kalman_filter`](ssm.md)), `sample` is ancestral forward simulation, and `event_shape` is $(T, D_y)$ so `log_prob` returns a scalar with no `.to_event()` wrapping. That makes them usable directly as a NumPyro likelihood site.
-
-`A`, `H`, `Q` and `R` (the transition $\mathbf{F}$, the observation operator $\mathbf{H}$ and the covariances $\boldsymbol{\Sigma}_\eta$ and $\boldsymbol{\Sigma}_\varepsilon$) each take a dense array *or* a lineax operator, exactly matching [`kalman_filter`](ssm.md)'s contract — a structured $\boldsymbol{\Sigma}_\eta$ / $\boldsymbol{\Sigma}_\varepsilon$ keeps its structure through the Cholesky in `sample`, and $\mathbf{H}$ through the sandwich in `variance`.
-
-`MaskedLGSSM` carries a $(T, D_y)$ observation mask and returns the **exact** marginal $\log p(\mathbf{y}_\text{obs})$ — not a bound — because $p(\mathbf{y}_\text{miss} \mid \mathbf{y}_\text{obs})$ is closed-form Gaussian.
-`LGSSMFactory` is the `mask -> MaskedLGSSM` callable for conditional use; it
-is an `equinox.Module` rather than a closure so the state-space parameters
-stay visible to `equinox.filter_grad`.
-
-To use one as a normalizing-flow base, wrap it with `gauss_flows.NumpyroBase`,
-which already adapts any numpyro distribution — no bespoke adapter class is
-needed on either side. All three require `numpyro` to be installed.
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [LGSSM, MaskedLGSSM, LGSSMFactory]
-
-`MarkovGaussian` is the density over the *states* of a Gauss-Markov chain rather than its observations: $\mathbf{x}_0 \sim \mathcal{N}(\boldsymbol{\mu}_{x,0}, \boldsymbol{\Sigma}_{x,0})$, $\mathbf{x}_{t+1} = \mathbf{F}_t \mathbf{x}_t + \mathbf{c}_t + \boldsymbol{\eta}_{t+1}$, with `event_shape` $(T, D_x)$. `sample` and `log_prob` use the chain factorisation at $O(T D_x^3)$ and never form the joint covariance, so it serves as a prior over a latent trajectory or as a structured variational guide. Its precision is block-tridiagonal; `to_precision_form` / `from_precision_form` convert to and from the $(\boldsymbol{\mu}_x, \boldsymbol{\Lambda}_x)$ layout that [`spingp_posterior`](ssm.md) returns, through the [UDL factorisation](ssm.md#precision-form-chains), so a precision-form
-posterior becomes a sampleable chain in one $O(T D_x^3)$ pass. Requires
-`numpyro`.
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [MarkovGaussian]
 
 ## Gaussian sugar ops
 

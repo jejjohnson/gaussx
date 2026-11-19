@@ -42,7 +42,7 @@
 # also use **standalone logdet strategies** (`SLQLogdet`, `DenseLogdet`,
 # `IndefiniteSLQLogdet`) and compose them freely via `ComposedSolver`.
 #
-# For example, a `MultivariateNormal` distribution accepts a strategy
+# For example, `gaussian_log_prob` accepts a strategy
 # object and delegates all linear algebra to it. During prototyping you
 # might use `DenseSolver`; at scale you switch to `CGSolver` or
 # `BBMMSolver` with a single-line change.

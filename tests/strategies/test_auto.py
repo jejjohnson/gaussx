@@ -174,8 +174,6 @@ def test_block_tridiag_logdet_and_log_prob_are_exact():
     assert jnp.allclose(AutoSolver().logdet(btd), gaussx.logdet(btd), atol=1e-10)
     z = jr.normal(jr.key(0), (btd.in_size(),))
     loc = jnp.zeros(btd.in_size())
-    default = gaussx.MultivariateNormalPrecision(loc, btd).log_prob(z)
-    dense = gaussx.MultivariateNormalPrecision(
-        loc, btd, solver=gaussx.DenseSolver()
-    ).log_prob(z)
+    default = gaussx.GaussianMRF(loc, btd, solver=AutoSolver()).log_prob(z)
+    dense = gaussx.GaussianMRF(loc, btd, solver=gaussx.DenseSolver()).log_prob(z)
     assert jnp.allclose(default, dense, atol=1e-8)
