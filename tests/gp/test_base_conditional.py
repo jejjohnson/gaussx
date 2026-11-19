@@ -1,4 +1,4 @@
-"""Tests for base_conditional — Gaussian conditional via Schur complement."""
+"""Tests for sparse_conditional — Gaussian conditional via Schur complement."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ def _valid_diag_model(M, N, seed):
     """``K_mm``, ``K_mn`` and ``diag(K_nn)`` sliced from one PD joint.
 
     A random ``K_mn`` is not a valid cross-covariance, so its conditional
-    variances can be negative, and ``base_conditional`` clips those at 0
+    variances can be negative, and ``sparse_conditional`` clips those at 0
     (gh-363). Slicing a PD joint keeps them positive. Pinned: the tests
     check formulas, so any valid model will do.
     """
@@ -300,7 +300,7 @@ def test_full_covariance_is_not_clipped():
 
 
 # ---------------------------------------------------------------------------
-# gh-353: sparse_conditional convention, base_conditional deprecation
+# gh-353: sparse_conditional convention
 # ---------------------------------------------------------------------------
 
 
@@ -309,27 +309,6 @@ def _q_layouts(M, R):
     q_full = jnp.tril(jr.normal(k1, (R, M, M)), -1) + jnp.eye(M)
     q_diag = jnp.abs(jr.normal(k2, (M, R))) + 0.1
     return {"none": None, "diag": q_diag, "full": q_full}
-
-
-@pytest.mark.parametrize("q", ["none", "diag", "full"])
-@pytest.mark.parametrize("white", [False, True])
-@pytest.mark.parametrize("full_cov", [False, True])
-def test_base_conditional_is_deprecated_alias(q, white, full_cov):
-    from gaussx import base_conditional
-
-    M, N, R = 4, 6, 2
-    joint = random_pd_matrix(jr.key(0), M + N)
-    K_mm, K_mn, K_nn = joint[:M, :M], joint[:M, M:], joint[M:, M:]
-    K_nn = K_nn if full_cov else jnp.diag(K_nn)
-    f = jr.normal(jr.key(1), (M, R))
-    q_sqrt = _q_layouts(M, R)[q]
-    with pytest.warns(DeprecationWarning, match="sparse_conditional"):
-        old = base_conditional(K_mm, K_mn, K_nn, f, q_sqrt=q_sqrt, white=white)
-    new = sparse_conditional(
-        K_mm, rearrange(K_mn, "m n -> n m"), K_nn, f, q_sqrt=q_sqrt, white=white
-    )
-    assert jnp.array_equal(old[0], new[0])
-    assert jnp.array_equal(old[1], new[1])
 
 
 def _count_cholesky(fn, *args, shape):

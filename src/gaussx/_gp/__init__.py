@@ -19,7 +19,7 @@ convention the inducing kernel matrix is the first argument.
 Functions take no ``solver=`` they would ignore.
 """
 
-from gaussx._gp._base_conditional import base_conditional, sparse_conditional
+from gaussx._gp._base_conditional import sparse_conditional
 from gaussx._gp._collapsed_elbo import collapsed_elbo
 from gaussx._gp._elbo import variational_elbo_gaussian, variational_elbo_mc
 from gaussx._gp._gauss_kl import gauss_kl
@@ -53,7 +53,6 @@ __all__ = [
     "LOOResult",
     "LOVECache",
     "PredictionCache",
-    "base_conditional",
     "build_prediction_cache",
     "collapsed_elbo",
     "conditional_interpolate",

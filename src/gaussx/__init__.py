@@ -48,9 +48,7 @@ from gaussx._expfam import (
     natural_to_mean_chol as natural_to_mean_chol,
     natural_to_mean_cov as natural_to_mean_cov,
     sufficient_stats as sufficient_stats,
-    to_expectation as to_expectation,
     to_mean_cov as to_mean_cov,
-    to_natural as to_natural,
 )
 from gaussx._gmrf import (
     ar1_precision as ar1_precision,
@@ -70,7 +68,6 @@ from gaussx._gp import (
     LOOResult as LOOResult,
     LOVECache as LOVECache,
     PredictionCache as PredictionCache,
-    base_conditional as base_conditional,
     build_prediction_cache as build_prediction_cache,
     collapsed_elbo as collapsed_elbo,
     conditional_interpolate as conditional_interpolate,
@@ -136,7 +133,6 @@ from gaussx._inference import (
 from gaussx._inference._laplace import (
     LaplaceModel as LaplaceModel,
     LaplaceResult as LaplaceResult,
-    laplace_mode as laplace_mode,
     laplace_model as laplace_model,
     laplace_result as laplace_result,
 )
@@ -180,9 +176,7 @@ from gaussx._operators import (
     SparseOperator as SparseOperator,
     SparsityPattern as SparsityPattern,
     SpectralFunction as SpectralFunction,
-    SumKronecker as SumKronecker,
     SumOfKroneckers as SumOfKroneckers,
-    SVDLowRankUpdate as SVDLowRankUpdate,
     Toeplitz as Toeplitz,
     ToeplitzCholesky as ToeplitzCholesky,
     UpperBlockTriDiag as UpperBlockTriDiag,
@@ -190,13 +184,11 @@ from gaussx._operators import (
     circulant as circulant,
     circulant_from_symbol as circulant_from_symbol,
     create_grid as create_grid,
-    cubic_interpolation_weights as cubic_interpolation_weights,
     grid_coupling_indices as grid_coupling_indices,
     grid_data as grid_data,
     interpolation_operator as interpolation_operator,
     is_eigen_reducible as is_eigen_reducible,
     kronecker_sum_sample as kronecker_sum_sample,
-    linear_interpolation_weights as linear_interpolation_weights,
     low_rank_plus_diag as low_rank_plus_diag,
     low_rank_plus_identity as low_rank_plus_identity,
     masked_obs_covariance as masked_obs_covariance,
@@ -204,7 +196,6 @@ from gaussx._operators import (
     scaled_operator as scaled_operator,
     sum_of_kroneckers_sample as sum_of_kroneckers_sample,
     sum_operator as sum_operator,
-    sumkronecker_sample as sumkronecker_sample,
     svd_low_rank_plus_diag as svd_low_rank_plus_diag,
     toeplitz_sample as toeplitz_sample,
 )
@@ -219,7 +210,6 @@ from gaussx._primitives import (
     Chandrupatla as Chandrupatla,
     DenseFallbackWarning as DenseFallbackWarning,
     RootDecomposition as RootDecomposition,
-    SumKroneckerSqrt as SumKroneckerSqrt,
     SumOfKroneckersSqrt as SumOfKroneckersSqrt,
     cholesky as cholesky,
     cholesky_logdet as cholesky_logdet,
@@ -522,7 +512,6 @@ __all__ = [
     "SLQLogdet",
     "SLRResult",
     "SRHTSketch",
-    "SVDLowRankUpdate",
     "SketchAndPrecondLSMR",
     "SoftmaxLikelihood",
     "SparseCholeskyFactor",
@@ -532,8 +521,6 @@ __all__ = [
     "SparsityPattern",
     "SpectralFunction",
     "StudentTLikelihood",
-    "SumKronecker",
-    "SumKroneckerSqrt",
     "SumOfKroneckers",
     "SumOfKroneckersSqrt",
     "SumSDE",
@@ -548,7 +535,6 @@ __all__ = [
     "ar1_precision",
     "as_diagonalized",
     "as_linear_operator",
-    "base_conditional",
     "besag_structure",
     "block_diagonal_tag",
     "block_tridiagonal_tag",
@@ -572,7 +558,6 @@ __all__ = [
     "cov_transform",
     "create_grid",
     "cubature_points",
-    "cubic_interpolation_weights",
     "cur",
     "cvi_update_sites",
     "damped_natural_update",
@@ -661,13 +646,11 @@ __all__ = [
     "kronecker_sum_solve",
     "kronecker_sum_tag",
     "kronecker_tag",
-    "laplace_mode",
     "laplace_model",
     "laplace_result",
     "leave_one_out_cv",
     "ledoit_wolf_shrinkage",
     "linear_gaussian_update",
-    "linear_interpolation_weights",
     "linear_solve",
     "linearize_sde",
     "localization_matrix",
@@ -772,7 +755,6 @@ __all__ = [
     "sufficient_stats",
     "sum_of_kroneckers_sample",
     "sum_operator",
-    "sumkronecker_sample",
     "svd",
     "svd_low_rank_plus_diag",
     "svgp_variance_adjustment",
@@ -781,9 +763,7 @@ __all__ = [
     "symmetrize",
     "theta_design",
     "tikhonov_augment",
-    "to_expectation",
     "to_mean_cov",
-    "to_natural",
     "toeplitz_sample",
     "trace",
     "trace_and_diag",
@@ -829,20 +809,6 @@ _MOVED_TO_PYROX_GAUSS = frozenset(
 
 
 def __getattr__(name: str):
-    # Deprecated aliases warn on access (gh-364, gh-315).
-    from gaussx._deprecation import (
-        RENAMED as _RENAMED,
-        renamed_attribute as _renamed_attribute,
-    )
-    from gaussx._ssm._infinite_horizon_kalman import (
-        _DEPRECATED_ALIASES,
-        _deprecated_alias,
-    )
-
-    if name in _DEPRECATED_ALIASES:
-        return _deprecated_alias(name)
-    if name in _RENAMED:
-        return _renamed_attribute(name, globals())
     if name in _MOVED_TO_PYROX_GAUSS:
         raise AttributeError(
             f"module 'gaussx' has no attribute {name!r}: it moved to the "

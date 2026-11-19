@@ -13,7 +13,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, reduce
 from gaussx._operators._low_rank_update import LowRankUpdate
 
@@ -77,8 +76,8 @@ def schur_complement(
 
 def conditional_variance(
     K_XX_diag: Float[Array, " N"],
-    K_XZ: Float[Array, "N M"] | lx.AbstractLinearOperator | None = None,
-    A_X: Float[Array, "N M"] | None = None,
+    K_XZ: Float[Array, "N M"],
+    A_X: Float[Array, "N M"],
     S_u: lx.AbstractLinearOperator | None = None,
 ) -> Float[Array, " N"]:
     """Predictive variance: the Schur-complement diagonal plus a variational term.
@@ -89,14 +88,6 @@ def conditional_variance(
     diagonal of the Schur complement. With ``S_u`` it is the sparse
     variational GP predictive variance, which adds the variational
     covariance term.
-
-    Until gaussx 0.7.0 the legacy three-positional form
-    ``conditional_variance(base_diag, A_X, S_u)`` is still accepted. In it
-    ``base_diag`` is the Schur diagonal already, ``A_X`` the projection and
-    ``S_u`` the variational covariance; it is detected when the third
-    positional argument is a `lineax.AbstractLinearOperator` (the old
-    ``S_u`` slot). Such calls warn and compute
-    max(base_diag, 0) + [A_X Σ_Z A_Xᵀ]_nn, with no Schur subtraction.
 
     Args:
         K_XX_diag: Prior variances [K_XX]_nn, the diagonal of K_XX.
@@ -110,8 +101,7 @@ def conditional_variance(
         The predictive variances σ_n².
 
     Raises:
-        TypeError: If ``K_XZ`` or ``A_X`` is missing outside the legacy
-            form, or ``K_XZ`` is not a JAX array.
+        TypeError: If ``K_XZ`` is not a JAX array.
 
     Examples:
         The exact predictive variance of two inputs with one inducing input:
@@ -135,52 +125,10 @@ def conditional_variance(
         >>> bool(jnp.allclose(corrected - variance, 0.4 * A_X[:, 0] ** 2))
         True
     """
-    # Backwards compatibility: the legacy 3-positional signature was
-    # ``conditional_variance(base_diag, A_X, S_u)``, as the pre-#152 docs
-    # called it, with the projection second and the variational covariance
-    # operator third. The third positional being an AbstractLinearOperator
-    # (the old ``S_u``) while ``S_u`` is left at ``None`` detects it.
-    if (
-        S_u is None
-        and isinstance(A_X, lx.AbstractLinearOperator)
-        and isinstance(K_XZ, jax.Array)
-    ):
-        warn_deprecated(
-            "conditional_variance(base_diag, A_X, S_u) is deprecated and will be "
-            "removed in gaussx 0.7.0; "
-            "use conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u). "
-            "The legacy form treats the first argument as the "
-            "precomputed Schur diagonal and skips the K_XZ-based "
-            "subtraction."
-        )
-        # the second positional was the projection, the third Σ_Z
-        legacy_projection = K_XZ
-        legacy_variational_covariance: lx.AbstractLinearOperator = A_X
-        variational_covariance = legacy_variational_covariance.as_matrix()
-        # A_X Σ_Z
-        projected = einsum(
-            legacy_projection,
-            variational_covariance,
-            "sample mid, mid inducing -> sample inducing",
-        )
-        # [A_X Σ_Z A_Xᵀ]_nn
-        variational_term = reduce(
-            projected * legacy_projection, "sample inducing -> sample", "sum"
-        )
-        # max(base_diag, 0) + [A_X Σ_Z A_Xᵀ]_nn
-        return jnp.clip(K_XX_diag, 0.0) + variational_term
-
-    if K_XZ is None or A_X is None:
-        raise TypeError(
-            "conditional_variance requires K_XZ and A_X (or the legacy "
-            f"(base_diag, A_X, S_u) call). Got K_XZ={K_XZ!r}, "
-            f"A_X={A_X!r}, S_u={S_u!r}."
-        )
     if not isinstance(K_XZ, jax.Array):
         raise TypeError(
-            "K_XZ must be a jax array; the legacy 3-positional form "
-            "passes an AbstractLinearOperator as the third positional "
-            "argument."
+            "conditional_variance(K_XX_diag, K_XZ, A_X, S_u=None) needs K_XZ as a "
+            f"jax array, got {type(K_XZ).__name__}."
         )
 
     # [A_X K_ZX]_nn

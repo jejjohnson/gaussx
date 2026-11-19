@@ -193,11 +193,3 @@ def test_kronecker_prior_matches_dense_without_16x16_cholesky(layout):
     jaxpr = str(jax.make_jaxpr(lambda m: gauss_kl(m, q_sqrt, K))(q_mu))
     chol = [ln for ln in jaxpr.splitlines() if "= cholesky" in ln]
     assert not any("[16,16]" in ln for ln in chol)
-
-
-def test_solver_is_deprecated():
-    from gaussx import DenseSolver
-
-    q_mu, _, q_diag = _kl_inputs(M=3)
-    with pytest.warns(DeprecationWarning, match="solver"):
-        gauss_kl(q_mu, q_diag, jnp.eye(3), solver=DenseSolver())

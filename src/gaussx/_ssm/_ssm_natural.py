@@ -18,13 +18,11 @@ EP ones in ``_site_natural.py``.
 
 from __future__ import annotations
 
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_matrix
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -32,57 +30,26 @@ from gaussx._primitives._inv import inv
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
-def _transition_noise(
-    A: Float[Array, "Nm1 d d"],
-    Q: Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
-    P_0: Float[Array, "d d"],
-    function: str,
-) -> tuple[Float[Array, "d d"], Float[Array, "Nm1 d d"]]:
-    """Normalise ``Q`` to the transition-noise layout (gh-364).
-
-    The `pyrox_gauss.MarkovGaussian` layout, ``Q`` of shape ``(N-1, d, d)`` with
-    ``Q[t]`` = Σ_η,t+1 driving x_t → x_t+1 and Σ_x,0 passed separately, is
-    the one to use. The older stacked layout of shape ``(N, d, d)`` with
-    ``Q[0]`` = Σ_x,0 is told apart by its length, still accepted with a
-    ``DeprecationWarning``, and checked for consistency.
+def _check_transition_noise(
+    A: Float[Array, "Nm1 d d"], Q: Float[Array, "Nm1 d d"], function: str
+) -> None:
+    """Check that ``Q`` holds one transition-noise block per transition (gh-364).
 
     Args:
         A: Transitions F_t, one per transition.
-        Q: Model-error covariances Σ_η,t+1, in either layout.
-        P_0: Prior covariance Σ_x,0.
-        function: Name of the caller, for the messages.
-
-    Returns:
-        Tuple ``(P_0, Q)`` holding Σ_x,0 and the transition noise only.
+        Q: Model-error covariances Σ_η,t+1.
+        function: Name of the caller, for the message.
 
     Raises:
-        ValueError: If ``Q`` matches neither layout.
+        ValueError: If ``Q`` and ``A`` have different numbers of blocks.
     """
     n_transitions = A.shape[0]
-    if Q.shape[0] == n_transitions:
-        return P_0, Q
-    if Q.shape[0] != n_transitions + 1:
+    if Q.shape[0] != n_transitions:
         msg = (
             f"{function}: Q must have {n_transitions} transition-noise blocks "
             f"to match A, got {Q.shape[0]}."
         )
         raise ValueError(msg)
-    warn_deprecated(
-        f"{function} with Q of shape (N, d, d) and Q[0] == P_0 is deprecated; "
-        "pass only the transition noise Q[1:] (shape (N-1, d, d)), as "
-        "pyrox_gauss.MarkovGaussian does. The stacked layout will be removed in "
-        "gaussx 0.7.0."
-    )
-    # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
-    # Python ``bool()`` could only run eagerly (gh-359). Attached to both
-    # P_0 and Q so every output depends on it and a jitted projection cannot
-    # dead-code-eliminate it.
-    P_0, Q = eqx.error_if(
-        (P_0, Q),
-        ~jnp.allclose(Q[0], P_0),
-        "Q[0] must match P_0 so the returned natural parameters are consistent",
-    )
-    return P_0, Q[1:]
 
 
 def _dense_precision(covariance: Float[Array, "d d"]) -> Float[Array, "d d"]:
@@ -151,7 +118,7 @@ def _chain_precision_blocks(
 
 def ssm_to_naturals(
     A: Float[Array, "Nm1 d d"],
-    Q: Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
+    Q: Float[Array, "Nm1 d d"],
     mu_0: Float[Array, " d"],
     P_0: Float[Array, "d d"],
     *,
@@ -180,10 +147,7 @@ def ssm_to_naturals(
     Args:
         A: Transitions F_t, with ``A[t]`` mapping x_t to x_t+1.
         Q: Model-error covariances, with ``Q[t]`` = Σ_η,t+1 driving
-            x_t → x_t+1, as in `pyrox_gauss.MarkovGaussian`. The older stacked
-            layout of shape ``(N, d, d)`` with ``Q[0]`` = Σ_x,0 (checked with
-            `equinox.error_if`, so also under ``jax.jit``) is deprecated and
-            will be removed in gaussx 0.7.0.
+            x_t → x_t+1, as in `pyrox_gauss.MarkovGaussian`.
         mu_0: Prior mean μ_x,0 of the initial state x₀.
         P_0: Prior covariance Σ_x,0 of x₀.
         solver: Solver strategy for the solve against Σ_x,0; ``None`` uses
@@ -194,7 +158,7 @@ def ssm_to_naturals(
         over the T blocks, and −½ Λ_x as a `BlockTriDiag`.
 
     Raises:
-        ValueError: If ``Q`` has neither T − 1 nor T blocks.
+        ValueError: If ``Q`` does not have T − 1 blocks.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -215,11 +179,11 @@ def ssm_to_naturals(
 
         The chain round-trips through `naturals_to_ssm`:
 
-        >>> rebuilt = gaussx.naturals_to_ssm(linear, precision, initial_in_q=False)
+        >>> rebuilt = gaussx.naturals_to_ssm(linear, precision)
         >>> bool(jnp.allclose(rebuilt[0], transitions, atol=1e-5))
         True
     """
-    P_0, Q = _transition_noise(A, Q, P_0, "ssm_to_naturals")
+    _check_transition_noise(A, Q, "ssm_to_naturals")
     num_blocks = Q.shape[0] + 1
     state_size = P_0.shape[0]
 
@@ -268,12 +232,9 @@ def ssm_to_naturals(
 def naturals_to_ssm(
     theta_linear: Float[Array, " Nd"],
     theta_precision: BlockTriDiag,
-    *,
-    solver: AbstractSolverStrategy | None = None,
-    initial_in_q: bool | None = None,
 ) -> tuple[
     Float[Array, "Nm1 d d"],
-    Float[Array, "Nm1 d d"] | Float[Array, "N d d"],
+    Float[Array, "Nm1 d d"],
     Float[Array, " d"],
     Float[Array, "d d"],
 ]:
@@ -301,19 +262,12 @@ def naturals_to_ssm(
         theta_linear: Precision-weighted mean Λ_x μ_x, stacked over the T
             blocks.
         theta_precision: Scaled precision −½ Λ_x as a `BlockTriDiag`.
-        solver: Deprecated and ignored (the block inverses are dense);
-            passing it warns, and it will be removed in gaussx 0.7.0.
-        initial_in_q: Layout of the returned ``Q``. ``False`` returns only
-            the transition noise Σ_η,t+1, shape ``(N-1, d, d)``, as
-            `pyrox_gauss.MarkovGaussian` takes it; ``True`` the older stacked
-            layout of shape ``(N, d, d)`` with ``Q[0]`` = Σ_x,0. The default
-            ``None`` means ``True`` with a ``DeprecationWarning``; it becomes
-            ``False`` in gaussx 0.7.0.
 
     Returns:
         Tuple ``(A, Q, mu_0, P_0)`` holding the transitions F_t, the
-        model-error covariances in the layout chosen by ``initial_in_q``,
-        the prior mean μ_x,0 and the prior covariance Σ_x,0.
+        model-error covariances Σ_η,t+1 (shape ``(N-1, d, d)``, as
+        `pyrox_gauss.MarkovGaussian` takes them), the prior mean μ_x,0 and
+        the prior covariance Σ_x,0.
 
     Examples:
         >>> import jax.numpy as jnp
@@ -322,34 +276,14 @@ def naturals_to_ssm(
         >>> model_noise = jnp.broadcast_to(0.1 * jnp.eye(2), (3, 2, 2))
         >>> prior = (jnp.array([1.0, -1.0]), jnp.eye(2))
         >>> naturals = gaussx.ssm_to_naturals(transitions, model_noise, *prior)
-        >>> A, Q, mu_0, P_0 = gaussx.naturals_to_ssm(*naturals, initial_in_q=False)
+        >>> A, Q, mu_0, P_0 = gaussx.naturals_to_ssm(*naturals)
         >>> A.shape, Q.shape
         ((3, 2, 2), (3, 2, 2))
         >>> bool(jnp.allclose(Q, model_noise, atol=1e-5))
         True
         >>> bool(jnp.allclose(mu_0, prior[0], atol=1e-5))
         True
-
-        The stacked layout puts Σ_x,0 in front:
-
-        >>> _, stacked, _, _ = gaussx.naturals_to_ssm(*naturals, initial_in_q=True)
-        >>> stacked.shape
-        (4, 2, 2)
     """
-    if solver is not None:
-        warn_deprecated(
-            "naturals_to_ssm(solver=...) is deprecated and ignored; it will be "
-            "removed in gaussx 0.7.0."
-        )
-    if initial_in_q is None:
-        warn_deprecated(
-            "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in gaussx 0.7.0 it "
-            "will return only the transition noise (shape (N-1, d, d)), as "
-            "pyrox_gauss.MarkovGaussian and ssm_to_naturals take it. Pass "
-            "initial_in_q=False to adopt that layout now, or initial_in_q=True "
-            "to keep the current one until then."
-        )
-        initial_in_q = True
     state_size = theta_precision._block_size
 
     # --- precision blocks ---
@@ -401,17 +335,12 @@ def naturals_to_ssm(
         prior_precision, lx.positive_semidefinite_tag
     )
     prior_covariance = inv(prior_precision_op).as_matrix()
-    # [Σ_x,0; Σ_η,1:T−1]
-    Q = jnp.concatenate(
-        [rearrange(prior_covariance, "row col -> 1 row col"), noise_covariances]
-    )
 
     # --- initial conditions ---
-    P_0 = Q[0]
     # μ_x,0 = Σ_x,0 [Λ_x μ_x]_0
-    mu_0 = P_0 @ theta_linear[:state_size]
+    mu_0 = prior_covariance @ theta_linear[:state_size]
 
-    return A, (Q if initial_in_q else Q[1:]), mu_0, P_0
+    return A, noise_covariances, mu_0, prior_covariance
 
 
 def ssm_to_expectations(

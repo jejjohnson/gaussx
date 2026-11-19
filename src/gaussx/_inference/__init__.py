@@ -84,7 +84,6 @@ __all__ = [
     "inflate_multiplicative",
     "inflate_rtpp",
     "inflate_rtps",
-    "laplace_mode",
     "laplace_model",
     "laplace_result",
     "ledoit_wolf_shrinkage",
@@ -101,13 +100,12 @@ __all__ = [
 ]
 
 
-# laplace_mode and vb_mean_correction take the GMRF priors (G6); as in
+# The Laplace step and vb_mean_correction take the GMRF priors (G6); as in
 # ``gaussx._distributions``, resolve them lazily (PEP 562).
 def __getattr__(name: str) -> Any:
     if name in (
         "LaplaceModel",
         "LaplaceResult",
-        "laplace_mode",
         "laplace_model",
         "laplace_result",
     ):

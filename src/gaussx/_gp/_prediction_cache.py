@@ -10,13 +10,10 @@ training inputs, and K_** the prior kernel matrix at the test inputs.
 
 from __future__ import annotations
 
-from typing import cast
-
 import equinox as eqx
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange, reduce
 from gaussx._linalg._linalg import solve_columns, solve_rows
 from gaussx._operators._block_diag import BlockDiag
@@ -166,11 +163,10 @@ def predict_mean(
 
 
 def predict_variance(
-    cache: PredictionCache | Float[Array, "Nt N"] | None = None,
-    K_cross: Float[Array, "Nt N"] | Float[Array, " Nt"] | None = None,
-    K_test_diag: Float[Array, " Nt"] | lx.AbstractLinearOperator | None = None,
+    cache: PredictionCache,
+    K_cross: Float[Array, "Nt N"],
+    K_test_diag: Float[Array, " Nt"],
     *,
-    operator: lx.AbstractLinearOperator | None = None,
     solver: AbstractSolveStrategy | None = None,
 ) -> Float[Array, " Nt"]:
     """Predictive variance of a GP at the test inputs, from a prediction cache.
@@ -184,16 +180,10 @@ def predict_variance(
     factor it solves Σ_y v_m = k_mX for each test row k_mX of ``K_*X`` with
     ``solver`` and returns ``[K_**]_mm − k_mXᵀ v_m``.
 
-    The old order ``predict_variance(K_cross, K_test_diag, operator)``
-    (or ``operator=`` as a keyword) still works for one release, emits a
-    `DeprecationWarning`, and refactorises Σ_y on every call.
-
     Algorithm:
-        1. Route the deprecated call forms to one solve per test row
-           against ``operator``.
-        2. With a cached factor, whiten ``V = L_y⁻¹ K_X*`` and subtract the
+        1. With a cached factor, whiten ``V = L_y⁻¹ K_X*`` and subtract the
            column sums of V² from the prior variances.
-        3. Without one, solve Σ_y⁻¹ k_mX row by row with ``solver`` and
+        2. Without one, solve Σ_y⁻¹ k_mX row by row with ``solver`` and
            subtract k_mXᵀ Σ_y⁻¹ k_mX.
 
     Args:
@@ -202,7 +192,6 @@ def predict_variance(
             training inputs.
         K_test_diag: Prior variances ``[K_**]_mm`` at the test inputs, the
             diagonal of ``K_**``.
-        operator: Deprecated; only for the old call form, where it is Σ_y.
         solver: Optional solve strategy for the no-factor path. When
             ``None``, falls back to structural-dispatch `gaussx.solve`.
 
@@ -210,8 +199,6 @@ def predict_variance(
         The predictive variances σ²_m, one per test input.
 
     Raises:
-        TypeError: If the old call form has no operator, or ``operator`` is
-            passed alongside a cache.
         ValueError: If the cache holds neither a factor nor an operator.
 
     Examples:
@@ -249,44 +236,8 @@ def predict_variance(
         ...
         ValueError: This PredictionCache holds only alpha; ...
     """
-
-    if not isinstance(cache, PredictionCache):
-        warn_deprecated(
-            "predict_variance(K_cross, K_test_diag, operator) is deprecated "
-            "and will be removed in gaussx 0.7.0; build a cache "
-            "with build_prediction_cache(operator, y) and call "
-            "predict_variance(cache, K_cross, K_test_diag), which reuses the "
-            "cached factorisation."
-        )
-        if operator is None:
-            # all positional: (K_cross, K_test_diag, operator)
-            legacy = (cache, K_cross, K_test_diag)
-        elif cache is not None:
-            # (K_cross, [K_test_diag], operator=...)
-            legacy = (cache, K_cross if K_test_diag is None else K_test_diag, operator)
-        else:
-            # all keywords
-            legacy = (K_cross, K_test_diag, operator)
-        legacy_cross, legacy_prior, legacy_operator = legacy
-        if not isinstance(legacy_operator, lx.AbstractLinearOperator):
-            msg = "predict_variance needs a PredictionCache or an operator."
-            raise TypeError(msg)
-        cross_covariance = cast(Array, legacy_cross)
-        prior_variance = cast(Array, legacy_prior)
-        # K_*X Σ_y⁻¹, one solve per test row
-        solved_cross = solve_rows(legacy_operator, cross_covariance, solver=solver)
-        # k_mX ⊙ Σ_y⁻¹ k_mX
-        products = cross_covariance * solved_cross
-        # [K_*X Σ_y⁻¹ K_X*]_mm
-        explained = reduce(products, "test sample -> test", "sum")
-        # σ²_m = [K_**]_mm − [K_*X Σ_y⁻¹ K_X*]_mm
-        return prior_variance - explained
-
-    if operator is not None:
-        msg = "operator= is only for the deprecated call form; the cache holds K_y."
-        raise TypeError(msg)
-    cross_covariance = cast(Array, K_cross)
-    prior_variance = cast(Array, K_test_diag)
+    cross_covariance = K_cross
+    prior_variance = K_test_diag
     if cache.factor is not None:
         # K_X* = K_*Xᵀ
         cross_covariance_t = rearrange(cross_covariance, "test sample -> sample test")

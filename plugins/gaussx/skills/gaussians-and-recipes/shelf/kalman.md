@@ -15,15 +15,15 @@ It also covers the conversions between state-space parameters, natural parameter
 | `rts_smoother(filter_state, transition, *, solver=None)` | The Rauch-Tung-Striebel backward pass; returns `(smoothed_means, smoothed_covs)`. |
 | `parallel_kalman_filter(...)`, `parallel_rts_smoother(...)` | The same filter and smoother by `lax.associative_scan`, with `O(log T)` depth; the filter also takes `psd_project=` and `square_root=`. |
 | `meanfield_kalman_filter(..., *, block_size)`, `meanfield_rts_smoother(..., *, block_size)` | Independent filters and smoothers on diagonal state blocks, dropping cross-block covariance. |
-| `dare(A, H, Q, R, *, P_init=None, max_iter=100, tol=1e-8)` | The steady-state covariance and gain by structure-preserving doubling, returned as a `DAREResult`. |
+| `dare(A, H, Q, R, *, max_iter=100, tol=1e-8)` | The steady-state covariance and gain by structure-preserving doubling, returned as a `DAREResult`. |
 | `DAREResult(P_inf, K_inf, converged)` | The steady-state covariance, the gain and a convergence flag. |
 | `infinite_horizon_filter(transition, obs_model, process_noise, obs_noise, observations, init_mean=None, *, dare_result=None)` | A filter with the fixed steady-state gain; returns a `FilterState`. |
-| `infinite_horizon_smoother(filter_state, transition, process_noise, *, dare_result=None)` | The matching fixed-gain smoother; returns `(smoothed_means, smoothed_covs)`. |
+| `infinite_horizon_smoother(filter_state, transition, process_noise, *, dare_result)` | The matching fixed-gain smoother; returns `(smoothed_means, smoothed_covs)`. |
 | `kalman_gain(P, H, R, *, solver=None, woodbury_innovation=False)` | The single-step gain `P Hᵀ (H P Hᵀ + R)⁻¹` from operators. |
 | `EmissionModel(H)` | A wrapper for a linear observation matrix with projection helpers such as `project_mean` and `project_covariance`. |
 | `masked_moment_inputs(obs_cov, cross_cov, obs_noise, y, y_hat, mask)` | Makes masked channels inert in a moment-matched update, for custom filter loops. |
 | `pairwise_marginals(means, covariances, cross_covariances)` | The joint `p(x_k, x_{k+1})` for each consecutive pair. |
-| `ssm_to_naturals(A, Q, mu_0, P_0)`, `naturals_to_ssm(theta_linear, theta_precision, *, initial_in_q)` | Convert chain parameters to natural parameters with a `BlockTriDiag` precision, and back. |
+| `ssm_to_naturals(A, Q, mu_0, P_0)`, `naturals_to_ssm(theta_linear, theta_precision)` | Convert chain parameters to natural parameters with a `BlockTriDiag` precision, and back. |
 | `ssm_to_expectations(means, covs, cross_covs)`, `expectations_to_ssm(eta1, eta2)` | Convert chain marginals to expectation parameters, and back. |
 | `UDLDecomposition(U_sub, D_diag, chol_D)` | The banded factorisation `U D̃ Uᵀ` of a `BlockTriDiag` precision. |
 | `udl_decomposition(precision)`, `udl_from_ssm_params(A, Q, P0)`, `udl_to_ssm_params(udl)` | Factorise a precision, build the factorisation from chain parameters, and read the chain back. |
@@ -66,12 +66,12 @@ assert jnp.allclose(ih.filtered_covs[-1], d.P_inf, atol=1e-3)
 - `kalman_filter` takes `mask=` with shape `(T,)` to skip whole steps or `(T, M)` to marginalise single channels; masked entries of `observations` are never read, so they may be `NaN`.
 - Pass `solver=` (a strategy from skill `gaussx:solvers-and-preconditioners`) to `kalman_filter`, `rts_smoother`, `kalman_gain`, `meanfield_kalman_filter` and the infinite-horizon functions; `parallel_kalman_filter` only uses it with `woodbury_innovation=True`, and warns otherwise.
 - `woodbury_innovation=True` builds the innovation covariance as a `LowRankUpdate`, so a structured `R` uses Woodbury solves.
-- Do not pass `process_noise` to `rts_smoother`, `parallel_rts_smoother` or `meanfield_rts_smoother`; it is deprecated and ignored.
+- `rts_smoother`, `parallel_rts_smoother` and `meanfield_rts_smoother` take no `process_noise`: the filter's predicted covariances already include it.
 - For covariances that must be PSD in float32, use `parallel_kalman_filter(..., square_root=True)`; `psd_project=True` only clips the outputs.
 - `meanfield_*` needs `block_size` dividing the state size, and the observation size must divide by the number of blocks.
 - The infinite-horizon filter has no `mask` and no `init_cov`; its log-likelihood matches `kalman_filter` only when that filter starts from `dare(...).P_inf`.
 - Check `DAREResult.converged` when you call `dare` directly; the infinite-horizon functions raise on a non-converged result.
-- `naturals_to_ssm` should get `initial_in_q=False` to return `Q` of shape `(N-1, d, d)`; the default is deprecated.
+- `naturals_to_ssm` returns `Q` of shape `(N-1, d, d)`, the layout `ssm_to_naturals` takes.
 
 ## Goes wrong
 

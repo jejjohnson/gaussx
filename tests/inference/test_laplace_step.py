@@ -1,9 +1,10 @@
-"""The public Newton step of `laplace_mode` (gh-816).
+"""The public Newton step of a Laplace fit (gh-816).
 
 `laplace_model`, a Newton loop on `LaplaceModel.newton` and `laplace_result`
-rebuild `laplace_mode` exactly, so a caller can own the loop (argminax#25) and
-still return the `LaplaceResult` that `laplace_mode` and `vb_mean_correction`
-use.
+rebuild the tolerance-driven, implicitly differentiated loop of ``laplace_fit``
+(the former ``gaussx.laplace_mode``) exactly, so a caller can own the loop
+(argminax#25) and still return the `LaplaceResult` that `vb_mean_correction`
+uses.
 """
 
 from __future__ import annotations
@@ -15,11 +16,11 @@ import pytest
 
 import gaussx as gx
 
+from ._laplace_fit import laplace_fit
+
 
 pytestmark = [
     pytest.mark.x64_only(reason="the rebuild is compared to 1e-12"),
-    # the reference is the deprecated loop, until gaussx 0.7.0 removes it
-    pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated"),
 ]
 
 
@@ -46,10 +47,10 @@ def _intrinsic_prior(n: int) -> gx.IntrinsicGMRF:
 
 
 def _rebuild(prior, likelihood, *, steps: int = 50) -> gx.LaplaceResult:
-    """laplace_mode's loop, written by a caller on the public step."""
+    """The simplest caller loop on the public step: undamped Newton steps."""
     model = gx.laplace_model(prior, likelihood)
     state = jnp.zeros(prior.event_shape[0])
-    # x⁽⁰⁾ off the null space, as laplace_mode starts
+    # x⁽⁰⁾ off the null space, as laplace_fit starts
     state = state - model.null_component(state)
     for _ in range(steps):
         # x⁽ʲ⁺¹⁾ = x̃, an undamped Newton step
@@ -60,11 +61,11 @@ def _rebuild(prior, likelihood, *, steps: int = 50) -> gx.LaplaceResult:
 @pytest.mark.parametrize(
     "make_prior", [_gaussian_prior, _intrinsic_prior], ids=["gaussian", "intrinsic"]
 )
-def test_the_public_step_rebuilds_laplace_mode(make_prior) -> None:
+def test_the_public_step_rebuilds_the_laplace_fit(make_prior) -> None:
     n = 20
     prior = make_prior(n)
     likelihood = _poisson_counts(n)
-    fit = gx.laplace_mode(prior, likelihood)
+    fit = laplace_fit(prior, likelihood)
     assert bool(fit.converged)
     rebuilt = _rebuild(prior, likelihood)
     assert jnp.allclose(rebuilt.mode, fit.mode, rtol=1e-12, atol=1e-12)
@@ -80,7 +81,7 @@ def test_hessian_is_the_posterior_precision_at_the_mode() -> None:
     prior = _gaussian_prior(n)
     likelihood = _poisson_counts(n)
     model = gx.laplace_model(prior, likelihood)
-    fit = gx.laplace_mode(prior, likelihood)
+    fit = laplace_fit(prior, likelihood)
     _, hessian = model.hessian(fit.mode)
     assert jnp.allclose(hessian.as_matrix(), fit.hessian.as_matrix(), rtol=1e-12)
     # the ascent direction vanishes at the mode

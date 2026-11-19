@@ -1,4 +1,4 @@
-# Golden fixture for gaussx.laplace_mode (roadmap G8).
+# Golden fixture for the Laplace mode of a gaussx model (roadmap G8).
 #
 # The Scotland lip cancer data (Clayton & Kaldor, 1987; R-INLA's Scotland
 # dataset, 56 districts on demodata/scotland.graph) with a BYM2 Poisson model
@@ -6,7 +6,7 @@
 #   Counts_i ~ Poisson(E_i exp(eta_i)),  eta_i = beta_0 + beta_1 X_i + b_i,
 #
 # at FIXED hyperparameters (tau, phi), so that R-INLA's latent mode is the
-# mode of the Gaussian approximation that laplace_mode computes. The fixed
+# mode of the Gaussian approximation that a Laplace fit computes. The fixed
 # effects get N(0, 1 / prec_fixed) priors. The latent mode (b, u*, beta_0,
 # beta_1) is read from the configuration at the (single, fixed) theta. To make
 # it the exact mode of gaussx's model: the VB mean correction is off, the

@@ -100,7 +100,7 @@ class TestCachedFactor:
             ),
         ],
     )
-    def test_new_path_matches_old(self, make_op):
+    def test_cached_factor_matches_dense(self, make_op):
         op = make_op()
         N = op.in_size()
         y = jr.normal(jr.key(2), (N,))
@@ -109,9 +109,6 @@ class TestCachedFactor:
         cache = build_prediction_cache(op, y)
         assert cache.factor is not None
         new = predict_variance(cache, K_cross, kd)
-        with pytest.warns(DeprecationWarning, match="predict_variance"):
-            old = predict_variance(K_cross, kd, op)
-        assert jnp.allclose(new, old, rtol=1e-12, atol=1e-12)
         assert jnp.allclose(
             new, _dense_variance(op.as_matrix(), K_cross, kd), rtol=1e-10
         )
@@ -131,19 +128,6 @@ class TestCachedFactor:
                 PredictionCache(alpha=jnp.ones(3)), jnp.ones((2, 3)), jnp.ones(2)
             )
 
-    def test_old_call_forms_warn(self):
-        K, _, K_cross = _problem()
-        op, kd = psd_operator(K), jnp.ones(4)
-        expected = _dense_variance(K, K_cross, kd)
-        with pytest.warns(DeprecationWarning):
-            v1 = predict_variance(K_cross, kd, op)
-        with pytest.warns(DeprecationWarning):
-            v2 = predict_variance(K_cross, kd, operator=op)
-        with pytest.warns(DeprecationWarning):
-            v3 = predict_variance(K_cross=K_cross, K_test_diag=kd, operator=op)
-        for v in (v1, v2, v3):
-            assert jnp.allclose(v, expected, rtol=1e-10)
-
     @pytest.mark.slow  # a jit + grad + vmap sweep: ~4-5 s in CI
     def test_jit_vmap_grad(self):
         x = jnp.linspace(0.0, 3.0, 8)
@@ -158,13 +142,12 @@ class TestCachedFactor:
             cache = build_prediction_cache(op, y)
             return predict_variance(cache, rbf(xt, x, ls), jnp.ones(2)).sum()
 
-        def old(ls):
-            op = psd_operator(rbf(x, x, ls) + 0.1 * jnp.eye(8))
-            return predict_variance(rbf(xt, x, ls), jnp.ones(2), op).sum()
+        def dense(ls):
+            K = rbf(x, x, ls) + 0.1 * jnp.eye(8)
+            return _dense_variance(K, rbf(xt, x, ls), jnp.ones(2)).sum()
 
         g_new = jax.jit(jax.grad(new))(0.8)
-        with pytest.warns(DeprecationWarning):
-            g_old = jax.grad(old)(0.8)
-        assert jnp.allclose(g_new, g_old, rtol=1e-10)
+        g_dense = jax.grad(dense)(0.8)
+        assert jnp.allclose(g_new, g_dense, rtol=1e-10)
         batched = jax.vmap(new)(jnp.array([0.6, 0.8]))
         assert jnp.allclose(batched[1], new(0.8), rtol=1e-12)

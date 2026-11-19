@@ -15,7 +15,6 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 
@@ -340,8 +339,8 @@ def udl_to_ssm_params(
 
 def udl_from_ssm_params(
     A: Float[Array, "Tm1 d d"],
-    Q: Float[Array, "Tm1 d d"] | Float[Array, "T d d"],
-    P0: Float[Array, "d d"] | None = None,
+    Q: Float[Array, "Tm1 d d"],
+    P0: Float[Array, "d d"],
 ) -> UDLDecomposition:
     """Build the `UDLDecomposition` of a Gauss-Markov chain's precision.
 
@@ -354,9 +353,7 @@ def udl_from_ssm_params(
     Args:
         A: Transitions F_t, with ``A[t]`` mapping x_t to x_t+1.
         Q: Model-error covariances, with ``Q[t]`` = Σ_η,t+1 driving x_t+1
-            (the `pyrox_gauss.MarkovGaussian` layout). Without ``P0``, the older
-            stacked layout with ``Q[0]`` = Σ_x,0 and one more block is
-            accepted with a ``DeprecationWarning`` until gaussx 0.7.0.
+            (the `pyrox_gauss.MarkovGaussian` layout).
         P0: Prior covariance Σ_x,0 of the initial state x₀.
 
     Raises:
@@ -376,22 +373,14 @@ def udl_from_ssm_params(
         >>> bool(jnp.allclose(udl.U_sub, -transitions))
         True
     """
-    if P0 is not None:
-        # [Σ_x,0; Σ_η,1:T−1]
-        Q = jnp.concatenate([rearrange(P0, "row col -> 1 row col"), Q])
-    else:
-        warn_deprecated(
-            "udl_from_ssm_params(A, Q) with P_0 stacked as Q[0] is deprecated; "
-            "pass the transition noise and P0 separately, "
-            "udl_from_ssm_params(A, Q, P0). The stacked layout will be "
-            "removed in gaussx 0.7.0."
-        )
-    if Q.shape[0] != A.shape[0] + 1:
+    if Q.shape[0] != A.shape[0]:
         msg = (
             f"udl_from_ssm_params: expected {A.shape[0]} transition-noise blocks "
-            f"to match A, got {Q.shape[0] - (P0 is not None)}."
+            f"to match A, got {Q.shape[0]}."
         )
         raise ValueError(msg)
+    # [Σ_x,0; Σ_η,1:T−1]
+    Q = jnp.concatenate([rearrange(P0, "row col -> 1 row col"), Q])
     # L_Σ,t L_Σ,tᵀ = [Σ_x,0; Σ_η,t]
     chol_covariances = jnp.linalg.cholesky(Q)
     # D_t = [Σ_x,0; Σ_η,t]⁻¹

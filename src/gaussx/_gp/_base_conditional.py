@@ -15,11 +15,9 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange, reduce, repeat
 from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
-from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def _as_psd_operator(
@@ -257,78 +255,6 @@ def sparse_conditional(
     if single_output:
         return mean[:, 0], variance[..., 0]
     return mean, variance
-
-
-def base_conditional(
-    K_mm: Float[Array, "M M"],
-    K_mn: Float[Array, "M N"],
-    K_nn: Float[Array, "N N"] | Float[Array, " N"],
-    f: Float[Array, "M R"] | Float[Array, " M"],
-    *,
-    q_sqrt: Float[Array, "R M M"]
-    | Float[Array, "M R"]
-    | Float[Array, "M M"]
-    | Float[Array, " M"]
-    | None = None,
-    white: bool = False,
-    solver: AbstractSolverStrategy | None = None,
-) -> tuple[Float[Array, "N R"], Float[Array, ...]]:
-    """Deprecated: use `sparse_conditional` (note ``K_xz = K_mn.T``).
-
-        base_conditional(K_ℐℐ, K_ℐX, …) = sparse_conditional(K_ℐℐ, K_ℐXᵀ, …)
-
-    ``base_conditional(K_mm, K_mn, K_nn, f, q_sqrt=..., white=...)`` equals
-    ``sparse_conditional(K_mm, K_mn.T, K_nn, f, q_sqrt=..., white=...)``.
-    It takes the cross-covariance as K_ℐX (inducing × data), the transpose
-    of every other sparse-GP helper; for N = N_ℐ a transposed argument is
-    not detectable, so the convention is changed under a new name rather
-    than in place. ``solver`` was never used. Removed in gaussx 0.7.0.
-
-    Args:
-        K_mm: Inducing kernel matrix K_ℐℐ.
-        K_mn: Cross-covariance K_ℐX between the inducing inputs and the
-            evaluation inputs, the transpose of `sparse_conditional`'s
-            ``K_xz``.
-        K_nn: Prior kernel matrix K_XX at the evaluation inputs, full or
-            only its diagonal.
-        f: Variational means μ_ℐ,r, as ``q_mu`` in `sparse_conditional`.
-        q_sqrt: Optional variational roots L_ℐ,r, as in
-            `sparse_conditional`.
-        white: Whitened parameterisation, as in `sparse_conditional`.
-        solver: Ignored.
-
-    Returns:
-        ``(mean, var)`` as in `sparse_conditional`.
-
-    Examples:
-        It warns and matches `sparse_conditional` on the transposed
-        cross-covariance:
-
-        >>> import warnings
-        >>> import jax.numpy as jnp
-        >>> import gaussx
-        >>> K_mm = 2.0 * jnp.eye(2)
-        >>> K_mn = jnp.array([[1.0, 0.0, 1.0], [0.0, 1.0, 1.0]])
-        >>> f = jnp.array([2.0, -2.0])
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     mean, _ = gaussx.base_conditional(K_mm, K_mn, jnp.full(3, 2.0), f)
-        >>> caught[0].category.__name__
-        'GaussxDeprecationWarning'
-        >>> bool(jnp.allclose(mean, jnp.array([1.0, -1.0, 0.0]), atol=1e-6))
-        True
-    """
-    del solver
-    warn_deprecated(
-        "base_conditional(K_mm, K_mn, ...) is deprecated and will be removed in "
-        "gaussx 0.7.0; use sparse_conditional(K_zz, K_xz, K_xx, q_mu, "
-        "...) with K_xz = K_mn.T (shape (N, M))."
-    )
-    # K_Xℐ = K_ℐXᵀ
-    cross_covariance = rearrange(K_mn, "inducing sample -> sample inducing")
-    return sparse_conditional(
-        K_mm, cross_covariance, K_nn, f, q_sqrt=q_sqrt, white=white
-    )
 
 
 def _check_shapes(

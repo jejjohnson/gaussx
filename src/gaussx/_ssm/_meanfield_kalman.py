@@ -28,7 +28,7 @@ from gaussx._ssm._parallel_kalman import (
     parallel_kalman_filter,
     parallel_rts_smoother,
 )
-from gaussx._ssm._utils import _materialise, _warn_unused_process_noise
+from gaussx._ssm._utils import _materialise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -287,7 +287,6 @@ def meanfield_kalman_filter(
 def meanfield_rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T D D"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T D D"] | lx.AbstractLinearOperator | None = None,
     *,
     block_size: int,
     solver: AbstractSolverStrategy | None = None,
@@ -315,8 +314,6 @@ def meanfield_rts_smoother(
             `gaussx.FilterState` whose covariances are block-diagonal; the
             off-block entries are discarded.
         transition: Linear dynamics F_t, as in the filter.
-        process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
-            it will be removed in gaussx 0.7.0.
         block_size: State block length d; D_x must be divisible by it.
         solver: Solver strategy for the per-block Σ_x,t+1|t. Sequential
             mode only.
@@ -358,7 +355,6 @@ def meanfield_rts_smoother(
         )
     num_blocks = state_size // block_size
 
-    _warn_unused_process_noise("meanfield_rts_smoother", process_noise)
     # F_t⁽ℓ⁾
     transition_blocks = _split_diag_blocks(
         transition, num_blocks, block_size, block_size

@@ -91,7 +91,7 @@ whether it exists:
 | A Newton / fixed-point iteration you need gradients through | `optimistix.root_find` / `fixed_point` |
 | `jnp.einsum`, `.reshape`, `.T` on arrays, `x[:, None]`, `axis=` reductions | `gaussx._einx` (`einsum`, `rearrange`, `reduce`, `repeat`) and `einx.add` / `einx.multiply` / … |
 | Random PD test matrices, dense references, moment checks (tests) | `gaussx._testing` (`random_pd_operator`, `random_kronecker_pd`, `dense_solve`, `assert_sample_moments`, …) |
-| A deprecation warning | `gaussx._deprecation` (`warn_deprecated`, `renamed_kwargs`, the `RENAMED` table) |
+| A deprecation warning | `gaussx._deprecation.warn_deprecated` |
 | Default iterative tolerances | `gaussx._strategies._tolerances` (`resolve_tolerance`) |
 | Routing a `solver=` argument | `gaussx._strategies._dispatch` (`dispatch_solve`, `dispatch_logdet`) |
 | Registering a new operator with lineax | `gaussx._operators._utils.register_lineax_structure_functions` |

@@ -113,25 +113,3 @@ def test_conditional_variance_identity_su(getkey):
     expected = schur_diag + jnp.sum(A_X**2, axis=1)
 
     assert tree_allclose(result, expected, rtol=1e-5)
-
-
-def test_conditional_variance_legacy_3arg_call_emits_deprecation(getkey):
-    """Old 3-positional ``conditional_variance(base_diag, A_X, S_u)`` keeps
-    working with a DeprecationWarning, returning
-    ``base_diag + diag(A_X S_u A_X^T)``.
-    """
-    import pytest
-
-    from gaussx import conditional_variance as cv
-
-    N, M = 6, 3
-    base_diag = jnp.abs(jr.normal(getkey(), (N,))) + 1.0
-    A_X = jr.normal(getkey(), (N, M)) * 0.3
-    S_mat = random_pd_matrix(getkey(), M)
-    S_u = lx.MatrixLinearOperator(S_mat, lx.symmetric_tag)
-
-    with pytest.warns(DeprecationWarning, match="conditional_variance"):
-        result = cv(base_diag, A_X, S_u)
-
-    expected = jnp.clip(base_diag, 0.0) + jnp.diag(A_X @ S_mat @ A_X.T)
-    assert tree_allclose(result, expected, rtol=1e-5)

@@ -84,7 +84,6 @@ _PAGE_EXCEPTIONS = {
     # Defined next to SqrtOperator in _primitives (which imports _operators),
     # documented next to KroneckerSumSqrt and SumOfKroneckers (gh-297).
     "SumOfKroneckersSqrt": "operators.md",
-    "SumKroneckerSqrt": "operators.md",
 }
 
 

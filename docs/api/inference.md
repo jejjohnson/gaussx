@@ -42,9 +42,9 @@ Two conventions for the second natural parameter coexist. Both share the first o
 
 ## Precision-form Laplace (INLA)
 
-`laplace_mode` is deprecated and will be removed in gaussx 0.7.0: the loop now lives in `argminax.solve.laplace_mode`, which iterates gaussx's single step (below) and returns the same fields. The algebra on this page describes both, and the examples call argminax.
+The Laplace loop lives in `argminax.solve.laplace_mode`, which iterates gaussx's single step (below) and returns its `LaplaceResult`; gaussx's own `laplace_mode` was removed after its deprecation. The algebra on this page describes that loop, and the examples call argminax.
 
-`laplace_mode` is the inner loop of INLA: the Gaussian approximation $\mathcal{N}(\hat{\mathbf{x}}, \boldsymbol{\Lambda}_{x \mid y}^{-1})$ of a latent Gaussian model at fixed hyperparameters $\boldsymbol{\theta}$, computed entirely in precision form. With the linear predictor $\boldsymbol{\eta} = \mathbf{A} \mathbf{x} + \mathbf{o}$, $\mathbf{g} = \nabla_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta})$ and the site precision $\boldsymbol{\Lambda}_\text{site} = -\mathrm{diag}(\nabla^2_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta}))$ (floored at $10^{-6}$), each Newton step solves
+`argminax.solve.laplace_mode` is the inner loop of INLA: the Gaussian approximation $\mathcal{N}(\hat{\mathbf{x}}, \boldsymbol{\Lambda}_{x \mid y}^{-1})$ of a latent Gaussian model at fixed hyperparameters $\boldsymbol{\theta}$, computed entirely in precision form. With the linear predictor $\boldsymbol{\eta} = \mathbf{A} \mathbf{x} + \mathbf{o}$, $\mathbf{g} = \nabla_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta})$ and the site precision $\boldsymbol{\Lambda}_\text{site} = -\mathrm{diag}(\nabla^2_{\boldsymbol{\eta}} \log p(\mathbf{y} \mid \boldsymbol{\eta}))$ (floored at $10^{-6}$), each Newton step solves
 
 $$
 \boldsymbol{\Lambda}_{x \mid y} \mathbf{x}^{(j+1)} = \boldsymbol{\Lambda}_x \boldsymbol{\mu}_x + \mathbf{A}^\top (\mathbf{g} + \boldsymbol{\Lambda}_\text{site} \mathbf{A} \mathbf{x}^{(j)})
@@ -98,14 +98,14 @@ value, grad = jax.value_and_grad(log_marginal)(
 )  # exact: implicit diff + block Cholesky
 ```
 
-The likelihood holds the observations, so `laplace_mode(prior, likelihood)`
+The likelihood holds the observations, so `amx.solve.laplace_mode(prior, likelihood)`
 takes no separate `y`. For an odd number of nodes `rw2_structure(n)` returns
 `n + 1` rows (a decoupled padding node): build the field on `n + 1` nodes with
 `null_space` zero on the padding row, observe the first `n` through a row
 selection `SparseOperator.from_coo(np.arange(n), np.arange(n), jnp.ones(n), (n, n + 1))`
 (which keeps $\boldsymbol{\Lambda}_{x \mid y}$ banded), and drop `mode[n]`.
 
-One Newton step is public, so a caller can run its own loop around it (`argminax.solve.laplace_mode` does): `laplace_model` builds the `LaplaceModel`, whose `newton` is the Newton target and `hessian` the site information and $\boldsymbol{\Lambda}_{x \mid y}$, and `laplace_result` refactorises at the mode and assembles the log-marginal, so the result is the one `laplace_mode` returns.
+One Newton step is public, so a caller can run its own loop around it (`argminax.solve.laplace_mode` does): `laplace_model` builds the `LaplaceModel`, whose `newton` is the Newton target and `hessian` the site information and $\boldsymbol{\Lambda}_{x \mid y}$, and `laplace_result` refactorises at the mode and assembles the log-marginal, so the result is the one `argminax.solve.laplace_mode` returns.
 
 ::: gaussx
     options:
@@ -162,9 +162,9 @@ mean_vb = gx.vb_mean_correction(
 )
 ```
 
-As with `laplace_mode`, the likelihood holds the observations, so there is no
-separate `y` argument; pass the same `projector` and `offset` as to
-`laplace_mode`.
+As with `argminax.solve.laplace_mode`, the likelihood holds the observations,
+so there is no separate `y` argument; pass the same `projector` and `offset` as
+to the fit.
 
 ::: gaussx
     options:
@@ -290,13 +290,3 @@ RTPP / RTPS inflation.
       show_root_heading: false
       show_root_toc_entry: false
       members: [euclidean_distance, haversine_distance]
-
-## Deprecated aliases
-
-These names still work but warn on use and will be removed in gaussx 0.7.0 (see the [deprecation policy](index.md#deprecation-policy)). Use `argminax.solve.laplace_mode` instead of `laplace_mode`.
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [laplace_mode]

@@ -52,7 +52,6 @@ from gaussx._ssm._nonlinear_update import (
     nonlinear_kalman_predict,
     nonlinear_kalman_update,
 )
-from gaussx._ssm._utils import _warn_unused_process_noise
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -478,7 +477,6 @@ def nonlinear_kalman_filter(
 def nonlinear_rts_smoother(
     filter_state: FilterState,
     dynamics: Callable[[Float[Array, " N"]], Float[Array, " N"]],
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator | None = None,
     *,
     integrator: AbstractIntegrator | None = None,
     solver: AbstractSolverStrategy | None = None,
@@ -506,9 +504,6 @@ def nonlinear_rts_smoother(
         filter_state: Output of `gaussx.nonlinear_kalman_filter`. Pass the
             same ``dynamics`` and ``integrator`` used to produce it.
         dynamics: Deterministic dynamics f.
-        process_noise: Deprecated and ignored: the predicted covariances in
-            ``filter_state`` already include Σ_η. Passing it warns; it will
-            be removed in gaussx 0.7.0.
         integrator: Moment-matching rule. Defaults to
             ``UnscentedIntegrator(alpha=1.0)``; use the one the filter used.
         solver: Accepted for API symmetry with `gaussx.rts_smoother` and
@@ -546,8 +541,6 @@ def nonlinear_rts_smoother(
         >>> bool(jnp.allclose(means[-1], state.filtered_means[-1]))
         True
     """
-    _warn_unused_process_noise("nonlinear_rts_smoother", process_noise)
-
     if integrator is None:
         integrator = UnscentedIntegrator(alpha=1.0)
 

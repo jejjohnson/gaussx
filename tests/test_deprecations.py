@@ -17,17 +17,16 @@ import pytest
 from packaging.version import Version
 
 import gaussx
-from gaussx import _deprecation
 
 
 SRC = Path(gaussx.__file__).resolve().parent
 _VERSION = r"gaussx (\d+\.\d+\.\d+)"
 
 
-def _deprecation_calls() -> list[tuple[str, str]]:
+def _deprecation_calls(src: Path = SRC) -> list[tuple[str, str]]:
     """``(location, message source)`` of every ``warn_deprecated`` call."""
     calls = []
-    for path in sorted(SRC.rglob("*.py")):
+    for path in sorted(src.rglob("*.py")):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (
@@ -36,21 +35,31 @@ def _deprecation_calls() -> list[tuple[str, str]]:
                 and node.func.id == "warn_deprecated"
                 and node.args
             ):
-                where = f"{path.relative_to(SRC.parent)}:{node.lineno}"
+                where = f"{path.relative_to(src.parent)}:{node.lineno}"
                 calls.append((where, ast.unparse(node.args[0])))
     return calls
 
 
 def _promised_versions(message: str) -> set[str]:
-    message = message.replace("{RENAMED_REMOVAL}", _deprecation.RENAMED_REMOVAL)
     return set(re.findall(_VERSION, message))
 
 
 _CALLS = _deprecation_calls()
 
 
-def test_deprecation_calls_are_found() -> None:
-    assert len(_CALLS) > 20, "the AST scan found too few warn_deprecated calls"
+def test_deprecation_calls_are_found(tmp_path: Path) -> None:
+    # The 0.7.0 release removed every deprecation it was due to, which left
+    # none in the package, so the package-wide count (once > 20) proves
+    # nothing; the scan is checked on a stand-in module instead.
+    package = tmp_path / "package"
+    package.mkdir()
+    (package / "module.py").write_text(
+        'warn_deprecated("old() is deprecated and will be removed in gaussx '
+        '9.9.0; use new().")\n'
+    )
+    calls = _deprecation_calls(package)
+    assert [where for where, _ in calls] == ["package/module.py:1"]
+    assert _promised_versions(calls[0][1]) == {"9.9.0"}
 
 
 @pytest.mark.parametrize(("where", "message"), _CALLS, ids=[w for w, _ in _CALLS])

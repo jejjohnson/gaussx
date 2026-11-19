@@ -12,9 +12,7 @@ from gaussx._expfam._gaussian import (
     kl_divergence,
     log_partition,
     sufficient_stats,
-    to_expectation,
     to_mean_cov,
-    to_natural,
 )
 from gaussx._expfam._natural import (
     expectation_to_mean_chol,
@@ -42,7 +40,5 @@ __all__ = [
     "natural_to_mean_chol",
     "natural_to_mean_cov",
     "sufficient_stats",
-    "to_expectation",
     "to_mean_cov",
-    "to_natural",
 ]

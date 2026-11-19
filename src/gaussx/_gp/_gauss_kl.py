@@ -14,7 +14,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange, reduce
 from gaussx._gp._base_conditional import _as_psd_operator
 from gaussx._linalg._linalg import solve_columns
@@ -22,15 +21,12 @@ from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._diag import diag
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._primitives._solve import solve
-from gaussx._strategies._base import AbstractSolverStrategy
 
 
 def gauss_kl(
     q_mu: Float[Array, "M R"],
     q_sqrt: Float[Array, "R M M"] | Float[Array, "M R"],
     K: Float[Array, "M M"] | lx.AbstractLinearOperator | None = None,
-    *,
-    solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
     """KL(first ‖ second): KL[q(f_ℐ) ‖ p(f_ℐ)] with p(f_ℐ) = 𝒩(0, K_ℐℐ).
 
@@ -68,9 +64,6 @@ def gauss_kl(
         K: Prior covariance K_ℐℐ, as a dense array or a PSD operator (a
             `Kronecker` / `BlockDiag` operator is factorised per factor).
             ``None`` uses the whitened prior 𝒩(0, I).
-        solver: Deprecated and ignored (the Cholesky factorisation takes
-            no solver); passing one warns. Removed in gaussx
-            0.7.0.
 
     Returns:
         The scalar KL[q(f_ℐ) ‖ p(f_ℐ)], summed over the R outputs.
@@ -113,11 +106,6 @@ def gauss_kl(
         `gaussian_kl`: KL between two multivariate normals with lineax
         covariance operators.
     """
-    if solver is not None:
-        warn_deprecated(
-            "gauss_kl(solver=...) is ignored and deprecated; it will be "
-            "removed in gaussx 0.7.0."
-        )
     inducing_size = q_mu.shape[0]
     num_outputs = q_mu.shape[1]
 

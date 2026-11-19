@@ -61,15 +61,15 @@ skill = "structured-gaussian-linalg"
 covers = "the Kronecker family, block, low-rank, Toeplitz and circulant, masked and interpolated operators"
 names = [
     "as_diagonalized", "BlockDiag", "BlockTriDiag", "CapacitanceSolver", "circulant",
-    "circulant_from_symbol", "create_grid", "cubic_interpolation_weights",
+    "circulant_from_symbol", "create_grid",
     "DiagonalizedOperator", "grid_coupling_indices", "grid_data",
     "InterpolatedOperator", "interpolation_operator", "is_eigen_reducible", "Kronecker",
     "kronecker_sum_sample", "KroneckerSum", "KroneckerSumSqrt",
-    "linear_interpolation_weights", "low_rank_plus_diag", "low_rank_plus_identity",
+    "low_rank_plus_diag", "low_rank_plus_identity",
     "LowerBlockTriDiag", "LowRankUpdate", "masked_obs_covariance", "MaskedOperator",
     "product_operator", "scaled_operator", "SpectralFunction",
-    "sum_of_kroneckers_sample", "sum_operator", "SumKronecker", "sumkronecker_sample",
-    "SumOfKroneckers", "svd_low_rank_plus_diag", "SVDLowRankUpdate", "Toeplitz",
+    "sum_of_kroneckers_sample", "sum_operator",
+    "SumOfKroneckers", "svd_low_rank_plus_diag", "Toeplitz",
     "toeplitz_sample", "ToeplitzCholesky", "UpperBlockTriDiag",
 ]
 
@@ -129,7 +129,7 @@ names = [
     "inv", "inv_quad_logdet", "logdet", "mixture_quantile",
     "mixture_quantile_gaussian_approx", "pseudo_logdet", "root_decomposition",
     "root_inv_decomposition", "RootDecomposition", "solve", "sqrt", "sqrt_inv_matmul",
-    "sqrt_matmul", "submatrix", "SumKroneckerSqrt", "SumOfKroneckersSqrt", "svd",
+    "sqrt_matmul", "submatrix", "SumOfKroneckersSqrt", "svd",
     "trace", "trace_and_diag",
 ]
 
@@ -264,8 +264,8 @@ names = [
     "expectation_to_mean_chol", "expectation_to_natural", "fisher_info",
     "GaussianExpFam", "kl_divergence", "log_partition", "mean_chol_to_expectation",
     "mean_chol_to_natural", "mean_cov_to_natural", "natural_to_expectation",
-    "natural_to_mean_chol", "natural_to_mean_cov", "sufficient_stats", "to_expectation",
-    "to_mean_cov", "to_natural",
+    "natural_to_mean_chol", "natural_to_mean_cov", "sufficient_stats",
+    "to_mean_cov",
 ]
 
 [[entries]]
@@ -304,7 +304,7 @@ unit = "gaussian-processes"
 skill = "gaussians-and-recipes"
 covers = "conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out"
 names = [
-    "base_conditional", "build_prediction_cache", "conditional_interpolate",
+    "build_prediction_cache", "conditional_interpolate",
     "kronecker_mll", "kronecker_posterior_predictive", "leave_one_out_cv", "LOOResult",
     "love_cache", "love_residual", "love_variance", "love_variance_error_bound",
     "LOVECache", "matheron_update", "oilmm_back_project", "oilmm_project",
@@ -385,7 +385,7 @@ names = [
     "blr_diag_update", "blr_full_update", "cavity_distribution",
     "damped_natural_update", "gauss_newton_operator", "gauss_newton_precision",
     "gaussian_expected_log_lik", "ggn_diagonal", "hutchinson_hessian_diag",
-    "laplace_mode", "laplace_model", "laplace_result", "LaplaceModel", "LaplaceResult",
+    "laplace_model", "laplace_result", "LaplaceModel", "LaplaceResult",
     "log_marginal_likelihood", "newton_update", "riemannian_psd_correction",
     "trace_correction", "vb_mean_correction",
 ]

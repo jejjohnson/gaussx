@@ -202,10 +202,3 @@ def product_operator(
     # A B, composed lazily
     composed = left @ right
     return _maybe_tag(composed, tags)
-
-
-# Pre-gh-315 names. Plain private aliases (``gaussx.SumOperator`` & co. warn
-# through the package ``__getattr__``); removed with the public aliases.
-SumOperator = sum_operator
-ScaledOperator = scaled_operator
-ProductOperator = product_operator

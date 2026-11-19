@@ -23,7 +23,6 @@ from gaussx._ssm._utils import (
     _materialise,
     _normalise_tv_inputs,
     _right_matmul_transpose,
-    _warn_unused_process_noise,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
@@ -542,7 +541,6 @@ def kalman_filter(
 def rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator | None = None,
     *,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
@@ -567,9 +565,6 @@ def rts_smoother(
         filter_state: Output of `kalman_filter`.
         transition: Linear dynamics F_t, as a matrix, a stack over time or
             an operator; the same one passed to the filter.
-        process_noise: Deprecated and ignored: the RTS recurrence never
-            reads it, since the filter's predicted covariances already
-            include Σ_η. Passing it warns; it will be removed in gaussx 0.7.0.
         solver: Solver strategy for Σ_x,t+1|t; ``None`` uses structural
             dispatch.
 
@@ -601,8 +596,6 @@ def rts_smoother(
         >>> bool(jnp.allclose(means[-1], state.filtered_means[-1]))
         True
     """
-    _warn_unused_process_noise("rts_smoother", process_noise)
-
     num_steps = filter_state.filtered_means.shape[0]
 
     # Materialise once outside the scan for the sandwich; matvec stays

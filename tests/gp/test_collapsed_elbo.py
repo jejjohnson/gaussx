@@ -139,31 +139,6 @@ def _small_problem():
     return jnp.sin(x), jnp.ones(12), k(x, z), k(z, z)
 
 
-def test_k_diag_keyword_is_deprecated():
-    y, K_xx_diag, K_xz, K_zz = _small_problem()
-    new = collapsed_elbo(y, K_xx_diag=K_xx_diag, K_xz=K_xz, K_zz=K_zz, noise_var=0.3)
-    with pytest.warns(DeprecationWarning, match="K_xx_diag"):
-        old = collapsed_elbo(y, K_diag=K_xx_diag, K_xz=K_xz, K_zz=K_zz, noise_var=0.3)
-    assert old == new
-    with pytest.raises(TypeError, match="both"):
-        collapsed_elbo(
-            y,
-            K_diag=K_xx_diag,
-            K_xx_diag=K_xx_diag,
-            K_xz=K_xz,
-            K_zz=K_zz,
-            noise_var=0.3,
-        )
-
-
-def test_solver_is_deprecated():
-    from gaussx import DenseSolver
-
-    y, K_xx_diag, K_xz, K_zz = _small_problem()
-    with pytest.warns(DeprecationWarning, match="solver"):
-        collapsed_elbo(y, K_xx_diag, K_xz, K_zz, 0.3, solver=DenseSolver())
-
-
 def test_operator_k_zz_matches_array():
     y, K_xx_diag, K_xz, K_zz = _small_problem()
     ref = collapsed_elbo(y, K_xx_diag, K_xz, K_zz, 0.3)

@@ -66,33 +66,6 @@ class TestSSMToNaturals:
         expected = -0.5 * Lambda
         assert jnp.allclose(theta_prec.as_matrix(), expected, atol=1e-6)
 
-    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
-    def test_rejects_mismatched_initial_covariance(self, getkey):
-        """Q[0] and P_0 must agree for a consistent joint prior."""
-        A, Q, mu_0, P_0 = _make_ssm(getkey, N=4, d=2)
-        bad_P_0 = P_0 + 0.5 * jnp.eye(P_0.shape[0])
-
-        # eqx.error_if raises EquinoxRuntimeError eagerly (gh-359).
-        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
-            ssm_to_naturals(A, Q, mu_0, bad_P_0)
-
-    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
-    @pytest.mark.parametrize("transform", ["jit", "vmap"])
-    def test_rejects_mismatched_initial_covariance_under_tracing(self, transform):
-        # gh-359: the check used to be skipped silently under tracing.
-        d = 2
-        P_0, mu_0 = jnp.eye(d), jnp.ones(d)
-        Q_bad = jnp.stack([3.0 * jnp.eye(d), 0.5 * jnp.eye(d)])
-        A = jnp.stack([0.9 * jnp.eye(d)])
-        args = (A, Q_bad, mu_0, P_0)
-        if transform == "jit":
-            f = jax.jit(ssm_to_naturals)
-        else:
-            args = tuple(x[None] for x in args)
-            f = jax.vmap(ssm_to_naturals)
-        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
-            jax.block_until_ready(f(*args))
-
     def test_single_step_precision_is_initial_precision(self):
         # gh-359: for N = 1 the last-block write overwrote P_0^{-1} with
         # Q[0]^{-1}; with consistent inputs the block is P_0^{-1}.
@@ -113,12 +86,10 @@ class TestNaturalsToSSM:
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
         theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(
-            theta_linear, theta_prec, initial_in_q=True
-        )
+        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
 
         assert tree_allclose(A_rec, A, rtol=1e-4)
-        assert tree_allclose(Q_rec, Q, rtol=1e-4)
+        assert tree_allclose(Q_rec, Q[1:], rtol=1e-4)
         assert tree_allclose(mu_0_rec, mu_0, rtol=1e-4)
         assert tree_allclose(P_0_rec, P_0, rtol=1e-4)
 
@@ -132,12 +103,11 @@ class TestNaturalsToSSM:
         P_0 = Q[0]
 
         theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, _P_0_rec = naturals_to_ssm(
-            theta_linear, theta_prec, initial_in_q=True
-        )
+        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
 
         assert tree_allclose(A_rec, A, rtol=1e-3)
-        assert tree_allclose(Q_rec, Q, rtol=1e-3)
+        assert tree_allclose(Q_rec, Q[1:], rtol=1e-3)
+        assert tree_allclose(P_0_rec, P_0, rtol=1e-3)
         assert tree_allclose(mu_0_rec, mu_0, rtol=1e-3)
 
     def test_shapes(self, getkey):
@@ -146,43 +116,12 @@ class TestNaturalsToSSM:
         A, Q, mu_0, P_0 = _make_ssm(getkey, N, d)
 
         theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
-        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(
-            theta_linear, theta_prec, initial_in_q=True
-        )
+        A_rec, Q_rec, mu_0_rec, P_0_rec = naturals_to_ssm(theta_linear, theta_prec)
 
         assert A_rec.shape == (N - 1, d, d)
-        assert Q_rec.shape == (N, d, d)
+        assert Q_rec.shape == (N - 1, d, d)
         assert mu_0_rec.shape == (d,)
         assert P_0_rec.shape == (d, d)
-
-    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
-    def test_rejects_mismatched_single_step_under_jit(self):
-        # N = 1 leaves Q otherwise unused; the check must stay live.
-        d = 2
-        f = jax.jit(ssm_to_naturals)
-        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
-            jax.block_until_ready(
-                f(jnp.zeros((0, d, d)), 3.0 * jnp.eye(d)[None], jnp.ones(d), jnp.eye(d))
-            )
-
-    @pytest.mark.filterwarnings("ignore:ssm_to_naturals with Q of shape")
-    @pytest.mark.parametrize(
-        "project",
-        [
-            lambda out: out[0],
-            lambda out: out[1].diagonal,
-            lambda out: out[1].sub_diagonal,
-        ],
-        ids=["theta_linear", "diagonal", "sub_diagonal"],
-    )
-    def test_rejects_mismatch_under_jit_for_every_output(self, project):
-        # Whichever single output a jitted caller keeps, the check stays live.
-        d = 2
-        A = jnp.stack([0.9 * jnp.eye(d)])
-        Q_bad = jnp.stack([3.0 * jnp.eye(d), 0.5 * jnp.eye(d)])
-        f = jax.jit(lambda *args: project(ssm_to_naturals(*args)))
-        with pytest.raises(Exception, match=r"Q\[0\] must match P_0"):
-            jax.block_until_ready(f(A, Q_bad, jnp.ones(d), jnp.eye(d)))
 
 
 # gh-403: N block factorisations, not 2N - 1; P_0 factorised once.
@@ -214,11 +153,11 @@ def test_naturals_to_ssm_factorisation_count():
     A, Q, mu_0, P_0 = _pinned_ssm()
     theta_linear, theta_prec = ssm_to_naturals(A, Q[1:], mu_0, P_0)
     found = _lapack_factorisations(
-        lambda th1, th2: naturals_to_ssm(th1, th2, initial_in_q=False),
+        naturals_to_ssm,
         theta_linear,
         theta_prec,
     )
-    # One d x d factorisation in the scan body (run N - 1 times) plus Q[0].
+    # One d x d factorisation in the scan body (run N - 1 times) plus P_0.
     assert found == [("dpotrf", "f64[2,2]"), ("dpotrf", "f64[2,2]")]
 
 
