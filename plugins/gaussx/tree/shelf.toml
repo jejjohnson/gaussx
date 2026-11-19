@@ -248,9 +248,9 @@ title = "Distribution objects"
 role = "model"
 unit = "gaussians"
 skill = "gaussians-and-recipes"
-covers = "`MultivariateNormal`, `LGSSM`, `MarkovGaussian` (numpyro extra), the GMRF fields (no extra) and `GMRFDistribution`"
+covers = "`MultivariateNormal`, `LGSSM`, `MarkovGaussian` (numpyro extra), and the GMRF fields (no extra)"
 names = [
-    "AbstractMultivariateNormal", "BYM2GMRF", "ConstrainedGMRF", "GMRFDistribution",
+    "AbstractMultivariateNormal", "BYM2GMRF", "ConstrainedGMRF",
     "GaussianMRF", "IntrinsicGMRF", "LGSSM", "LGSSMFactory", "MarkovGaussian", "MaskedLGSSM",
     "MultivariateNormal", "MultivariateNormalPrecision",
 ]

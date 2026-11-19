@@ -54,7 +54,7 @@ probes, pass `solver=KeyedSolver(CGSolver(), key)` with a fresh key per step
 
 An odd-length `rw2_structure(n)` has one decoupled padding node: build the
 `IntrinsicGMRF` on all `n + 1` nodes with `null_space` zero on it, and drop
-it from draws. All four are equinox modules and need no NumPyro: gaussx's Laplace and VB code and `argminax.solve.laplace_mode` take them as linear-algebra objects. `GMRFDistribution(field)` wraps any of them for `numpyro.sample` and needs the `numpyro` extra.
+it from draws. All four are equinox modules and need no NumPyro: gaussx's Laplace and VB code and `argminax.solve.laplace_mode` take them as linear-algebra objects. For `numpyro.sample`, wrap one in [`pyrox_gauss.GMRFDistribution`](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss).
 
 **BYM2.** Use `BYM2GMRF(R_star, tau, phi, null_space)` for the BYM2 pair $(\mathbf{b}, \mathbf{u}^\star)$, not an `IntrinsicGMRF` on `bym2_precision`. The joint precision $\boldsymbol{\Lambda}(\tau, \phi)$ has the null vector $(\sqrt{\phi / \tau} \mathbf{1}, \mathbf{1})$, which depends on $\boldsymbol{\theta} = (\tau, \phi)$. So the bracket `IntrinsicGMRF` drops by default is not constant (it holds $\frac{n}{2} \log \frac{\tau}{1 - \phi}$), and projecting draws along `null_space` does not remove the singular direction. `BYM2GMRF` uses the exact density on $\{\mathbf{V}^\top \mathbf{u}^\star = \mathbf{0}\}$, $-\frac{1}{2} \mathbf{r}^\top \boldsymbol{\Lambda} \mathbf{r} + \frac{n}{2} \log \frac{\tau}{1 - \phi}$ with $\mathbf{r} = (\mathbf{b}, \mathbf{u}^\star) - \boldsymbol{\mu}$ (plus the constant $\frac{1}{2} \log \det_+ \mathbf{R}^\star - \frac{2n - D_c}{2} \log 2\pi$ with `include_normalizer`), and draws $\mathbf{u}^\star$ from the ICAR on $\mathbf{R}^\star$, then $\mathbf{b}$ from its definition. It is an `IntrinsicGMRF`, so `argminax.solve.laplace_mode` takes it as a prior, and its log-marginal is then correct in $(\tau, \phi)$:
 
@@ -118,7 +118,7 @@ lp = icar.log_prob(u)  # ((D_x − D_c) / 2) log τ − (τ / 2) uᵀ R u, with 
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF, BYM2GMRF, GMRFDistribution]
+      members: [GaussianMRF, IntrinsicGMRF, ConstrainedGMRF, BYM2GMRF]
 
 ## Sequential distributions
 

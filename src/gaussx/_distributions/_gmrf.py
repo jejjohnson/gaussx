@@ -523,7 +523,7 @@ class GaussianMRF(eqx.Module):
 
     ``loc`` is a single field (``batch_shape == ()``); ``log_prob`` takes any
     leading sample axes. The field is an equinox module, not a NumPyro
-    distribution: wrap it in ``GMRFDistribution`` for ``numpyro.sample``.
+    distribution: wrap it in ``pyrox_gauss.GMRFDistribution`` for ``numpyro.sample``.
 
     Args:
         loc: Mean μ of the D_x nodes.

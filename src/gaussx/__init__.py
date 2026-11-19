@@ -819,9 +819,6 @@ __all__ = [
 try:
     # Registers numpyro kl_divergence for the two MVN classes (gh-313).
     from gaussx._distributions import _numpyro_kl  # noqa: F401
-    from gaussx._distributions._gmrf_distribution import (
-        GMRFDistribution as GMRFDistribution,
-    )
     from gaussx._distributions._lgssm import (
         LGSSM as LGSSM,
         LGSSMFactory as LGSSMFactory,
@@ -841,7 +838,6 @@ try:
     __all__ += [
         "LGSSM",
         "AbstractMultivariateNormal",
-        "GMRFDistribution",
         "LGSSMFactory",
         "MarkovGaussian",
         "MaskedLGSSM",
@@ -862,7 +858,6 @@ _NUMPYRO_NAMES = frozenset(
         "LGSSM",
         "MaskedLGSSM",
         "LGSSMFactory",
-        "GMRFDistribution",
     }
 )
 
