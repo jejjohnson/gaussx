@@ -102,7 +102,6 @@ def test_inside_layer_matches_architecture(layer, name):
 
 
 def test_quickstart_runs():
-    pytest.importorskip("numpyro")  # MultivariateNormal needs numpyro.
     block = re.search(r"```python\n(.*?)```", _section("quickstart"), re.DOTALL)
     assert block is not None
     exec(compile(block.group(1), "README.md:quickstart", "exec"), {})

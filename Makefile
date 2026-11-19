@@ -150,13 +150,8 @@ NO_X64_TESTS := tests/primitives \
 	tests/quadrature/test_callable_likelihood.py \
 	tests/distributions/test_conditional.py \
 	tests/distributions/test_information.py \
-	tests/distributions/test_mvn.py \
-	tests/distributions/test_mvn_prec.py \
-	tests/distributions/test_mvn_base.py \
 	tests/distributions/test_gaussian.py \
 	tests/distributions/test_sample_mvn.py \
-	tests/distributions/test_markov_gaussian.py \
-	tests/distributions/test_lgssm.py \
 	tests/distributions/test_sample_dtype.py \
 	tests/inference/test_ensemble_da.py \
 	tests/inference/test_ensemble_smoother.py \

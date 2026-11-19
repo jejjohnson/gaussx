@@ -654,25 +654,15 @@ def test_pytree_round_trip_under_jit(name):
 
 
 # ---------------------------------------------------------------------------
-# MultivariateNormalPrecision through the sparse factor
+# A sparse field draws through its sparse factor
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.slow
-def test_mvn_precision_samples_through_sparse_factor():
-    # Bound by the estimator's own sampling distribution (7 sigma).
-    op, _, _, dense = proper_precision("sparse", 4, 0.5)
-    n = dense.shape[0]
-    d = gx.MultivariateNormalPrecision(jnp.ones(n), op)
-    draws = d.sample(jr.key(20), (4000,))
-    assert_sample_moments(draws, jnp.ones(n), jnp.linalg.inv(dense))
-
-
-@pytest.mark.slow
-def test_mvn_precision_sparse_sample_is_the_factor_draw():
+def test_sparse_sample_is_the_factor_draw():
     op, _, _, _ = proper_precision("sparse", 3, 0.5)
     n = op.in_size()
-    d = gx.MultivariateNormalPrecision(jnp.zeros(n), op)
+    d = gx.GaussianMRF(jnp.zeros(n), op)
     z = jr.normal(jr.key(21), (n,))
     expected = gx.sparse_cholesky(op).solve_lower_transpose(z)
     np.testing.assert_allclose(d.sample(jr.key(21)), expected, rtol=1e-12)

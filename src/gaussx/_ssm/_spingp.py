@@ -301,7 +301,7 @@ def spingp_posterior(
         observations: Observations y_1:T, one row per step.
         prior_mean: Prior mean μ_x of x_1:T, stacked to length T D_x (for
             example the ``mean`` half of
-            `gaussx.MarkovGaussian.to_precision_form`); ``None`` means zero.
+            `pyrox_gauss.MarkovGaussian.to_precision_form`); ``None`` means zero.
         solver: Solver strategy for the solve against Λ_x|y; ``None`` uses
             structural dispatch.
 

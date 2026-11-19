@@ -29,13 +29,13 @@ class KeyedSolver(AbstractSolverStrategy):
     smooth, fixed function of the parameters), but averaging such estimates
     reduces no variance, and MCMC then targets a fixed pseudo-likelihood.
 
-    Distribution methods such as ``MultivariateNormal.log_prob`` cannot take
-    a key under the numpyro contract. Wrap the strategy instead and pass a
-    fresh key per step. The key is a PyTree leaf, so it can change under
-    ``jax.jit`` without recompiling:
+    Code that cannot pass a key through, such as a distribution's
+    ``log_prob`` (``pyrox_gauss.MultivariateNormal``), takes a wrapped
+    strategy instead, with a fresh key per step. The key is a PyTree leaf, so
+    it can change under ``jax.jit`` without recompiling:
 
         solver = gaussx.KeyedSolver(gaussx.CGSolver(), key)
-        mvn = gaussx.MultivariateNormal(loc, cov, solver=solver)
+        mvn = pyrox_gauss.MultivariateNormal(loc, cov, solver=solver)
 
     The functional API (`gaussx.gaussian_log_prob`,
     `gaussx.gaussian_entropy`, `gaussx.kl_standard_normal`) takes

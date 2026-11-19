@@ -62,12 +62,7 @@ def _module_names() -> list[str]:
 @pytest.mark.filterwarnings("ignore:gaussx.linear_interpolation_weights is deprecated")
 @pytest.mark.parametrize("module_name", _module_names())
 def test_docstring_examples(module_name):
-    try:
-        module = importlib.import_module(module_name)
-    except ModuleNotFoundError as err:
-        if err.name and err.name.split(".")[0] == "numpyro":
-            pytest.skip("numpyro is not installed")
-        raise
+    module = importlib.import_module(module_name)
     tests = [
         test
         for test in doctest.DocTestFinder().find(module, module_name)

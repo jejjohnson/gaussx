@@ -22,7 +22,7 @@ flowchart TB
 
     subgraph L2["Layer 2 · Distributions and sugar"]
         direction LR
-        DIST["MultivariateNormal<br/>MultivariateNormalPrecision"]
+        DIST["GaussianMRF · IntrinsicGMRF<br/>ConstrainedGMRF · BYM2GMRF"]
         SUGAR["log_prob · entropy · KL<br/>conditional · Joseph · project"]
         EF["Exponential family<br/><small>natural ↔ expectation · Fisher</small>"]
     end
@@ -64,7 +64,7 @@ flowchart TB
 | 0 | **Primitives** | Pure functions with structural dispatch | [`solve`, `logdet`, `cholesky`, …](api/primitives.md) |
 | 1 | **Operators** | Structured matrices + tags | [`Kronecker`, `BlockDiag`, …](api/operators.md) |
 | 1.5 | **Strategies** | *How* a solve/logdet is computed | [`DenseSolver`, `CGSolver`, …](api/solvers.md) |
-| 2 | **Distributions** | Gaussians over operators, sugar ops, exp-family | [`MultivariateNormal`, …](api/distributions.md) |
+| 2 | **Distributions** | Gaussians over operators, sugar ops, exp-family | [`gaussian_log_prob`, `GaussianMRF`, …](api/distributions.md) |
 | 3 | **Recipes** | Domain sequences wiring layers 0–2 | [GP](api/gp.md) · [SSM](api/ssm.md) · [quadrature](api/quadrature.md) · [inference](api/inference.md) |
 
 ---
@@ -349,9 +349,9 @@ packages that build them**.
 
 ```mermaid
 flowchart LR
-    subgraph DISTS["Distributions (NumPyro-compatible)"]
-        MVN["MultivariateNormal<br/><small>carries Σ as an operator</small>"]
-        MVNP["MultivariateNormalPrecision<br/><small>carries Λ = Σ⁻¹ directly</small>"]
+    subgraph DISTS["Gaussian Markov random fields"]
+        GMRF["GaussianMRF · ConstrainedGMRF<br/><small>carry Λ as an operator</small>"]
+        IGMRF["IntrinsicGMRF · BYM2GMRF<br/><small>improper, τ R with a null space</small>"]
     end
 
     subgraph OPSUGAR["Sugar operations"]
@@ -366,23 +366,16 @@ flowchart LR
         FISH["log_partition · fisher_info<br/>sufficient_stats · kl_divergence"]
     end
 
-    MVN --> LP
-    MVNP --> LP
+    GMRF --> P0
+    IGMRF --> P0
     LP --> P0["Layer 0: solve · logdet · cholesky"]
     KL --> P0
     COND --> P0
     NAT --> CONV --> FISH --> P0
 ```
 
-- **`MultivariateNormal(loc, cov_operator, solver=...)`** takes *any* covariance
-  operator and *any* solver strategy. The distribution owns the math; the
-  strategy owns the numerics.
-- **`MultivariateNormalPrecision`** carries $\boldsymbol{\Lambda} = \boldsymbol{\Sigma}^{-1}$ directly ---
-  the natural home for natural-parameter guides, where materializing $\boldsymbol{\Sigma}$
-  would be wasted work.
-- Both require `numpyro`, which is an **optional** dependency. The rest of
-  gaussx imports fine without it (see the guarded import at the bottom of
-  `src/gaussx/__init__.py`).
+- **The GMRF fields** (`GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF`, `BYM2GMRF`) carry a structured precision $\boldsymbol{\Lambda}$ and take *any* solver strategy; they are equinox modules, and their `log_prob`, `sample` and marginal variances dispatch on the structure of $\boldsymbol{\Lambda}$.
+- **The NumPyro distribution classes** (`MultivariateNormal`, `MultivariateNormalPrecision`, `MarkovGaussian`, the `LGSSM` family) live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss), built on the sugar operations below. gaussx imports no NumPyro.
 - **Sugar ops** evaluate $\log\mathcal{N}(\mathbf{x}; \boldsymbol{\mu}, \boldsymbol{\Sigma})$, entropy,
   quadratic forms, KLs, conditioning, and the numerically stable Joseph-form
   covariance update --- all through structured `solve` + `logdet`.
@@ -447,7 +440,7 @@ Two API constraints worth knowing up front:
 - `kronecker_posterior_predictive(...)` needs exact test prior diagonals via
   `K_test_diag_factors=` for predictive variances.
 - `ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape
-  `(N-1, d, d)` and `P_0` separately, as `MarkovGaussian` does. The older
+  `(N-1, d, d)` and `P_0` separately, as `pyrox_gauss.MarkovGaussian` does. The older
   stacked layout (`Q[0] == P_0`) is deprecated until 0.5.0; with it, an
   inconsistent initial covariance raises an `EquinoxRuntimeError` (via
   `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
@@ -487,8 +480,8 @@ src/gaussx/
 ├── _preconditioners/       # Layer 1.5 — Jacobi, Nyström, PartialCholesky,
 │                           #   Operator (bring-your-own M⁻¹)
 │
-├── _distributions/         # Layer 2 — MultivariateNormal(+Precision),
-│                           #   log-prob/entropy/KL, conditional, Joseph, project
+├── _distributions/         # Layer 2 — log-prob/entropy/KL, conditional,
+│                           #   Joseph, project, sampling, GMRF fields
 ├── _expfam/                # Layer 2 — natural ↔ expectation, Fisher, partition
 │
 ├── _gp/                    # Layer 3 — conditioning, ELBOs, whitening, LOVE,
@@ -538,7 +531,6 @@ edges explicit, so a new one has to be added deliberately.
 | [`matfree`](https://github.com/pnkraemer/matfree) | Lanczos, SLQ, Hutchinson | Yes |
 | [`jaxtyping`](https://github.com/patrick-kidger/jaxtyping) | Array shape annotations | Yes |
 | [`einx`](https://github.com/fferflo/einx) | Tensor reshaping/contraction | Yes |
-| [`numpyro`](https://github.com/pyro-ppl/numpyro) | `MultivariateNormal` distributions | Optional (`gaussx[numpyro]`) |
 
 ---
 
@@ -560,7 +552,7 @@ flowchart TB
 
     subgraph PROB["Probabilistic modelling"]
         KL["kernellib<br/><small>kernels, kernel operators, kernel methods</small>"]
-        PYROX["pyrox-gp<br/><small>GP models, kernels, guides on NumPyro</small>"]
+        PYROX["pyrox-gp · pyrox-gauss<br/><small>GP models, guides, NumPyro distributions</small>"]
         FILTERAX["filterax<br/><small>ensemble filtering</small>"]
         OPTAXB["optax_bayes<br/><small>natural-gradient optimizers</small>"]
     end
@@ -598,10 +590,12 @@ is the modelling shell gaussx deliberately refuses to be: kernels with
 hyperparameter priors, NumPyro sample sites, guides, likelihoods, sparse and
 Markov GP models. It reaches into gaussx for more than forty public symbols ---
 `Kronecker`, `BlockDiag`, the solver strategies,
-`MultivariateNormal(Precision)`, `base_conditional`,
+`base_conditional`,
 `variational_elbo_gaussian`, `whitened_svgp_predict`, `kalman_filter`,
 `rts_smoother`, `ep_tilted_moments`, the OILMM projections, and the
 natural-parameter conversions.
+
+**[pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss)** holds the NumPyro distribution classes that used to live in gaussx (`MultivariateNormal`, `MultivariateNormalPrecision`, `MarkovGaussian`, `LGSSM`, `MaskedLGSSM`, `LGSSMFactory`) and the `GMRFDistribution` wrapper for the GMRF fields; it builds them on gaussx's Gaussian functions and operators, so gaussx itself never imports NumPyro.
 
 **[kernellib](https://github.com/jejjohnson/kernellib)** owns everything with a
 kernel in it: kernel functions and objects, the kernel operators

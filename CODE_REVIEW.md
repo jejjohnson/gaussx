@@ -150,7 +150,7 @@ what they cannot see.
   `NO_X64_TESTS` (Makefile; `tests/operators`, `tests/primitives` and
   `tests/linalg` are listed whole) when it should run in the float32 lane.
 - Tier markers are right: unmarked under ~1 s with a warm compilation
-  cache, `slow` above ~1.5 s, `integration` for end-to-end numpyro fits.
+  cache, `slow` above ~1.5 s, `integration` for end-to-end workflows and optional backends.
 - `jit` / `grad` / `vmap` are exercised for code on the gradient path.
 
 ### 8. Modern Python (≥ 3.12)
@@ -164,7 +164,7 @@ what they cannot see.
 ### 9. Dependencies and security
 
 - No new runtime dependency without discussion; optional ones go behind an
-  extra and a lazy import, like numpyro. Runtime pins are `>=` floors only,
+  extra and a lazy import. Runtime pins are `>=` floors only,
   and `uv.lock` is updated with them.
 - No secrets, no network access at import or in fast tests, no
   `subprocess(shell=True)` in scripts.

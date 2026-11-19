@@ -127,7 +127,7 @@ That is the whole idea.
 | 1 | **Extend, don't replace** | We build on lineax's `AbstractLinearOperator` and its solvers. Rewriting excellent code to put your own name on it is vanity, not engineering. |
 | 2 | **Structure drives dispatch** | Operators carry structural tags (PSD, symmetric, Kronecker, low-rank, ...). Primitives read the type and the tags and pick the fast path. Plain `isinstance` checks. No metaclasses, no registry, no mystery. |
 | 3 | **Math-first layers** | `solve(A, b)`, `logdet(A)`, `cholesky(A)`. You should be able to read the source with the paper open and see the same equation. |
-| 4 | **One distribution, many strategies** | `MultivariateNormal` takes *any* covariance operator and *any* solver strategy. The distribution owns the math; the strategy owns the numerics; neither is allowed to meddle. |
+| 4 | **One distribution, many strategies** | `gaussian_log_prob` and `GaussianMRF` take *any* covariance or precision operator and *any* solver strategy. The distribution owns the math; the strategy owns the numerics; neither is allowed to meddle. |
 | 5 | **Readable tensor code** | Every reshape and contraction goes through [einx](https://github.com/fferflo/einx), so a Kronecker matvec reads like Roth's column lemma instead of like index golf. |
 
 Principle 5 is the one people call fussy. It is not fussy. It is the difference
@@ -142,7 +142,7 @@ scope, and we intend to defend it.
 |----------|-----------------|
 | A GP modelling library (kernels with priors, model shells, inference loops) | [pyrox-gp](https://github.com/jejjohnson/pyrox) |
 | Kernels, kernel operators, and kernel methods (KRR, HSIC / MMD, Nyström / RFF, Falkon, EigenPro) | [kernellib](https://github.com/jejjohnson/kernellib) |
-| Probabilistic programming (MCMC, SVI, samplers) | [NumPyro](https://github.com/pyro-ppl/numpyro) |
+| Probabilistic programming (MCMC, SVI, samplers) | [NumPyro](https://github.com/pyro-ppl/numpyro), with gaussx's Gaussians as NumPyro distributions in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss) |
 | General-purpose optimization | [optax](https://github.com/google-deepmind/optax) / [optimistix](https://github.com/patrick-kidger/optimistix) |
 | PDE discretization, grids, boundary conditions | [finitevolX](https://github.com/jejjohnson/finitevolX) / [spectraldiffx](https://github.com/jejjohnson/spectraldiffx) |
 | Ensemble filtering applications | [filterax](https://github.com/jejjohnson/filterax) |
@@ -169,7 +169,7 @@ flowchart TD
 
     subgraph DOWN["Downstream"]
         KL["kernellib<br/><small>kernels and kernel methods</small>"]
-        PYROX["pyrox-gp<br/><small>GP models on NumPyro</small>"]
+        PYROX["pyrox-gp · pyrox-gauss<br/><small>GP models and Gaussians on NumPyro</small>"]
         FVX["finitevolX<br/><small>finite-volume PDE ops</small>"]
     end
 

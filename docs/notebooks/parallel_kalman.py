@@ -288,7 +288,7 @@ print(f"Joseph symmetry error:   {joseph_asymmetry:.2e}")
 # $(\boldsymbol{\Lambda}_x \boldsymbol{\mu}_x, -\frac{1}{2} \boldsymbol{\Lambda}_x)$ where $-\frac{1}{2} \boldsymbol{\Lambda}_x$ is
 # stored as a `BlockTriDiag` operator.
 #
-# The API takes the chain in the same layout as `gaussx.MarkovGaussian`:
+# The API takes the chain in the same layout as `pyrox_gauss.MarkovGaussian`:
 # `A` and `Q` of shape `(T-1, D_x, D_x)`, where `Q[t]` is the model-noise covariance $\boldsymbol{\Sigma}_{\eta,t+1}$ of the
 # transition $\mathbf{x}_t \to \mathbf{x}_{t+1}$, and the initial covariance $\boldsymbol{\Sigma}_{x,0}$ separately.
 

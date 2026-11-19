@@ -1,6 +1,6 @@
 ---
 name: gaussians-and-recipes
-description: Write Gaussian models and algorithms in JAX on gaussx — Gaussian log-densities, KL, entropy, conditioning and sampling on structured covariances; MultivariateNormal and state-space distribution objects for NumPyro; natural and expectation parameters; likelihoods and Gauss–Hermite, unscented and cubature integrators; GP prediction, sparse and variational GP bounds; Kalman filters and RTS smoothers, SDE kernels, nonlinear filtering; expected log-likelihoods and EP moment matching; ensemble Kalman (EnKF, ETKF, EKI), localisation and inflation; natural-gradient, Newton and Laplace updates. Use when a task evaluates or samples a Gaussian, runs a Kalman filter or smoother, predicts with a GP, integrates a likelihood under a Gaussian, or updates an ensemble or a Gaussian approximation, in a project that uses (or could use) gaussx.
+description: Write Gaussian models and algorithms in JAX on gaussx — Gaussian log-densities, KL, entropy, conditioning and sampling on structured covariances; Gaussian Markov random fields with structured precisions; natural and expectation parameters; likelihoods and Gauss–Hermite, unscented and cubature integrators; GP prediction, sparse and variational GP bounds; Kalman filters and RTS smoothers, SDE kernels, nonlinear filtering; expected log-likelihoods and EP moment matching; ensemble Kalman (EnKF, ETKF, EKI), localisation and inflation; natural-gradient, Newton and Laplace updates. Use when a task evaluates or samples a Gaussian, runs a Kalman filter or smoother, predicts with a GP, integrates a likelihood under a Gaussian, or updates an ensemble or a Gaussian approximation, in a project that uses (or could use) gaussx.
 ---
 
 # Gaussians and recipes with gaussx
@@ -14,7 +14,7 @@ The operators and the verbs are in `gaussx:structured-gaussian-linalg`, and the 
 ## Start from
 
 - **A Gaussian** is a mean and a covariance operator: `gaussx.gaussian_log_prob(loc, cov, value)`, `gaussian_kl(p_loc, p_cov, q_loc, q_cov)`, `gaussian_entropy(cov)`, `conditional(loc, cov, obs_idx, obs_values)`, `sample_mvn(mean, cov, key=key)`.
-- **As an object**, `gaussx.MultivariateNormal(loc, cov_operator)` is a NumPyro distribution. It needs the numpyro extra.
+- **A structured precision** is a field: `gaussx.GaussianMRF(loc, precision)`, an equinox module with `log_prob` and `sample`. The NumPyro distribution classes (`MultivariateNormal`, `LGSSM`, …) live in `pyrox_gauss`.
 - **An expectation under a Gaussian** is `gaussx.expected_log_likelihood(likelihood, gaussx.GaussianState(mean, cov), integrator)`.
 - **A state-space model** is filtered by `gaussx.kalman_filter(...)`, which returns a `FilterState`, and smoothed by `gaussx.rts_smoother(state, transition)`.
 - **A GP** is predicted from `gaussx.build_prediction_cache(K_y, y)` with `predict_mean` and `predict_variance`. gaussx never evaluates a kernel; the caller supplies the matrices.
@@ -81,7 +81,7 @@ Open the one the task needs; do not read them all.
 |---|---|---|---|
 | ② strategy | [Integrators](shelf/integrators.md) | Gauss–Hermite, unscented, cubature, Taylor, Monte Carlo | 13 |
 | ③ model | [Gaussians](shelf/gaussians.md) | densities, KL, entropy, conditioning, sampling | 15 |
-| ③ model | [Distribution objects](shelf/distributions.md) | `MultivariateNormal`, `LGSSM`, `MarkovGaussian` (numpyro extra), and the GMRF fields (no extra) | 11 |
+| ③ model | [GMRF fields](shelf/distributions.md) | The GMRF fields `GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF` and `BYM2GMRF` | 4 |
 | ③ model | [Exponential-family forms](shelf/expfam.md) | natural, expectation and mean-covariance conversions | 16 |
 | ③ model | [Likelihoods](shelf/likelihoods.md) | Gaussian, Poisson, Bernoulli, Student-t and the rest | 10 |
 | ③ model | [SDE kernels](shelf/sde-kernels.md) | Matérn, periodic, quasi-periodic, sums and products, and their discretisation | 17 |

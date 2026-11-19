@@ -59,7 +59,7 @@ has the same list grouped by layer, plus lineax, matfree and optimistix.
      steps → `woodbury_solve`, `LowRankUpdate`, `schur_complement`;
    - Gaussian log-density, entropy, KL, conditioning or sampling by hand →
      `gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, `conditional`,
-     `sample_mvn`, `MultivariateNormal`;
+     `sample_mvn`, `GaussianMRF`;
    - Kalman predict / update / RTS loops, SDE discretisation → `kalman_filter`,
      `rts_smoother`, `parallel_kalman_filter`, the `SDEKernel`s,
      `discretize_mfd`;

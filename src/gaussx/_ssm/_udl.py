@@ -302,7 +302,7 @@ def udl_to_ssm_params(
     η_t+1 ~ 𝒩(0, Σ_η,t+1), whose precision is Λ_x = U D Uᵀ: the factors
     are the state-space model. The returned covariances stack the two:
     ``Q[0]`` is Σ_x,0 and ``Q[t]`` for t ≥ 1 is Σ_η,t, the model error
-    entering x_t (``Q[1:]`` is the `gaussx.MarkovGaussian` layout).
+    entering x_t (``Q[1:]`` is the `pyrox_gauss.MarkovGaussian` layout).
 
     Args:
         udl: Factorisation of the chain's precision Λ_x.
@@ -354,7 +354,7 @@ def udl_from_ssm_params(
     Args:
         A: Transitions F_t, with ``A[t]`` mapping x_t to x_t+1.
         Q: Model-error covariances, with ``Q[t]`` = Σ_η,t+1 driving x_t+1
-            (the `gaussx.MarkovGaussian` layout). Without ``P0``, the older
+            (the `pyrox_gauss.MarkovGaussian` layout). Without ``P0``, the older
             stacked layout with ``Q[0]`` = Σ_x,0 and one more block is
             accepted with a ``DeprecationWarning`` until gaussx 0.7.0.
         P0: Prior covariance Σ_x,0 of the initial state x₀.

@@ -7,7 +7,7 @@ cycle (mostly the dispatch cycle between ``_primitives``, ``_operators``,
 ``_strategies`` and ``_sparse``; see ``docs/architecture.md``). Each one is
 listed here and carries a ``# lazy import, cycle: ...`` comment naming the
 module chain that imports back. Lazy ``__getattr__`` hooks (deprecated
-aliases, numpyro-backed names) are exempt.
+aliases) are exempt.
 
 To add an edge: check that the import really fails at module scope
 (``python -c "import gaussx"``), add the comment and the entry below.
@@ -31,7 +31,6 @@ COMMENT = "# lazy import, cycle:"
 
 # (importing module, imported module), both relative to ``gaussx``.
 ALLOWED_LAZY_IMPORTS = {
-    ("_distributions._mvn_base", "_distributions._numpyro_kl"),
     ("_linalg._schur", "_linalg._linalg"),
     ("_operators._factored_eigen", "_operators._spectral_function"),
     ("_operators._masked", "_primitives._solve"),
@@ -113,8 +112,12 @@ def test_allow_list_has_no_stale_entries():
     assert not stale, f"remove these entries from ALLOWED_LAZY_IMPORTS: {stale}"
 
 
-def test_import_without_optional_dependencies():
-    """Module-scope imports must not pull numpyro into ``import gaussx``."""
+def test_import_gaussx_imports_no_numpyro():
+    """``import gaussx`` imports no numpyro, even where numpyro is installed.
+
+    The NumPyro distribution classes live in pyrox-gauss; a finder that
+    refuses numpyro makes any import of it, direct or transitive, fail here.
+    """
     blocker = (
         "import importlib.abc, sys\n"
         "class Block(importlib.abc.MetaPathFinder):\n"

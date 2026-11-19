@@ -18,7 +18,6 @@ import numpy as np
 import pytest
 
 import gaussx
-from gaussx import MultivariateNormal, MultivariateNormalPrecision
 from gaussx._testing import random_pd_operator
 
 
@@ -92,16 +91,6 @@ def test_tree_map_leaves_strategy_config_unchanged(strategy):
     assert jax.tree_util.tree_map(lambda leaf: 2 * leaf, strategy) == strategy
 
 
-def test_distribution_leaves_are_only_arrays():
-    op = random_pd_operator(jr.key(0), 3)
-    dist = MultivariateNormal(jnp.zeros(3), op)
-    leaves = jax.tree_util.tree_leaves(dist)
-    assert len(leaves) == 2
-    assert all(isinstance(leaf, jax.Array) for leaf in leaves)
-    doubled = jax.tree_util.tree_map(lambda leaf: 2 * leaf, dist)
-    assert doubled.solver == dist.solver
-
-
 _SOLVERS = [s for s in _STRATEGIES if isinstance(s, gaussx.AbstractSolverStrategy)]
 
 
@@ -117,26 +106,33 @@ def _pytest_ids(objs) -> list[str]:
 _SOLVER_IDS = _pytest_ids(_SOLVERS)
 
 
+def _log_prob(form, op, strategy, x):
+    """log 𝒩(x; 0, Σ), with ``op`` the covariance Σ or the precision Σ⁻¹."""
+    if form == "covariance":
+        return gaussx.gaussian_log_prob(jnp.zeros(3), op, x, solver=strategy)
+    return gaussx.GaussianMRF(jnp.zeros(3), op, solver=strategy).log_prob(x)
+
+
 # The covariance form with an iterative strategy traces its Krylov solve and
 # logdet both jitted and eagerly: ~2-3.5 s in CI per strategy, so those cases
 # are slow. The precision form keeps every strategy in the fast lane.
 @pytest.mark.parametrize(
-    ("cls", "strategy"),
+    ("form", "strategy"),
     [
         pytest.param(
-            cls,
+            form,
             strategy,
-            id=f"{sid}-{cls.__name__}",
+            id=f"{sid}-{form}",
             marks=pytest.mark.slow
-            if cls is MultivariateNormal
+            if form == "covariance"
             and not isinstance(strategy, gaussx.DenseSolver | gaussx.AutoSolver)
             else (),
         )
-        for cls in [MultivariateNormal, MultivariateNormalPrecision]
+        for form in ["covariance", "precision"]
         for strategy, sid in zip(_SOLVERS, _SOLVER_IDS, strict=True)
     ],
 )
-def test_jax_jit_log_prob_with_distribution_argument(cls, strategy):
+def test_jax_jit_log_prob_with_strategy_argument(form, strategy):
     op = random_pd_operator(jr.key(0), 3)
     if isinstance(strategy, gaussx.SparseCholeskySolver):
         # A sparse factorisation needs a SparseOperator: the same matrix,
@@ -150,7 +146,7 @@ def test_jax_jit_log_prob_with_distribution_argument(cls, strategy):
             symmetric=True,
             tags=lx.positive_semidefinite_tag,
         )
-    dist = cls(jnp.zeros(3), op, solver=strategy)
     x = jnp.ones(3)
-    jitted = jax.jit(lambda d, x: d.log_prob(x))(dist, x)
-    assert jnp.allclose(jitted, dist.log_prob(x), rtol=1e-10, atol=1e-10)
+    jitted = jax.jit(_log_prob, static_argnums=0)(form, op, strategy, x)
+    eager = _log_prob(form, op, strategy, x)
+    assert jnp.allclose(jitted, eager, rtol=1e-10, atol=1e-10)

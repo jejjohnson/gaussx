@@ -40,7 +40,7 @@ def _transition_noise(
 ) -> tuple[Float[Array, "d d"], Float[Array, "Nm1 d d"]]:
     """Normalise ``Q`` to the transition-noise layout (gh-364).
 
-    The `gaussx.MarkovGaussian` layout, ``Q`` of shape ``(N-1, d, d)`` with
+    The `pyrox_gauss.MarkovGaussian` layout, ``Q`` of shape ``(N-1, d, d)`` with
     ``Q[t]`` = Σ_η,t+1 driving x_t → x_t+1 and Σ_x,0 passed separately, is
     the one to use. The older stacked layout of shape ``(N, d, d)`` with
     ``Q[0]`` = Σ_x,0 is told apart by its length, still accepted with a
@@ -70,7 +70,8 @@ def _transition_noise(
     warn_deprecated(
         f"{function} with Q of shape (N, d, d) and Q[0] == P_0 is deprecated; "
         "pass only the transition noise Q[1:] (shape (N-1, d, d)), as "
-        "MarkovGaussian does. The stacked layout will be removed in gaussx 0.7.0."
+        "pyrox_gauss.MarkovGaussian does. The stacked layout will be removed in "
+        "gaussx 0.7.0."
     )
     # ``eqx.error_if`` so the check also runs under jit / vmap / grad; a
     # Python ``bool()`` could only run eagerly (gh-359). Attached to both
@@ -179,7 +180,7 @@ def ssm_to_naturals(
     Args:
         A: Transitions F_t, with ``A[t]`` mapping x_t to x_t+1.
         Q: Model-error covariances, with ``Q[t]`` = Σ_η,t+1 driving
-            x_t → x_t+1, as in `gaussx.MarkovGaussian`. The older stacked
+            x_t → x_t+1, as in `pyrox_gauss.MarkovGaussian`. The older stacked
             layout of shape ``(N, d, d)`` with ``Q[0]`` = Σ_x,0 (checked with
             `equinox.error_if`, so also under ``jax.jit``) is deprecated and
             will be removed in gaussx 0.7.0.
@@ -304,7 +305,7 @@ def naturals_to_ssm(
             passing it warns, and it will be removed in gaussx 0.7.0.
         initial_in_q: Layout of the returned ``Q``. ``False`` returns only
             the transition noise Σ_η,t+1, shape ``(N-1, d, d)``, as
-            `gaussx.MarkovGaussian` takes it; ``True`` the older stacked
+            `pyrox_gauss.MarkovGaussian` takes it; ``True`` the older stacked
             layout of shape ``(N, d, d)`` with ``Q[0]`` = Σ_x,0. The default
             ``None`` means ``True`` with a ``DeprecationWarning``; it becomes
             ``False`` in gaussx 0.7.0.
@@ -344,7 +345,7 @@ def naturals_to_ssm(
         warn_deprecated(
             "naturals_to_ssm returns Q with P_0 stacked as Q[0]; in gaussx 0.7.0 it "
             "will return only the transition noise (shape (N-1, d, d)), as "
-            "MarkovGaussian and ssm_to_naturals take it. Pass "
+            "pyrox_gauss.MarkovGaussian and ssm_to_naturals take it. Pass "
             "initial_in_q=False to adopt that layout now, or initial_in_q=True "
             "to keep the current one until then."
         )

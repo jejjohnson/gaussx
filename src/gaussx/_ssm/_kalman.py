@@ -132,8 +132,8 @@ def _kalman_predict(
         )
     # Σ_x,t|t−1 = F_t Σ_x,t−1|t−1 F_tᵀ + Σ_η,t
     predicted_covariance = propagated + process_noise_t
-    # Round-off leaves Σ slightly asymmetric, and numpyro's
-    # positive_definite constraint checks symmetry exactly (gh-388).
+    # Round-off leaves Σ slightly asymmetric, and downstream checks such as
+    # NumPyro's positive_definite constraint test symmetry exactly (gh-388).
     predicted_covariance = symmetrize(predicted_covariance)
     return predicted_mean, predicted_covariance
 
@@ -279,7 +279,7 @@ def kalman_filter(
 
     with x₀ ~ 𝒩(μ_x,0, Σ_x,0), a state x_t of length D_x, an observation
     y_t of length D_y and t = 1, …, T. Every step predicts, then updates, so
-    ``observations[0]`` is y₁ (predict first, as in `gaussx.LGSSM`).
+    ``observations[0]`` is y₁ (predict first, as in `pyrox_gauss.LGSSM`).
 
     This is a covariance-form filter. For covariances that are PSD by
     construction use `gaussx.parallel_kalman_filter` with

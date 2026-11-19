@@ -42,7 +42,7 @@ or with `uv`:
 uv add "gaussx @ git+https://github.com/jejjohnson/gaussx.git"
 ```
 
-Add the `numpyro` extra (`gaussx[numpyro] @ git+...`) for the NumPyro-compatible distributions.
+gaussx imports no NumPyro. The NumPyro distributions built on it (`MultivariateNormal`, `MultivariateNormalPrecision`, `MarkovGaussian`, the `LGSSM` family) live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss).
 <!-- --8<-- [end:install] -->
 
 <!-- --8<-- [start:quickstart] -->
@@ -51,13 +51,11 @@ Add the `numpyro` extra (`gaussx[numpyro] @ git+...`) for the NumPyro-compatible
 ```python
 import jax.numpy as jnp
 import lineax as lx
-import numpyro.distributions as dist
 from jaxtyping import Array, Float
 
 import gaussx
 
 Op = lx.AbstractLinearOperator
-Dist = dist.Distribution
 
 # K = A ⊗ B, a (6, 6) covariance that is never materialised.
 A: Op = lx.DiagonalLinearOperator(jnp.array([1.0, 2.0, 3.0]))  # (3, 3)
@@ -70,13 +68,13 @@ x: Float[Array, " 6"] = gaussx.solve(K, v)  # (6,)
 ld: Float[Array, ""] = gaussx.logdet(K)  # (): n_B · logdet(A) + n_A · logdet(B)
 L: gaussx.Kronecker = gaussx.cholesky(K)  # (6, 6): Kronecker(chol(A), chol(B))
 
-# A Gaussian over K, with a pluggable solver strategy.
-mvn: Dist = gaussx.MultivariateNormal(
-    loc=jnp.zeros(6),  # (6,)
-    cov_operator=K,  # (6, 6)
+# log 𝒩(v; 0, K), with a pluggable solver strategy.
+log_p: Float[Array, ""] = gaussx.gaussian_log_prob(
+    jnp.zeros(6),  # (6,)
+    K,  # (6, 6)
+    v,  # (6,)
     solver=gaussx.DenseSolver(),
-)
-log_p: Float[Array, ""] = mvn.log_prob(v)  # ()
+)  # ()
 ```
 <!-- --8<-- [end:quickstart] -->
 
@@ -233,7 +231,7 @@ How to solve, decoupled from what: `DenseSolver` · `AutoSolver` · `CGSolver` �
 
 ### Layer 2 -- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/api/distributions/)
 
-`MultivariateNormal` and `MultivariateNormalPrecision` (NumPyro-compatible), `MarkovGaussian`, `LGSSM`, the sugar built on them (`gaussian_log_prob`, `gaussian_kl`, `conditional`, `joseph_update`), and `GaussianExpFam` for natural / expectation parameters.
+The Gaussian functions (`gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, `conditional`, `sample_mvn`, `joseph_update`), the GMRF fields (`GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF`, `BYM2GMRF`), and `GaussianExpFam` for natural / expectation parameters. The NumPyro distribution classes built on them live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss).
 
 ### Layer 3 -- Recipes
 
@@ -253,7 +251,7 @@ How to solve, decoupled from what: `DenseSolver` · `AutoSolver` · `CGSolver` �
 A few usage details that are easy to miss:
 
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` so predictive variances use the exact prior diagonal at the test points instead of reconstructing it from cross-covariances.
-- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `gaussx.MarkovGaussian`. The older stacked layout (`Q[0] == P_0`) is deprecated and will be removed in gaussx 0.7.0; with it, an inconsistent initial covariance raises an `EquinoxRuntimeError` (via `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
+- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `pyrox_gauss.MarkovGaussian`. The older stacked layout (`Q[0] == P_0`) is deprecated and will be removed in gaussx 0.7.0; with it, an inconsistent initial covariance raises an `EquinoxRuntimeError` (via `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
 - `gaussx.SumKronecker` and `gaussx.SVDLowRankUpdate` are **deprecated** aliases (for `SumOfKroneckers` and `LowRankUpdate(..., orthonormal=True)`); both warn on construction and will be removed in gaussx 0.7.0.
 - Kernel operators, Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro moved to [kernellib](https://github.com/jejjohnson/kernellib) in 0.2.0. They are lineax operators and work with every gaussx primitive and strategy.
 <!-- --8<-- [end:api-notes] -->

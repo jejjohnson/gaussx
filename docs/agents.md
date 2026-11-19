@@ -72,7 +72,8 @@ index (https://jejjohnson.github.io/gaussx/capabilities/) or
 - Use `gaussx.solve` / `logdet` / `cholesky` / `sqrt` / `inv` on them, never
   `jnp.linalg` on `.as_matrix()`; heed `DenseFallbackWarning`.
 - Gaussian densities, KLs, conditioning and sampling: `gaussian_log_prob`,
-  `gaussian_kl`, `conditional`, `sample_mvn`, `MultivariateNormal`.
+  `gaussian_kl`, `conditional`, `sample_mvn`, and `GaussianMRF` for a
+  structured precision (the NumPyro distributions are in `pyrox_gauss`).
 - Pick numerics with `solver=` (`CGSolver()`, `BBMMSolver()`, `SLQLogdet()`)
   instead of rewriting the math; pass PRNG keys explicitly.
 - Check new code against a dense reference on a small case, under `jax.jit`

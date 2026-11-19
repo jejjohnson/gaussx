@@ -37,7 +37,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --group dev
       - name: Show resolved versions
-        run: uv pip list | grep -E '^(jax|jaxlib|equinox|lineax|matfree|jaxtyping|einx|numpyro) '
+        run: uv pip list | grep -E '^(jax|jaxlib|equinox|lineax|matfree|jaxtyping|einx) '
       - name: Run fast tests
         run: uv run pytest -n auto -m "not slow and not integration"
 
