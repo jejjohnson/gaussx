@@ -267,7 +267,8 @@ def _replace(text: str, markers: tuple[str, str], body: str, where: str) -> str:
     if begin not in text or end not in text.split(begin, 1)[1]:
         raise ValueError(f"{where}: needs {begin} and {end}")
     head, rest = text.split(begin, 1)
-    return f"{head}{begin}\n{body}\n{end}{rest.split(end, 1)[1]}"
+    middle = f"\n{body}\n" if body else "\n"
+    return f"{head}{begin}{middle}{end}{rest.split(end, 1)[1]}"
 
 
 def render(shelf: Shelf, skill: str, text: str) -> str:
@@ -275,6 +276,9 @@ def render(shelf: Shelf, skill: str, text: str) -> str:
     text = _replace(text, TABLE, table(shelf, skill), skill)
     if shelf.skills[skill]:
         text = _replace(text, BELOW, below(shelf, skill), skill)
+    elif BELOW[0] in text:
+        # the skill no longer builds on a unit: its old cards go
+        text = _replace(text, BELOW, "", skill)
     return text
 
 
