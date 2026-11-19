@@ -1,6 +1,6 @@
 # gaussx's shelf: its listed skills, its units and its 24 entries.
 #
-# Every name in gaussx.__all__ belongs to exactly one entry (gate GX-1), and the
+# Every name in gaussx.__all__ belongs to exactly one entry (gate SH-1), and the
 # entry's file names it. scripts/skill_shelf.py writes the generated parts of the
 # three SKILL.md files from this file and checks the gates.
 
