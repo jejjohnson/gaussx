@@ -1,6 +1,6 @@
 """Structured linear algebra and Gaussian primitives for JAX."""
 
-__version__ = "0.6.16"
+__version__ = "0.7.0"
 
 # Import the distribution helpers directly from their submodules rather than
 # through ``gaussx._distributions``, whose package ``__init__`` loads the GMRF
