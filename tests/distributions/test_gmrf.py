@@ -1,4 +1,4 @@
-"""Tests for GaussianMRF, IntrinsicGMRF and ConstrainedGMRF (G6)."""
+"""Tests for GaussianMRF, IntrinsicGMRF, ConstrainedGMRF and GMRFDistribution (G6)."""
 
 from __future__ import annotations
 
@@ -11,11 +11,6 @@ import jax.random as jr
 import lineax as lx
 import numpy as np
 import pytest
-
-
-pytest.importorskip("numpyro")
-
-import numpyro
 from jax.scipy.stats import multivariate_normal
 
 import gaussx as gx
@@ -649,10 +644,11 @@ def _distributions():
 
 @pytest.mark.parametrize("name", ["proper", "constrained", "intrinsic", "soft"])
 def test_numpyro_seed_and_trace(name):
+    numpyro = pytest.importorskip("numpyro")
     d = _distributions()[name]
 
     def model():
-        numpyro.sample("x", d)
+        numpyro.sample("x", gx.GMRFDistribution(d))
 
     trace = numpyro.handlers.trace(numpyro.handlers.seed(model, 0)).get_trace()
     site = trace["x"]

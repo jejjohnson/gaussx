@@ -18,6 +18,12 @@ from gaussx._distributions._gaussian import (
     kl_standard_normal as kl_standard_normal,
     quadratic_form as quadratic_form,
 )
+from gaussx._distributions._gmrf import (
+    BYM2GMRF as BYM2GMRF,
+    ConstrainedGMRF as ConstrainedGMRF,
+    GaussianMRF as GaussianMRF,
+    IntrinsicGMRF as IntrinsicGMRF,
+)
 from gaussx._distributions._information import (
     InformationDiagnostics as InformationDiagnostics,
     information_diagnostics as information_diagnostics,
@@ -127,6 +133,16 @@ from gaussx._inference import (
     soar_taper as soar_taper,
     tikhonov_augment as tikhonov_augment,
     trace_correction as trace_correction,
+)
+from gaussx._inference._laplace import (
+    LaplaceModel as LaplaceModel,
+    LaplaceResult as LaplaceResult,
+    laplace_mode as laplace_mode,
+    laplace_model as laplace_model,
+    laplace_result as laplace_result,
+)
+from gaussx._inference._vb_correction import (
+    vb_mean_correction as vb_mean_correction,
 )
 from gaussx._linalg import (
     EigenDecomposition as EigenDecomposition,
@@ -420,6 +436,7 @@ from gaussx._tags import (
 # missing attribute; tests/test_docs_api_coverage.py checks this against
 # dir(gaussx) and the API reference (gh-322).
 __all__ = [
+    "BYM2GMRF",
     "CUR",
     "AbstractIntegrator",
     "AbstractLikelihood",
@@ -443,6 +460,7 @@ __all__ = [
     "ColumnID",
     "ComposedSolver",
     "ConstantSDE",
+    "ConstrainedGMRF",
     "CosineSDE",
     "CubatureIntegrator",
     "DAREResult",
@@ -457,6 +475,7 @@ __all__ = [
     "GaussHermiteIntegrator",
     "GaussianExpFam",
     "GaussianLikelihood",
+    "GaussianMRF",
     "GaussianSites",
     "GaussianSketch",
     "GaussianState",
@@ -465,6 +484,7 @@ __all__ = [
     "InformationDiagnostics",
     "IntegratedWienerSDE",
     "InterpolatedOperator",
+    "IntrinsicGMRF",
     "JacobiPreconditioner",
     "KeyedSolver",
     "Kronecker",
@@ -473,6 +493,8 @@ __all__ = [
     "LOOResult",
     "LOVECache",
     "LSMRSolver",
+    "LaplaceModel",
+    "LaplaceResult",
     "LinearGaussianPosterior",
     "LinearizedSDE",
     "LineaxSolver",
@@ -642,6 +664,9 @@ __all__ = [
     "kronecker_sum_solve",
     "kronecker_sum_tag",
     "kronecker_tag",
+    "laplace_mode",
+    "laplace_model",
+    "laplace_result",
     "leave_one_out_cv",
     "ledoit_wolf_shrinkage",
     "linear_gaussian_update",
@@ -784,6 +809,7 @@ __all__ = [
     "upper_triangular_tag",
     "variational_elbo_gaussian",
     "variational_elbo_mc",
+    "vb_mean_correction",
     "whiten_covariance",
     "whitened_svgp_predict",
     "woodbury_solve",
@@ -793,11 +819,8 @@ __all__ = [
 try:
     # Registers numpyro kl_divergence for the two MVN classes (gh-313).
     from gaussx._distributions import _numpyro_kl  # noqa: F401
-    from gaussx._distributions._gmrf import (
-        BYM2GMRF as BYM2GMRF,
-        ConstrainedGMRF as ConstrainedGMRF,
-        GaussianMRF as GaussianMRF,
-        IntrinsicGMRF as IntrinsicGMRF,
+    from gaussx._distributions._gmrf_distribution import (
+        GMRFDistribution as GMRFDistribution,
     )
     from gaussx._distributions._lgssm import (
         LGSSM as LGSSM,
@@ -814,35 +837,16 @@ try:
     from gaussx._distributions._mvn_prec import (
         MultivariateNormalPrecision as MultivariateNormalPrecision,
     )
-    from gaussx._inference._laplace import (
-        LaplaceModel as LaplaceModel,
-        LaplaceResult as LaplaceResult,
-        laplace_mode as laplace_mode,
-        laplace_model as laplace_model,
-        laplace_result as laplace_result,
-    )
-    from gaussx._inference._vb_correction import (
-        vb_mean_correction as vb_mean_correction,
-    )
 
     __all__ += [
-        "BYM2GMRF",
         "LGSSM",
         "AbstractMultivariateNormal",
-        "ConstrainedGMRF",
-        "GaussianMRF",
-        "IntrinsicGMRF",
+        "GMRFDistribution",
         "LGSSMFactory",
-        "LaplaceModel",
-        "LaplaceResult",
         "MarkovGaussian",
         "MaskedLGSSM",
         "MultivariateNormal",
         "MultivariateNormalPrecision",
-        "laplace_mode",
-        "laplace_model",
-        "laplace_result",
-        "vb_mean_correction",
     ]
 except ModuleNotFoundError as _e:
     if _e.name != "numpyro":
@@ -858,6 +862,7 @@ _NUMPYRO_NAMES = frozenset(
         "LGSSM",
         "MaskedLGSSM",
         "LGSSMFactory",
+        "GMRFDistribution",
     }
 )
 

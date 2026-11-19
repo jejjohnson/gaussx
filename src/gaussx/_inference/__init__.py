@@ -101,10 +101,8 @@ __all__ = [
 ]
 
 
-# laplace_mode and vb_mean_correction take the numpyro-based GMRF priors (G6),
-# so they need the optional ``numpyro`` dependency. As in
-# ``gaussx._distributions``, resolve them lazily (PEP 562) so importing
-# ``gaussx._inference`` works in a base install.
+# laplace_mode and vb_mean_correction take the GMRF priors (G6); as in
+# ``gaussx._distributions``, resolve them lazily (PEP 562).
 def __getattr__(name: str) -> Any:
     if name in (
         "LaplaceModel",

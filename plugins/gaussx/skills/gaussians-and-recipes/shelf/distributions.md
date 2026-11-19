@@ -3,7 +3,7 @@
 Role: ③ model (`role-ladder`, `references/model.md`).
 Unit: Gaussians.
 
-Every name here exists only when gaussx is installed with its numpyro extra (`pip install "gaussx[numpyro]"`); without it, `gaussx.MultivariateNormal` and the other state-space and normal classes raise `AttributeError` that points to the extra.
+The normals, `LGSSM`, `MarkovGaussian` and `GMRFDistribution` exist only when gaussx is installed with its numpyro extra (`pip install "gaussx[numpyro]"`); without it they raise `AttributeError` that points to the extra. The four GMRF fields are equinox modules and need no extra.
 Open this when you need a Gaussian as a numpyro distribution (`log_prob`, `sample`, a numpyro site), with a structured covariance, a state-space chain or a Markov random field.
 
 ## Names
@@ -21,6 +21,7 @@ Open this when you need a Gaussian as a numpyro distribution (`log_prob`, `sampl
 | `ConstrainedGMRF(base, constraint_matrix, constraint_value)` | A `GaussianMRF` conditioned on hard linear constraints; built by `GaussianMRF.condition_on_constraints`. |
 | `IntrinsicGMRF(loc, precision_scale, structure, null_space, ...)` | An improper field with precision `τR` for a semi-definite structure `R` (random walk, ICAR). |
 | `BYM2GMRF(structure_scaled, tau, phi, null_space, ...)` | The BYM2 pair `(b, u*)` with its exact density; an `IntrinsicGMRF` subclass. |
+| `GMRFDistribution(field)` | Any of the four GMRF fields as a numpyro distribution, for `numpyro.sample`. |
 
 ## Use it
 
@@ -67,7 +68,8 @@ assert jnp.allclose(field.sample(jr.key(2), (5,)).sum(-1), 1.0, atol=1e-3)
 
 ## Goes wrong
 
-- Without the numpyro extra these names are missing; the function forms in [gaussians](gaussians.md) still work.
+- Without the numpyro extra the normals, the state-space classes and `GMRFDistribution` are missing; the function forms in [gaussians](gaussians.md) and the GMRF fields still work.
+- A GMRF field is not a numpyro distribution: `numpyro.sample("x", field)` raises `TypeError`, so pass `GMRFDistribution(field)`.
 - `MaskedLGSSM` names its mask `obs_mask`, not `mask`, because `mask` is numpyro's own method.
 - Dense `covariance_matrix` and `precision_matrix` materialise `N x N` arrays; keep them for small problems.
 

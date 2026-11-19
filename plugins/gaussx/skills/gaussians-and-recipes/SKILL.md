@@ -81,7 +81,7 @@ Open the one the task needs; do not read them all.
 |---|---|---|---|
 | ② strategy | [Integrators](shelf/integrators.md) | Gauss–Hermite, unscented, cubature, Taylor, Monte Carlo | 13 |
 | ③ model | [Gaussians](shelf/gaussians.md) | densities, KL, entropy, conditioning, sampling | 15 |
-| ③ model | [Distribution objects](shelf/distributions.md) | `MultivariateNormal`, `LGSSM`, `MarkovGaussian`, the GMRF distributions; all need the numpyro extra | 11 |
+| ③ model | [Distribution objects](shelf/distributions.md) | `MultivariateNormal`, `LGSSM`, `MarkovGaussian` (numpyro extra), the GMRF fields (no extra) and `GMRFDistribution` | 12 |
 | ③ model | [Exponential-family forms](shelf/expfam.md) | natural, expectation and mean-covariance conversions | 16 |
 | ③ model | [Likelihoods](shelf/likelihoods.md) | Gaussian, Poisson, Bernoulli, Student-t and the rest | 10 |
 | ③ model | [SDE kernels](shelf/sde-kernels.md) | Matérn, periodic, quasi-periodic, sums and products, and their discretisation | 17 |

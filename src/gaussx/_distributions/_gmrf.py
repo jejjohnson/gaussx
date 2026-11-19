@@ -4,8 +4,8 @@
 field conditioned on hard linear constraints A_c x = e, `IntrinsicGMRF` the
 improper field x ~ 𝒩(μ, (τ R)⁺) with structure matrix R, precision scale τ
 and null-space basis V, and `BYM2GMRF` the BYM2 pair with mixing φ on a
-scaled structure R*. All four are NumPyro distributions whose precision is a
-lineax operator, and every operation dispatches on its structure:
+scaled structure R*. All four are equinox modules whose precision is a lineax
+operator, and every operation dispatches on its structure:
 
 - sample, in order: (1) a factorisable precision (dense, `BlockTriDiag`, or a
   `SparseOperator` through its sparse Cholesky factor) gives μ + L_Λ⁻ᵀ z;
@@ -41,9 +41,7 @@ import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 import lineax as lx
 import numpy as np
-import numpyro.distributions as dist
 from jaxtyping import Array, ArrayLike, Float
-from numpyro.distributions.util import lazy_property, validate_sample
 
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._distributions._utils import _reshape_batch, _reshape_samples
@@ -497,7 +495,7 @@ def _scaled(
 # ---------------------------------------------------------------------------
 
 
-class GaussianMRF(dist.Distribution):
+class GaussianMRF(eqx.Module):
     """Gaussian Markov random field x ~ 𝒩(μ, Λ⁻¹) with a structured precision Λ.
 
         log p(x) = ½ log det Λ − ½ (x − μ)ᵀ Λ (x − μ) − (D_x / 2) log 2π
@@ -523,8 +521,9 @@ class GaussianMRF(dist.Distribution):
     incidence matrix B, proper CAR, Leroux), so a 10⁶-node field samples
     with no factorisation at all.
 
-    Requires the ``numpyro`` optional extra. ``loc`` is a single field
-    (``batch_shape == ()``); ``log_prob`` takes any leading sample axes.
+    ``loc`` is a single field (``batch_shape == ()``); ``log_prob`` takes any
+    leading sample axes. The field is an equinox module, not a NumPyro
+    distribution: wrap it in ``GMRFDistribution`` for ``numpyro.sample``.
 
     Args:
         loc: Mean μ of the D_x nodes.
@@ -539,7 +538,6 @@ class GaussianMRF(dist.Distribution):
         log_det_precision: A known log det Λ, which overrides both (callers
             with a closed form, such as a proper CAR, skip a stochastic
             estimate inside an MCMC log-density).
-        validate_args: Whether to validate input arguments.
 
     Raises:
         ValueError: If ``loc`` does not have shape ``(D_x,)``.
@@ -591,17 +589,12 @@ class GaussianMRF(dist.Distribution):
         and Applications. Chapman & Hall/CRC.
     """
 
-    arg_constraints = {"loc": dist.constraints.real_vector}  # noqa: RUF012
-    support = dist.constraints.real_vector
-    reparametrized_params = ["loc"]  # noqa: RUF012
-    pytree_data_fields = (
-        "loc",
-        "precision",
-        "precision_factors",
-        "solver",
-        "logdet_strategy",
-        "log_det_precision",
-    )
+    loc: Float[Array, " N"]
+    precision: lx.AbstractLinearOperator
+    precision_factors: tuple[lx.AbstractLinearOperator, ...] | None
+    solver: AbstractSolverStrategy | None
+    logdet_strategy: AbstractLogdetStrategy | None
+    log_det_precision: Float[Array, ""] | None
 
     def __init__(
         self,
@@ -611,8 +604,6 @@ class GaussianMRF(dist.Distribution):
         solver: AbstractSolverStrategy | None = None,
         logdet_strategy: AbstractLogdetStrategy | None = None,
         log_det_precision: Float[ArrayLike, ""] | None = None,
-        *,
-        validate_args: bool | None = None,
     ) -> None:
         loc = jnp.asarray(loc)
         n = precision.in_size()
@@ -630,7 +621,16 @@ class GaussianMRF(dist.Distribution):
         self.log_det_precision = (
             None if log_det_precision is None else jnp.asarray(log_det_precision)
         )
-        super().__init__(batch_shape=(), event_shape=(n,), validate_args=validate_args)
+
+    @property
+    def event_shape(self) -> tuple[int]:
+        """The event shape ``(D_x,)``."""
+        return (self.loc.shape[-1],)
+
+    @property
+    def batch_shape(self) -> tuple[()]:
+        """The batch shape, always ``()``: one field per object."""
+        return ()
 
     # -- solves ---------------------------------------------------------------
 
@@ -654,7 +654,6 @@ class GaussianMRF(dist.Distribution):
 
     # -- density --------------------------------------------------------------
 
-    @validate_sample
     def log_prob(self, value: Float[Array, "*sample N"]) -> Float[Array, "*sample"]:
         """Log-density log 𝒩(x; μ, Λ⁻¹) of the field.
 
@@ -717,12 +716,12 @@ class GaussianMRF(dist.Distribution):
         # diag(Λ⁻¹)
         return diag_inv(self.precision, solver=strategy)
 
-    @lazy_property
+    @property
     def mean(self) -> Float[Array, " N"]:
         """The mean μ."""
         return self.loc
 
-    @lazy_property
+    @property
     def variance(self) -> Float[Array, " N"]:
         """The marginal variances diag(Λ⁻¹)."""
         return self.marginal_variances()
@@ -880,7 +879,7 @@ class GaussianMRF(dist.Distribution):
 # ---------------------------------------------------------------------------
 
 
-class ConstrainedGMRF(dist.Distribution):
+class ConstrainedGMRF(eqx.Module):
     """A `GaussianMRF` conditioned on hard linear constraints A_c x = e.
 
         x ↦ x − W S⁻¹ (A_c x − e),   W = Λ⁻¹ A_cᵀ,   S = A_c W
@@ -898,14 +897,13 @@ class ConstrainedGMRF(dist.Distribution):
     Lebesgue measure), evaluated at points assumed to satisfy the
     constraint.
 
-    Built by `GaussianMRF.condition_on_constraints`. Requires ``numpyro``.
+    Built by `GaussianMRF.condition_on_constraints`.
 
     Args:
         base: The unconstrained field 𝒩(μ, Λ⁻¹).
         constraint_matrix: Constraint matrix A_c, shape ``(c, N)`` (or
             ``(N,)``), of full row rank.
         constraint_value: Constraint values e, shape ``(c,)``.
-        validate_args: Whether to validate input arguments.
 
     Raises:
         ValueError: If A_c and e do not have shapes ``(c, N)`` and ``(c,)``.
@@ -936,17 +934,15 @@ class ConstrainedGMRF(dist.Distribution):
         and Applications. Chapman & Hall/CRC.
     """
 
-    arg_constraints = {}  # noqa: RUF012
-    support = dist.constraints.real_vector
-    pytree_data_fields = ("base", "constraint_matrix", "constraint_value")
+    base: GaussianMRF
+    constraint_matrix: Float[Array, "c N"]
+    constraint_value: Float[Array, " c"]
 
     def __init__(
         self,
         base: GaussianMRF,
         constraint_matrix: Float[ArrayLike, "c N"] | Float[ArrayLike, " N"],
         constraint_value: Float[ArrayLike, " c"] | Float[ArrayLike, ""],
-        *,
-        validate_args: bool | None = None,
     ) -> None:
         dtype = base.loc.dtype
         A = jnp.atleast_2d(jnp.asarray(constraint_matrix, dtype=dtype))
@@ -960,7 +956,16 @@ class ConstrainedGMRF(dist.Distribution):
         self.base = base
         self.constraint_matrix = A
         self.constraint_value = e
-        super().__init__(batch_shape=(), event_shape=(n,), validate_args=validate_args)
+
+    @property
+    def event_shape(self) -> tuple[int]:
+        """The event shape ``(D_x,)``, the base field's."""
+        return self.base.event_shape
+
+    @property
+    def batch_shape(self) -> tuple[()]:
+        """The batch shape, always ``()``: one field per object."""
+        return ()
 
     def _kriging(self) -> tuple[Float[Array, "c N"], Float[Array, "c N"], Array]:
         """Kriging terms Wᵀ, S⁻¹ Wᵀ and the Cholesky factor L_S of S.
@@ -1012,7 +1017,6 @@ class ConstrainedGMRF(dist.Distribution):
         corrected = flat_points - correction
         return _reshape_samples(corrected, points.shape[:-1])
 
-    @validate_sample
     def log_prob(self, value: Float[Array, "*sample N"]) -> Float[Array, "*sample"]:
         """Constrained log-density on A_c x = e (Rue & Held, eq. 2.30).
 
@@ -1108,14 +1112,14 @@ class ConstrainedGMRF(dist.Distribution):
         # diag(Λ⁻¹) − diag(W S⁻¹ Wᵀ)
         return self.base.marginal_variances() - correction
 
-    @lazy_property
+    @property
     def mean(self) -> Float[Array, " N"]:
         """The kriged mean μ − W S⁻¹ (A_c μ − e)."""
         _, kriging_rows, _ = self._kriging()
         # μ − W S⁻¹ (A_c μ − e)
         return self._correct(self.base.loc, kriging_rows)
 
-    @lazy_property
+    @property
     def variance(self) -> Float[Array, " N"]:
         """The constrained marginal variances."""
         return self.marginal_variances()
@@ -1126,7 +1130,7 @@ class ConstrainedGMRF(dist.Distribution):
 # ---------------------------------------------------------------------------
 
 
-class IntrinsicGMRF(dist.Distribution):
+class IntrinsicGMRF(eqx.Module):
     """Improper Gaussian field x ~ 𝒩(μ, (τ R)⁺) on the complement of ker R.
 
         log p(x) = ((D_x − D_c) / 2) log τ − (τ / 2) (x − μ)ᵀ R (x − μ)
@@ -1175,8 +1179,6 @@ class IntrinsicGMRF(dist.Distribution):
     ((D_x − D_c) / 2) log τ. Sample it with the rest and drop it
     (``x[:n]``).
 
-    Requires the ``numpyro`` optional extra.
-
     Args:
         loc: Mean μ of the D_x nodes.
         precision_scale: Precision scale τ > 0.
@@ -1192,7 +1194,6 @@ class IntrinsicGMRF(dist.Distribution):
             ``"soft"``.
         include_normalizer: Add the τ-free constant (exact for an
             orthonormal ``null_space`` under ``"soft"``).
-        validate_args: Whether to validate input arguments.
 
     Raises:
         ValueError: For an unknown ``constraint`` or mismatched shapes.
@@ -1239,17 +1240,14 @@ class IntrinsicGMRF(dist.Distribution):
         and Applications. Chapman & Hall/CRC.
     """
 
-    arg_constraints = {"loc": dist.constraints.real_vector}  # noqa: RUF012
-    support = dist.constraints.real_vector
-    reparametrized_params = ["loc"]  # noqa: RUF012
-    pytree_data_fields = (
-        "loc",
-        "precision_scale",
-        "structure",
-        "null_space",
-        "precision_factors",
-    )
-    pytree_aux_fields = ("constraint", "soft_constraint_scale", "include_normalizer")
+    loc: Float[Array, " N"]
+    precision_scale: Float[Array, ""]
+    structure: lx.AbstractLinearOperator
+    null_space: Float[Array, "N c"]
+    precision_factors: tuple[lx.AbstractLinearOperator, ...] | None
+    constraint: Literal["none", "soft", "hard"] = eqx.field(static=True)
+    soft_constraint_scale: float = eqx.field(static=True)
+    include_normalizer: bool = eqx.field(static=True)
 
     def __init__(
         self,
@@ -1261,8 +1259,6 @@ class IntrinsicGMRF(dist.Distribution):
         constraint: Literal["none", "soft", "hard"] = "hard",
         soft_constraint_scale: float = 1e-3,
         include_normalizer: bool = False,
-        *,
-        validate_args: bool | None = None,
     ) -> None:
         if constraint not in ("none", "soft", "hard"):
             raise ValueError(
@@ -1291,7 +1287,16 @@ class IntrinsicGMRF(dist.Distribution):
         self.constraint = constraint
         self.soft_constraint_scale = soft_constraint_scale
         self.include_normalizer = include_normalizer
-        super().__init__(batch_shape=(), event_shape=(n,), validate_args=validate_args)
+
+    @property
+    def event_shape(self) -> tuple[int]:
+        """The event shape ``(D_x,)``."""
+        return (self.loc.shape[-1],)
+
+    @property
+    def batch_shape(self) -> tuple[()]:
+        """The batch shape, always ``()``: one field per object."""
+        return ()
 
     # -- null space -----------------------------------------------------------
 
@@ -1430,7 +1435,6 @@ class IntrinsicGMRF(dist.Distribution):
         # ½ log det₊ R = ½ log det(R + V Vᵀ), V orthonormal
         return 0.5 * pseudo_logdet(operator, null_space=self.null_space)
 
-    @validate_sample
     def log_prob(self, value: Float[Array, "*sample N"]) -> Float[Array, "*sample"]:
         """Log-density of the intrinsic field, with the optional extras.
 
@@ -1579,7 +1583,7 @@ class IntrinsicGMRF(dist.Distribution):
             variances = variances + soft_scale**2 * dual_row_norms
         return variances
 
-    @lazy_property
+    @property
     def mean(self) -> Float[Array, " N"]:
         """The mean of the samples: μ for ``"none"``, else P⊥ μ."""
         if self.constraint == "none":
@@ -1587,7 +1591,7 @@ class IntrinsicGMRF(dist.Distribution):
         # P⊥ μ
         return self._project(self.loc)
 
-    @lazy_property
+    @property
     def variance(self) -> Float[Array, " N"]:
         """The marginal variances of the samples."""
         return self.marginal_variances()
@@ -1648,7 +1652,6 @@ class BYM2GMRF(IntrinsicGMRF):
         log_pdet: log det₊ R*, if already known: it is θ-free, so compute it
             once outside a θ loop. ``None`` computes it per call by the
             matrix-tree theorem.
-        validate_args: Whether to validate input arguments.
 
     Raises:
         ValueError: If ``null_space`` does not have n rows, or for an
@@ -1690,14 +1693,11 @@ class BYM2GMRF(IntrinsicGMRF):
         1145-1165.
     """
 
-    pytree_data_fields = (
-        "tau",
-        "phi",
-        "structure_scaled",
-        "icar_null_space",
-        "log_pdet",
-    )
-    pytree_aux_fields = ()
+    tau: Float[Array, ""]
+    phi: Float[Array, ""]
+    structure_scaled: lx.AbstractLinearOperator
+    icar_null_space: Float[Array, "n c"]
+    log_pdet: Float[Array, ""] | None
 
     def __init__(
         self,
@@ -1711,7 +1711,6 @@ class BYM2GMRF(IntrinsicGMRF):
         soft_constraint_scale: float = 1e-3,
         include_normalizer: bool = False,
         log_pdet: Float[ArrayLike, ""] | None = None,
-        validate_args: bool | None = None,
     ) -> None:
         n = structure_scaled.in_size()
         # Λ(τ, φ) of (b, u*)
@@ -1736,7 +1735,6 @@ class BYM2GMRF(IntrinsicGMRF):
             constraint=constraint,
             soft_constraint_scale=soft_constraint_scale,
             include_normalizer=include_normalizer,
-            validate_args=validate_args,
         )
         self.tau = jnp.asarray(tau, dtype=dtype)
         self.phi = jnp.asarray(phi, dtype=dtype)
@@ -1789,7 +1787,6 @@ class BYM2GMRF(IntrinsicGMRF):
         # ½ log det₊ R*, by the matrix-tree theorem
         return 0.5 * pseudo_logdet(laplacian, structure="laplacian")
 
-    @validate_sample
     def log_prob(self, value: Float[Array, "*sample N"]) -> Float[Array, "*sample"]:
         """Log-density of the BYM2 pair, with the optional extras.
 
