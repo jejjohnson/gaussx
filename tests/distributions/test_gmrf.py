@@ -11,11 +11,6 @@ import jax.random as jr
 import lineax as lx
 import numpy as np
 import pytest
-
-
-pytest.importorskip("numpyro")
-
-import numpyro
 from jax.scipy.stats import multivariate_normal
 
 import gaussx as gx
@@ -630,7 +625,7 @@ def test_grad_intrinsic_log_prob_wrt_log_tau():
 
 
 # ---------------------------------------------------------------------------
-# NumPyro integration
+# Pytree
 # ---------------------------------------------------------------------------
 
 
@@ -645,24 +640,6 @@ def _distributions():
         "intrinsic": gx.IntrinsicGMRF(jnp.zeros(n), 1.5, R, null),
         "soft": gx.IntrinsicGMRF(jnp.zeros(n), 1.5, R, null, constraint="soft"),
     }
-
-
-@pytest.mark.parametrize("name", ["proper", "constrained", "intrinsic", "soft"])
-def test_numpyro_seed_and_trace(name):
-    d = _distributions()[name]
-
-    def model():
-        numpyro.sample("x", d)
-
-    trace = numpyro.handlers.trace(numpyro.handlers.seed(model, 0)).get_trace()
-    site = trace["x"]
-    assert site["value"].shape == d.event_shape
-    np.testing.assert_allclose(
-        site["fn"].log_prob(site["value"]), d.log_prob(site["value"])
-    )
-    # A re-seeded run reproduces the draw.
-    again = numpyro.handlers.trace(numpyro.handlers.seed(model, 0)).get_trace()
-    np.testing.assert_array_equal(again["x"]["value"], site["value"])
 
 
 @pytest.mark.parametrize("name", ["proper", "intrinsic"])

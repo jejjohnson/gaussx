@@ -18,8 +18,6 @@ import gaussx as gx
 from gaussx._testing import assert_sample_moments
 
 
-pytest.importorskip("numpyro")
-
 THETAS = [(1.0, 0.5), (3.0, 0.2), (0.4, 0.9)]
 
 

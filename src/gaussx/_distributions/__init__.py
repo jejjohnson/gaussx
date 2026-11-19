@@ -61,8 +61,9 @@ __all__ = [
 
 
 # The distribution classes (MultivariateNormal, MultivariateNormalPrecision,
-# MarkovGaussian, the LGSSM and GMRF families) need the optional numpyro
-# extra, so they load through the PEP 562 ``__getattr__`` below. Importing
+# MarkovGaussian, the LGSSM family) need the optional numpyro
+# extra, so they load through the PEP 562 ``__getattr__`` below; the GMRF
+# fields need no numpyro but load the same way. Importing
 # ``gaussx._distributions`` then always succeeds, which keeps the helpers
 # above available in a base install. Accessing a class without numpyro raises
 # ``ModuleNotFoundError`` with ``name='numpyro'`` rather than a confusing
