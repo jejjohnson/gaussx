@@ -1,11 +1,13 @@
 """Dependency rules for gaussx, from geostack's dependency graph.
 
-gaussx sits in Numerics, tier 0 (linear algebra and Gaussians). Its packages
-must not import or depend on filterax, finitevolX, gauss_flows, geonnax,
-kernellib, optax_bayes, plumax, pyrox, radtrax, somax, spectraldiffx, vardax,
-xtremax: they sit above it, or beside it in the same tier. Every import of a
-stack library is declared, as a dependency or an extra. Dev, docs and tutorial
-dependency groups are not checked.
+gaussx sits in Core, tier 0 (pipelines, linear algebra, Gaussians and function
+approximation). Its packages must not import or depend on argminax, filterax,
+finitevolX, functax, gauss_flows, geonnax, georeader, geotoolz, integrix,
+kernellib, manipy, pipekit, plumax, pyrox, radtrax, sesmax, spectraldiffx,
+vardax, xtremax: they sit above it, or beside it in the same tier. Every import
+of a stack library is declared, as a dependency or an extra, and what importing
+a package runs needs a dependency. Its packages form no cycle. Dev, docs and
+tutorial dependency groups are not checked.
 
 The rules: https://github.com/jejjohnson/geostack/blob/main/docs/api/dependency_graph.md
 
@@ -37,76 +39,151 @@ PACKAGES: dict[str, tuple[str, tuple[str, ...]]] = {
 
 #: stack libraries gaussx may not use: import name -> distribution
 FORBIDDEN: dict[str, str] = {
+    "argminax": "argminax",
     "filterax": "filterax",
     "finitevolx": "finitevolx",
+    "functax": "functax",
     "gauss_flows": "gauss-flows",
-    "geonnax": "geonnax",
-    "kernellib": "kernellib",
-    "optax_bayes": "optax-bayes",
-    "plumax": "plumax",
-    "pyrox": "pyrox",
-    "pyrox_gp": "pyrox-gp",
-    "pyrox_lgm": "pyrox-lgm",
-    "pyrox_nn": "pyrox-nn",
-    "radtrax": "radtrax",
-    "somax": "somax",
-    "spectraldiffx": "spectraldiffx",
-    "vardax": "vardax",
-    "xtremax": "xtremax",
-}
-
-#: stack libraries gaussx may use: import name -> distribution
-ALLOWED: dict[str, str] = {
-    "gaussx": "gaussx",
+    "geoarray": "geotoolz-array",
     "geocatalog": "geotoolz-catalog",
     "geocloud": "geotoolz-cloud",
+    "geonnax": "geonnax",
     "geoops": "geotoolz-ops",
     "geopatcher": "geotoolz-patcher",
     "geoproducts": "geotoolz-products",
     "georeader": "georeader-spaceml",
     "geotoolz": "geotoolz",
+    "integrix": "integrix",
+    "kernellib": "kernellib",
+    "manipy": "manipy-jax",
     "pipekit": "pipekit",
     "pipekit_array": "pipekit-array",
     "pipekit_cycle": "pipekit-cycle",
     "pipekit_evaluate": "pipekit-evaluate",
     "pipekit_experiment": "pipekit-experiment",
     "pipekit_jax": "pipekit-jax",
+    "pipekit_ops": "pipekit-ops",
     "pipekit_train": "pipekit-train",
-    "xrcore": "xrtoolz-core",
-    "xreinx": "xrtoolz-einx",
-    "xrgrad": "xrtoolz-grad",
-    "xrreader": "xrtoolz-reader",
-    "xrsklearn": "xrtoolz-sklearn",
+    "plumax": "plumax",
+    "pyrox": "pyrox",
+    "pyrox_gauss": "pyrox-gauss",
+    "pyrox_gp": "pyrox-gp",
+    "pyrox_lgm": "pyrox-lgm",
+    "pyrox_nn": "pyrox-nn",
+    "pyrox_ssm": "pyrox-ssm",
+    "radtrax": "radtrax",
+    "sesmax": "sesmax",
+    "sesmax_core": "sesmax-core",
+    "spectraldiffx": "spectraldiffx",
+    "vardax": "vardax",
+    "xrops": "xrtoolz-ops",
+    "xrproducts": "xrtoolz-products",
     "xrtoolz": "xrtoolz",
+    "xtremax": "xtremax",
 }
+
+#: stack libraries gaussx may use: import name -> distribution
+ALLOWED: dict[str, str] = {
+    "gaussx": "gaussx",
+}
+
+#: packages of gaussx that one of its packages may not use, because they sit in
+#: a higher package tier: distribution -> {import name: distribution}
+FORBIDDEN_INSIDE: dict[str, dict[str, str]] = {}
 
 #: imports left undeclared on purpose, kept in step with geostack:
 #: distribution -> reason
 UNDECLARED_OK: dict[str, str] = {}
+
+#: directories that hold no import root
+SKIP_DIRS = {
+    "benchmarks",
+    "docs",
+    "examples",
+    "notebooks",
+    "scripts",
+    "test",
+    "tests",
+}
 
 
 def _norm(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
+def _project(meta: dict) -> dict:
+    """The project table of a PEP 621 or a poetry ``pyproject.toml``."""
+    return meta.get("project") or meta["tool"]["poetry"]
+
+
 def _declared(pyproject: str) -> tuple[set[str], set[str]]:
     """(base dependencies, extras) of a package, as normalised names."""
     meta = tomllib.loads((ROOT / pyproject).read_text(encoding="utf-8"))
-    project = meta["project"]
+    project = _project(meta)
 
     def names(reqs: list[str]) -> set[str]:
         heads = (re.split(r"[\s\[<>=!~;@(]", r.strip(), maxsplit=1)[0] for r in reqs)
         return {_norm(h) for h in heads}
 
-    extras = project.get("optional-dependencies", {}).values()
-    return names(project.get("dependencies", [])), names([r for v in extras for r in v])
+    deps = project.get("dependencies") or []
+    if isinstance(deps, dict):  # poetry: a name -> constraint table
+        optional = {
+            _norm(n)
+            for n, c in deps.items()
+            if isinstance(c, dict) and c.get("optional")
+        }
+        listed = [r for v in (project.get("extras") or {}).values() for r in v]
+        return {_norm(n) for n in deps} - optional, optional | names(listed)
+    extras = (project.get("optional-dependencies") or {}).values()
+    return names(deps), names([r for v in extras for r in v])
 
 
-def _imports(path: Path) -> list[tuple[str, str, int]]:
-    """(top-level module, how, line) for each absolute import in a file.
+def _roots(meta: dict, path: Path) -> tuple[str, ...]:
+    """A package's import roots: from its build metadata, else from its tree.
 
+    Hatch's ``packages`` and poetry's ``packages`` name them; without either, a
+    ``src/`` layout holds packages (namespace ones too) and single-file
+    modules, and a flat layout holds the directories with an ``__init__.py``.
+    """
+    tool = meta.get("tool", {})
+    wheel = tool.get("hatch", {}).get("build", {}).get("targets", {}).get("wheel", {})
+    named = list(wheel.get("packages", []))
+    for entry in tool.get("poetry", {}).get("packages", []):
+        named.append(str(Path(entry.get("from", ".")) / entry["include"]))
+    if named:
+        found = [path / n for n in named if (path / n).exists()]
+    elif (path / "src").is_dir():
+        found = [
+            p
+            for p in (path / "src").iterdir()
+            if p.name not in SKIP_DIRS
+            and (p.stem if p.suffix == ".py" else p.name).isidentifier()
+            and ((p.is_dir() and any(p.rglob("*.py"))) or p.suffix == ".py")
+        ]
+    else:
+        found = [
+            d
+            for d in path.iterdir()
+            if (d / "__init__.py").exists() and d.name not in SKIP_DIRS
+        ]
+    return tuple(str(r.relative_to(ROOT)) for r in sorted(found))
+
+
+def _type_checking(test: ast.expr) -> bool:
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    return isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+
+
+def _imports(path: Path, package: str) -> list[tuple[str, str, int]]:
+    """(module, how, line) for each import in a file, as absolute dotted names.
+
+    ``from m import a`` gives ``m`` and ``m.a`` (``a`` may be a submodule);
+    ``package`` is the file's package, which resolves relative imports.
     ``how`` is ``module``, ``lazy`` (inside a function), ``guarded`` (inside a
-    ``try``) or ``typing`` (under ``TYPE_CHECKING``).
+    ``try``, its handlers or its ``else``; ``finally`` always runs) or
+    ``typing`` (under ``if TYPE_CHECKING``, or the ``else`` of
+    ``if not TYPE_CHECKING``).
     """
     with warnings.catch_warnings():  # an invalid escape must not drop the file
         warnings.simplefilter("ignore")
@@ -114,61 +191,178 @@ def _imports(path: Path) -> list[tuple[str, str, int]]:
     out: list[tuple[str, str, int]] = []
 
     def visit(node: ast.AST, how: str) -> None:
+        if isinstance(node, ast.Import):
+            out.extend((a.name, how, node.lineno) for a in node.names)
+            return
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if node.level:
+                base = package.split(".") if package else []
+                keep = len(base) - node.level + 1
+                if keep < 1:
+                    return
+                module = ".".join([*base[:keep], *([module] if module else [])])
+            if module:
+                out.append((module, how, node.lineno))
+                names = (a.name for a in node.names if a.name != "*")
+                out.extend((f"{module}.{n}", how, node.lineno) for n in names)
+            return
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
+            how = "lazy" if how == "module" else how
+        elif isinstance(node, ast.Try | ast.TryStar):
+            guarded = "guarded" if how == "module" else how
+            for child in [*node.body, *node.handlers, *node.orelse]:
+                visit(child, guarded)
+            for child in node.finalbody:
+                visit(child, how)
+            return
+        elif isinstance(node, ast.If):
+            test, body, orelse = node.test, "typing", how
+            if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+                test, body, orelse = test.operand, how, "typing"
+            if _type_checking(test):
+                for child in node.body:
+                    visit(child, body)
+                for child in node.orelse:
+                    visit(child, orelse)
+                return
         for child in ast.iter_child_nodes(node):
-            here = how
-            if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda):
-                here = "lazy" if how == "module" else how
-            elif isinstance(child, ast.Try):
-                here = "guarded" if how == "module" else how
-            elif isinstance(child, ast.If) and "TYPE_CHECKING" in ast.unparse(
-                child.test
-            ):
-                here = "typing"
-            if isinstance(child, ast.Import):
-                line = child.lineno
-                out.extend((a.name.split(".")[0], here, line) for a in child.names)
-            elif isinstance(child, ast.ImportFrom) and child.module and not child.level:
-                out.append((child.module.split(".")[0], here, child.lineno))
-            visit(child, here)
+            visit(child, how)
 
     visit(tree, "module")
     return out
 
 
-def _files(roots: tuple[str, ...]) -> list[Path]:
-    return sorted(f for r in roots for f in (ROOT / r).rglob("*.py"))
+Modules = dict[str, tuple[Path, list[tuple[str, str, int]]]]
+
+
+def _modules(roots: tuple[str, ...]) -> Modules:
+    """Each module under the import roots (a package directory or a single
+    ``.py`` file), shipped type stubs included: dotted name -> (file, its
+    imports). A stub never runs, so its imports are typing-only."""
+    out: Modules = {}
+    for r in roots:
+        root = ROOT / r
+        files = [root] if root.is_file() else sorted(root.rglob("*.py*"))
+        for f in (f for f in files if f.suffix in (".py", ".pyi")):
+            parts = f.relative_to(root.parent).with_suffix("").parts
+            if parts[-1] == "__init__":
+                parts = package = parts[:-1]
+            else:
+                package = parts[:-1]
+            imports = _imports(f, ".".join(package))
+            name = ".".join(parts)
+            if f.suffix == ".pyi":
+                name += " (stub)"
+                imports = [(m, "typing", line) for m, _, line in imports]
+            out[name] = (f, imports)
+    return out
+
+
+def _eager(modules: Modules, roots: tuple[str, ...]) -> set[str]:
+    """The modules ``import <package>`` runs: the roots, then every module a
+    module it runs imports at module level, with the packages on the way."""
+    todo = [Path(r).stem for r in roots]
+    seen: set[str] = set()
+    while todo:
+        name = todo.pop()
+        if name in seen or name not in modules:
+            continue
+        seen.add(name)
+        for imported, how, _ in modules[name][1]:
+            if how == "module":
+                parts = imported.split(".")
+                todo.extend(".".join(parts[:i]) for i in range(1, len(parts) + 1))
+    return seen
+
+
+def _uses(dist: str) -> set[str]:
+    """The other packages of this repository that a package uses."""
+    base, extras = _declared(PACKAGES[dist][0])
+    imported = {
+        ALLOWED.get(name.split(".")[0])
+        for _, imports in _modules(PACKAGES[dist][1]).values()
+        for name, _, _ in imports
+    }
+    return ((base | extras | imported) & set(PACKAGES)) - {dist}
+
+
+def test_packages_are_current() -> None:
+    # a workspace member or an import root added after this file was generated
+    # would go unchecked
+    pyprojects = sorted(ROOT.glob("packages/*/pyproject.toml"))
+    found = {}
+    for pyproject in pyprojects or [ROOT / "pyproject.toml"]:
+        meta = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+        found[_norm(_project(meta)["name"])] = (
+            str(pyproject.relative_to(ROOT)),
+            _roots(meta, pyproject.parent),
+        )
+    assert found == PACKAGES, (
+        "the packages or their roots changed: regenerate this file"
+    )
 
 
 @pytest.mark.parametrize("dist", sorted(PACKAGES))
 def test_no_import_points_up(dist: str) -> None:
-    found = [
-        f"{f.relative_to(ROOT)}:{line} imports {top} ({FORBIDDEN[top]})"
-        for f in _files(PACKAGES[dist][1])
-        for top, _, line in _imports(f)
-        if top in FORBIDDEN
-    ]
+    forbidden = FORBIDDEN | FORBIDDEN_INSIDE.get(dist, {})
+    found = sorted(
+        {
+            f"{f.relative_to(ROOT)}:{line} imports {top} ({forbidden[top]})"
+            for f, imports in _modules(PACKAGES[dist][1]).values()
+            for name, _, line in imports
+            if (top := name.split(".")[0]) in forbidden
+        }
+    )
     assert not found, "\n".join(found)
 
 
 @pytest.mark.parametrize("dist", sorted(PACKAGES))
 def test_no_dependency_points_up(dist: str) -> None:
     base, extras = _declared(PACKAGES[dist][0])
-    found = sorted((base | extras) & set(FORBIDDEN.values()))
+    forbidden = FORBIDDEN | FORBIDDEN_INSIDE.get(dist, {})
+    found = sorted((base | extras) & set(forbidden.values()))
     assert not found, f"{dist} declares {found}"
+
+
+def test_no_cycle_between_packages() -> None:
+    uses = {dist: _uses(dist) for dist in PACKAGES}
+
+    def reaches(a: str, b: str) -> bool:
+        seen: set[str] = set()
+        todo = [a]
+        while todo:
+            v = todo.pop()
+            if v == b:
+                return True
+            if v not in seen:
+                seen.add(v)
+                todo.extend(uses[v])
+        return False
+
+    cyclic = sorted(d for d in PACKAGES if any(reaches(t, d) for t in uses[d]))
+    assert not cyclic, f"these packages use one another in a cycle: {cyclic}"
 
 
 @pytest.mark.parametrize("dist", sorted(PACKAGES))
 def test_stack_imports_are_declared(dist: str) -> None:
     base, extras = _declared(PACKAGES[dist][0])
-    found = []
-    for f in _files(PACKAGES[dist][1]):
-        for top, how, line in _imports(f):
+    modules = _modules(PACKAGES[dist][1])
+    eager = _eager(modules, PACKAGES[dist][1])
+    found = set()
+    for module, (f, imports) in modules.items():
+        for name, how, line in imports:
+            top = name.split(".")[0]
             target = ALLOWED.get(top)
-            if target in (None, dist) or how == "typing" or target in UNDECLARED_OK:
+            if target in (None, dist, *UNDECLARED_OK) or how == "typing":
                 continue
+            where = f"{f.relative_to(ROOT)}:{line} imports {top} ({how})"
             if target not in base | extras:
-                found.append(
-                    f"{f.relative_to(ROOT)}:{line} imports {top} ({how});"
-                    f" declare {target} as a dependency or an extra of {dist}"
+                found.add(
+                    f"{where}; declare {target} as a dependency or an extra of {dist}"
                 )
-    assert not found, "\n".join(found)
+            elif target not in base and how == "module" and module in eager:
+                # an extra suits an optional module or a lazy or guarded import,
+                # not what importing the package runs
+                found.add(f"{where}, run on import; make {target} a dependency")
+    assert not found, "\n".join(sorted(found))
