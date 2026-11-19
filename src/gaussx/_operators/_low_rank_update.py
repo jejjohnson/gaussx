@@ -15,7 +15,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._tags import low_rank_tag
 
@@ -569,52 +568,3 @@ def _safe_query(query, operator: lx.AbstractLinearOperator) -> bool:
         return bool(query(operator))
     except NotImplementedError:
         return False
-
-
-# ---------------------------------------------------------------------------
-# Deprecated compatibility class
-# ---------------------------------------------------------------------------
-
-
-class SVDLowRankUpdate(LowRankUpdate):
-    """Deprecated subclass of `LowRankUpdate` with ``orthonormal=True``.
-
-    Preserves the pre-consolidation public API until gaussx 0.7.0:
-
-    - Same constructor signature as the old class — ``S`` defaults to
-      ones (via the parent ``LowRankUpdate``) if omitted, and ``V``
-      defaults to ``U`` so calls like ``SVDLowRankUpdate(base, U, S)``
-      and ``SVDLowRankUpdate(base, U)`` continue to work.
-    - Inherits from `LowRankUpdate` so ``isinstance`` /
-      ``issubclass`` checks and ``singledispatch`` registrations keyed
-      on this class keep working.
-    - Forces ``orthonormal=True`` and emits a
-      `DeprecationWarning` on construction.
-
-    New code should construct ``LowRankUpdate(base, U, S, V,
-    orthonormal=True)`` (or use `svd_low_rank_plus_diag`)
-    directly. Will be removed in gaussx 0.7.0.
-
-    Args:
-        base: The base operator A₀.
-        U: Left singular vectors U, N × k.
-        S: Singular values s, length k; defaults to ones.
-        V: Right singular vectors V, N × k; defaults to U.
-        tags: Extra lineax tags.
-    """
-
-    def __init__(
-        self,
-        base: lx.AbstractLinearOperator,
-        U: Float[Array, "n k"],
-        S: Float[Array, " k"] | None = None,
-        V: Float[Array, "n k"] | None = None,
-        *,
-        tags: object | frozenset[object] = frozenset(),
-    ) -> None:
-
-        warn_deprecated(
-            "SVDLowRankUpdate is deprecated and will be removed in gaussx 0.7.0; "
-            "use LowRankUpdate(..., orthonormal=True) or svd_low_rank_plus_diag()."
-        )
-        super().__init__(base, U, S, V, tags=tags, orthonormal=True)

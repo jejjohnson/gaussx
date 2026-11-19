@@ -17,9 +17,7 @@ import lineax as lx
 import matfree.lstsq
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._strategies._base import AbstractSolverStrategy
-from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
@@ -45,8 +43,7 @@ class LSMRSolver(AbstractSolverStrategy):
         ctol: Condition-number tolerance: stop once the estimate of
             cond(A) passes 1 / ``ctol`` (the lineax path uses
             ``conlim = 1 / ctol``).
-        max_steps: Maximum number of iterations (formerly ``maxiter``, a
-            deprecated alias; gh-405).
+        max_steps: Maximum number of iterations.
         damp: Tikhonov damping √β.
         num_probes: Number of SLQ probe vectors N_probe.
         lanczos_order: Number of Lanczos steps for the SLQ log-determinant.
@@ -91,38 +88,22 @@ class LSMRSolver(AbstractSolverStrategy):
         atol: float | None = None,
         btol: float | None = None,
         ctol: float = 1e-6,
-        max_steps: int = UNSET,
+        max_steps: int = 1000,
         damp: float = 0.0,
         num_probes: int = 20,
         lanczos_order: int = 30,
         seed: int = 0,
         throw: bool = True,
-        maxiter: int = UNSET,
     ) -> None:
         self.atol = atol
         self.btol = btol
         self.ctol = ctol
-        self.max_steps = default(
-            renamed("LSMRSolver", "maxiter", maxiter, "max_steps", max_steps), 1000
-        )
+        self.max_steps = max_steps
         self.damp = damp
         self.num_probes = num_probes
         self.lanczos_order = lanczos_order
         self.seed = seed
         self.throw = throw
-
-    @property
-    def maxiter(self) -> int:
-        """Deprecated: `max_steps` (gh-405).
-
-        Returns:
-            ``max_steps``, with a deprecation warning.
-        """
-        warn_deprecated(
-            "LSMRSolver.maxiter is deprecated and will be removed in gaussx 0.7.0; "
-            "use .max_steps (gh-405)."
-        )
-        return self.max_steps
 
     def solve(
         self,

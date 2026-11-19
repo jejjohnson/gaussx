@@ -49,10 +49,9 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
             shape, or ``base_operator`` is not square.
 
     Examples:
-        A Toeplitz RBF kernel on 10 grid points, interpolated to 3 targets
-        (the weights here come from gaussx's deprecated builder; functax's
-        ``Cubic().plan(...).to_gaussx()`` gives the same arrays away from the
-        grid edges):
+        A Toeplitz RBF kernel on 10 grid points, interpolated to 3 targets by
+        two-tap linear weights (the layout functax's
+        ``Linear().plan(...).to_gaussx()`` returns):
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx
@@ -60,8 +59,8 @@ class InterpolatedOperator(lx.AbstractLinearOperator):
         >>> grid = gaussx.create_grid([10], [(0.0, 1.0)])
         >>> psd = lx.positive_semidefinite_tag
         >>> K_grid = gaussx.Toeplitz(jnp.exp(-0.5 * (grid[0] / 0.3) ** 2), tags=psd)
-        >>> X = jnp.array([[0.12], [0.5], [0.81]])
-        >>> indices, weights = gaussx.cubic_interpolation_weights(X, grid)
+        >>> indices = jnp.array([[1, 2], [4, 5], [7, 8]])
+        >>> weights = jnp.array([[0.92, 0.08], [0.5, 0.5], [0.71, 0.29]])
         >>> A = gaussx.InterpolatedOperator(K_grid, indices, weights)
         >>> A.as_matrix().shape
         (3, 3)

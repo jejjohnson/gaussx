@@ -26,9 +26,7 @@ import gaussx as gx
 from gaussx._einx import einsum, rearrange, reduce
 from gaussx._inference._vb_correction import _pair_plan, _unconstrained_variances
 
-
-# the corrections are taken at laplace_mode's fit until gaussx 0.7.0
-pytestmark = pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
+from ._laplace_fit import laplace_fit
 
 
 GOLDEN = Path(__file__).parents[2] / "scripts" / "golden" / "inla"
@@ -167,7 +165,7 @@ class TestGaussianLikelihood:
             V = jnp.column_stack([jnp.ones(n), t - t.mean()])
             prior = gx.IntrinsicGMRF(jnp.zeros(n), 3.0, gx.rw2_structure(n), V)
             A, lik = None, gx.GaussianLikelihood(y, 0.3)
-        res = gx.laplace_mode(prior, lik, projector=A)
+        res = laplace_fit(prior, lik, projector=A)
         mean = gx.vb_mean_correction(
             res, prior, lik, projector=A, subspace=jnp.arange(n)
         )
@@ -186,7 +184,7 @@ class TestDenseReference:
         n = 24
         Q = proper_rw2(n)
         prior, lik = gx.GaussianMRF(jnp.zeros(n), Q), gx.PoissonLikelihood(counts(n))
-        res = gx.laplace_mode(prior, lik)
+        res = laplace_fit(prior, lik)
         assert isinstance(res.hessian, gx.BlockTriDiag)
         mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(n))
         ref = dense_vb(Q.as_matrix(), prior.loc, lik, res.mode, jnp.eye(n))
@@ -202,7 +200,7 @@ class TestDenseReference:
             gx.BernoulliLikelihood(detections(n)),
         )
         offset = jnp.linspace(-0.5, 0.5, n)
-        res = gx.laplace_mode(prior, lik, offset=offset)
+        res = laplace_fit(prior, lik, offset=offset)
         idx = jnp.array([0, 5, 11, 23])
         mean = gx.vb_mean_correction(res, prior, lik, offset=offset, subspace=idx)
         S = jnp.eye(n)[:, idx]
@@ -216,7 +214,7 @@ class TestDenseReference:
         Q = path_laplacian(n).add_diagonal(jnp.full(n, 0.3))
         A = interpolation(m, n) if projector == "interpolation" else two_per_row(m, n)
         prior, lik = gx.GaussianMRF(jnp.zeros(n), Q), gx.PoissonLikelihood(counts(m))
-        res = gx.laplace_mode(prior, lik, projector=A)
+        res = laplace_fit(prior, lik, projector=A)
         assert isinstance(res.hessian, gx.SparseOperator)
         plan = _pair_plan(A.pattern, res.factor.symbolic.inverse_plan[0])
         # Each row of A is a clique of AᵀWA ⊆ pattern(H): always Takahashi.
@@ -236,7 +234,7 @@ class TestDenseReference:
         A = gx.SparseOperator.from_coo(np.arange(m), obs, jnp.full(m, 1.5), (m, n))
         lik = gx.PoissonLikelihood(counts(m) + 1.0)
         offset = 0.5
-        res = gx.laplace_mode(prior, lik, projector=A, offset=offset)
+        res = laplace_fit(prior, lik, projector=A, offset=offset)
         assert isinstance(res.hessian, gx.BlockTriDiag)
         mean = gx.vb_mean_correction(
             res, prior, lik, projector=A, offset=offset, subspace=jnp.arange(n)
@@ -258,7 +256,7 @@ class TestDenseReference:
         Q = jnp.asarray(einsum(B, B, "i k, j k -> i j") + n * np.eye(n))
         prior = gx.GaussianMRF(jnp.zeros(n), lx.MatrixLinearOperator(Q))
         lik = gx.PoissonLikelihood(counts(n))
-        res = gx.laplace_mode(prior, lik)
+        res = laplace_fit(prior, lik)
         mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(n))
         np.testing.assert_allclose(
             mean, dense_vb(Q, prior.loc, lik, res.mode, jnp.eye(n)), atol=1e-9
@@ -292,7 +290,7 @@ def test_predictor_variances_equal_dense(case):
         A = lx.MatrixLinearOperator(jnp.asarray(dense))
         lik = gx.PoissonLikelihood(counts(10))
     prior = gx.GaussianMRF(jnp.zeros(n), Q)
-    res = gx.laplace_mode(prior, lik, projector=A)
+    res = laplace_fit(prior, lik, projector=A)
     dense_A = jnp.eye(n) if A is None else A.as_matrix()
     sigma = dense_covariance(Q.as_matrix(), lik, res.mode, dense_A, 0.0)
     v = _unconstrained_variances(_model(prior, lik, A, None), res)
@@ -310,7 +308,7 @@ def test_moves_towards_quadrature_posterior_mean():
     Q = jnp.array([[2.0, -0.8], [-0.8, 1.5]])
     prior = gx.GaussianMRF(jnp.zeros(2), lx.MatrixLinearOperator(Q))
     lik = gx.PoissonLikelihood(jnp.array([0.0, 1.0]))
-    res = gx.laplace_mode(prior, lik)
+    res = laplace_fit(prior, lik)
     mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(2))
 
     # Trapezoid grid over ±10 Laplace sds: the tails beyond are < e⁻⁵⁰.
@@ -346,7 +344,7 @@ def test_moves_towards_importance_sampled_mean():
         gx.GaussianMRF(jnp.zeros(n), Q),
         gx.BernoulliLikelihood(detections(n, 1)),
     )
-    res = gx.laplace_mode(prior, lik)
+    res = laplace_fit(prior, lik)
     mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(n))
 
     sigma = jnp.linalg.inv(res.hessian.as_matrix())
@@ -423,7 +421,7 @@ def test_bernoulli_rw2_matches_r_inla_vb(key, subspace):
         (n, size),
     )
     lik = gx.BernoulliLikelihood(jnp.asarray(fixture["y"], dtype=float))
-    res = gx.laplace_mode(prior, lik, projector=A)
+    res = laplace_fit(prior, lik, projector=A)
     np.testing.assert_allclose(res.mode, fixture["mean_laplace"], atol=1e-6)
     assert _pair_plan(A.pattern, res.factor.symbolic.inverse_plan[0]) is not None
 
@@ -455,7 +453,7 @@ def test_reverse_mode_gradient_matches_finite_differences():
 
     def f(log_tau):
         prior = gx.GaussianMRF(jnp.zeros(n), proper_rw2(n, tau=jnp.exp(log_tau)))
-        res = gx.laplace_mode(prior, lik)
+        res = laplace_fit(prior, lik)
         mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(n))
         return weights @ mean
 
@@ -473,7 +471,7 @@ def test_float32_stays_float32():
     )
     prior = gx.GaussianMRF(jnp.zeros(n, jnp.float32), Q32)
     lik = gx.PoissonLikelihood(counts(n).astype(jnp.float32))
-    res = gx.laplace_mode(prior, lik)
+    res = laplace_fit(prior, lik)
     mean = gx.vb_mean_correction(res, prior, lik, subspace=jnp.arange(n))
     assert mean.dtype == jnp.float32
 
@@ -483,7 +481,7 @@ def test_subspace_shape_is_checked():
     n = 8
     prior = gx.GaussianMRF(jnp.zeros(n), proper_rw2(n))
     lik = gx.PoissonLikelihood(counts(n))
-    res = gx.laplace_mode(prior, lik)
+    res = laplace_fit(prior, lik)
     with pytest.raises(ValueError, match="dense subspace"):
         gx.vb_mean_correction(res, prior, lik, subspace=jnp.ones((n + 1, 2)))
     with pytest.raises(ValueError, match="1-D"):

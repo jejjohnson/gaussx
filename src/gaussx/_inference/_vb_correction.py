@@ -56,7 +56,7 @@ def _pair_plan(
         ``(row, entry_a, entry_b, position)``: the pair's row, its two entries in
         A's full (row-major) layout, and the position of [Σ]_a,b in ``selected``.
         ``None`` if some pair is missing from ``selected``; for the
-        Λ_x|y = Λ_x + Aᵀ Λ_site A of `laplace_mode` none is, since each row of A
+        Λ_x|y = Λ_x + Aᵀ Λ_site A of a Laplace fit none is, since each row of A
         is a clique of Aᵀ Λ_site A.
     """
     rows, cols, _ = projector._full
@@ -242,7 +242,7 @@ def vb_mean_correction(
 
     **Gradients.** The result is an ordinary JAX function of the arrays in ``result``,
     ``prior``, ``likelihood`` and ``projector``, so it can be differentiated in reverse
-    mode (through ``laplace_mode``'s implicit mode and the factor's solves); ``n_iter``
+    mode (through the fit's implicit mode and the factor's solves); ``n_iter``
     fixed Newton steps are differentiated as unrolled.
 
     Algorithm:
@@ -252,16 +252,15 @@ def vb_mean_correction(
         4. Return x̂ + U δ.
 
     Args:
-        result: `laplace_mode`'s output for the same model.
-        prior: The latent field passed to `laplace_mode`.
-        likelihood: The site-factorising likelihood passed to `laplace_mode`, which
-            holds y.
+        result: The `LaplaceResult` of a fit of the same model (`laplace_result`,
+            as ``argminax.solve.laplace_mode`` returns it).
+        prior: The latent field of the fit.
+        likelihood: The site-factorising likelihood of the fit, which holds y.
         subspace: The span of the mean shift S: an integer index array (those columns
             of the identity, e.g. the fixed effects' nodes) or a dense basis of shape
             (D_x, p).
-        projector: The projector A as passed to `laplace_mode`; ``None`` is the
-            identity.
-        offset: The offset o as passed to `laplace_mode`.
+        projector: The projector A of the fit; ``None`` is the identity.
+        offset: The offset o of the fit.
         n_iter: Newton steps on δ.
         integrator: A point-based 1-D rule for the site expectations; its points and
             weights for 𝒩(0, 1) are reused for every site.
@@ -300,7 +299,11 @@ def vb_mean_correction(
         ...     (n, n + 1),
         ... )
         >>> likelihood = gaussx.BernoulliLikelihood(detected)
-        >>> fit = gaussx.laplace_mode(prior, likelihood, projector=projector)
+        >>> model = gaussx.laplace_model(prior, likelihood, projector=projector)
+        >>> mode = jnp.zeros(n + 1)
+        >>> for _ in range(30):  # Newton steps to the mode
+        ...     mode = model.newton(mode)
+        >>> fit = gaussx.laplace_result(model, prior, mode, 30, True)
         >>> mean = gaussx.vb_mean_correction(
         ...     fit, prior, likelihood, projector=projector, subspace=jnp.array([n])
         ... )

@@ -20,7 +20,6 @@ import matfree.decomp
 import matfree.funm
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._operators._block_diag import BlockDiag, _resolve_dtype
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._kronecker import Kronecker
@@ -525,27 +524,6 @@ class SumOfKroneckersSqrt(SqrtOperator):
         original: SumOfKroneckers,
         lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
     ) -> None:
-        super().__init__(original, lanczos_order=lanczos_order)
-
-
-class SumKroneckerSqrt(SumOfKroneckersSqrt):
-    """Deprecated alias for `SumOfKroneckersSqrt` (gh-297).
-
-    Subclasses `SumOfKroneckersSqrt` so ``isinstance`` checks keep working,
-    and emits a `DeprecationWarning` on construction. `gaussx.sqrt` returns
-    the new class, which is *not* an instance of this alias. Will be removed
-    in gaussx 0.7.0.
-    """
-
-    def __init__(
-        self,
-        original: SumOfKroneckers,
-        lanczos_order: int = _DEFAULT_LANCZOS_ORDER,
-    ) -> None:
-        warn_deprecated(
-            "SumKroneckerSqrt is deprecated and will be removed in gaussx 0.7.0; "
-            "use SumOfKroneckersSqrt."
-        )
         super().__init__(original, lanczos_order=lanczos_order)
 
 

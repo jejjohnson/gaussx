@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 import gaussx
-from gaussx._deprecation import RENAMED
 from gaussx._testing import default_tolerances
 
 
@@ -72,12 +71,12 @@ def _gaussx_names() -> list[tuple[str | None, str]]:
         (layer, name)
         for layer, names in _names_by_layer().items()
         for name in sorted(names)
-        if name in gaussx.__all__ or name in RENAMED
+        if name in gaussx.__all__
     ]
 
 
 def test_inside_names_exist():
-    """Every gaussx name in "What's Inside" is public and not a renamed alias."""
+    """Every gaussx name in "What's Inside" is public."""
     unknown = {
         name
         for names in _names_by_layer().values()
@@ -87,8 +86,6 @@ def test_inside_names_exist():
     # Non-gaussx identifiers the prose mentions (Python / equinox / jax).
     unknown -= {"isinstance", "jit", "grad", "vmap", "orthonormal", "solver"}
     assert not unknown, f"README names that are not in gaussx.__all__: {unknown}"
-    renamed = {name for _, name in _gaussx_names() if name in RENAMED}
-    assert not renamed, f"README uses deprecated names: {renamed}"
 
 
 @pytest.mark.parametrize(("layer", "name"), _gaussx_names())

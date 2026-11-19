@@ -1,4 +1,8 @@
-"""Tests for `laplace_mode`: precision-form Newton, implicit gradients, log-marginal.
+"""Laplace fits on gaussx's public step: precision-form Newton, gradients, log-marginal.
+
+`laplace_fit` (``_laplace_fit.py``) iterates `gaussx.LaplaceModel.newton` to the
+mode with implicit gradients, as ``argminax.solve.laplace_mode`` does, and returns
+`gaussx.laplace_result` there.
 
 Every check is against a dense reference: Newton on the dense matrices (in an
 orthonormal basis of ``{Vᵀx = 0}`` for hard-constrained intrinsic priors, so
@@ -23,12 +27,9 @@ import pytest
 import scipy.stats
 
 import gaussx as gx
-from gaussx._deprecation import GaussxDeprecationWarning
 from gaussx._einx import einsum
 
-
-# laplace_mode stays tested until gaussx 0.7.0 removes it
-pytestmark = pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
+from ._laplace_fit import laplace_fit
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +150,7 @@ class TestGaussianConjugate:
         offset = jnp.asarray(rng.normal(size=m))
         y = jnp.asarray(rng.normal(size=m))
         prior = gx.GaussianMRF(mu, Q)
-        result = gx.laplace_mode(
+        result = laplace_fit(
             prior, gx.GaussianLikelihood(y, noise), projector=A, offset=offset
         )
 
@@ -170,7 +171,7 @@ class TestGaussianConjugate:
         n = 8
         y = jnp.linspace(-1.0, 1.0, n)
         prior = gx.GaussianMRF(jnp.zeros(n), gx.ar1_precision(n, rho=0.5, tau=1.0))
-        result = gx.laplace_mode(prior, gx.GaussianLikelihood(y, 0.5))
+        result = laplace_fit(prior, gx.GaussianLikelihood(y, 0.5))
         assert isinstance(result.hessian, gx.BlockTriDiag)
         Q = prior.precision.as_matrix()
         H = Q + 2.0 * jnp.eye(n)
@@ -193,7 +194,7 @@ class TestModes:
         V = rw2_null(n)
         R = gx.rw2_structure(n)
         prior = gx.IntrinsicGMRF(jnp.zeros(n), 3.0, R, V, include_normalizer=True)
-        result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts))
+        result = laplace_fit(prior, gx.PoissonLikelihood(counts))
         mode, log_marginal = dense_laplace(
             3.0 * R.as_matrix(),
             jnp.zeros(n),
@@ -217,7 +218,7 @@ class TestModes:
         V = rw2_null(n)
         R = gx.rw2_structure(n)
         prior = gx.IntrinsicGMRF(jnp.zeros(n), 5.0, R, V)
-        result = gx.laplace_mode(prior, lik)
+        result = laplace_fit(prior, lik)
         mode, _ = dense_laplace(
             5.0 * R.as_matrix(), jnp.zeros(n), lik, B=complement_basis(V)
         )
@@ -242,7 +243,7 @@ class TestModes:
         R = gx.rw2_structure(n)
         assert R.in_size() == n + 1
         prior = gx.IntrinsicGMRF(jnp.zeros(n + 1), 4.0, R, V)
-        result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts), projector=select)
+        result = laplace_fit(prior, gx.PoissonLikelihood(counts), projector=select)
         mode, _ = dense_laplace(
             4.0 * R.as_matrix()[:n, :n],
             jnp.zeros(n),
@@ -291,7 +292,7 @@ class TestModes:
         lik = gx.NegativeBinomialLikelihood(y, 3.0)
         offset = jnp.asarray(rng.normal(scale=0.2, size=n))
         prior = gx.IntrinsicGMRF(jnp.zeros(size), 1.0, Q, V)
-        result = gx.laplace_mode(prior, lik, projector=A, offset=offset)
+        result = laplace_fit(prior, lik, projector=A, offset=offset)
         mode, _ = dense_laplace(
             Q.as_matrix(),
             jnp.zeros(size),
@@ -360,7 +361,7 @@ class TestStructures:
         counts = jnp.asarray(rng.poisson(2.0, m), dtype=float)
         mu = jnp.asarray(rng.normal(size=n)) / 4.0
         lik = gx.PoissonLikelihood(counts)
-        result = gx.laplace_mode(gx.GaussianMRF(mu, Q), lik, projector=A)
+        result = laplace_fit(gx.GaussianMRF(mu, Q), lik, projector=A)
         mode, log_marginal = dense_laplace(
             Q.as_matrix(), mu, lik, A=None if A is None else A.as_matrix()
         )
@@ -390,11 +391,9 @@ class TestStructures:
         A = two_per_row(n, n)
         for (structure, projector), expected in cases.items():
             prior = gx.GaussianMRF(jnp.zeros(n), priors[structure])
-            result = gx.laplace_mode(
-                prior, lik, projector=None if projector is None else A
-            )
+            result = laplace_fit(prior, lik, projector=None if projector is None else A)
             assert isinstance(result.hessian, expected), (structure, projector)
-        sparse = gx.laplace_mode(gx.GaussianMRF(jnp.zeros(n), priors["sparse"]), lik)
+        sparse = laplace_fit(gx.GaussianMRF(jnp.zeros(n), priors["sparse"]), lik)
         assert isinstance(sparse.factor, gx.SparseCholeskyFactor)
 
 
@@ -450,7 +449,7 @@ def test_scotland_bym2_poisson_mode_matches_r_inla():
     prior = gx.IntrinsicGMRF(jnp.zeros(size), 1.0, Q, V)
     lik = gx.PoissonLikelihood(jnp.asarray(fixture["counts"], dtype=float))
     offset = jnp.log(jnp.asarray(fixture["expected"]))
-    result = gx.laplace_mode(prior, lik, projector=A, offset=offset)
+    result = laplace_fit(prior, lik, projector=A, offset=offset)
     expected = jnp.r_[
         jnp.asarray(fixture["mode_b"]),
         jnp.asarray(fixture["mode_u"]),
@@ -475,7 +474,7 @@ def rw2_log_marginal(counts, n):
         prior = gx.IntrinsicGMRF(
             jnp.zeros(n), jnp.exp(log_tau), R, V, include_normalizer=True
         )
-        return gx.laplace_mode(prior, gx.PoissonLikelihood(counts)).log_marginal
+        return laplace_fit(prior, gx.PoissonLikelihood(counts)).log_marginal
 
     def reference(log_tau, init):
         return dense_laplace(
@@ -501,7 +500,7 @@ def sparse_problem(n=10):
 
     def log_marginal(theta):
         prior = gx.GaussianMRF(jnp.zeros(n), precision(theta))
-        return gx.laplace_mode(prior, gx.PoissonLikelihood(counts)).log_marginal
+        return laplace_fit(prior, gx.PoissonLikelihood(counts)).log_marginal
 
     def reference(theta, init):
         Q = precision(theta).as_matrix()
@@ -515,7 +514,7 @@ def _mode_rw2(counts, n, log_tau):
     prior = gx.IntrinsicGMRF(
         jnp.zeros(n), jnp.exp(log_tau), gx.rw2_structure(n), rw2_null(n)
     )
-    return gx.laplace_mode(prior, gx.PoissonLikelihood(counts)).mode
+    return laplace_fit(prior, gx.PoissonLikelihood(counts)).mode
 
 
 class TestGradients:
@@ -549,7 +548,7 @@ class TestGradients:
         log_marginal, reference, precision, counts = sparse_problem()
         theta = jnp.array([0.3, -0.5])
         prior = gx.GaussianMRF(jnp.zeros(10), precision(theta))
-        mode = gx.laplace_mode(prior, gx.PoissonLikelihood(counts)).mode
+        mode = laplace_fit(prior, gx.PoissonLikelihood(counts)).mode
         grad = jax.grad(log_marginal)(theta)
         dense = jax.grad(lambda t: reference(t, mode)[1])(theta)
         h = 1e-5
@@ -571,7 +570,7 @@ class TestGradients:
 
         def log_marginal(log_r):
             lik = gx.NegativeBinomialLikelihood(y, jnp.exp(log_r))
-            return gx.laplace_mode(prior, lik).log_marginal
+            return laplace_fit(prior, lik).log_marginal
 
         def reference(log_r):
             lik = gx.NegativeBinomialLikelihood(y, jnp.exp(log_r))
@@ -600,7 +599,7 @@ class TestGradients:
         log_marginal, reference, precision, counts = sparse_problem()
         theta = jnp.array([0.3, -0.5])
         prior = gx.GaussianMRF(jnp.zeros(10), precision(theta))
-        mode = gx.laplace_mode(prior, gx.PoissonLikelihood(counts)).mode
+        mode = laplace_fit(prior, gx.PoissonLikelihood(counts)).mode
         hess = jax.jacrev(jax.jacrev(log_marginal))(theta)
         dense = jax.jacrev(jax.jacrev(lambda t: reference(t, mode)[1]))(theta)
         assert jnp.allclose(hess, hess.T, atol=1e-10)
@@ -624,29 +623,6 @@ class TestGradients:
 
 class TestOptions:
     @pytest.mark.slow
-    def test_non_converged_is_reported(self):
-        n = 12
-        counts = rw2_counts(n) * 10.0
-        prior = gx.IntrinsicGMRF(jnp.zeros(n), 1.0, gx.rw2_structure(n), rw2_null(n))
-        result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts), max_iter=2)
-        assert result.n_iter == 2
-        assert not result.converged
-
-    @pytest.mark.slow
-    def test_damping_and_init_reach_the_same_mode(self):
-        n = 12
-        counts = rw2_counts(n)
-        prior = gx.IntrinsicGMRF(jnp.zeros(n), 2.0, gx.rw2_structure(n), rw2_null(n))
-        lik = gx.PoissonLikelihood(counts)
-        full = gx.laplace_mode(prior, lik)
-        damped = gx.laplace_mode(
-            prior, lik, damping=0.7, init=jnp.ones(n), max_iter=200
-        )
-        assert damped.converged
-        assert damped.n_iter > full.n_iter
-        assert jnp.allclose(damped.mode, full.mode, atol=1e-7)
-
-    @pytest.mark.slow
     def test_float32_stays_float32(self):
         n = 12
         counts = rw2_counts(n).astype(jnp.float32)
@@ -656,7 +632,7 @@ class TestOptions:
         )
         V = rw2_null(n).astype(jnp.float32)
         prior = gx.IntrinsicGMRF(jnp.zeros(n, jnp.float32), 2.0, R32, V)
-        result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts))
+        result = laplace_fit(prior, gx.PoissonLikelihood(counts))
         assert result.mode.dtype == jnp.float32
         assert result.log_marginal.dtype == jnp.float32
         assert result.converged
@@ -666,17 +642,17 @@ class TestOptions:
             jnp.zeros(4), 1.0, gx.rw1_structure(4), jnp.ones(4), constraint="soft"
         )
         with pytest.raises(NotImplementedError, match="soft"):
-            gx.laplace_mode(prior, gx.PoissonLikelihood(jnp.ones(4)))
+            gx.laplace_model(prior, gx.PoissonLikelihood(jnp.ones(4)))
 
     def test_bad_prior_and_projector_raise(self):
         # A bare precision operator is not a prior.
         precision = lx.MatrixLinearOperator(jnp.eye(3))
         with pytest.raises(TypeError, match="GaussianMRF"):
-            gx.laplace_mode(precision, gx.PoissonLikelihood(jnp.ones(3)))
+            gx.laplace_model(precision, gx.PoissonLikelihood(jnp.ones(3)))
         prior = gx.GaussianMRF(jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3)))
         A = lx.MatrixLinearOperator(jnp.ones((2, 4)))
         with pytest.raises(ValueError, match="columns"):
-            gx.laplace_mode(prior, gx.PoissonLikelihood(jnp.ones(2)), projector=A)
+            gx.laplace_model(prior, gx.PoissonLikelihood(jnp.ones(2)), projector=A)
 
     @pytest.mark.slow
     def test_none_constraint_runs_unconstrained(self):
@@ -684,21 +660,8 @@ class TestOptions:
         counts = rw2_counts(n)
         R = gx.rw2_structure(n)
         prior = gx.IntrinsicGMRF(jnp.zeros(n), 2.0, R, rw2_null(n), constraint="none")
-        result = gx.laplace_mode(prior, gx.PoissonLikelihood(counts))
+        result = laplace_fit(prior, gx.PoissonLikelihood(counts))
         mode, _ = dense_laplace(
             2.0 * R.as_matrix(), jnp.zeros(n), gx.PoissonLikelihood(counts)
         )
         assert jnp.allclose(result.mode, mode, atol=1e-10)
-
-
-def test_laplace_mode_warns_naming_its_replacement_and_removal() -> None:
-    prior = gx.GaussianMRF(jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3)))
-    likelihood = gx.PoissonLikelihood(jnp.array([0.0, 1.0, 4.0]))
-    with pytest.warns(GaussxDeprecationWarning) as record:
-        gx.laplace_mode(prior, likelihood)
-    assert len(record) == 1
-    message = str(record[0].message)
-    assert "argminax.solve.laplace_mode" in message
-    assert "gaussx 0.7.0" in message
-    # attributed to the caller's line, not to gaussx
-    assert record[0].filename == __file__

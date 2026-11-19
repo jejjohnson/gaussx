@@ -15,9 +15,7 @@ from gaussx._expfam import (
     mean_cov_to_natural,
     natural_to_expectation,
     sufficient_stats,
-    to_expectation,
     to_mean_cov,
-    to_natural,
 )
 from gaussx._testing import random_pd_matrix, tree_allclose
 
@@ -167,25 +165,6 @@ def test_mean_cov_versus_expectation_parameters():
     assert jnp.allclose(m1, mu, rtol=1e-10)
     assert jnp.allclose(m2, jnp.outer(mu, mu) + S, rtol=1e-10)
     assert jnp.allclose(cov.as_matrix(), S, rtol=1e-10)
-
-
-def test_misnamed_aliases_are_deprecated():
-    """gh-335: same values as their replacements, with a DeprecationWarning."""
-    mu = jnp.array([1.0, -0.5])
-    Sigma = lx.MatrixLinearOperator(
-        jnp.array([[2.0, 0.3], [0.3, 1.0]]), lx.positive_semidefinite_tag
-    )
-    ef = GaussianExpFam.from_mean_cov(mu, Sigma)
-    with pytest.warns(DeprecationWarning, match="to_mean_cov"):
-        old = to_expectation(ef)
-    new = to_mean_cov(ef)
-    assert jnp.allclose(old[0], new[0])
-    assert jnp.allclose(old[1].as_matrix(), new[1].as_matrix())
-    with pytest.warns(DeprecationWarning, match="mean_cov_to_natural"):
-        old_eta = to_natural(mu, Sigma)
-    new_eta = mean_cov_to_natural(mu, Sigma)
-    assert jnp.allclose(old_eta[0], new_eta[0])
-    assert jnp.allclose(old_eta[1].as_matrix(), new_eta[1].as_matrix())
 
 
 def test_documented_density_matches_scipy():

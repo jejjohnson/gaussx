@@ -23,7 +23,7 @@ from gaussx._inference._etkf import _etkf_increments
 from gaussx._inference._localization import _check_localization_shapes
 from gaussx._linalg._linalg import solve_rows
 from gaussx._operators._block_diag import BlockDiag
-from gaussx._operators._lazy_algebra import ScaledOperator
+from gaussx._operators._lazy_algebra import scaled_operator
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
@@ -100,7 +100,7 @@ def eki_step(
         obs_particles: Its image h⁽ᵉ⁾ = h(x⁽ᵉ⁾) in observation space.
         observation: The observation y.
         obs_noise: Observation-error covariance Σ_ε. Scaled to Σ_ε / Δt as a lazy
-            `gaussx.ScaledOperator`, so a structured Σ_ε keeps its own solve in
+            `gaussx.scaled_operator`, so a structured Σ_ε keeps its own solve in
             both variants.
         dt: Observation-side tempering step Δt. It may be traced, so a step that
             is not positive is not an error: it returns ``particles`` unchanged,
@@ -238,7 +238,7 @@ def eki_step(
     # of the update, where ∞ × 0 would be NaN in the value and in the gradient.
     positive_step = dt > 0.0
     safe_dt = jnp.where(positive_step, dt, 1.0)
-    tempered_noise = ScaledOperator(obs_noise, 1.0 / safe_dt)
+    tempered_noise = scaled_operator(obs_noise, 1.0 / safe_dt)
 
     if deterministic:
         # By the push-through identity G (y − h̄) = X̃ᵀ w̄, so the ETKF weights

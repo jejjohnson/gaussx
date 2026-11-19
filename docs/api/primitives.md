@@ -126,7 +126,7 @@ roughly the matvec budget of one. Supplying `logdet_preconditioner=` $\mathbf{P}
 switches on the Artemev et al. variance reduction, estimating only the
 near-identity residual $\mathrm{tr}(\log(\mathbf{P}^{-1}\mathbf{A}))$ stochastically. $\mathbf{P}$ approximates $\mathbf{A}$
 itself, unlike the `preconditioner=` ($\mathbf{M}^{-1} \approx \mathbf{A}^{-1}$) of the CG
-solvers. The old keyword `preconditioner=` is a deprecated alias.
+solvers.
 
 ::: gaussx
     options:

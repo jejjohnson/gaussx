@@ -45,7 +45,6 @@ import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, rearrange, reduce, repeat
 from gaussx._linalg._symmetrize import symmetrize
@@ -67,7 +66,6 @@ from gaussx._ssm._utils import (
     _masked_obs_inputs,
     _normalise_tv_inputs,
     _transition_stack,
-    _warn_unused_process_noise,
 )
 from gaussx._strategies._base import AbstractSolverStrategy
 
@@ -253,14 +251,12 @@ def parallel_kalman_filter(
         solver: Used only with ``woodbury_innovation=True``, which
             delegates to `gaussx.kalman_filter`. The associative-scan
             combinators use dense solves, so passing ``solver`` without
-            ``woodbury_innovation`` is deprecated (it warns, and will raise
-            in gaussx 0.7.0).
+            ``woodbury_innovation`` raises.
         woodbury_innovation: When ``True``, delegate to
             `gaussx.kalman_filter` with the same flag, so a structured
             Σ_ε,t takes the Woodbury innovation path.
-        form: ``"covariance"``. The former ``"sqrt"`` is a deprecated
-            spelling of ``psd_project=True`` (it warns, and will be removed
-            in gaussx 0.7.0): it never was a square-root filter.
+        form: ``"covariance"``, the only form. For PSD-projected
+            covariances pass ``psd_project=True``.
         psd_project: Project each returned covariance onto the PSD cone
             (eigenvalue clip) and keep lower-triangular factors of the
             projections. The associative scan still runs in covariance
@@ -278,9 +274,9 @@ def parallel_kalman_filter(
             ``woodbury_innovation``.
 
     Raises:
-        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
-            ``square_root`` is combined with ``psd_project`` or
-            ``woodbury_innovation``.
+        ValueError: If ``form`` is not ``"covariance"``, ``solver`` is given
+            without ``woodbury_innovation``, or ``square_root`` is combined
+            with ``psd_project`` or ``woodbury_innovation``.
         NotImplementedError: If ``psd_project=True`` gets a ``(T, M)``
             mask.
 
@@ -334,26 +330,20 @@ def parallel_kalman_filter(
         state space models. arXiv:2207.00426.
     """
     if solver is not None and not woodbury_innovation:
-        warn_deprecated(
+        raise ValueError(
             "parallel_kalman_filter(solver=...) has no effect unless "
             "woodbury_innovation=True: the associative-scan combinators use "
-            "dense solves. Passing it otherwise is deprecated and will raise "
-            "in gaussx 0.7.0."
+            "dense solves."
         )
-    if form == "sqrt":
-        warn_deprecated(
-            'form="sqrt" is deprecated: it is a PSD projection of the '
-            "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in gaussx 0.7.0.'
+    if form != "covariance":
+        raise ValueError(
+            "form must be 'covariance'; for PSD outputs pass psd_project=True."
         )
-        psd_project = True
-    elif form != "covariance":
-        raise ValueError("form must be 'covariance' or 'sqrt'.")
     if square_root:
         if psd_project or woodbury_innovation:
             raise ValueError(
                 "square_root=True cannot be combined with psd_project=True "
-                "(or form='sqrt') or woodbury_innovation=True."
+                "or woodbury_innovation=True."
             )
         return parallel_kalman_filter_factor(
             transition,
@@ -473,7 +463,6 @@ def parallel_kalman_filter(
 def parallel_rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "*T N N"] | lx.AbstractLinearOperator | None = None,
     *,
     solver: AbstractSolverStrategy | None = None,
     form: str = "covariance",
@@ -500,11 +489,9 @@ def parallel_rts_smoother(
             `gaussx.kalman_filter`.
         transition: Linear dynamics F_t, as a matrix, a stack over time or
             an operator; the same one passed to the filter.
-        process_noise: Deprecated and ignored, as in `gaussx.rts_smoother`;
-            it will be removed in gaussx 0.7.0.
         solver: Accepted for API symmetry; not threaded through.
-        form: ``"covariance"``. ``"sqrt"`` is a deprecated spelling of
-            ``psd_project=True``, removed in gaussx 0.7.0.
+        form: ``"covariance"``, the only form. For PSD-projected
+            covariances pass ``psd_project=True``.
         psd_project: Build the smoothing elements from PSD-projected
             factors and combine the factors with QR, so the smoothed
             covariances are PSD. As in `parallel_kalman_filter`, the
@@ -512,8 +499,8 @@ def parallel_rts_smoother(
             PSD safety net rather than a square-root smoother.
 
     Raises:
-        ValueError: If ``form`` is not ``"covariance"`` or ``"sqrt"``, or
-            ``transition`` is neither a matrix nor a stack.
+        ValueError: If ``form`` is not ``"covariance"``, or ``transition``
+            is neither a matrix nor a stack.
         TypeError: If an operator-typed ``transition`` has a time axis.
 
     Returns:
@@ -543,16 +530,10 @@ def parallel_rts_smoother(
         >>> bool(jnp.allclose(means[-1], state.filtered_means[-1]))
         True
     """
-    _warn_unused_process_noise("parallel_rts_smoother", process_noise)
-    if form == "sqrt":
-        warn_deprecated(
-            'form="sqrt" is deprecated: it is a PSD projection of the '
-            "covariance-form combinator, not a square-root filter. Pass "
-            'psd_project=True instead; form="sqrt" will be removed in gaussx 0.7.0.'
+    if form != "covariance":
+        raise ValueError(
+            "form must be 'covariance'; for PSD outputs pass psd_project=True."
         )
-        psd_project = True
-    elif form != "covariance":
-        raise ValueError("form must be 'covariance' or 'sqrt'.")
     if psd_project:
         # lazy import, cycle: _ssm._parallel_kalman_sqrt -> _ssm._parallel_kalman
         from gaussx._ssm._parallel_kalman_sqrt import parallel_rts_smoother_sqrt

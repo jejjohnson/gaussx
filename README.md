@@ -251,8 +251,7 @@ The Gaussian functions (`gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, 
 A few usage details that are easy to miss:
 
 - `gaussx.kronecker_posterior_predictive(...)` requires `K_test_diag_factors=` so predictive variances use the exact prior diagonal at the test points instead of reconstructing it from cross-covariances.
-- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `pyrox_gauss.MarkovGaussian`. The older stacked layout (`Q[0] == P_0`) is deprecated and will be removed in gaussx 0.7.0; with it, an inconsistent initial covariance raises an `EquinoxRuntimeError` (via `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
-- `gaussx.SumKronecker` and `gaussx.SVDLowRankUpdate` are **deprecated** aliases (for `SumOfKroneckers` and `LowRankUpdate(..., orthonormal=True)`); both warn on construction and will be removed in gaussx 0.7.0.
+- `gaussx.ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape `(N-1, d, d)` and `P_0` separately, the same layout as `pyrox_gauss.MarkovGaussian`; any other number of `Q` blocks raises a `ValueError`.
 - Kernel operators, Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro moved to [kernellib](https://github.com/jejjohnson/kernellib) in 0.2.0. They are lineax operators and work with every gaussx primitive and strategy.
 <!-- --8<-- [end:api-notes] -->
 

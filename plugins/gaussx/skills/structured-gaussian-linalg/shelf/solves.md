@@ -18,7 +18,6 @@ Each verb takes any `lineax` operator and picks a rule from its structure, so bu
 | `sqrt(op, *, lanczos_order=None)` | An operator `S` with `S S = A`, for PSD `A`. |
 | `sqrt_matmul(op, rhs)`, `sqrt_inv_matmul(op, rhs)` | `A^{1/2} B` and `A^{-1/2} B` for a `(N, C)` matrix `B`, by contour quadrature with shifted solves. |
 | `SumOfKroneckersSqrt` | The lazy Lanczos root that `sqrt` returns for a `SumOfKroneckers`. |
-| `SumKroneckerSqrt` | Deprecated alias for `SumOfKroneckersSqrt`. |
 | `inv(op, *, solver=None)` | A lazy inverse operator that applies `solve`; a `Kronecker` keeps its structure. |
 | `inv_quad_logdet(op, rhs, *, strategy=None)` | The pair `tr(Rᵀ A⁻¹ R)` and `log|A|` in one call. |
 | `diag(op, *, stochastic=False, ...)` | The diagonal as a 1-D array, read from the structure; `stochastic=True` estimates it from matvecs. |

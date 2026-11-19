@@ -82,15 +82,15 @@ Open the one the task needs; do not read them all.
 | ② strategy | [Integrators](shelf/integrators.md) | Gauss–Hermite, unscented, cubature, Taylor, Monte Carlo | 13 |
 | ③ model | [Gaussians](shelf/gaussians.md) | densities, KL, entropy, conditioning, sampling | 15 |
 | ③ model | [GMRF fields](shelf/distributions.md) | The GMRF fields `GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF` and `BYM2GMRF` | 4 |
-| ③ model | [Exponential-family forms](shelf/expfam.md) | natural, expectation and mean-covariance conversions | 16 |
+| ③ model | [Exponential-family forms](shelf/expfam.md) | natural, expectation and mean-covariance conversions | 14 |
 | ③ model | [Likelihoods](shelf/likelihoods.md) | Gaussian, Poisson, Bernoulli, Student-t and the rest | 10 |
 | ③ model | [SDE kernels](shelf/sde-kernels.md) | Matérn, periodic, quasi-periodic, sums and products, and their discretisation | 17 |
-| ④ algorithm | [GP conditioning and prediction](shelf/gp.md) | conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out | 20 |
+| ④ algorithm | [GP conditioning and prediction](shelf/gp.md) | conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out | 19 |
 | ④ algorithm | [Variational GPs](shelf/variational-gp.md) | ELBOs, the collapsed bound, whitening | 9 |
 | ④ algorithm | [Kalman filtering and smoothing](shelf/kalman.md) | sequential, parallel, mean-field and infinite-horizon filters and smoothers | 23 |
 | ④ algorithm | [Nonlinear filtering and sites](shelf/nonlinear-filtering.md) | nonlinear Kalman, CVI site updates, SpInGP | 14 |
 | ④ algorithm | [Expectations and moment matching](shelf/expectations.md) | expected log-likelihood, EP moments, psi statistics, uncertain inputs | 22 |
-| ④ algorithm | [Natural-gradient and Newton updates](shelf/natural-gradient.md) | BLR, damped natural updates, Gauss–Newton, Laplace | 19 |
+| ④ algorithm | [Natural-gradient and Newton updates](shelf/natural-gradient.md) | BLR, damped natural updates, Gauss–Newton, Laplace | 18 |
 | ④ algorithm | [Ensemble Kalman](shelf/ensemble-kalman.md) | analysis, ETKF, EKI, localisation, inflation | 21 |
 <!-- shelf:end -->
 

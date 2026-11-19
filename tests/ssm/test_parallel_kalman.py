@@ -183,11 +183,11 @@ def test_parallel_kf_with_dense_solver_matches_default(getkey):
     obs = jr.normal(getkey(), (6, 2))
 
     default_state = parallel_kalman_filter(A, H, Q, R, obs, x0, P0)
-    # gh-364: solver has no effect on the associative scan, so it warns.
-    with pytest.warns(DeprecationWarning, match="solver"):
-        dense_state = parallel_kalman_filter(
-            A, H, Q, R, obs, x0, P0, solver=DenseSolver()
-        )
+    # gh-364: the associative scan takes no solver; it is used only on the
+    # woodbury_innovation path, which delegates to kalman_filter.
+    dense_state = parallel_kalman_filter(
+        A, H, Q, R, obs, x0, P0, solver=DenseSolver(), woodbury_innovation=True
+    )
 
     assert tree_allclose(
         dense_state.filtered_means, default_state.filtered_means, rtol=1e-5
@@ -470,21 +470,6 @@ def test_tv_parity_random_params(mask_name, psd_project):
     m_par, P_par = parallel_rts_smoother(par, A, psd_project=psd_project)
     assert jnp.allclose(m_seq, m_par, **tol)
     assert jnp.allclose(P_seq, P_par, **tol)
-
-
-def test_form_sqrt_is_a_deprecated_spelling_of_psd_project():
-    # gh-306: form="sqrt" never was a square-root filter.
-    (A, H, Q, R, y, m0, P0), _ = _random_tv_model()
-    new = parallel_kalman_filter(A, H, Q, R, y, m0, P0, psd_project=True)
-    with pytest.warns(DeprecationWarning, match="psd_project=True"):
-        old = parallel_kalman_filter(A, H, Q, R, y, m0, P0, form="sqrt")
-    assert jnp.array_equal(new.log_likelihood, old.log_likelihood)
-    assert jnp.array_equal(new.filtered_covs, old.filtered_covs)
-    smoothed = parallel_rts_smoother(new, A, psd_project=True)
-    with pytest.warns(DeprecationWarning, match="psd_project=True"):
-        smoothed_old = parallel_rts_smoother(new, A, form="sqrt")
-    for a, b in zip(smoothed, smoothed_old, strict=True):
-        assert jnp.array_equal(a, b)
 
 
 @pytest.mark.slow

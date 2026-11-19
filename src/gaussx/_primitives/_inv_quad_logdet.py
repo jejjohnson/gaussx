@@ -33,7 +33,6 @@ from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrat
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
-from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import DenseLogdet
 from gaussx._strategies._tolerances import resolve_tolerance
 
@@ -45,7 +44,6 @@ def inv_quad_logdet(
     strategy: AbstractSolverStrategy | None = None,
     reduce_inv_quad: bool = True,
     logdet_preconditioner: lx.AbstractLinearOperator | None = None,
-    preconditioner: lx.AbstractLinearOperator | None = UNSET,
 ) -> tuple[Float[Array, " *C"], Float[Array, ""]]:
     """Joint inverse-quadratic and log-determinant via shared BBMM CG.
 
@@ -99,9 +97,6 @@ def inv_quad_logdet(
             `gaussx.linear_solve`. Ignored when the strategy's
             log-determinant is already exact (e.g. `gaussx.DenseSolver`),
             since there is no variance to reduce.
-        preconditioner: Deprecated alias of ``logdet_preconditioner``
-            (gh-405), renamed because everywhere else in gaussx
-            ``preconditioner=`` means M⁻¹ ≈ A⁻¹.
 
     Returns:
         Tuple ``(inv_quad, logdet)``. ``inv_quad`` is a scalar when
@@ -142,16 +137,6 @@ def inv_quad_logdet(
         >>> bool(jnp.allclose(logdet, jnp.log(11.0), atol=1e-5))
         True
     """
-    preconditioner = default(
-        renamed(
-            "inv_quad_logdet",
-            "preconditioner",
-            preconditioner,
-            "logdet_preconditioner",
-            logdet_preconditioner if logdet_preconditioner is not None else UNSET,
-        ),
-        None,
-    )
     if operator.in_size() != operator.out_size():
         raise ValueError("inv_quad_logdet requires a square operator")
     if jnp.ndim(rhs) != 2:
@@ -179,9 +164,13 @@ def inv_quad_logdet(
         strategy = BBMMSolver()
 
     if isinstance(strategy, BBMMSolver):
-        columns, logdet_value = _shared_work((operator, rhs), strategy, preconditioner)
+        columns, logdet_value = _shared_work(
+            (operator, rhs), strategy, logdet_preconditioner
+        )
     else:
-        columns, logdet_value = _separate_work(operator, rhs, strategy, preconditioner)
+        columns, logdet_value = _separate_work(
+            operator, rhs, strategy, logdet_preconditioner
+        )
 
     # ∑_c b_cᵀ A⁻¹ b_c
     inv_quad = jnp.sum(columns) if reduce_inv_quad else columns

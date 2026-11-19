@@ -28,7 +28,6 @@ from gaussx._primitives._root import (
 from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import (
     SqrtOperator,
-    SumKroneckerSqrt,
     SumOfKroneckersSqrt,
     sqrt,
 )
@@ -48,7 +47,6 @@ __all__ = [
     "InverseOperator",
     "RootDecomposition",
     "SqrtOperator",
-    "SumKroneckerSqrt",
     "SumOfKroneckersSqrt",
     "cholesky",
     "cholesky_logdet",

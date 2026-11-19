@@ -1,14 +1,14 @@
 """The interpolation weights at 1adbf07, frozen, and the layout they share (gh-813).
 
-``data/interp_weights.json`` holds the output of `cubic_interpolation_weights`
-and `linear_interpolation_weights` on fixed grids and targets, in float64.
-These tests keep the deprecated functions returning exactly that until they are
-removed, and pin the ``(indices, weights)`` layout `InterpolatedOperator` and
-`interpolation_operator` take: row m holds the S flat row-major grid indices of
-target m and their weights, repeated indices add, and a row of zero weights (how
-functax's ``Plan.to_gaussx()`` marks a target off the domain) is a zero row of
-W. gaussx does not import functax, so the fixture is the contract; functax
-checks its ``Cubic`` and ``Linear`` plans against the same file.
+``data/interp_weights.json`` holds the output of gaussx's removed
+``cubic_interpolation_weights`` and ``linear_interpolation_weights`` on fixed
+grids and targets, in float64. These tests pin the ``(indices, weights)``
+layout `InterpolatedOperator` and `interpolation_operator` take: row m holds
+the S flat row-major grid indices of target m and their weights, repeated
+indices add, and a row of zero weights (how functax's ``Plan.to_gaussx()``
+marks a target off the domain) is a zero row of W. gaussx does not import
+functax, so the fixture is the contract; functax checks its ``Cubic`` and
+``Linear`` plans against the same file.
 """
 
 from __future__ import annotations
@@ -26,32 +26,14 @@ from gaussx._einx import einsum, repeat
 from gaussx._testing import default_tolerances
 
 
-pytestmark = [
-    pytest.mark.filterwarnings(
-        "ignore:gaussx.cubic_interpolation_weights is deprecated"
-    ),
-    pytest.mark.filterwarnings(
-        "ignore:gaussx.linear_interpolation_weights is deprecated"
-    ),
-]
-
 _FIXTURE = json.loads(
     (Path(__file__).parent / "data" / "interp_weights.json").read_text()
 )
 _CASES = {case["name"]: case for case in _FIXTURE["cases"]}
-_FUNCTIONS = {
-    "cubic_interpolation_weights": gaussx.cubic_interpolation_weights,
-    "linear_interpolation_weights": gaussx.linear_interpolation_weights,
-}
 
 
 def _dtype():
     return jnp.result_type(float)
-
-
-def _inputs(case):
-    axes = [jnp.asarray(axis, _dtype()) for axis in case["axes"]]
-    return axes, jnp.asarray(case["targets"], _dtype())
 
 
 def _grid_size(case) -> int:
@@ -66,21 +48,6 @@ def _dense_interpolation(indices, weights, grid_size):
     rows = repeat(jnp.arange(indices.shape[0]), "row -> row tap", tap=indices.shape[1])
     W = jnp.zeros((indices.shape[0], grid_size), weights.dtype)
     return W.at[rows, indices].add(weights)
-
-
-@pytest.mark.parametrize("name", list(_CASES))
-def test_weights_match_the_frozen_output(name):
-    case = _CASES[name]
-    axes, targets = _inputs(case)
-    function = _FUNCTIONS[case["function"]]
-    indices, weights = function(targets, axes, **case["kwargs"])
-    expected = jnp.asarray(case["weights"], weights.dtype)
-    assert indices.tolist() == case["indices"]
-    if weights.dtype == jnp.float64:
-        assert jnp.array_equal(weights, expected)
-    else:
-        rtol, atol = default_tolerances(weights)
-        assert jnp.allclose(weights, expected, rtol=10 * rtol, atol=10 * atol)
 
 
 @pytest.mark.parametrize("name", list(_CASES))

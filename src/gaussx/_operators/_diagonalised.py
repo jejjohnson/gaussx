@@ -25,7 +25,6 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Float, Inexact, Shaped
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import rearrange
 from gaussx._operators._block_diag import _to_frozenset
 from gaussx._operators._kronecker_sum import KroneckerSum
@@ -575,7 +574,7 @@ def circulant_from_symbol(
 def circulant(
     first_column: Inexact[ArrayLike, " ..."],
     *,
-    symmetric: bool | None = None,
+    symmetric: bool = False,
     tags: object | frozenset[object] = frozenset(),
 ) -> DiagonalizedOperator:
     """(Block-)circulant operator C from its first column c.
@@ -601,11 +600,8 @@ def circulant(
             1-D).
         symmetric: ``True`` for a real even kernel: the symbol is real and
             the operator is tagged symmetric (a concrete column that is not
-            even raises). ``False`` keeps the complex symbol. ``None`` (the
-            deprecated default) infers it from the column's *values*, which
-            only works eagerly (a traced column gives a complex symbol and
-            no tag) and warns when it infers ``True``. The default becomes
-            ``False`` in gaussx 0.7.0.
+            even raises). ``False`` (the default) keeps the complex symbol
+            and no symmetry tag, whatever the column's values.
         tags: Additional lineax tags.
 
     Returns:
@@ -637,17 +633,8 @@ def circulant(
     column = jnp.asarray(first_column)
     # γ = DFT(c)
     symbol = jnp.fft.fftn(column)
-    if symmetric is None:
-        symmetric = _is_even_real_kernel(column)
-        if symmetric:
-            warn_deprecated(
-                "circulant infers symmetry from the column's values, so a traced "
-                "column gives a different operator (gh-440). Pass symmetric=True "
-                "for a real even kernel; the default becomes False in gaussx 0.7.0."
-            )
-    elif symmetric:
-        _check_even_real_kernel(column)
     if symmetric:
+        _check_even_real_kernel(column)
         # c_k = c_−k mod N and real ⇒ γ real ⇒ C symmetric
         symbol = jnp.real(symbol)
     return circulant_from_symbol(
@@ -742,28 +729,6 @@ def _check_even_real_kernel(column: Array) -> None:
         raise ValueError(
             "circulant(symmetric=True) needs an even column, c[k] == c[-k mod n]."
         )
-
-
-def _is_even_real_kernel(column: Array) -> bool:
-    """Whether a concrete real kernel satisfies c_k = c_−k mod N exactly.
-
-    Args:
-        column: First column c of a circulant.
-
-    Returns:
-        ``True`` for a concrete, real, exactly even c; ``False`` for traced
-        or complex input (the symbol then stays complex and the operator is
-        not auto-tagged symmetric).
-    """
-    try:
-        c = np.asarray(column)
-    except jax.errors.TracerArrayConversionError:
-        return False
-    if np.iscomplexobj(c):
-        return False
-    # c_−k mod N along every axis
-    reflected = c[np.ix_(*(np.negative(np.arange(n)) % n for n in c.shape))]
-    return bool(np.allclose(c, reflected, rtol=0.0, atol=0.0))
 
 
 # ----------------------------------------------------------------------

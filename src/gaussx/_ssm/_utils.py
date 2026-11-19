@@ -15,7 +15,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, repeat
 from gaussx._linalg._linalg import sandwich
 from gaussx._operators._low_rank_update import LowRankUpdate
@@ -433,25 +432,6 @@ def _normalise_tv_inputs(
             )
 
     return transitions, obs_models, process_noises, obs_noises, masks, not has_3d_array
-
-
-def _warn_unused_process_noise(function: str, process_noise: object) -> None:
-    """Deprecate passing ``process_noise`` to an RTS smoother (gh-364).
-
-    The RTS recurrence never reads Σ_η: the filter's predicted covariances
-    Σ_x,t+1|t already include it, so accepting it suggests behaviour that
-    does not exist.
-
-    Args:
-        function: Name of the smoother, for the warning message.
-        process_noise: The value passed; ``None`` does not warn.
-    """
-    if process_noise is not None:
-        warn_deprecated(
-            f"{function}(..., process_noise) is deprecated and ignored: the RTS "
-            "recurrence never reads it (the filter's predicted covariances "
-            "already include Q). Omit it; the argument will be removed in gaussx 0.7.0."
-        )
 
 
 def _transition_stack(

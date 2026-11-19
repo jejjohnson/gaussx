@@ -54,10 +54,9 @@ A few patterns hold across the whole package:
 
 ### Naming
 
-Each rule below is enforced for new names. Every rename it implied keeps the
-old name as a deprecated alias: `gaussx.<old>` returns the same object as the
-new name and emits a `DeprecationWarning` naming the replacement. The aliases
-will be removed in gaussx 0.7.0.
+Each rule below is enforced for new names. The renames it implied are listed
+for reference; their deprecated aliases were removed after gaussx 0.7.0, so the
+old names no longer resolve.
 `tests/test_naming.py` checks the mechanical parts (CamelCase and spelling).
 
 | Family | Rule | Renamed (old → new) |
@@ -77,16 +76,15 @@ deprecated APIs are removed on a schedule rather than ad hoc:
 1. **Every deprecation names its removal version** in the warning message and
    in the docstring, together with its replacement (for example, "SumKronecker
    is deprecated and will be removed in gaussx 0.7.0; use SumOfKroneckers").
-   Warnings go through `gaussx._deprecation` (`warn_deprecated`,
-   `renamed_kwargs`, or the `RENAMED` table for renamed public names), so
-   they are a `GaussxDeprecationWarning`, a `DeprecationWarning` subclass,
-   attributed to the caller's line.
+   Warnings go through `gaussx._deprecation.warn_deprecated`, so they are a
+   `GaussxDeprecationWarning`, a `DeprecationWarning` subclass, attributed to
+   the caller's line.
 2. **Window.** A deprecation is removed in the first minor release (`0.x.0`)
    after the release that first ships its warning. Before 1.0, release-please
    bumps only the patch version for `feat`/`fix`, so a minor release happens
    only with a breaking change. The PR that removes the deprecated code is
-   that breaking change (`feat!:`/`refactor!:`). Every deprecation current
-   today is due in **gaussx 0.7.0**.
+   that breaking change (`feat!:`/`refactor!:`). The deprecations due in
+   gaussx 0.7.0 have been removed, and none is open today.
 3. **Guard tests.** `tests/test_deprecations.py` reads every
    `warn_deprecated` call in the package. It fails if a message names no
    removal version, and it fails once `gaussx.__version__` reaches a version

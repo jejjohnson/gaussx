@@ -23,7 +23,6 @@ Build the training covariance as an operator first (skill `gaussx:structured-gau
 | `kronecker_mll(K_factors, y, noise_var, grid_shape)` | The exact marginal log-likelihood of a Kronecker GP by per-factor eigendecomposition. |
 | `kronecker_posterior_predictive(K_factors, y, noise_var, grid_shape, K_cross_factors, *, K_test_diag_factors)` | The posterior mean and variance of a Kronecker GP at test points. |
 | `sparse_conditional(K_zz, K_xz, K_xx, q_mu, *, q_sqrt=None, white=False)` | The sparse-GP conditional `q(f_x)`, returning `(mean, var)`. |
-| `base_conditional(K_mm, K_mn, K_nn, f, ...)` | Deprecated; use `sparse_conditional` with `K_xz = K_mn.T`. |
 | `matheron_update(prior_sample_target, prior_sample_conditioning, observed_value, cross_covariance, conditioning_covariance, *, solver=None)` | Posterior samples from joint prior draws by Matheron's rule. |
 | `oilmm_project(Y, W, noise_var)`, `oilmm_back_project(f_means, f_vars, W)` | Project multi-output data onto independent latent GPs with orthonormal `W`, and map latent predictions back. |
 | `conditional_interpolate(A_fwd, Q_fwd, A_bwd, Q_bwd, mu_prev, P_prev, mu_next, P_next)` | A two-filter fusion at an unobserved time from a filtered state and a backward message. |
@@ -64,7 +63,7 @@ assert loo.loo_means.shape == (8,) and jnp.isfinite(loo.loo_log_likelihood)
 ## Rules
 
 - Rebuild the `PredictionCache` whenever the kernel hyperparameters change, because it is tied to the operator it came from.
-- `predict_variance` takes the cache first, then `K_cross`, then `K_test_diag`; the old order with `operator=` is deprecated.
+- `predict_variance` takes the cache first, then `K_cross`, then `K_test_diag`.
 - `build_prediction_cache` and `leave_one_out_cv` accept `solver=`; pass a strategy from skill `gaussx:solvers-and-preconditioners` to change the numerics, for example an iterative one for a large operator.
 - A dense, diagonal, `Kronecker` or `BlockDiag` PSD operator with the default or a dense solver stores a Cholesky factor, so the variance needs only triangular solves.
 - `love_variance` is a lower bound on `k_*ᵀ K⁻¹ k_*`, so `k_** − love_variance(...)` is an upper bound on the predictive variance; it is exact at `lanczos_order = N`.

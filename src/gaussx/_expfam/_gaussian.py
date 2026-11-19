@@ -15,7 +15,6 @@ import equinox as eqx
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum
 from gaussx._expfam._natural import mean_cov_to_natural, natural_to_mean_cov
@@ -166,87 +165,6 @@ def to_mean_cov(
         True
     """
     return natural_to_mean_cov(expfam.eta1, expfam.eta2)
-
-
-def to_expectation(
-    expfam: GaussianExpFam,
-) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
-    """Deprecated alias of `to_mean_cov`.
-
-    Despite its name it returns the mean and covariance (μ, Σ), not the
-    expectation parameters (μ, Σ + μ μᵀ) (see `gaussx.natural_to_expectation`).
-    It will be removed in gaussx 0.7.0.
-
-    Args:
-        expfam: Gaussian in natural form (Λ μ, −½ Λ).
-
-    Returns:
-        Tuple ``(mu, Sigma)`` holding the mean μ and the covariance Σ.
-
-    Examples:
-        It warns and returns what `to_mean_cov` returns:
-
-        >>> import warnings
-        >>> import jax.numpy as jnp
-        >>> import lineax as lx
-        >>> import gaussx
-        >>> covariance = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0]))
-        >>> expfam = gaussx.GaussianExpFam.from_mean_cov(jnp.ones(2), covariance)
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     mean, _ = gaussx.to_expectation(expfam)
-        >>> caught[0].category.__name__
-        'GaussxDeprecationWarning'
-        >>> bool(jnp.allclose(mean, 1.0))
-        True
-    """
-    warn_deprecated(
-        "to_expectation is deprecated and will be removed in gaussx 0.7.0: it "
-        "returns (mu, Sigma), not expectation "
-        "parameters. Use gaussx.to_mean_cov (same result), or "
-        "gaussx.natural_to_expectation for (mu, mu mu^T + Sigma)."
-    )
-    return to_mean_cov(expfam)
-
-
-def to_natural(
-    mu: Float[Array, " N"],
-    Sigma: lx.AbstractLinearOperator,
-) -> tuple[Float[Array, " N"], lx.AbstractLinearOperator]:
-    """Deprecated alias of `gaussx.mean_cov_to_natural`.
-
-    It takes the mean and covariance (μ, Σ), not expectation parameters. It
-    will be removed in gaussx 0.7.0.
-
-    Args:
-        mu: Mean μ.
-        Sigma: Covariance Σ.
-
-    Returns:
-        Tuple ``(eta1, eta2)`` holding the natural parameters Λ μ and −½ Λ.
-
-    Examples:
-        It warns and returns what `gaussx.mean_cov_to_natural` returns:
-
-        >>> import warnings
-        >>> import jax.numpy as jnp
-        >>> import lineax as lx
-        >>> import gaussx
-        >>> covariance = lx.DiagonalLinearOperator(jnp.array([2.0, 4.0]))
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     eta1, _ = gaussx.to_natural(jnp.ones(2), covariance)
-        >>> caught[0].category.__name__
-        'GaussxDeprecationWarning'
-        >>> bool(jnp.allclose(eta1, jnp.array([0.5, 0.25])))
-        True
-    """
-    warn_deprecated(
-        "to_natural is deprecated and will be removed in gaussx 0.7.0: it takes "
-        "(mu, Sigma), not expectation "
-        "parameters. Use gaussx.mean_cov_to_natural (same result)."
-    )
-    return mean_cov_to_natural(mu, Sigma)
 
 
 def log_partition(expfam: GaussianExpFam) -> Float[Array, ""]:

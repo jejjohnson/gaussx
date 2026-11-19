@@ -14,6 +14,9 @@ import lineax as lx
 import numpy as np
 import pytest
 
+# tests/ is on sys.path (pytest's rootdir insertion), as the inference package is
+from inference._laplace_fit import laplace_fit
+
 import gaussx as gx
 from gaussx._testing import assert_sample_moments
 
@@ -151,7 +154,6 @@ def test_gradients_in_theta_match_finite_differences():
 
 
 @pytest.mark.slow
-@pytest.mark.filterwarnings("ignore:gaussx.laplace_mode is deprecated")
 @pytest.mark.parametrize(("tau", "phi"), THETAS)
 def test_laplace_log_marginal_is_the_exact_gaussian_marginal(tau, phi):
     # y = b + noise: Laplace is exact, and p(y | theta) is N(0, cov_b + s2 I).
@@ -168,9 +170,7 @@ def test_laplace_log_marginal_is_the_exact_gaussian_marginal(tau, phi):
         np.arange(n), np.arange(n), jnp.ones(n), (n, 2 * n)
     )
     prior = gx.BYM2GMRF(R_star, tau, phi, V, include_normalizer=True)
-    result = gx.laplace_mode(
-        prior, gx.GaussianLikelihood(y, noise_var), projector=select_b
-    )
+    result = laplace_fit(prior, gx.GaussianLikelihood(y, noise_var), projector=select_b)
     assert np.isclose(float(result.log_marginal), reference, atol=1e-8)
 
 
