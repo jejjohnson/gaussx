@@ -24,15 +24,9 @@ Woodbury, Schur complements, and conditional (Schur-complement) variances —
 the identities behind every Gaussian conditioning step, exposed directly so
 recipes never re-derive them.
 
-!!! warning "Legacy `conditional_variance` signature"
-    The pre-#152 three-positional form
-    `conditional_variance(base_diag, A_X, S_u)` is still accepted until
-    gaussx 0.7.0 — it is
-    detected when the second positional argument is a
-    `lineax.AbstractLinearOperator` — but it emits a `DeprecationWarning` and
-    skips the $\mathbf{K}_{XZ}$-based Schur subtraction, treating its first argument as
-    an already-computed Schur diagonal. Call
-    `conditional_variance(K_XX_diag, K_XZ, A_X, S_u=S_u)` instead.
+`conditional_variance` takes `(K_XX_diag, K_XZ, A_X, S_u=None)`; the pre-#152
+three-positional form `conditional_variance(base_diag, A_X, S_u)` is no longer
+accepted.
 
 ::: gaussx
     options:

@@ -31,10 +31,8 @@ from gaussx._operators._diagonalised import (
 )
 from gaussx._operators._grid import (
     create_grid,
-    cubic_interpolation_weights,
     grid_data,
     interpolation_operator,
-    linear_interpolation_weights,
 )
 from gaussx._operators._interpolated import InterpolatedOperator
 from gaussx._operators._kronecker import Kronecker
@@ -50,7 +48,6 @@ from gaussx._operators._lazy_algebra import (
 )
 from gaussx._operators._low_rank_update import (
     LowRankUpdate,
-    SVDLowRankUpdate,
     low_rank_plus_diag,
     low_rank_plus_identity,
     svd_low_rank_plus_diag,
@@ -63,11 +60,9 @@ from gaussx._operators._masked import (
 from gaussx._operators._sparse import SparseOperator, SparsityPattern
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._operators._sum_kronecker import (
-    SumKronecker,
     SumOfKroneckers,
     is_eigen_reducible as is_eigen_reducible,
     sum_of_kroneckers_sample as sum_of_kroneckers_sample,
-    sumkronecker_sample as sumkronecker_sample,
 )
 from gaussx._operators._toeplitz import (
     Toeplitz,
@@ -515,11 +510,9 @@ __all__ = [
     "LowRankUpdate",
     "LowerBlockTriDiag",
     "MaskedOperator",
-    "SVDLowRankUpdate",
     "SparseOperator",
     "SparsityPattern",
     "SpectralFunction",
-    "SumKronecker",
     "SumOfKroneckers",
     "Toeplitz",
     "ToeplitzCholesky",
@@ -528,13 +521,11 @@ __all__ = [
     "circulant",
     "circulant_from_symbol",
     "create_grid",
-    "cubic_interpolation_weights",
     "grid_coupling_indices",
     "grid_data",
     "interpolation_operator",
     "is_eigen_reducible",
     "kronecker_sum_sample",
-    "linear_interpolation_weights",
     "low_rank_plus_diag",
     "low_rank_plus_identity",
     "masked_obs_covariance",
@@ -542,7 +533,6 @@ __all__ = [
     "scaled_operator",
     "sum_of_kroneckers_sample",
     "sum_operator",
-    "sumkronecker_sample",
     "svd_low_rank_plus_diag",
     "toeplitz_sample",
 ]

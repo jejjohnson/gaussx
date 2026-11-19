@@ -34,7 +34,6 @@ import numpy as np
 from jax.core import Tracer
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_diag import _resolve_dtype, _to_frozenset
 from gaussx._operators._factored_eigen import FactoredEigen, kronecker_eigen
@@ -205,10 +204,9 @@ class SumOfKroneckers(lx.AbstractLinearOperator):
         Returns:
             The transposed sum, with transposed tags.
         """
-        # ``type(self)`` rather than the literal class so the deprecated
-        # `SumKronecker` subclass survives a transpose — external
-        # ``isinstance`` checks and ``singledispatch`` registrations keyed on
-        # it would otherwise silently stop applying on ``op.T``.
+        # ``type(self)`` rather than the literal class so a subclass survives
+        # a transpose: ``isinstance`` checks and ``singledispatch``
+        # registrations keyed on it would otherwise stop applying on ``op.T``.
         return type(self)(
             *(
                 Kronecker(
@@ -1134,68 +1132,3 @@ def sum_of_kroneckers_sample(
     )
     # z = K^½ ε
     return jax.vmap(sqrt_op.mv)(eps)
-
-
-def sumkronecker_sample(
-    op: SumOfKroneckers,
-    *,
-    key: jax.Array,
-    num_samples: int = 1,
-    lanczos_order: int = 50,
-) -> Float[Array, "num_samples n"]:
-    """Deprecated alias for `sum_of_kroneckers_sample` (gh-297).
-
-    Will be removed in gaussx 0.7.0.
-
-    Args:
-        op: Positive-semidefinite `SumOfKroneckers` covariance K.
-        key: PRNG key for the standard normal draws.
-        num_samples: Number of independent samples to draw.
-        lanczos_order: Lanczos truncation order.
-
-    Returns:
-        Samples of shape (num_samples, N).
-    """
-    warn_deprecated(
-        "sumkronecker_sample is deprecated and will be removed in gaussx 0.7.0; "
-        "use sum_of_kroneckers_sample."
-    )
-    return sum_of_kroneckers_sample(
-        op, key=key, num_samples=num_samples, lanczos_order=lanczos_order
-    )
-
-
-# ---------------------------------------------------------------------------
-# Deprecated compatibility class
-# ---------------------------------------------------------------------------
-
-
-class SumKronecker(SumOfKroneckers):
-    """Deprecated alias for `SumOfKroneckers`.
-
-    The old name was one word-order away from `KroneckerSum`, a different
-    operator with a different eigendecomposition, and picking the wrong one
-    produced silently wrong solves. Renamed in gh-136.
-
-    Subclasses `SumOfKroneckers` so ``isinstance`` checks and
-    ``singledispatch`` registrations keyed on this class keep working, and
-    emits a `DeprecationWarning` on construction. Structural operations that
-    rebuild the operator — ``transpose`` / ``.T`` — preserve this type, so
-    they warn again. Note that instances built via `SumOfKroneckers` are
-    *not* instances of this subclass; internal dispatch keys on the parent.
-    Will be removed in gaussx 0.7.0.
-    """
-
-    def __init__(
-        self,
-        kron1: Kronecker,
-        kron2: Kronecker,
-        *krons: Kronecker,
-        tags: object | frozenset[object] = frozenset(),
-    ) -> None:
-        warn_deprecated(
-            "SumKronecker is deprecated and will be removed in gaussx 0.7.0; use "
-            "SumOfKroneckers "
-            "(KroneckerSum remains a different operator)."
-        )
-        super().__init__(kron1, kron2, *krons, tags=tags)

@@ -26,7 +26,7 @@ Every operator is a `lineax.AbstractLinearOperator`, so `op.mv(x)`, `op.as_matri
 | `LowRankUpdate(base, U, d, V)` | `L + U diag(d) Vᵀ` on any base operator `L`. |
 | `Toeplitz(column)` | A symmetric Toeplitz matrix from its first column: a stationary kernel on a regular 1-D grid. |
 | `ToeplitzCholesky(column, embedding_factor=2)` | A circulant-embedding sample factor for a `Toeplitz`. |
-| `circulant(first_column)`, `circulant_from_symbol(symbol)` | A circulant or block-circulant operator, diagonal in the Fourier basis. |
+| `circulant(first_column, *, symmetric=False)`, `circulant_from_symbol(symbol)` | A circulant or block-circulant operator, diagonal in the Fourier basis. |
 | `DiagonalizedOperator(eigenvalues, forward, inverse, ...)` | `A x = V⁻¹(Λ ⊙ V x)` from a transform pair. |
 | `as_diagonalized(op)` | `op` as one `DiagonalizedOperator`, or `None`. |
 | `SpectralFunction(base, fn)` | `f(B)` for a symmetric `B` with a factored eigenbasis. |
@@ -35,12 +35,10 @@ Every operator is a `lineax.AbstractLinearOperator`, so `op.mv(x)`, `op.as_matri
 | `create_grid`, `grid_data` | The grid for an `InterpolatedOperator`. |
 | `interpolation_operator(indices, weights, grid_size)` | The interpolation matrix `W` as a matrix-free operator, acting on the flattened grid values. |
 | `masked_obs_covariance(obs_cov, mask)` | An observation-error covariance with the masked entries marginalised out; diagonal and block-diagonal inputs keep their structure. |
-| `cubic_interpolation_weights`, `linear_interpolation_weights` | Deprecated, removed in 0.7.0. Build the stencil with functax, whose `Plan.to_gaussx()` returns the `(indices, weights)` that `InterpolatedOperator` and `interpolation_operator` take. |
 | `grid_coupling_indices(mask)` | Flat indices of masked-out grid cells next to the masked-in region. |
 | `CapacitanceSolver(base_solve, boundary_indices, n)` | A base solve under homogeneous point constraints. |
 | `sum_operator(*ops)`, `product_operator(A, B)`, `scaled_operator(A, c)` | Lazy `A + B`, `A B` and `c A` that keep the tags you pass. |
 | `kronecker_sum_sample`, `sum_of_kroneckers_sample`, `toeplitz_sample` | Draws from `𝒩(0, op)` that use the structure. |
-| `SVDLowRankUpdate`, `SumKronecker`, `sumkronecker_sample` | Deprecated; use `LowRankUpdate`, `SumOfKroneckers` and `sum_of_kroneckers_sample`. |
 
 ## Use it
 

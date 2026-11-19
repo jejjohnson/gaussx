@@ -438,23 +438,6 @@ def test_smoothed_variances_do_not_exceed_filtered():
     assert bool(jnp.all(smoothed_var <= filtered_var + 1e-10))
 
 
-@pytest.mark.slow
-def test_smoother_process_noise_is_deprecated_and_ignored():
-    """``process_noise`` warns and is ignored, as in ``rts_smoother`` (gh-364)."""
-    integrator = FifthOrderCubatureIntegrator()
-    filtered = nonlinear_kalman_filter(
-        _linear_dynamics, _linear_obs, _Q, _R, _YS, _M0, _P0, integrator=integrator
-    )
-
-    without = nonlinear_rts_smoother(filtered, _linear_dynamics, integrator=integrator)
-    with pytest.warns(DeprecationWarning, match="process_noise"):
-        with_noise = nonlinear_rts_smoother(
-            filtered, _linear_dynamics, _Q, integrator=integrator
-        )
-
-    assert tree_allclose(without[0], with_noise[0], atol=0.0)
-
-
 # --------------------------------------------------------------------------
 # Nonlinear behaviour, tracing, gradients
 # --------------------------------------------------------------------------

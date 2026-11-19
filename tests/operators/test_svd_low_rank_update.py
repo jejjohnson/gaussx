@@ -1,4 +1,4 @@
-"""Tests for SVDLowRankUpdate operator."""
+"""Tests for an orthonormal LowRankUpdate, the former SVDLowRankUpdate."""
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ import gaussx
 
 @pytest.fixture()
 def psd_operator():
-    """Symmetric PSD SVDLowRankUpdate: diag + U S U^T."""
+    """Symmetric PSD orthonormal LowRankUpdate: diag + U S U^T."""
     n, k = 6, 3
     diag = jnp.ones(n) * 2.0
     key = jax.random.PRNGKey(42)
@@ -18,14 +18,12 @@ def psd_operator():
     S = jnp.array([3.0, 2.0, 1.0])
     base = lx.DiagonalLinearOperator(diag)
     base = lx.TaggedLinearOperator(base, lx.positive_semidefinite_tag)
-    # The deprecated alias is the subject here; say so (gh-332).
-    with pytest.warns(DeprecationWarning, match="SVDLowRankUpdate"):
-        return gaussx.SVDLowRankUpdate(base, U, S)
+    return gaussx.LowRankUpdate(base, U, S, orthonormal=True)
 
 
 @pytest.fixture()
 def nonsym_operator():
-    """Non-symmetric SVDLowRankUpdate: diag + U S V^T."""
+    """Non-symmetric orthonormal LowRankUpdate: diag + U S V^T."""
     n, k = 5, 2
     diag = jnp.ones(n) * 3.0
     key = jax.random.PRNGKey(7)
@@ -34,11 +32,10 @@ def nonsym_operator():
     V, _, _ = jnp.linalg.svd(jax.random.normal(k2, (n, k)), full_matrices=False)
     S = jnp.array([2.0, 1.0])
     base = lx.DiagonalLinearOperator(diag)
-    with pytest.warns(DeprecationWarning, match="SVDLowRankUpdate"):
-        return gaussx.SVDLowRankUpdate(base, U, S, V)
+    return gaussx.LowRankUpdate(base, U, S, V, orthonormal=True)
 
 
-class TestSVDLowRankUpdate:
+class TestOrthonormalLowRankUpdate:
     def test_mv(self, psd_operator):
         x = jnp.ones(6)
         result = psd_operator.mv(x)
@@ -83,14 +80,3 @@ class TestSVDLowRankUpdate:
     def test_in_out_size(self, psd_operator):
         assert psd_operator.in_size() == 6
         assert psd_operator.out_size() == 6
-
-
-def test_deprecation_points_at_the_caller():
-    """gh-332: the warning names this file, not equinox's Module machinery."""
-    from gaussx._deprecation import GaussxDeprecationWarning
-
-    U = jnp.linalg.qr(jax.random.normal(jax.random.key(0), (4, 2)))[0]
-    base = lx.DiagonalLinearOperator(jnp.ones(4))
-    with pytest.warns(GaussxDeprecationWarning) as record:
-        gaussx.SVDLowRankUpdate(base, U, jnp.ones(2))
-    assert record[0].filename == __file__

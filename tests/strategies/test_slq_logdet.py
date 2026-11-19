@@ -245,9 +245,9 @@ def test_logdet_grad_is_finite_through_lanczos_breakdown(strategy, fun, order):
 
 
 @pytest.mark.parametrize("name", ["slq", "indefinite_slq", "cg", "minres"])
-def test_untagged_operator_warns(name):
+def test_untagged_operator_raises(name):
     # Upper triangular, all eigenvalues 2: symmetric Lanczos gave 22.8 for a
-    # true log|det| of 34.7, silently. Untagged operators warn for now.
+    # true log|det| of 34.7, silently. Untagged operators raise.
     from gaussx import CGSolver, MINRESSolver
 
     n = 10
@@ -258,7 +258,7 @@ def test_untagged_operator_warns(name):
         "cg": CGSolver(num_probes=2, lanczos_order=3),
         "minres": MINRESSolver(num_probes=2, lanczos_order=3),
     }[name]
-    with pytest.warns(DeprecationWarning, match="not tagged symmetric"):
+    with pytest.raises(ValueError, match="not tagged symmetric"):
         strategy.logdet(lx.MatrixLinearOperator(M))
 
 

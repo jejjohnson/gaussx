@@ -11,7 +11,6 @@ import lineax as lx
 import optimistix as optx
 from jaxtyping import Array, Bool, Float, PyTree, Scalar
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_matrix
 from gaussx._linalg._symmetrize import symmetrize
@@ -219,7 +218,6 @@ def dare(
     Q: Float[Array, "D D"] | lx.AbstractLinearOperator,
     R: Float[Array, "M M"] | lx.AbstractLinearOperator,
     *,
-    P_init: Float[Array, "D D"] | None = None,
     max_iter: int = 100,
     tol: float = 1e-8,
     solver: AbstractSolverStrategy | None = None,
@@ -284,8 +282,6 @@ def dare(
         H: Observation operator H.
         Q: Model-error covariance Σ_η.
         R: Observation-error covariance Σ_ε.
-        P_init: Deprecated and ignored: the doubling algorithm needs no
-            initial guess.
         max_iter: Maximum number of doubling steps.
         tol: Convergence tolerance on the relative change of the iterate.
         solver: Solver strategy for Σ_ε and Σ_y,∞ (the seed and the final
@@ -344,11 +340,6 @@ def dare(
         Llinares-López, F., Pedregosa, F. & Vert, J.-P. (2022). Efficient and
         modular implicit differentiation. *NeurIPS 35*.
     """
-    if P_init is not None:
-        warn_deprecated(
-            "dare(P_init=...) is deprecated and ignored: the doubling "
-            "algorithm needs no initial guess. It will be removed in gaussx 0.7.0."
-        )
     transition_op = _as_operator(A)
     obs_operator_op = _as_operator(H)
     transition_dense = transition_op.as_matrix()

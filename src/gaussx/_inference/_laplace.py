@@ -1,4 +1,4 @@
-"""Precision-form Laplace approximation, the INLA inner loop: `laplace_mode`.
+"""Precision-form Laplace approximation, one Newton step of the INLA inner loop.
 
 With the linear predictor η = A x + o, a likelihood that factorises over sites,
 g = ∇_η log p(y ∣ η) and the site precision Λ_site = −diag(∇²_η log p(y ∣ η)), the
@@ -7,9 +7,11 @@ cost 𝒥(x) = −log p(y ∣ A x + o) + ½ (x − μ_x)ᵀ Λ_x (x − μ_x) ha
 
     Λ_x|y x⁽ʲ⁺¹⁾ = Λ_x μ_x + Aᵀ (g + Λ_site A x⁽ʲ⁾)
 
-with a matrix whose pattern never changes. The mode x̂ is differentiated implicitly
-(`jax.lax.custom_root`), and the Laplace log-marginal differentiates exactly through
-the structured or sparse log-determinants.
+with a matrix whose pattern never changes. gaussx holds the step (`laplace_model`,
+`LaplaceModel.newton`) and the result at a mode (`laplace_result`); the loop that
+iterates the step and differentiates the mode implicitly is
+``argminax.solve.laplace_mode``. The Laplace log-marginal differentiates exactly
+through the structured or sparse log-determinants.
 """
 
 from __future__ import annotations
@@ -25,7 +27,6 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Bool, Float, Int
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gmrf import GaussianMRF, IntrinsicGMRF, _scaled, _unwrap
 from gaussx._einx import einsum, rearrange
 from gaussx._inference._inference import newton_update
@@ -53,12 +54,12 @@ class LaplaceResult(eqx.Module):
             likelihood hold (θ).
         hessian: Λ_x|y = Λ_x + Aᵀ Λ_site A at the mode: a `BlockTriDiag`,
             `SparseOperator`, diagonal or dense operator like Λ_x where the
-            projector allows (see `laplace_mode`).
+            projector allows (see `LaplaceModel`).
         factor: The factorisation of Λ_x|y, with ``solve(b)`` and ``logdet()``: a
             `SparseCholeskyFactor` (whose ``diag_inv`` gives the marginal variances
             by Takahashi) for a sparse Λ_x|y, else the structured Cholesky factor's
             solves.
-        log_marginal: The Laplace log-marginal log π̃(y ∣ θ); see `laplace_mode`
+        log_marginal: The Laplace log-marginal log π̃(y ∣ θ); see `laplace_result`
             for the constants it includes.
         n_iter: Newton steps taken.
         converged: Whether the last step moved x by less than the tolerance.
@@ -288,7 +289,7 @@ def _hessian(
         site_precision: Diagonal of Λ_site.
 
     Returns:
-        The operator Λ_x|y; `laplace_mode` lists the class each pair gives.
+        The operator Λ_x|y; `LaplaceModel` lists the class each pair gives.
     """
     if projector is None:
         return _add_diagonal(precision, site_precision)
@@ -324,14 +325,26 @@ def _hessian(
 
 
 class LaplaceModel(eqx.Module):
-    """The latent Gaussian model of `laplace_mode`, with the maps one Newton step needs.
+    """The latent Gaussian model of a Laplace fit, with the maps one Newton step needs.
 
     x ~ 𝒩(μ_x, Λ_x⁻¹), η = A x + o, y ∣ η ~ ``likelihood``; build one with
     `laplace_model`. Its methods are one step's algebra: `newton` is the Newton
     target x̃ (kriged onto Vᵀ x = 0 for a hard constraint), `grad` the ascent
     direction −∇_x 𝒥, and `hessian` the site information and Λ_x|y at x. The loop
-    that iterates them to a tolerance lives in the caller (`laplace_mode`, and
-    ``argminax.solve.laplace_mode``).
+    that iterates them to a tolerance lives in the caller
+    (``argminax.solve.laplace_mode``).
+
+    Λ_x|y is rebuilt values-only on a structure fixed by Λ_x and A:
+
+    - A the identity (``None``) or one entry per row (a row selection, or a scaled
+      one): Aᵀ Λ_site A is diagonal, so a `BlockTriDiag` Λ_x (RW1, RW2, AR(1)) stays
+      `BlockTriDiag`, and a `SparseOperator`, diagonal or dense Λ_x keeps its class;
+    - a general `SparseOperator` A (a FEM projector, an intercept and covariates):
+      `SparseOperator.congruence` on the union pattern, with a banded or diagonal
+      Λ_x converted to sparse;
+    - a dense A or Λ_x: dense; any other Λ_x (a grid `SpectralFunction` or
+      `KroneckerSum` with a non-diagonal update): the matrix-free sum, solved and
+      log-determined by `gaussx.solve` and `gaussx.logdet` dispatch.
 
     Attributes:
         precision: Prior precision Λ_x.
@@ -434,135 +447,6 @@ class LaplaceModel(eqx.Module):
         return self.krige(factor, target)[0]
 
 
-def _stop_gradient(tree: Any) -> Any:
-    """Stop gradients through the inexact arrays of a pytree.
-
-    Args:
-        tree: Any pytree.
-
-    Returns:
-        The same pytree, with its inexact array leaves wrapped.
-    """
-    dynamic, static = eqx.partition(tree, eqx.is_inexact_array)
-    return eqx.combine(jax.lax.stop_gradient(dynamic), static)
-
-
-@eqx.filter_jit
-def _newton_loop(
-    model: LaplaceModel,
-    init_state: Float[Array, " N"],
-    max_iter: int,
-    tol: float,
-    damping: float,
-) -> tuple[Array, Array, Array]:
-    """Damped Newton iteration to ‖Δx‖_∞ ≤ tol (1 + ‖x‖_∞).
-
-        x⁽ʲ⁺¹⁾ = x⁽ʲ⁾ + α (x̃ − x⁽ʲ⁾)
-
-    with x̃ the Newton target of `_Model.newton`.
-
-    Algorithm:
-        1. Floor ``tol`` at 64 machine epsilons of the dtype.
-        2. Step until the sup-norm of the step passes the test, or ``max_iter``.
-
-    Args:
-        model: The model, with gradients stopped by the caller.
-        init_state: Starting point x⁽⁰⁾.
-        max_iter: Maximum Newton steps.
-        tol: Relative tolerance on the step's sup-norm.
-        damping: Step size α.
-
-    Returns:
-        Tuple ``(state, n_iter, converged)``.
-    """
-    eps = float(jnp.finfo(init_state.dtype).eps)
-    tol = max(tol, 64.0 * eps)
-
-    def threshold(state: Array) -> Array:
-        # jnp, not einx: einx cannot resolve an empty state (D_x = 0).
-        # tol (1 + ‖x‖_∞)
-        return tol * (1.0 + jnp.max(jnp.abs(state)))
-
-    def cond(carry: tuple[Array, Array, Array]) -> Array:
-        state, iteration, step_norm = carry
-        return (iteration < max_iter) & (step_norm > threshold(state))
-
-    def body(carry: tuple[Array, Array, Array]) -> tuple[Array, Array, Array]:
-        state, iteration, _ = carry
-        # x̃ − x⁽ʲ⁾
-        step = model.newton(state) - state
-        # x⁽ʲ⁺¹⁾ = x⁽ʲ⁾ + α (x̃ − x⁽ʲ⁾)
-        next_state = state + damping * step
-        # jnp, not einx: einx cannot resolve an empty state (D_x = 0).
-        # ‖Δx‖_∞
-        step_norm = jnp.max(jnp.abs(next_state - state))
-        return next_state, iteration + 1, step_norm
-
-    init = (
-        init_state,
-        jnp.asarray(0),
-        jnp.asarray(jnp.inf, dtype=init_state.dtype),
-    )
-    state, n_iter, step_norm = jax.lax.while_loop(cond, body, init)
-    return state, n_iter, step_norm <= threshold(state)
-
-
-def _implicit_mode(
-    model: LaplaceModel, mode_estimate: Float[Array, " N"]
-) -> Float[Array, " N"]:
-    """Attach implicit-function tangents to a converged mode.
-
-        ∂_θ x̂ = Λ_x|y⁻¹ ∂_θ(−∇_x 𝒥)
-
-    The root function is −∇_x 𝒥(x), or with the hard constraint
-    −P ∇_x 𝒥(P x) − Π_V x (P = I − Π_V), whose roots are the constrained modes
-    and whose Jacobian −(P Λ_x|y P + Π_V) is symmetric.
-
-    Algorithm:
-        1. Define the root function and factorise Λ_x|y once at the mode, with
-           gradients stopped.
-        2. Solve tangents with that factor, kriged for the constraint, wrapped in
-           `jax.lax.custom_linear_solve` so that higher derivatives see Λ_x|y's
-           dependence on θ through the matvec.
-
-    Args:
-        model: The model, carrying θ.
-        mode_estimate: The converged mode from `_newton_loop`.
-
-    Returns:
-        The same point, now implicitly differentiable in θ.
-    """
-    constrained = model.null_space is not None
-
-    def root(state: Array) -> Array:
-        if not constrained:
-            return model.grad(state)
-        # P x = x − Π_V x
-        inner = state - model.null_component(state)
-        # −∇_x 𝒥(P x)
-        ascent = model.grad(inner)
-        # −P ∇_x 𝒥(P x) − Π_V x
-        return ascent - model.null_component(ascent) - model.null_component(state)
-
-    fixed = _stop_gradient(model)
-    frozen_mode = jax.lax.stop_gradient(mode_estimate)
-    factor = _factor(fixed.hessian(frozen_mode)[1])
-
-    def neg_inverse(_: Any, b: Array) -> Array:
-        # Π_V b
-        null = fixed.null_component(b)
-        # krige(Λ_x|y⁻¹ (b − Π_V b))
-        inner = fixed.krige(factor, factor.solve(b - null))[0]
-        return -(inner + null)
-
-    def tangent_solve(matvec: Any, b: Array) -> Array:
-        return jax.lax.custom_linear_solve(matvec, b, neg_inverse, symmetric=True)
-
-    return jax.lax.custom_root(
-        root, jax.lax.stop_gradient(mode_estimate), lambda _, x0: x0, tangent_solve
-    )
-
-
 def laplace_model(
     prior: GaussianMRF | IntrinsicGMRF,
     likelihood: AbstractLikelihood,
@@ -570,10 +454,10 @@ def laplace_model(
     projector: lx.AbstractLinearOperator | None = None,
     offset: ArrayLike | None = None,
 ) -> LaplaceModel:
-    """Collect and check the pieces of the latent Gaussian model of `laplace_mode`.
+    """Collect and check the pieces of the latent Gaussian model of a Laplace fit.
 
-    The single Newton step of `laplace_mode` is `LaplaceModel.newton` on this
-    model; a caller that runs its own loop builds the model here and the result
+    One Newton step is `LaplaceModel.newton` on this model; a caller that runs the
+    loop (``argminax.solve.laplace_mode``) builds the model here and the result
     with `laplace_result`.
 
     Args:
@@ -611,7 +495,7 @@ def laplace_model(
     elif isinstance(prior, IntrinsicGMRF):
         if prior.constraint == "soft":
             raise NotImplementedError(
-                "laplace_mode supports IntrinsicGMRF with constraint='hard' or "
+                "laplace_model supports IntrinsicGMRF with constraint='hard' or "
                 "'none'; the soft constraint's V Vᵀ / s² term is dense."
             )
         # Λ_x = τ R
@@ -619,7 +503,7 @@ def laplace_model(
         null_space = prior.null_space if prior.constraint == "hard" else None
     else:
         raise TypeError(
-            "laplace_mode needs a GaussianMRF or IntrinsicGMRF prior, got "
+            "laplace_model needs a GaussianMRF or IntrinsicGMRF prior, got "
             f"{type(prior).__name__}."
         )
     state_size = prior.event_shape[0]
@@ -644,11 +528,22 @@ def laplace_result(
 
         log π̃(y ∣ θ) = log p(y ∣ A x̂ + o) + log π(x̂) − log π̃_G(x̂)
 
-    Step 4 of `laplace_mode`: refactorise Λ_x|y at the mode x̂ and assemble the
-    log-marginal, with the constraint terms of an `IntrinsicGMRF` with
-    ``constraint="hard"`` (see `laplace_mode` for the formula and its constants).
-    A caller running its own Newton loop on a `LaplaceModel` builds its result
-    here, so the result is the one `laplace_mode` returns.
+    The last step of a Laplace fit: refactorise Λ_x|y at the mode x̂ and assemble
+    the log-marginal, with the constraint terms of an `IntrinsicGMRF` with
+    ``constraint="hard"``. A caller running its own Newton loop on a
+    `LaplaceModel` (``argminax.solve.laplace_mode``) builds its result here.
+
+    In the log-marginal, log π is the prior's ``log_prob`` and
+
+        log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
+            [+ ½ log det(Vᵀ Λ_x|y⁻¹ V) − ½ log det(Vᵀ V) + (D_c / 2) log 2π]
+
+    the bracket for the hard constraint. For a `GaussianMRF` this is
+    log p(y ∣ A x̂ + o) − ½ (x̂ − μ_x)ᵀ Λ_x (x̂ − μ_x) + ½ log det Λ_x
+    − ½ log det Λ_x|y, the exact log-evidence for a Gaussian likelihood. For an
+    `IntrinsicGMRF` it is exact with ``include_normalizer=True`` and otherwise off
+    by the θ-free constant ½ log det₊ R − ((D_x − D_c) / 2) log 2π. The likelihood's
+    own normalising terms are included.
 
     Args:
         model: The model, from `laplace_model`.
@@ -663,7 +558,8 @@ def laplace_result(
         The `LaplaceResult` at x̂.
 
     Examples:
-        Rebuild `laplace_mode` from its parts on a Poisson model:
+        Run a few Newton steps on a Poisson model, then build the result at the
+        mode:
 
         >>> import jax.numpy as jnp
         >>> import lineax as lx
@@ -672,13 +568,15 @@ def laplace_result(
         ...     jnp.zeros(3), lx.DiagonalLinearOperator(jnp.ones(3))
         ... )
         >>> likelihood = gaussx.PoissonLikelihood(jnp.array([0.0, 1.0, 4.0]))
-        >>> fit = gaussx.laplace_mode(prior, likelihood)
         >>> model = gaussx.laplace_model(prior, likelihood)
-        >>> rebuilt = gaussx.laplace_result(
-        ...     model, prior, fit.mode, fit.n_iter, fit.converged
-        ... )
-        >>> bool(jnp.allclose(rebuilt.log_marginal, fit.log_marginal))
+        >>> mode = jnp.zeros(3)
+        >>> for _ in range(10):
+        ...     mode = model.newton(mode)
+        >>> fit = gaussx.laplace_result(model, prior, mode, 10, True)
+        >>> bool(jnp.max(jnp.abs(model.grad(fit.mode))) < 1e-4)
         True
+        >>> type(fit.hessian).__name__, bool(jnp.isfinite(fit.log_marginal))
+        ('DiagonalLinearOperator', True)
     """
     _, hessian = model.hessian(mode)
     factor = _factor(hessian)
@@ -727,182 +625,3 @@ def _model(
 ) -> LaplaceModel:
     """`laplace_model` with positional arguments, as `vb_mean_correction` calls it."""
     return laplace_model(prior, likelihood, projector=projector, offset=offset)
-
-
-def laplace_mode(
-    prior: GaussianMRF | IntrinsicGMRF,
-    likelihood: AbstractLikelihood,
-    *,
-    projector: lx.AbstractLinearOperator | None = None,
-    offset: Float[ArrayLike, " M"] | Float[ArrayLike, ""] | None = None,
-    init: Float[ArrayLike, " N"] | None = None,
-    max_iter: int = 50,
-    tol: float = 1e-8,
-    damping: float = 1.0,
-) -> LaplaceResult:
-    """Mode, Hessian and log-marginal of the Laplace approximation, in precision form.
-
-        Λ_x|y⁽ʲ⁾ = Λ_x + Aᵀ Λ_site⁽ʲ⁾ A
-        Λ_x|y⁽ʲ⁾ x̃ = Λ_x μ_x + Aᵀ (g⁽ʲ⁾ + Λ_site⁽ʲ⁾ A x⁽ʲ⁾)
-        x⁽ʲ⁺¹⁾ = x⁽ʲ⁾ + α (x̃ − x⁽ʲ⁾)
-
-    Deprecated: use ``argminax.solve.laplace_mode``, which runs this loop on
-    gaussx's single step (`laplace_model`, `laplace_result`) and returns the same
-    fields. This function emits a `GaussxDeprecationWarning` and will be removed
-    in gaussx 0.7.0.
-
-    The latent Gaussian model is x ~ ``prior`` (precision Λ_x, mean μ_x),
-    η = A x + o and y ∣ η ~ ``likelihood``, which holds y and must factorise over
-    sites (its Hessian in η is diagonal). The iteration is Newton on the cost
-    𝒥(x) = −log p(y ∣ A x + o) − log p(x), with g⁽ʲ⁾ and
-    Λ_site⁽ʲ⁾ = max(−∇²_η log p, 10⁻⁶) from the likelihood's `site_derivatives`
-    (`newton_update`'s diagonal path), until
-    ‖x⁽ʲ⁺¹⁾ − x⁽ʲ⁾‖_∞ ≤ tol (1 + ‖x⁽ʲ⁺¹⁾‖_∞), with ``tol`` floored at 64 machine
-    epsilons of the dtype. Λ_x|y⁽ʲ⁾ is rebuilt values-only on a structure fixed by
-    Λ_x and A:
-
-    - A the identity (``None``) or one entry per row (a row selection, or a scaled
-      one): Aᵀ Λ_site A is diagonal, so a `BlockTriDiag` Λ_x (RW1, RW2, AR(1)) stays
-      `BlockTriDiag`, and a `SparseOperator`, diagonal or dense Λ_x keeps its class;
-    - a general `SparseOperator` A (a FEM projector, an intercept and covariates):
-      `SparseOperator.congruence` on the union pattern, with a banded or diagonal
-      Λ_x converted to sparse;
-    - a dense A or Λ_x: dense; any other Λ_x (a grid `SpectralFunction` or
-      `KroneckerSum` with a non-diagonal update): the matrix-free sum, solved and
-      log-determined by `gaussx.solve` and `gaussx.logdet` dispatch.
-
-    A sparse Λ_x|y is factored by `SparseCholeskySolver`, whose symbolic analysis is
-    cached per pattern and shared by every step and every θ. A Gaussian likelihood
-    converges in one step (a second confirms it).
-
-    **Intrinsic priors.** An `IntrinsicGMRF` contributes Λ_x = τ R. With
-    ``constraint="hard"`` the field lives on Vᵀ x = 0 (V = ``null_space``): each
-    Newton solve is kriged onto it (D_c extra solves with the same factor), and the
-    Gaussian approximation is the constrained density (Rue et al., 2009, eq. 3; Rue
-    & Held, 2005, eq. 2.30). Λ_x|y must be positive definite on the whole space,
-    which holds when the observations see ker R (an RW2 observed at two or more
-    times, a Besag field observed in every connected component).
-    ``constraint="none"`` runs unconstrained; ``"soft"`` is not supported.
-
-    **The log-marginal.** At the mode x̂,
-
-        log π̃(y ∣ θ) = log p(y ∣ A x̂ + o) + log π(x̂) − log π̃_G(x̂)
-
-    where log π is the prior's ``log_prob`` and
-
-        log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
-            [+ ½ log det(Vᵀ Λ_x|y⁻¹ V) − ½ log det(Vᵀ V) + (D_c / 2) log 2π]
-
-    the bracket for the hard constraint. For a `GaussianMRF` this is
-    log p(y ∣ A x̂ + o) − ½ (x̂ − μ_x)ᵀ Λ_x (x̂ − μ_x) + ½ log det Λ_x
-    − ½ log det Λ_x|y, the exact log-evidence for a Gaussian likelihood. For an
-    `IntrinsicGMRF` it is exact with ``include_normalizer=True`` and otherwise off
-    by the θ-free constant ½ log det₊ R − ((D_x − D_c) / 2) log 2π. The likelihood's
-    own normalising terms are included.
-
-    **Gradients.** Every array in ``prior``, ``likelihood``, ``projector`` and
-    ``offset`` is part of θ. The mode is differentiated by the implicit function
-    theorem through `jax.lax.custom_root` (∂_θ x̂ = Λ_x|y⁻¹ ∂_θ(−∇_x 𝒥), one solve
-    with a factor of Λ_x|y at the mode), and the log-determinants through their
-    structured or sparse (Takahashi) VJPs. Reverse-over-reverse
-    (``jax.jacrev(jax.jacrev(...))``, `theta_design`'s default Hessian) is exact
-    too. The loop itself is not differentiated, so gradients assume ``converged``.
-
-    Algorithm:
-        1. Build the model, and project the starting point off the null space.
-        2. Run the damped Newton loop with gradients stopped.
-        3. Attach implicit tangents to the mode.
-        4. Refactorise Λ_x|y at the mode and assemble the log-marginal.
-
-    Args:
-        prior: The latent field, a `GaussianMRF` or `IntrinsicGMRF`.
-        likelihood: A site-factorising `AbstractLikelihood` holding y
-            (`PoissonLikelihood`, `BinomialLikelihood`,
-            `NegativeBinomialLikelihood`, `BernoulliLikelihood`,
-            `GaussianLikelihood`, ...).
-        projector: The projector A, of shape (M, D_x); ``None`` is the identity.
-        offset: The offset o, a scalar or of length M (e.g. log expected counts).
-        init: Starting point x⁽⁰⁾; zeros by default.
-        max_iter: Maximum Newton steps.
-        tol: Relative tolerance on the step's sup-norm.
-        damping: Step size α in (0, 1]; below 1 for hard, non-log-concave problems.
-
-    Returns:
-        The `LaplaceResult`.
-
-    Raises:
-        TypeError: For another prior class.
-        NotImplementedError: For an `IntrinsicGMRF` with ``constraint="soft"``.
-        ValueError: If ``projector`` does not have D_x columns.
-
-    Examples:
-        Poisson counts with an RW2 seasonal effect, differentiated in log τ. Even
-        n keeps ``rw2_structure(n)`` at size n, so Λ_x|y stays `BlockTriDiag`:
-
-        >>> import jax
-        >>> import jax.numpy as jnp
-        >>> import numpy as np
-        >>> import gaussx
-        >>> n = 20
-        >>> times = jnp.arange(n, dtype=jnp.zeros(()).dtype)
-        >>> rates = np.exp(np.sin(np.asarray(times) / 3.0))
-        >>> counts = jnp.asarray(np.random.default_rng(0).poisson(rates))
-        >>> null_space = jnp.column_stack([jnp.ones(n), times - times.mean()])
-        >>> likelihood = gaussx.PoissonLikelihood(counts)
-        >>> def log_marginal(log_tau):
-        ...     prior = gaussx.IntrinsicGMRF(
-        ...         jnp.zeros(n), jnp.exp(log_tau), gaussx.rw2_structure(n), null_space
-        ...     )
-        ...     return gaussx.laplace_mode(prior, likelihood).log_marginal
-        >>> value, gradient = jax.value_and_grad(log_marginal)(2.0)
-        >>> bool(jnp.isfinite(value)), bool(jnp.isfinite(gradient))
-        (True, True)
-
-        Odd n: ``rw2_structure(n)`` has n + 1 rows. Observe the first n nodes through
-        a row selection, with the null space zero on the padding node:
-
-        >>> m = 21
-        >>> grid = jnp.arange(m, dtype=times.dtype)
-        >>> basis = jnp.zeros((m + 1, 2)).at[:m, 0].set(1.0)
-        >>> basis = basis.at[:m, 1].set(grid - grid.mean())
-        >>> select = gaussx.SparseOperator.from_coo(
-        ...     np.arange(m), np.arange(m), jnp.ones(m), (m, m + 1)
-        ... )
-        >>> prior = gaussx.IntrinsicGMRF(
-        ...     jnp.zeros(m + 1), 10.0, gaussx.rw2_structure(m), basis
-        ... )
-        >>> counts = gaussx.PoissonLikelihood(jnp.ones(m))
-        >>> fit = gaussx.laplace_mode(prior, counts, projector=select)
-        >>> type(fit.hessian).__name__, fit.mode[:m].shape
-        ('BlockTriDiag', (21,))
-
-        Any other prior is rejected:
-
-        >>> gaussx.laplace_mode("prior", counts)  # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-        ...
-        TypeError: laplace_mode needs a GaussianMRF or IntrinsicGMRF prior
-    """
-    warn_deprecated(
-        "gaussx.laplace_mode is deprecated and will be removed in gaussx 0.7.0; "
-        "use argminax.solve.laplace_mode."
-    )
-    model = laplace_model(prior, likelihood, projector=projector, offset=offset)
-    state_size = prior.event_shape[0]
-    dtype = prior.loc.dtype
-    if init is None:
-        init_state = jnp.zeros(state_size, dtype=dtype)
-    else:
-        init_state = jnp.asarray(init, dtype=dtype)
-    # x⁽⁰⁾ ← x⁽⁰⁾ − Π_V x⁽⁰⁾
-    init_state = init_state - model.null_component(init_state)
-
-    # --- Newton loop ---
-    frozen_model = _stop_gradient(model)
-    frozen_init = jax.lax.stop_gradient(init_state)
-    mode_estimate, n_iter, converged = _newton_loop(
-        frozen_model, frozen_init, max_iter, tol, damping
-    )
-    mode = _implicit_mode(model, mode_estimate)
-
-    return laplace_result(model, prior, mode, n_iter, converged)

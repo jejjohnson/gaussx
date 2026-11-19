@@ -30,7 +30,6 @@ import matfree.stochtrace
 from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._einx import einsum
 from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
@@ -325,21 +324,23 @@ def _slq_estimators(
 
 
 def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
-    """Warn (for now) when SLQ gets an operator not tagged symmetric (gh-402).
+    """Raise when SLQ gets an operator not tagged symmetric (gh-402).
 
     Symmetric Lanczos on a non-symmetric operator returns a silently wrong
     log-determinant. The check is on the tags, so it is free under ``jit``.
 
     Args:
         operator: Operator A handed to the strategy.
-        name: Strategy name for the warning.
+        name: Strategy name for the error.
+
+    Raises:
+        ValueError: If A is not tagged symmetric.
     """
     if not lx.is_symmetric(operator):
-        warn_deprecated(
+        raise ValueError(
             f"{name} got an operator that is not tagged symmetric; symmetric "
             "Lanczos then gives a wrong log-determinant. Tag it with "
-            "lineax.symmetric_tag or lineax.positive_semidefinite_tag. "
-            "This will raise a ValueError in gaussx 0.7.0."
+            "lineax.symmetric_tag or lineax.positive_semidefinite_tag."
         )
 
 
@@ -411,7 +412,7 @@ class SLQLogdet(AbstractLogdetStrategy):
             log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
 
         Algorithm:
-            1. Warn when A is not tagged symmetric.
+            1. Raise when A is not tagged symmetric.
             2. Draw N_probe probes z^(i) from ``key`` (or ``PRNGKey(seed)``).
             3. Run k Lanczos steps from each z^(i) / ‖z^(i)‖ and average
                the Gauss quadratures ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁.
@@ -423,6 +424,9 @@ class SLQLogdet(AbstractLogdetStrategy):
 
         Returns:
             Scalar estimate of log det A.
+
+        Raises:
+            ValueError: If A is not tagged symmetric.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
@@ -457,6 +461,9 @@ class SLQLogdet(AbstractLogdetStrategy):
         Returns:
             Tuple ``(estimate, standard_error)``: the SLQ estimate and the
             standard error of the mean across probes.
+
+        Raises:
+            ValueError: If A is not tagged symmetric.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
@@ -536,7 +543,7 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
             log |det(A + σ I)| ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁
 
         Algorithm:
-            1. Warn when A is not tagged symmetric.
+            1. Raise when A is not tagged symmetric.
             2. Draw N_probe probes z^(i) from ``key`` (or ``PRNGKey(seed)``).
             3. Run k Lanczos steps of A + σ I from each z^(i) / ‖z^(i)‖ and
                average ‖z^(i)‖² e₁ᵀ log|T^(i)| e₁.
@@ -548,6 +555,9 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
 
         Returns:
             Scalar estimate of log |det(A + σ I)|.
+
+        Raises:
+            ValueError: If A is not tagged symmetric.
         """
         _check_symmetric(operator, "IndefiniteSLQLogdet")
         if key is None:
@@ -582,6 +592,9 @@ class IndefiniteSLQLogdet(AbstractLogdetStrategy):
 
         Returns:
             Tuple ``(estimate, standard_error)``.
+
+        Raises:
+            ValueError: If A is not tagged symmetric.
         """
         _check_symmetric(operator, "IndefiniteSLQLogdet")
         if key is None:

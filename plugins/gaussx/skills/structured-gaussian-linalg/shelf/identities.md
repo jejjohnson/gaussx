@@ -85,7 +85,7 @@ assert jnp.allclose(dense_ks @ X.ravel(), R.ravel(), atol=1e-3)
 - `EigenDecomposition.from_matrix` needs concrete values and rejects matrices with complex eigenvalues.
 - `selected_inverse` raises `TypeError` for anything but a `BlockTriDiag`, and `ValueError` if it is not symmetric.
 - `schur_complement` returns a `LowRankUpdate`, not a dense matrix; call `.as_matrix()` only when you need one.
-- The legacy three-argument form of `conditional_variance` is deprecated and does not subtract the Schur term.
+- `conditional_variance` takes `(K_XX_diag, K_XZ, A_X)` and subtracts the Schur term itself.
 
 ## Next
 

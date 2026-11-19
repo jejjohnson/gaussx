@@ -188,9 +188,6 @@ class TestTags:
         op = InterpolatedOperator(K_uu, indices, values, tags=lx.symmetric_tag)
         assert lx.is_symmetric(op) is True
 
-    @pytest.mark.filterwarnings(
-        "ignore:gaussx.cubic_interpolation_weights is deprecated"
-    )
     def test_inherits_symmetric_and_psd_from_base(self):
         # gh-352: the KISS-GP default (PSD Toeplitz base, no explicit tags).
         m = 8
@@ -199,8 +196,20 @@ class TestTags:
             jnp.exp(-0.5 * (grid - grid[0]) ** 2 / 0.3**2),
             tags=lx.positive_semidefinite_tag,
         )
-        x = jnp.array([[0.11], [0.37], [0.52], [0.80], [0.93]])
-        idx, w = gaussx.cubic_interpolation_weights(x, [grid])
+        # The cubic (Keys) stencil of x = 0.11, 0.37, 0.52, 0.80, 0.93 on the
+        # grid, as gaussx's removed builder returned it (gh-813).
+        idx = jnp.array(
+            [[0, 1, 2, 3], [1, 2, 3, 4], [2, 3, 4, 5], [4, 5, 6, 7], [4, 5, 6, 7]]
+        )
+        w = jnp.array(
+            [
+                [0.1739835, 0.8494995, 0.0090505, -0.0325335],
+                [-0.0495895, 0.4378185, 0.6831315, -0.0713605],
+                [-0.041472, 0.369216, 0.745984, -0.073728],
+                [-0.048, 0.424, 0.696, -0.072],
+                [-0.1963755, 0.4641765, 0.1507735, 0.5814255],
+            ]
+        )
         op = InterpolatedOperator(K_uu, idx, w)
         assert lx.is_symmetric(op) is True
         assert lx.is_positive_semidefinite(op) is True

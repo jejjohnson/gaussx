@@ -19,7 +19,6 @@ The caller supplies gradients and Hessians of the log-likelihood; these function
 | `gauss_newton_precision(jacobian, *, base=None)` | The Gauss-Newton precision `JᵀJ`, or `base + JᵀJ` as a `LowRankUpdate` when `base` is given. |
 | `ggn_diagonal(jacobian)` | The diagonal of `JᵀJ`, shape `(d,)`. |
 | `hutchinson_hessian_diag(hvp_fn, key, d, n_samples=1, dtype=None)` | A stochastic estimate of the Hessian diagonal from Hessian-vector products. |
-| `laplace_mode(prior, likelihood, ...)` | Deprecated, removed in 0.7.0: the Newton loop moved to `argminax.solve.laplace_mode`. |
 | `laplace_model(prior, likelihood, *, projector=None, offset=None)`, `laplace_result(model, prior, mode, n_iter, converged)` | The two halves of a Laplace approximation around a Newton loop: the checked `LaplaceModel`, whose `newton(x)` is one step, and the `LaplaceResult` at a mode. |
 | `gauss_newton_operator(residual_fn, point, *, noise_precision=None, prior_precision=None, jac='fwd')` | The matrix-free Gauss-Newton precision of a residual function, as a lazy PSD operator. |
 | `LaplaceResult` | Holds `mode`, `hessian`, `factor`, `log_marginal`, `n_iter` and `converged`. |

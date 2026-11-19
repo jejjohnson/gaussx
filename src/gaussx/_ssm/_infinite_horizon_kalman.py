@@ -12,7 +12,6 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, repeat
 from gaussx._linalg._linalg import sandwich, solve_rows
@@ -30,20 +29,6 @@ from gaussx._ssm._utils import (
 )
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
-
-
-# ``InfiniteHorizonState`` was a field-for-field copy of `FilterState`; it is
-# now a deprecated alias, reached only through the package ``__getattr__``
-# so that importing it warns (gh-364).
-_DEPRECATED_ALIASES = {"InfiniteHorizonState": FilterState}
-
-
-def _deprecated_alias(name: str) -> type[FilterState]:
-    warn_deprecated(
-        f"gaussx.{name} is deprecated: infinite_horizon_filter returns a "
-        "gaussx.FilterState. The alias will be removed in gaussx 0.7.0."
-    )
-    return _DEPRECATED_ALIASES[name]
 
 
 def _checked_steady_covariance(dare_result: DAREResult) -> Float[Array, "N N"]:
@@ -302,12 +287,9 @@ def infinite_horizon_filter(
 def infinite_horizon_smoother(
     filter_state: FilterState,
     transition: Float[Array, "N N"] | lx.AbstractLinearOperator,
-    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator | DAREResult,
-    _legacy_process_noise: Float[Array, "N N"]
-    | lx.AbstractLinearOperator
-    | None = None,
+    process_noise: Float[Array, "N N"] | lx.AbstractLinearOperator,
     *,
-    dare_result: DAREResult | None = None,
+    dare_result: DAREResult,
     solver: AbstractSolverStrategy | None = None,
 ) -> tuple[Float[Array, "T N"], Float[Array, "T N N"]]:
     """Infinite-horizon RTS smoother with the fixed steady-state gain G_smooth,∞.
@@ -331,14 +313,10 @@ def infinite_horizon_smoother(
     Args:
         filter_state: Output of `infinite_horizon_filter`.
         transition: Linear dynamics F.
-        process_noise: Model-error covariance Σ_η. The positional prefix
-            ``(filter_state, transition, process_noise)`` matches
-            `gaussx.rts_smoother`.
+        process_noise: Model-error covariance Σ_η, which Σ_pred,∞ needs.
         dare_result: The `gaussx.dare` result used in the filter, holding
             Σ_x,∞ (keyword-only). A result with ``converged=False`` raises
-            an ``EquinoxRuntimeError``. The old positional order
-            ``(filter_state, transition, dare_result, process_noise)`` still
-            works with a ``DeprecationWarning`` until gaussx 0.7.0.
+            an ``EquinoxRuntimeError``.
         solver: Solver strategy for Σ_pred,∞; ``None`` uses structural
             dispatch.
 
@@ -347,8 +325,6 @@ def infinite_horizon_smoother(
         Σ_smooth,∞ broadcast over time.
 
     Raises:
-        TypeError: If ``process_noise`` or ``dare_result`` is missing, or
-            ``dare_result`` is passed positionally after ``process_noise``.
         EquinoxRuntimeError: If the DARE did not converge.
 
     Examples:
@@ -375,27 +351,8 @@ def infinite_horizon_smoother(
         >>> bool(jnp.all(jnp.diag(covs[0]) <= jnp.diag(state.filtered_covs[0])))
         True
     """
-    noise: Array | lx.AbstractLinearOperator | None
-    if isinstance(process_noise, DAREResult):
-        # Old order: (filter_state, transition, dare_result, process_noise).
-        warn_deprecated(
-            "infinite_horizon_smoother(filter_state, transition, dare_result, "
-            "process_noise) is deprecated; pass process_noise third and "
-            "dare_result as a keyword, as in rts_smoother. The old order will "
-            "stop working in gaussx 0.7.0."
-        )
-        dare_result, noise = process_noise, _legacy_process_noise
-    elif _legacy_process_noise is not None:
-        msg = "infinite_horizon_smoother takes dare_result as a keyword argument."
-        raise TypeError(msg)
-    else:
-        noise = process_noise
-    if dare_result is None or noise is None:
-        msg = "infinite_horizon_smoother requires process_noise and dare_result."
-        raise TypeError(msg)
-
     transition_op = _as_operator(transition)
-    process_noise_dense = _materialise(noise)
+    process_noise_dense = _materialise(process_noise)
     steady_covariance = _checked_steady_covariance(dare_result)
     # Σ_pred,∞ = F Σ_x,∞ Fᵀ + Σ_η
     steady_predicted_covariance = _steady_predicted_covariance(

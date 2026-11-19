@@ -59,7 +59,7 @@ assert jnp.isfinite(gaussx.variational_elbo_gaussian(y, f_loc, f_var, s2, kl))
 
 - `collapsed_elbo` needs `K_xx_diag`, the diagonal of the full kernel, not the full matrix.
 - `jitter` is added to `K_zz` only when it is an array, a `lineax.MatrixLinearOperator` or a diagonal operator; for other structured operators put the jitter in the operator.
-- `solver=` on `collapsed_elbo` and `gauss_kl` is deprecated and ignored, because both use Cholesky factors; a structured `K_zz` (`Kronecker`, `BlockDiag`) is factorised per factor.
+- `collapsed_elbo` and `gauss_kl` take no `solver=`, because both use Cholesky factors; a structured `K_zz` (`Kronecker`, `BlockDiag`) is factorised per factor.
 - `gauss_kl` takes `q_mu` of shape `(M, R)` and sums the KL over the `R` outputs; leave `K` out for a whitened model.
 - In the whitened parameterisation `u_mean` and `u_chol` describe `q` in whitened space, and `whitened_svgp_predict` does the `L_zz` solves itself.
 - Pass the KL from `gauss_kl` into `variational_elbo_gaussian` or `variational_elbo_mc`; neither computes it.

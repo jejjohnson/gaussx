@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import inspect
 import re
-import warnings
 
 import pytest
 
 import gaussx
-from gaussx._deprecation import RENAMED, GaussxDeprecationWarning
 
 
 # Words that end in "ise" but are not the en-GB spelling of an "-ize" verb.
@@ -54,23 +52,3 @@ def test_public_names_use_us_spelling() -> None:
 @pytest.mark.parametrize("word", ["discretise", "diagonalised", "normalisation"])
 def test_the_spelling_check_catches_en_gb(word: str) -> None:
     assert _is_en_gb(word)
-
-
-@pytest.mark.parametrize(("old", "new"), sorted(RENAMED.items()))
-def test_renamed_alias_warns_and_is_the_new_object(old: str, new: str) -> None:
-    assert new in gaussx.__all__
-    assert old not in gaussx.__all__
-    with pytest.warns(
-        GaussxDeprecationWarning, match=rf"gaussx\.{old} is deprecated.*0\.7\.0.*{new}"
-    ):
-        alias = getattr(gaussx, old)
-    assert alias is getattr(gaussx, new)
-
-
-def test_renamed_alias_supports_from_import() -> None:
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        from gaussx import DiagonalisedOperator
-
-    assert DiagonalisedOperator is gaussx.DiagonalizedOperator
-    assert any(issubclass(w.category, GaussxDeprecationWarning) for w in caught)

@@ -21,14 +21,7 @@ diagonalises in the joint eigenbasis with eigenvalues $\gamma_{1,i} + \gamma_{2,
     | `KroneckerSum(A, B)` | $\mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$ | Closed form — eigenvalues $\gamma_{1,i} + \gamma_{2,j}$, eigenvectors $\mathbf{Q}_1 \otimes \mathbf{Q}_2$ |
     | `SumOfKroneckers(K_1, K_2, …)` | $\sum_j \mathbf{A}_j \otimes \mathbf{B}_j$ | None in general. `solve` / `logdet` reduce the *two-term* case with one term positive definite — $\mathbf{A} \otimes \mathbf{B} + \sigma^2 \mathbf{I}$ and $\mathbf{A}_1 \otimes \mathbf{B}_1 + \mathbf{A}_2 \otimes \mathbf{B}_2$ — to one eigendecomposition per factor, $O(N_1^3 + N_2^3)$; `eigendecompose` covers the same two-term symmetric case more generally by densifying a $(N_1 N_2)^2$ block |
 
-    `SumOfKroneckers` was called `SumKronecker` until gh-136. The old name
-    still imports and subclasses the new one — so `isinstance` checks keep
-    working — but emits a `DeprecationWarning` on construction and will be
-    removed in gaussx 0.7.0. Its square root and sampler followed in
-    gh-297: `SumKroneckerSqrt` → `SumOfKroneckersSqrt` and
-    `sumkronecker_sample` → `sum_of_kroneckers_sample`. The old names warn
-    and will be removed in gaussx 0.7.0. Each square-root class sits next to
-    its operator: `KroneckerSumSqrt` is the closed-form root of a
+    Each square-root class sits next to its operator: `KroneckerSumSqrt` is the closed-form root of a
     `KroneckerSum`, and `SumOfKroneckersSqrt` is the lazy Lanczos root that
     `sqrt` returns for a `SumOfKroneckers`.
 
@@ -62,14 +55,6 @@ with $\mathbf{D} = \mathrm{diag}(\mathbf{d})$ and $\mathbf{U}$ of size $N \times
 
 On any other base (e.g. a general diagonal) the flag does not change the
 result, and tag inference never depends on it.
-
-!!! warning "`SVDLowRankUpdate` is deprecated"
-    It remains a `LowRankUpdate` subclass — so `isinstance` checks and
-    `singledispatch` registrations keyed on it still work — but it forces
-    `orthonormal=True` and emits a `DeprecationWarning` on construction. New
-    code should use `LowRankUpdate(base, U, S, V, orthonormal=True)` or
-    [`svd_low_rank_plus_diag`](#gaussx.svd_low_rank_plus_diag). It will be
-    removed in gaussx 0.7.0.
 
 ::: gaussx
     options:
@@ -159,7 +144,7 @@ indices, weights = plan.to_gaussx()  # (M, 4^D) each
 A = gaussx.InterpolatedOperator(K_grid, indices, weights)  # W K_II Wᵀ
 ```
 
-On a single axis the source is `functax.geometry.Axis(g)` itself. For the multilinear weights use `functax.interp.Linear()` with `policies=functax.interp.Policies(outside="clamp")`, which is what `linear_interpolation_weights` does by default (`outside="extrapolate"` matches `clamp=False`). The cubic rows agree with `cubic_interpolation_weights` wherever the target's cell needs no clipping; in the edge cells gaussx shifts the stencil inward, while functax reflects the taps by default (`boundary="mirror"`). gaussx's own builders, `cubic_interpolation_weights` and `linear_interpolation_weights`, are deprecated (see below).
+On a single axis the source is `functax.geometry.Axis(g)` itself. For multilinear weights use `functax.interp.Linear()`, with `policies=functax.interp.Policies(outside="clamp")` to clamp targets outside the grid or `outside="extrapolate"` to extrapolate. gaussx no longer builds stencils itself: its `cubic_interpolation_weights` and `linear_interpolation_weights` were removed in favour of functax (gh-813).
 
 ::: gaussx
     options:
@@ -218,15 +203,3 @@ re-exported from lineax so user code only needs one import.
         - upper_triangular_tag
         - tridiagonal_tag
         - unit_diagonal_tag
-
-## Deprecated aliases
-
-These names still work but warn on use and will be removed in gaussx 0.7.0
-(see the [deprecation policy](index.md#deprecation-policy)). Each one names its
-replacement.
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [SumKronecker, SumKroneckerSqrt, sumkronecker_sample, SVDLowRankUpdate, cubic_interpolation_weights, linear_interpolation_weights]

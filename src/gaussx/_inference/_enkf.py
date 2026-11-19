@@ -242,7 +242,7 @@ def _noise_factor(
         warn_dense_fallback(
             "enkf_analysis materialises a SumOfKroneckers obs_noise to draw "
             "exact perturbations. For a matrix-free alternative, sample "
-            "eps ~ N(0, R) yourself -- sumkronecker_sample or "
+            "eps ~ N(0, R) yourself -- sum_of_kroneckers_sample or "
             "sqrt(obs_noise, lanczos_order=...) -- and pass them as "
             "perturbed_obs=observation + eps. Both are approximate, so that "
             "is an opt-in, not the default."

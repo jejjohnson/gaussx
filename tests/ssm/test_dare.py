@@ -72,18 +72,6 @@ class TestDARE:
         result = jax.jit(dare)(A, H, Q, R)
         assert result.converged
 
-    def test_p_init_is_deprecated_and_ignored(self):
-        """The doubling algorithm needs no initial guess (gh-294)."""
-        D, M = 3, 2
-        A = 0.9 * jnp.eye(D)
-        H = jax.random.normal(jax.random.key(0), (M, D)) * 0.5
-        Q = 0.1 * jnp.eye(D)
-        R = 0.5 * jnp.eye(M)
-        with pytest.warns(DeprecationWarning, match="P_init"):
-            result = dare(A, H, Q, R, P_init=jnp.eye(D))
-        assert result.converged
-        assert jnp.array_equal(result.P_inf, dare(A, H, Q, R).P_inf)
-
 
 def test_dare_obs_noise_diagonal_operator(getkey):
     """dare with operator-typed R matches the array form."""

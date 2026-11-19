@@ -441,13 +441,11 @@ def test_circulant_eager_and_traced_agree(symmetric):
     assert jnp.allclose(traced.as_matrix(), eager.as_matrix())
 
 
-def test_circulant_value_inference_is_deprecated():
-    c = jnp.array([2.0, 0.5, 0.1, 0.5])
-    with pytest.warns(DeprecationWarning, match="symmetric=True"):
-        op = gaussx.circulant(c)
-    assert lx.is_symmetric(op)
-    # A non-even column infers nothing, so it does not warn.
-    assert not lx.is_symmetric(gaussx.circulant(jnp.array([2.0, 0.5, 0.1, 0.3])))
+def test_circulant_infers_no_symmetry_from_the_values():
+    # An even, real column is symmetric only when the caller says so.
+    op = gaussx.circulant(jnp.array([2.0, 0.5, 0.1, 0.5]))
+    assert not lx.is_symmetric(op)
+    assert jnp.iscomplexobj(op.eigenvalues)
 
 
 @pytest.mark.parametrize(

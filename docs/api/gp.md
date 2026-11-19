@@ -31,10 +31,9 @@ The sparse-GP helpers share one convention (gh-353):
 | Variational mean | `q_mu` | `(M, R)` or `(M,)` |
 | Variational root | `q_sqrt` | `(R, M, M)` or `(M, R)` |
 
-`sparse_conditional` follows it; `base_conditional` (cross-covariance
-`(M, N)`) is deprecated in its favour. `collapsed_elbo`'s `K_diag=` keyword
-is now `K_xx_diag=`, and the unused `solver=` of `collapsed_elbo` and
-`gauss_kl` is deprecated; the old forms warn until gaussx 0.7.0.
+`sparse_conditional` follows it; it replaced `base_conditional`, whose
+cross-covariance was `(M, N)`. `collapsed_elbo` takes `K_xx_diag=` (formerly
+`K_diag=`), and neither `collapsed_elbo` nor `gauss_kl` takes a `solver=`.
 
 ::: gaussx
     options:
@@ -94,14 +93,3 @@ observations into independent latent processes and back.
       show_root_heading: false
       show_root_toc_entry: false
       members: [oilmm_project, oilmm_back_project]
-
-## Deprecated aliases
-
-These names still work but warn on use and will be removed in gaussx 0.7.0
-(see the [deprecation policy](index.md#deprecation-policy)).
-
-::: gaussx
-    options:
-      show_root_heading: false
-      show_root_toc_entry: false
-      members: [base_conditional]

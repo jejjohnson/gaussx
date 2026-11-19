@@ -15,9 +15,7 @@ import jax
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import warn_deprecated
 from gaussx._strategies._base import AbstractSolverStrategy
-from gaussx._strategies._renamed import UNSET, default, renamed
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
     operator_dtype,
@@ -52,9 +50,6 @@ class BBMMSolver(AbstractSolverStrategy):
     vary them.
 
     The options use the names shared by every iterative strategy (gh-405).
-    The old keywords still work, with a deprecation warning:
-    ``cg_tolerance=t`` sets ``rtol=atol=t``, ``cg_max_iter`` is
-    ``max_steps`` and ``lanczos_iter`` is ``lanczos_order``.
 
     Attributes:
         rtol: Relative tolerance tol_rel. ``None``: 1e-4 in float64, 1e-3
@@ -88,15 +83,6 @@ class BBMMSolver(AbstractSolverStrategy):
         >>> round(float(solver.logdet(diagonal)), 3)
         0.693
 
-        The deprecated keywords still work, with a warning:
-
-        >>> import warnings
-        >>> with warnings.catch_warnings():
-        ...     warnings.simplefilter("ignore")
-        ...     old = gaussx.BBMMSolver(cg_max_iter=50)
-        >>> old.max_steps
-        50
-
     References:
         Gardner, J. R., Pleiss, G., Weinberger, K. Q., Bindel, D., &
         Wilson, A. G. (2018). GPyTorch: Blackbox matrix-matrix Gaussian
@@ -114,75 +100,21 @@ class BBMMSolver(AbstractSolverStrategy):
     def __init__(
         self,
         *,
-        rtol: float | None = UNSET,
-        atol: float | None = UNSET,
-        max_steps: int = UNSET,
-        lanczos_order: int = UNSET,
+        rtol: float | None = None,
+        atol: float | None = None,
+        max_steps: int = 1000,
+        lanczos_order: int = 100,
         num_probes: int = 10,
         seed: int = 0,
         throw: bool = True,
-        cg_tolerance: float | None = UNSET,
-        cg_max_iter: int = UNSET,
-        lanczos_iter: int = UNSET,
     ) -> None:
-        name = "BBMMSolver"
-        rtol = renamed(name, "cg_tolerance", cg_tolerance, "rtol", rtol)
-        if cg_tolerance is not UNSET:
-            # cg_tolerance set both tolerances.
-            if atol is not UNSET:
-                raise TypeError(f"{name}: pass rtol= and atol=, not cg_tolerance=.")
-            atol = cg_tolerance
-        self.rtol = default(rtol, None)
-        self.atol = default(atol, None)
-        self.max_steps = default(
-            renamed(name, "cg_max_iter", cg_max_iter, "max_steps", max_steps), 1000
-        )
-        self.lanczos_order = default(
-            renamed(name, "lanczos_iter", lanczos_iter, "lanczos_order", lanczos_order),
-            100,
-        )
+        self.rtol = rtol
+        self.atol = atol
+        self.max_steps = max_steps
+        self.lanczos_order = lanczos_order
         self.num_probes = num_probes
         self.seed = seed
         self.throw = throw
-
-    @property
-    def cg_tolerance(self) -> float | None:
-        """Deprecated: `rtol` (gh-405).
-
-        Returns:
-            ``rtol``, with a deprecation warning.
-        """
-        warn_deprecated(
-            "BBMMSolver.cg_tolerance is deprecated and will be removed in gaussx "
-            "0.7.0; use .rtol (gh-405)."
-        )
-        return self.rtol
-
-    @property
-    def cg_max_iter(self) -> int:
-        """Deprecated: `max_steps` (gh-405).
-
-        Returns:
-            ``max_steps``, with a deprecation warning.
-        """
-        warn_deprecated(
-            "BBMMSolver.cg_max_iter is deprecated and will be removed in gaussx "
-            "0.7.0; use .max_steps (gh-405)."
-        )
-        return self.max_steps
-
-    @property
-    def lanczos_iter(self) -> int:
-        """Deprecated: `lanczos_order` (gh-405).
-
-        Returns:
-            ``lanczos_order``, with a deprecation warning.
-        """
-        warn_deprecated(
-            "BBMMSolver.lanczos_iter is deprecated and will be removed in gaussx "
-            "0.7.0; use .lanczos_order (gh-405)."
-        )
-        return self.lanczos_order
 
     def solve(
         self,

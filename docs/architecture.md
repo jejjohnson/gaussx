@@ -199,7 +199,6 @@ flowchart LR
     P --> P4["BlockDiag"]
 
     LRK --> L1["LowRankUpdate"]
-    LRK --> L2["SVDLowRankUpdate"]
 
     B --> B1["BlockTriDiag"]
     B --> B2["Lower/UpperBlockTriDiag"]
@@ -218,11 +217,10 @@ flowchart LR
 |----------|-----------|--------------------|
 | `Kronecker(A, B, ...)` | $\mathbf{A}_1 \otimes \ldots \otimes \mathbf{A}_D$ | $O(\sum_d N_d^3)$ instead of $O((\prod_d N_d)^3)$; matvec is Roth's column lemma via einx |
 | `KroneckerSum(A, B)` | $\mathbf{A}_1 \oplus \mathbf{A}_2 = \mathbf{A}_1 \otimes \mathbf{I} + \mathbf{I} \otimes \mathbf{A}_2$ | Diagonalises in the joint eigenbasis, eigenvalues $\gamma_{1,i} + \gamma_{2,j}$ |
-| `SumOfKroneckers` | $\sum_j \mathbf{A}_j \otimes \mathbf{B}_j$ | Structured Cholesky/sqrt for separable-plus-noise covariances. *Not* the same as `KroneckerSum`; was named `SumKronecker`, which survives as a deprecated alias |
+| `SumOfKroneckers` | $\sum_j \mathbf{A}_j \otimes \mathbf{B}_j$ | Structured Cholesky/sqrt for separable-plus-noise covariances. *Not* the same as `KroneckerSum` |
 | `BlockDiag(A, B, ...)` | $\mathrm{blockdiag}(\mathbf{A}_1, \ldots, \mathbf{A}_D)$ | Every primitive splits per block |
 | `BlockTriDiag(D, A)` | Symmetric block-tridiagonal precision | $O(B d^3)$ for $B$ blocks of size $d$ --- the precision structure of Markovian GPs |
 | `LowRankUpdate(base, U, d, V)` | $\mathbf{A}_0 + \mathbf{U} \mathrm{diag}(\mathbf{d}) \mathbf{V}^\top$ | Woodbury solves, determinant-lemma logdets; pass `orthonormal=True` for SVD/Nyström factors |
-| `SVDLowRankUpdate` | *Deprecated* --- use `LowRankUpdate(..., orthonormal=True)` | Kept as a subclass so `isinstance` checks keep working; warns on construction |
 | `Toeplitz` | Symmetric Toeplitz | $O(n \log n)$ matvecs and sampling via FFT circulant embedding |
 | `InterpolatedOperator` | $\mathbf{W}_\text{interp} \mathbf{K}_{\mathcal{I}\mathcal{I}} \mathbf{W}_\text{interp}^\top$ (KISS-GP style) | Grid interpolation weights, sparse in effect |
 | `MaskedOperator` | Row/column sub-selection of a base operator | Irregular domains, held-out indices |
@@ -440,10 +438,8 @@ Two API constraints worth knowing up front:
 - `kronecker_posterior_predictive(...)` needs exact test prior diagonals via
   `K_test_diag_factors=` for predictive variances.
 - `ssm_to_naturals(A, Q, mu_0, P_0)` takes the transition noise `Q` of shape
-  `(N-1, d, d)` and `P_0` separately, as `pyrox_gauss.MarkovGaussian` does. The older
-  stacked layout (`Q[0] == P_0`) is deprecated until 0.5.0; with it, an
-  inconsistent initial covariance raises an `EquinoxRuntimeError` (via
-  `equinox.error_if`), eagerly and at run time under `jax.jit` / `jax.vmap`.
+  `(N-1, d, d)` and `P_0` separately, as `pyrox_gauss.MarkovGaussian` does; any
+  other number of `Q` blocks raises a `ValueError`.
 
 ---
 
@@ -590,7 +586,6 @@ is the modelling shell gaussx deliberately refuses to be: kernels with
 hyperparameter priors, NumPyro sample sites, guides, likelihoods, sparse and
 Markov GP models. It reaches into gaussx for more than forty public symbols ---
 `Kronecker`, `BlockDiag`, the solver strategies,
-`base_conditional`,
 `variational_elbo_gaussian`, `whitened_svgp_predict`, `kalman_filter`,
 `rts_smoother`, `ep_tilted_moments`, the OILMM projections, and the
 natural-parameter conversions.

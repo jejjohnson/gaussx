@@ -23,14 +23,14 @@ or optimistix name).
 Every warning goes through `gaussx._deprecation`, so it is a
 `GaussxDeprecationWarning` attributed to the caller's line, and names the
 replacement **and** the removal version (the first `0.x.0` after the release
-that first ships the warning; check `RENAMED_REMOVAL` and the open
-deprecations for the current one).
+that first ships the warning; check the open deprecations, which
+`tests/test_deprecations.py` collects, for the current one).
 
 | What changes | How |
 |---|---|
-| A public function or class name | Rename it, export the new name, remove the old name from the imports and `__all__` in `src/gaussx/__init__.py`, and add `"old": "new"` to `RENAMED` in `_deprecation.py`; `gaussx.__getattr__` returns the *same* object with a warning, so `isinstance` keeps working |
-| A class that must stay distinct (e.g. a subclass with its own behaviour), or a wrapper with a different signature | A thin subclass whose `__init__` calls `warn_deprecated(...)` (see `SumKronecker` in `_operators/_sum_kronecker.py`) |
-| A keyword argument | `@renamed_kwargs(old="new")` on the function |
+| A public function or class name | Rename it, export the new name, remove the old name from the imports and `__all__` in `src/gaussx/__init__.py`, and add a branch for the old name to `gaussx.__getattr__` that calls `warn_deprecated(...)` and returns the *same* object, so `isinstance` keeps working |
+| A class that must stay distinct (e.g. a subclass with its own behaviour), or a wrapper with a different signature | A thin subclass whose `__init__` calls `warn_deprecated(...)` |
+| A keyword argument | Accept the old keyword, `warn_deprecated(...)` when it is passed, map it onto the new one, and raise `TypeError` when both are given |
 | An option value or behaviour | `warn_deprecated("... is deprecated and will be removed in gaussx X.Y.0; use ...")` at the point of use |
 
 Internal callers switch to the new name in the same PR, so the package
@@ -40,7 +40,7 @@ gh-332).
 ## 3. Docs and index
 
 - The new name goes into its page's `members:` list.
-- A `RENAMED` alias is not exported, so it leaves the docs entirely (listing
+- A `__getattr__` alias is not exported, so it leaves the docs entirely (listing
   it fails `test_no_documented_symbol_is_stale` and the strict build);
   record the rename as a row in the "Naming" table of `docs/api/index.md`.
 - An exported deprecated subclass or wrapper moves to the page's
@@ -66,8 +66,8 @@ it under "Deprecations"). A `feat` / `fix` PR that also deprecates adds a
 ## Removing deprecations on schedule
 
 When `tests/test_deprecations.py` goes red on a release, or when cutting the
-minor release that is due: delete each alias, `RENAMED` entry,
-`renamed_kwargs` mapping and "Deprecated aliases" docs entry that names that
+minor release that is due: delete each alias, old keyword, old layout and
+"Deprecated aliases" docs entry that names that
 version, remove their tests, update `docs/capabilities.md`, and land it as a
 breaking change (`feat!:` / `refactor!:` with a `BREAKING CHANGE:` footer
 listing the removed names and their replacements).

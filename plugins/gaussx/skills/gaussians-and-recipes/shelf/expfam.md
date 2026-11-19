@@ -26,7 +26,6 @@ Natural parameters are `eta1 = Λ μ` and `eta2 = -½ Λ` for the precision `Λ`
 | `fisher_info(expfam)` | The precision `-2 eta2`: the Fisher information of the mean, not in natural coordinates. |
 | `sufficient_stats(x)` | `T(x) = [x, x xᵀ]`. |
 | `kl_divergence(q, p)` | `KL(q ‖ p)` between two `GaussianExpFam`, by the Bregman form. |
-| `to_natural`, `to_expectation` | Deprecated aliases of `mean_cov_to_natural` and `to_mean_cov`; `to_expectation` returns `(mu, Sigma)`, not expectation parameters. |
 
 ## Use it
 
@@ -68,7 +67,6 @@ assert jnp.allclose(kl, gaussx.kl_standard_normal(mu, cov), atol=1e-3)
 
 ## Goes wrong
 
-- `to_expectation` is a deprecated alias that returns the mean and covariance; use `to_mean_cov`, or `natural_to_expectation` for `(m1, m2)`.
 - `fisher_info` is the Fisher information of the mean only; it is not `∇²A(η)`.
 - Operator and dense forms are separate functions; `natural_to_mean_cov` returns an operator, `natural_to_mean_chol` returns a Cholesky factor array.
 

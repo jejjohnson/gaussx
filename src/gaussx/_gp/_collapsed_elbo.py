@@ -14,16 +14,13 @@ import lineax as lx
 from jax import lax
 from jaxtyping import Array, Float
 
-from gaussx._deprecation import renamed_kwargs, warn_deprecated
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._einx import einsum, rearrange
 from gaussx._linalg._linalg import solve_columns
 from gaussx._primitives._cholesky import cholesky
 from gaussx._primitives._logdet import cholesky_logdet
-from gaussx._strategies._base import AbstractSolverStrategy
 
 
-@renamed_kwargs(K_diag="K_xx_diag")
 def collapsed_elbo(
     y: Float[Array, " N"],
     K_xx_diag: Float[Array, " N"],
@@ -32,7 +29,6 @@ def collapsed_elbo(
     noise_var: float,
     *,
     jitter: float = 1e-6,
-    solver: AbstractSolverStrategy | None = None,
 ) -> Float[Array, ""]:
     """Collapsed ELBO (Titsias bound) for sparse GP regression.
 
@@ -61,7 +57,6 @@ def collapsed_elbo(
     Args:
         y: Observations y.
         K_xx_diag: Prior variances diag(K_XX) at the training inputs.
-            (Formerly ``K_diag``; the old keyword is deprecated.)
         K_xz: Cross-covariance K_Xℐ between the training inputs and the
             inducing inputs.
         K_zz: Inducing kernel matrix K_ℐℐ, as a dense array or a PSD
@@ -73,8 +68,6 @@ def collapsed_elbo(
             or `lineax.DiagonalLinearOperator`. It is **not** added to other
             structured operators (it would destroy their structure):
             include any jitter in the operator itself, e.g. per factor.
-        solver: Deprecated and ignored (the Cholesky factorisations take no
-            solver); passing one warns. Removed in gaussx 0.7.0.
 
     Returns:
         The scalar ELBO.
@@ -110,11 +103,6 @@ def collapsed_elbo(
         Titsias, M. (2009). Variational learning of inducing variables in
         sparse Gaussian processes. *AISTATS*.
     """
-    if solver is not None:
-        warn_deprecated(
-            "collapsed_elbo(solver=...) is ignored and deprecated; it will be "
-            "removed in gaussx 0.7.0."
-        )
     num_samples = y.shape[0]
     # K_ℐℐ + jitter I, where that keeps the structure
     inducing_operator = _jittered(K_zz, jitter)

@@ -2,17 +2,10 @@
 
 from __future__ import annotations
 
-import functools
 import os
 import warnings
-from collections.abc import Callable
-from typing import Any, ParamSpec, TypeVar
 
 import equinox
-
-
-P = ParamSpec("P")
-R = TypeVar("R")
 
 
 class GaussxDeprecationWarning(DeprecationWarning):
@@ -38,63 +31,6 @@ _SKIP = (
 )
 
 
-# Public names renamed under the naming conventions in docs/api/index.md
-# (gh-315), mapped to their replacements. ``gaussx.<old>`` still resolves,
-# through the package ``__getattr__``, to the *same* object as the new name
-# (so ``isinstance`` and ``is`` checks keep working) and warns on access.
-RENAMED: dict[str, str] = {
-    "DiagonalisedOperator": "DiagonalizedOperator",
-    "as_diagonalised": "as_diagonalized",
-    "discretise_mfd": "discretize_mfd",
-    "discretise_mfd_sequence": "discretize_mfd_sequence",
-    "EigenFactorization": "EigenDecomposition",
-    "Circulant": "circulant",
-    "SumOperator": "sum_operator",
-    "ScaledOperator": "scaled_operator",
-    "ProductOperator": "product_operator",
-    "solve_tridiagonal": "tridiagonal_solve",
-    "solve_tridiagonal_batched": "tridiagonal_solve_batched",
-    "dist_kl_divergence": "gaussian_kl",
-    "meanvar_to_natural": "mean_chol_to_natural",
-    "natural_to_meanvar": "natural_to_mean_chol",
-    "meanvar_to_expectation": "mean_chol_to_expectation",
-    "expectation_to_meanvar": "expectation_to_mean_chol",
-}
-RENAMED_REMOVAL = "0.7.0"
-
-
-def renamed_attribute(old: str, namespace: dict[str, Any]) -> Any:
-    """Resolve the renamed public name ``old`` in ``namespace``, with a warning.
-
-    Args:
-        old: A deprecated name, a key of `RENAMED`.
-        namespace: Where the replacement lives, the package's ``globals()``.
-
-    Returns:
-        The object the replacement name holds in ``namespace``, the same object
-        rather than a copy, so ``isinstance`` and ``is`` checks keep working.
-
-    Raises:
-        KeyError: If ``old`` is not in `RENAMED`, or its replacement is not in
-            ``namespace``.
-
-    Examples:
-        >>> import warnings
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     renamed_attribute("Circulant", {"circulant": "the new object"})
-        'the new object'
-        >>> caught[0].category.__name__
-        'GaussxDeprecationWarning'
-    """
-    new = RENAMED[old]
-    warn_deprecated(
-        f"gaussx.{old} is deprecated and will be removed in gaussx "
-        f"{RENAMED_REMOVAL}; use gaussx.{new} (gh-315)."
-    )
-    return namespace[new]
-
-
 def warn_deprecated(message: str) -> None:
     """Emit a `GaussxDeprecationWarning` attributed to the caller's code.
 
@@ -112,67 +48,3 @@ def warn_deprecated(message: str) -> None:
     warnings.warn(
         message, GaussxDeprecationWarning, stacklevel=2, skip_file_prefixes=_SKIP
     )
-
-
-def renamed_kwargs(**renames: str) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Accept deprecated keyword names until their removal release.
-
-    ``@renamed_kwargs(K_diag="K_xx_diag")`` maps a call with ``K_diag=...``
-    onto ``K_xx_diag=...`` and emits a `GaussxDeprecationWarning`; passing
-    both names raises `TypeError`.
-
-    Args:
-        **renames: Each deprecated keyword mapped to its replacement.
-
-    Returns:
-        A decorator that applies the renames on each call of the function.
-
-    Raises:
-        TypeError: When the decorated function is called with both a deprecated
-            keyword and its replacement.
-
-    Examples:
-        The old keyword still works, and warns:
-
-        >>> import warnings
-        >>> @renamed_kwargs(old="new")
-        ... def scale(x, new=1):
-        ...     return x * new
-        >>> with warnings.catch_warnings(record=True) as caught:
-        ...     warnings.simplefilter("always")
-        ...     scale(2, old=3)
-        6
-        >>> caught[0].category.__name__
-        'GaussxDeprecationWarning'
-
-        The new keyword does not warn, and passing both is an error:
-
-        >>> scale(2, new=3)
-        6
-        >>> scale(2, old=3, new=3)  # doctest: +IGNORE_EXCEPTION_DETAIL
-        Traceback (most recent call last):
-        ...
-        TypeError: scale() got both old= (deprecated) and new=.
-    """
-
-    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
-        name = getattr(fn, "__name__", "function")
-
-        @functools.wraps(fn)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-            mapped: dict[str, Any] = dict(kwargs)
-            for old, new in renames.items():
-                if old in mapped:
-                    if new in mapped:
-                        msg = f"{name}() got both {old}= (deprecated) and {new}=."
-                        raise TypeError(msg)
-                    warn_deprecated(
-                        f"{name}({old}=...) is deprecated and will be removed "
-                        f"in gaussx 0.7.0; use {new}=... instead."
-                    )
-                    mapped[new] = mapped.pop(old)
-            return fn(*args, **mapped)
-
-        return wrapper
-
-    return decorator

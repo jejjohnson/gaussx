@@ -329,7 +329,7 @@ print("Dense precision shape:", dense_precision.shape)
 # %%
 # Round-trip: convert back to SSM parameters
 transition_rt, model_noise_rt, prior_mean_rt, prior_covariance_rt = (
-    gaussx.naturals_to_ssm(natural_linear, natural_precision, initial_in_q=False)
+    gaussx.naturals_to_ssm(natural_linear, natural_precision)
 )
 
 print(
