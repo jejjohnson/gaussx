@@ -1750,7 +1750,7 @@ class BYM2GMRF(IntrinsicGMRF):
         """
         return self.icar_null_space.shape[0]
 
-    def _icar(self, constraint: str) -> IntrinsicGMRF:
+    def _icar(self, constraint: Literal["none", "soft", "hard"]) -> IntrinsicGMRF:
         """The unit-precision ICAR on R* that u* is drawn from.
 
             u* ~ 𝒩(0, (R*)⁺)
