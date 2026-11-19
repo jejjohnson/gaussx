@@ -4,6 +4,10 @@
 # entry's file names it. scripts/skill_shelf.py writes the generated parts of the
 # three SKILL.md files from this file and checks the gates.
 
+# Where the public names are read from: module = its file, from the root.
+[modules]
+gaussx = "src/gaussx/__init__.py"
+
 [skills.structured-gaussian-linalg]
 builds_on_units = []
 
