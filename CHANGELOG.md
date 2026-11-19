@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.7.0](https://github.com/jejjohnson/gaussx/compare/v0.6.16...v0.7.0) (2026-11-19)
+
+
+### ⚠ BREAKING CHANGES
+
+* **distributions:** a GMRF is no longer a numpyro Distribution; wrap it in GMRFDistribution for numpyro.sample. The validate_args keyword is removed.
+* **gmrf:** a GMRF is no longer a numpyro Distribution; wrap it in GMRFDistribution for numpyro.sample. The validate_args keyword is removed.
+
+### Features
+
+* **plugins:** split the gaussx skill into a shelf of three listed skills ([#840](https://github.com/jejjohnson/gaussx/issues/840)) ([ae9a77c](https://github.com/jejjohnson/gaussx/commit/ae9a77c8d20544e6dbcac933abf664d4bce314dd))
+
+
+### Code Refactoring
+
+* **distributions:** the NumPyro distributions leave gaussx for pyrox-gauss ([#846](https://github.com/jejjohnson/gaussx/issues/846)) ([6722fa5](https://github.com/jejjohnson/gaussx/commit/6722fa52fc290e7534e7620885be14227a0b1b1c))
+* **gmrf:** the GMRFs are equinox modules and GMRFDistribution wraps them for numpyro ([#845](https://github.com/jejjohnson/gaussx/issues/845)) ([f670cf0](https://github.com/jejjohnson/gaussx/commit/f670cf03f6545bc91f359668f54665a074035054))
+
 ## [0.6.16](https://github.com/jejjohnson/gaussx/compare/v0.6.15...v0.6.16) (2026-11-11)
 
 
