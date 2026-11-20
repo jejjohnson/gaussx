@@ -1,6 +1,6 @@
 ---
 name: add-notebook
-description: Add or update an example notebook in gaussx's docs — a jupytext percent-format .py source plus its executed .ipynb, rendered by mkdocs-jupyter — following the docs-examples standards. Use when asked to write a tutorial, example, demo, walkthrough or benchmark notebook, or after changing an API a notebook uses.
+description: Add or update an example notebook in gaussx's docs — a jupytext percent-format .py source plus its executed .ipynb, rendered by mystmd — following the docs-examples standards. Use when asked to write a tutorial, example, demo, walkthrough or benchmark notebook, or after changing an API a notebook uses.
 ---
 
 # Add an example notebook
@@ -12,7 +12,7 @@ this is the workflow.
 
 - One question per notebook, answered with gaussx's public API only
   (`import gaussx`; no `gaussx._*` imports). Check the existing notebooks
-  in `mkdocs.yml` ("Examples") so you extend one rather than duplicate it.
+  in the `toc` of `docs/myst.yml` ("Examples") so you extend one rather than duplicate it.
 - Show the structure paying off: the structured call next to the dense
   reference it matches, and the cost it saves (O(·), or a timed comparison).
 
@@ -23,7 +23,7 @@ this is the workflow.
 - Order: title and overview → imports → problem setup → core computation →
   figures and tables → takeaways.
 - Shapes in comments (`# (N, N) float64`), equations in markdown cells
-  (MathJax), keys explicit (`jr.key(0)`).
+  (KaTeX: a bare `_` inside `\text{}` or `\texttt{}` fails the build), keys explicit (`jr.key(0)`).
 - Figures with `plt.show()` only: no `savefig`, no committed PNGs.
 - Timing: warm up every jitted function first and call
   `block_until_ready()`.
@@ -41,7 +41,5 @@ after every edit to the `.py`.
 
 ## 4. Publish it
 
-- Add it to the "Examples" section of `nav` in `mkdocs.yml`.
-- `uv run --group docs mkdocs build --strict` (the notebooks are
-  pre-executed, `execute: false`). If the jupyter plugin stalls locally,
-  build with a copy of `mkdocs.yml` without it and say so.
+- Add it to the topic it belongs to under "Examples" in the `toc` of `docs/myst.yml`, with a short `title:` for the nav. It is served at `/<file-name>/`, with `_` turned into `-`.
+- `make docs` (needs mystmd: `npm install -g mystmd`). The notebooks are pre-executed; mystmd renders the saved outputs and does not run them.

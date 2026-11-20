@@ -5,7 +5,7 @@ repos:
       - id: end-of-file-fixer
       - id: trailing-whitespace
       - id: check-yaml
-        # mkdocs.yml uses a !!python/name tag (superfences mermaid fence);
+        # mkdocs.yml (the API reference) uses a !!python/name tag (superfences mermaid fence);
         # --unsafe checks syntax without constructing Python objects.
         args: [--unsafe]
       - id: check-added-large-files

@@ -83,9 +83,10 @@ jobs:
       - name: Run fast tests with x64 off
         run: make test-no-x64
 
-  # Every PR and push: strict docs build (`strict: true` in mkdocs.yml), so a
-  # broken cross-reference or an unresolvable `::: gaussx.X` fails here, not
-  # on the deployed site. Notebooks are pre-executed, so no kernel is needed.
+  # Every PR and push: build both halves of the docs (mystmd prose, Zensical
+  # API reference), assemble them, and fail on any broken link, in either half
+  # or crossing between them, and on any prose link that mystmd would publish
+  # as a raw download. Notebooks are pre-executed, so no kernel is needed.
   docs:
     runs-on: ubuntu-latest
     steps:
@@ -94,10 +95,15 @@ jobs:
         with:
           enable-cache: true
           python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install mystmd
+        run: npm install -g mystmd
       - name: Install docs dependencies
         run: uv sync --locked --group docs
-      - name: Build docs (strict)
-        run: uv run mkdocs build --strict
+      - name: Build and verify the documentation site
+        run: uv run python scripts/build_docs.py
 
   # Every PR and push: build the wheel and sdist and check what they ship.
   package:

@@ -14,9 +14,9 @@
 
 <p align="center">
   <a href="https://jejjohnson.github.io/gaussx/"><b>Docs</b></a> ·
-  <a href="https://jejjohnson.github.io/gaussx/api/"><b>API</b></a> ·
+  <a href="https://jejjohnson.github.io/gaussx/reference/"><b>API</b></a> ·
   <a href="https://jejjohnson.github.io/gaussx/architecture/"><b>Architecture</b></a> ·
-  <a href="https://jejjohnson.github.io/gaussx/notebooks/basics/"><b>Examples</b></a>
+  <a href="https://jejjohnson.github.io/gaussx/basics/"><b>Examples</b></a>
 </p>
 
 <!-- --8<-- [start:intro] -->
@@ -217,32 +217,32 @@ gaussx is the shared linear-algebra layer of the GeoML stack ([kernellib](https:
 
 Each heading links to its API reference; these are the highlights, not the full list.
 
-### Layer 0 -- [Primitives](https://jejjohnson.github.io/gaussx/api/primitives/) and [linear-algebra utilities](https://jejjohnson.github.io/gaussx/api/linalg/)
+### Layer 0 -- [Primitives](https://jejjohnson.github.io/gaussx/reference/primitives/) and [linear-algebra utilities](https://jejjohnson.github.io/gaussx/reference/linalg/)
 
 Pure functions with `isinstance` dispatch on the operator's structure: `solve` · `logdet` · `cholesky` · `diag` · `trace` · `sqrt` · `inv` · `eig` · `svd` · `root_decomposition`, plus `woodbury_solve`, `schur_complement`, `safe_cholesky` and `tridiagonal_solve`.
 
-### Layer 1 -- [Operators](https://jejjohnson.github.io/gaussx/api/operators/)
+### Layer 1 -- [Operators](https://jejjohnson.github.io/gaussx/reference/operators/)
 
 lineax operators, immutable equinox pytrees safe under `jit` / `grad` / `vmap`: `Kronecker` · `KroneckerSum` · `SumOfKroneckers` · `BlockDiag` · `BlockTriDiag` · `LowRankUpdate` · `DiagonalizedOperator` · `Toeplitz` · `InterpolatedOperator` · `MaskedOperator` · `SparseOperator`, and lazy algebra with `sum_operator`, `scaled_operator` and `product_operator`.
 
-### Layer 1.5 -- [Solver strategies & preconditioners](https://jejjohnson.github.io/gaussx/api/solvers/)
+### Layer 1.5 -- [Solver strategies & preconditioners](https://jejjohnson.github.io/gaussx/reference/solvers/)
 
 How to solve, decoupled from what: `DenseSolver` · `AutoSolver` · `CGSolver` · `PreconditionedCGSolver` · `MINRESSolver` · `BBMMSolver` with `SLQLogdet`, preconditioned by `JacobiPreconditioner`, `NystromPreconditioner` or `PartialCholeskyPreconditioner`. `linear_solve` is the front door.
 
-### Layer 2 -- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/api/distributions/)
+### Layer 2 -- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/reference/distributions/)
 
 The Gaussian functions (`gaussian_log_prob`, `gaussian_entropy`, `gaussian_kl`, `conditional`, `sample_mvn`, `joseph_update`), the GMRF fields (`GaussianMRF`, `IntrinsicGMRF`, `ConstrainedGMRF`, `BYM2GMRF`), and `GaussianExpFam` for natural / expectation parameters. The NumPyro distribution classes built on them live in [pyrox-gauss](https://github.com/jejjohnson/pyrox/tree/main/packages/pyrox-gauss).
 
 ### Layer 3 -- Recipes
 
-- **[Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/)**: `sparse_conditional`, `collapsed_elbo`, `kronecker_mll`, `love_cache`, `matheron_update`, `oilmm_project`
-- **[State-space models](https://jejjohnson.github.io/gaussx/api/ssm/)**: `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `dare`, `sde_kl_divergence`, SDE kernels such as `MaternSDE`
-- **[Quadrature & uncertainty propagation](https://jejjohnson.github.io/gaussx/api/quadrature/)**: `UnscentedIntegrator`, `GaussHermiteIntegrator`, `ep_tilted_moments`, `uncertain_gp_predict`
-- **[Inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/)**: `blr_full_update`, `damped_natural_update`, `ensemble_kalman_gain`, `etkf_transform`, `laplace_model`
+- **[Gaussian processes](https://jejjohnson.github.io/gaussx/reference/gp/)**: `sparse_conditional`, `collapsed_elbo`, `kronecker_mll`, `love_cache`, `matheron_update`, `oilmm_project`
+- **[State-space models](https://jejjohnson.github.io/gaussx/reference/ssm/)**: `kalman_filter`, `rts_smoother`, `parallel_kalman_filter`, `dare`, `sde_kl_divergence`, SDE kernels such as `MaternSDE`
+- **[Quadrature & uncertainty propagation](https://jejjohnson.github.io/gaussx/reference/quadrature/)**: `UnscentedIntegrator`, `GaussHermiteIntegrator`, `ep_tilted_moments`, `uncertain_gp_predict`
+- **[Inference & ensembles](https://jejjohnson.github.io/gaussx/reference/inference/)**: `blr_full_update`, `damped_natural_update`, `ensemble_kalman_gain`, `etkf_transform`, `laplace_model`
 
 ### Outside the stack
 
-[Sketching](https://jejjohnson.github.io/gaussx/api/sketching/) (`SRHTSketch`, `hadamard_transform`) and [randomized linear algebra](https://jejjohnson.github.io/gaussx/api/randomized/) (`randomized_svd`, `randomized_nystrom`, `rp_cholesky`) produce operators and factors for the layers above.
+[Sketching](https://jejjohnson.github.io/gaussx/reference/sketching/) (`SRHTSketch`, `hadamard_transform`) and [randomized linear algebra](https://jejjohnson.github.io/gaussx/reference/randomized/) (`randomized_svd`, `randomized_nystrom`, `rp_cholesky`) produce operators and factors for the layers above.
 <!-- --8<-- [end:inside] -->
 
 <!-- --8<-- [start:api-notes] -->
@@ -264,7 +264,7 @@ make install      # install all dependency groups
 make test         # run tests
 make lint         # ruff check .
 make typecheck    # ty check src/gaussx
-make docs-serve   # preview docs locally
+make docs-serve   # build and preview the docs locally
 ```
 
 ## License

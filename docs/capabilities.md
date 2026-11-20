@@ -10,7 +10,7 @@ if what you need is here, compose it; if it is almost here, extend it
 where it lives. Regenerate with `make capabilities` after changing a
 public API (`tests/test_capabilities.py` checks it is current).
 
-## [Primitives](api/primitives.md)
+## [Primitives](https://jejjohnson.github.io/gaussx/reference/primitives/)
 
 ### Solve, logdet & Cholesky
 
@@ -89,7 +89,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `DenseFallbackWarning` | class | Warning emitted when a structured primitive materialises an operator. |
 
-## [Operators & Tags](api/operators.md)
+## [Operators & Tags](https://jejjohnson.github.io/gaussx/reference/operators/)
 
 ### Structured products & sums
 
@@ -185,7 +185,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `tridiagonal_tag` | constant | Re-exported from `lineax`. |
 | `unit_diagonal_tag` | constant | Re-exported from `lineax`. |
 
-## [Sparse Operators](api/sparse.md)
+## [Sparse Operators](https://jejjohnson.github.io/gaussx/reference/sparse/)
 
 ### Sparse Cholesky
 
@@ -198,7 +198,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `sparse_cholesky` | function | Sparse Cholesky factorisation of a symmetric positive-definite operator. |
 | `SparseCholeskyFactor` | class | Sparse Cholesky factor on a static symbolic pattern. |
 
-## [GMRF Precision Builders](api/gmrf.md)
+## [GMRF Precision Builders](https://jejjohnson.github.io/gaussx/reference/gmrf/)
 
 | Name | Kind | What it does |
 |---|---|---|
@@ -215,7 +215,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `fem_matrices` | function | Lumped mass C̃ and stiffness G of P1 elements on a triangle mesh. |
 | `fem_projector` | function | Observation matrix A of P1 interpolation: (A w)_k = ∑_i ψ_i(s_k) w_i. |
 
-## [Solvers & Preconditioners](api/solvers.md)
+## [Solvers & Preconditioners](https://jejjohnson.github.io/gaussx/reference/solvers/)
 
 ### The front door
 
@@ -274,7 +274,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `NystromPreconditioner` | class | Randomized Nyström preconditioner for K + σ² I. |
 | `PartialCholeskyPreconditioner` | class | Preconditioner from a pivoted partial Cholesky factor. |
 
-## [Linear-Algebra Utilities](api/linalg.md)
+## [Linear-Algebra Utilities](https://jejjohnson.github.io/gaussx/reference/linalg/)
 
 ### Robust factorization & hygiene
 
@@ -326,7 +326,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `stable_squared_distances` | function | Squared Euclidean distances between two point sets, centred and widened. |
 | `discrete_lyapunov_solve` | function | Solve the discrete Lyapunov equation X − A X Aᵀ = B by diagonalising A. |
 
-## [Sketching](api/sketching.md)
+## [Sketching](https://jejjohnson.github.io/gaussx/reference/sketching/)
 
 ### Abstract interface
 
@@ -350,7 +350,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `hadamard_transform` | function | Unnormalized Walsh-Hadamard transform along the last axis. |
 
-## [Randomized Linear Algebra](api/randomized.md)
+## [Randomized Linear Algebra](https://jejjohnson.github.io/gaussx/reference/randomized/)
 
 ### Range finder, QB, SVD and eigh
 
@@ -382,7 +382,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `ColumnID` | class | Column interpolative decomposition A ≈ A_:,J X. |
 | `CUR` | class | CUR decomposition A ≈ C U R, with C = A_:,J and R = A_I,:. |
 
-## [Distributions & Exponential Family](api/distributions.md)
+## [Distributions & Exponential Family](https://jejjohnson.github.io/gaussx/reference/distributions/)
 
 ### Gaussian Markov random fields
 
@@ -437,7 +437,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `sufficient_stats` | function | Sufficient statistics (x, x xᵀ) of a Gaussian, over any batch axes. |
 | `kl_divergence` | function | KL(first ‖ second): KL[q ‖ p] in the Bregman form on natural parameters. |
 
-## [Gaussian Processes](api/gp.md)
+## [Gaussian Processes](https://jejjohnson.github.io/gaussx/reference/gp/)
 
 ### Conditioning & prediction
 
@@ -497,7 +497,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `oilmm_project` | function | Project multi-output data to independent latent GPs via OILMM. |
 | `oilmm_back_project` | function | Back-project latent GP predictions to the observation space. |
 
-## [Quadrature & Moment Matching](api/quadrature.md)
+## [Quadrature & Moment Matching](https://jejjohnson.github.io/gaussx/reference/quadrature/)
 
 ### State & integrators
 
@@ -579,7 +579,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 | `uncertain_vgp_predict` | function | Predictive mean and variance of a dense VGP at an uncertain input. |
 | `uncertain_bgplvm_predict` | function | Multi-output uncertain GP prediction for a Bayesian GP-LVM. |
 
-## [State-Space Models & Kalman](api/ssm.md)
+## [State-Space Models & Kalman](https://jejjohnson.github.io/gaussx/reference/ssm/)
 
 ### SDE kernels
 
@@ -675,7 +675,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `process_noise_covariance` | function | Model-noise covariance Σ_η,t of a step, from the stationary covariance. |
 
-## [Bayesian Inference & Ensembles](api/inference.md)
+## [Bayesian Inference & Ensembles](https://jejjohnson.github.io/gaussx/reference/inference/)
 
 ### Bayesian learning rule
 

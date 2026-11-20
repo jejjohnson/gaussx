@@ -106,11 +106,11 @@ matrix–vector products are exempt.
 
 ## See also
 
-- [Architecture](../architecture.md) — the layered stack, the dispatch flow chart,
+- [Architecture](../architecture/) — the layered stack, the dispatch flow chart,
   per-primitive fast-path coverage, and where gaussx sits relative to
   [pyrox-gp](https://github.com/jejjohnson/pyrox),
   [finitevolX](https://github.com/jejjohnson/finitevolX), and
   [spectraldiffx](https://github.com/jejjohnson/spectraldiffx).
-- [Vision](../vision.md) — why the library exists and what it deliberately is not.
-- [Unified Solvers](../design/unified-solvers.md) — how the solver substrate is
+- [Vision](../vision/) — why the library exists and what it deliberately is not.
+- [Unified Solvers](../unified-solvers/) — how the solver substrate is
   shared with the PDE packages.

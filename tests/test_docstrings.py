@@ -1,6 +1,6 @@
 """Guard against Sphinx/reStructuredText markup in docstrings.
 
-The docs are built with MkDocs + mkdocstrings (MathJax for math,
+The API reference is built with Zensical + mkdocstrings (MathJax for math,
 ``[`x`][path]`` for cross-references), which do **not** render Sphinx/RST
 constructs such as ``:math:`...``` or ``.. math::`` — they leak into the
 rendered page as literal text. Doctests cannot catch this because they only
@@ -16,7 +16,7 @@ import pytest
 import gaussx
 
 
-# Patterns that MkDocs/mkdocstrings will not render (use $...$/$$...$$ for math,
+# Patterns that mkdocstrings will not render (use $...$/$$...$$ for math,
 # `name` / [`name`][path] for cross-references, and fenced code blocks instead).
 RST_PATTERNS = {
     ":math: role (use $...$)": re.compile(r":math:`"),
@@ -44,6 +44,6 @@ def test_no_rst_markup_in_source(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     offenders = [label for label, pat in RST_PATTERNS.items() if pat.search(text)]
     assert not offenders, (
-        f"{path.name} contains Sphinx/RST markup that MkDocs won't render: "
-        f"{offenders}. Convert it to MkDocs syntax."
+        f"{path.name} contains Sphinx/RST markup that mkdocstrings won't render: "
+        f"{offenders}. Convert it to Markdown and $...$ maths."
     )

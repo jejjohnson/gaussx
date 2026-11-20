@@ -3,7 +3,7 @@
 ``docs/api/*.md`` lists symbols explicitly via mkdocstrings ``members:`` blocks
 rather than auto-generating pages, which keeps the reference organised by layer
 but lets it drift: a newly exported name silently gets no page, and a renamed
-one leaves a dangling entry that only shows up as a ``mkdocs build --strict``
+one leaves a dangling entry that only shows up as a ``zensical build --strict``
 failure in CI. These tests close both gaps at unit-test speed.
 """
 
@@ -152,7 +152,7 @@ def test_no_documented_symbol_is_stale() -> None:
     stale = set().union(*_documented_members().values()) - _public_api()
     assert not stale, (
         f"docs/api/*.md reference symbols that gaussx no longer exports: "
-        f"{sorted(stale)}. These break `mkdocs build --strict`."
+        f"{sorted(stale)}. These break `zensical build --strict`."
     )
 
 
