@@ -27,7 +27,7 @@ Ensembles have shape `(J, N)` with members on the first axis, and `obs_noise` is
 | `ensemble_cross_covariance(particles_theta, particles_G, *, bessel=False)` | The empirical cross-covariance, shape `(N, M)`. |
 | `localization_matrix(coords_a, coords_b, c, metric=euclidean_distance)` | A pairwise Gaspari-Cohn taper with entries in `[0, 1]`. |
 | `gaspari_cohn(r, c)` | The fifth-order compactly supported taper function. |
-| `euclidean_distance(coords_a, coords_b)`, `haversine_distance(coords_a, coords_b, radius=6371000.0)` | Pairwise distances in a plane and on a sphere. |
+| `euclidean_distance(coords_a, coords_b)`, `haversine_distance(coords_a, coords_b, radius=6371008.771415059)` | Pairwise distances in a plane and on a sphere. |
 | `inflate_multiplicative(ensemble, factor)` | Scales the perturbations about the mean by `factor`. |
 | `inflate_rtpp(posterior, prior, alpha)`, `inflate_rtps(posterior, prior, beta, eps=1e-12)` | Relaxation of the analysis perturbations or spread toward the prior; both keep the posterior mean. |
 

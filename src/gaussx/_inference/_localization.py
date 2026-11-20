@@ -18,6 +18,12 @@ from gaussx._linalg._symmetrize import symmetrize
 from gaussx._strategies._base import AbstractSolverStrategy
 
 
+#: The IUGG mean radius of WGS84, R₁ = (2a + b) / 3, in metres. Equals
+#: ``geophysix.earth.SPHERE.semi_major`` (tests/test_geophysix_constants.py);
+#: gaussx sits below geophysix, so it repeats the value instead of importing it.
+EARTH_MEAN_RADIUS_M = 6_371_008.771415059
+
+
 def gaspari_cohn(
     r: Float[Array, "*shape"], c: float | Float[Array, ""]
 ) -> Float[Array, "*shape"]:
@@ -247,7 +253,7 @@ def euclidean_distance(
 def haversine_distance(
     coords_a: Float[Array, "Na 2"],
     coords_b: Float[Array, "Nb 2"],
-    radius: float = 6.371e6,
+    radius: float = EARTH_MEAN_RADIUS_M,
 ) -> Float[Array, "Na Nb"]:
     """Pairwise great-circle (haversine) distances on a sphere.
 
@@ -267,7 +273,7 @@ def haversine_distance(
         coords_a: First set of points (φ, ϑ) in radians, one row per point.
         coords_b: Second set of points (φ, ϑ) in radians, one row per point.
         radius: Sphere radius r in the units of the returned distance; the
-            default is the Earth mean radius, 6.371e6 m.
+            default is the IUGG mean radius of the Earth, 6 371 008.77 m.
 
     Returns:
         The matrix of great-circle distances d.
