@@ -87,7 +87,7 @@ Open the one the task needs; do not read them all.
 | ③ model | [SDE kernels](shelf/sde-kernels.md) | Matérn, periodic, quasi-periodic, sums and products, and their discretisation | 17 |
 | ④ algorithm | [GP conditioning and prediction](shelf/gp.md) | conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out | 19 |
 | ④ algorithm | [Variational GPs](shelf/variational-gp.md) | ELBOs, the collapsed bound, whitening | 9 |
-| ④ algorithm | [Kalman filtering and smoothing](shelf/kalman.md) | sequential, parallel, mean-field and infinite-horizon filters and smoothers | 23 |
+| ④ algorithm | [Kalman filtering and smoothing](shelf/kalman.md) | sequential, parallel, mean-field and infinite-horizon filters and smoothers | 24 |
 | ④ algorithm | [Nonlinear filtering and sites](shelf/nonlinear-filtering.md) | nonlinear Kalman, CVI site updates, SpInGP | 14 |
 | ④ algorithm | [Expectations and moment matching](shelf/expectations.md) | expected log-likelihood, EP moments, psi statistics, uncertain inputs | 22 |
 | ④ algorithm | [Natural-gradient and Newton updates](shelf/natural-gradient.md) | BLR, damped natural updates, Gauss–Newton, Laplace | 18 |

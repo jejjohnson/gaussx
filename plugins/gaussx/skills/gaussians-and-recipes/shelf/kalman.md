@@ -13,6 +13,7 @@ It also covers the conversions between state-space parameters, natural parameter
 | `kalman_filter(transition, obs_model, process_noise, obs_noise, observations, init_mean, init_cov, *, mask=None, solver=None, woodbury_innovation=False)` | The sequential Kalman filter by `lax.scan`; returns a `FilterState`. |
 | `FilterState` | Holds `filtered_means`, `filtered_covs`, `predicted_means`, `predicted_covs` and the scalar `log_likelihood`. |
 | `rts_smoother(filter_state, transition, *, solver=None)` | The Rauch-Tung-Striebel backward pass; returns `(smoothed_means, smoothed_covs)`. |
+| `rts_sample(filter_state, transition, key, num_samples=1, *, solver=None)` | Joint draws `(S, T, N)` of the whole state path from p(x_1:T ∣ y_1:T), by backward sampling with the smoother's gain. |
 | `parallel_kalman_filter(...)`, `parallel_rts_smoother(...)` | The same filter and smoother by `lax.associative_scan`, with `O(log T)` depth; the filter also takes `psd_project=` and `square_root=`. |
 | `meanfield_kalman_filter(..., *, block_size)`, `meanfield_rts_smoother(..., *, block_size)` | Independent filters and smoothers on diagonal state blocks, dropping cross-block covariance. |
 | `dare(A, H, Q, R, *, max_iter=100, tol=1e-8)` | The steady-state covariance and gain by structure-preserving doubling, returned as a `DAREResult`. |

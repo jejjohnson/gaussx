@@ -55,6 +55,7 @@ from gaussx._ssm._parallel_kalman import (
     parallel_rts_smoother,
 )
 from gaussx._ssm._periodic import CosineSDE, PeriodicSDE
+from gaussx._ssm._rts_sample import rts_sample
 from gaussx._ssm._sde_kernel import SDEKernel, SDEParams
 from gaussx._ssm._sde_kl import LinearizedSDE, linearize_sde, sde_kl_divergence
 from gaussx._ssm._site_natural import (
@@ -119,6 +120,7 @@ __all__ = [
     "parallel_kalman_filter",
     "parallel_rts_smoother",
     "process_noise_covariance",
+    "rts_sample",
     "rts_smoother",
     "sde_autocovariance",
     "sde_kl_divergence",

@@ -134,6 +134,8 @@ for float32 chains with tiny observation noise or steps, where the
 covariance form can go indefinite (gh-454); `psd_project=True` is the
 cheaper eigenvalue-clipping safety net.
 
+`rts_sample(state, transition, key, num_samples)` draws whole state paths from the smoothing distribution $p(\mathbf{x}_{1:T} \mid \mathbf{y}_{1:T})$ by forward-filtering backward-sampling: it takes what `rts_smoother` takes, plus a key, and steps back from $\mathbf{x}_T \sim \mathcal{N}(\boldsymbol{\mu}_{T \mid T}, \boldsymbol{\Sigma}_{T \mid T})$ with the smoother's gain. The marginals of the draws are `rts_smoother`'s; use the draws for anything that depends on several steps at once, such as a maximum, a duration or a sum.
+
 ### Observation masks
 
 `kalman_filter` and `parallel_kalman_filter` take an optional `mask`,
@@ -163,7 +165,7 @@ When the state decomposes into $L$ independent blocks of size $d$ (e.g. a multi-
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, meanfield_kalman_filter, meanfield_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, dare, DAREResult, pairwise_marginals]
+      members: [EmissionModel, FilterState, kalman_filter, rts_smoother, rts_sample, kalman_gain, parallel_kalman_filter, parallel_rts_smoother, meanfield_kalman_filter, meanfield_rts_smoother, infinite_horizon_filter, infinite_horizon_smoother, dare, DAREResult, pairwise_marginals]
 
 ## SpInGP
 
