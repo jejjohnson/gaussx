@@ -181,8 +181,9 @@ def range_finder(
             raise ValueError(
                 f"sketch.out_size={sketch.out_size} must be at least rank={rank}."
             )
-        # I_ℓ
-        identity = jnp.eye(sketch.out_size, dtype=dtype)
+        # ℓ = min(d, M, N), matching the Gaussian path.
+        sketch_size = min(sketch.out_size, out_size, in_size)
+        identity = jnp.eye(sketch.out_size, sketch_size, dtype=dtype)
         # Ω = Sᵀ
         test_matrix = sketch.apply_transpose(identity)
 
