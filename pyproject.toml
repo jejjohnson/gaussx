@@ -42,6 +42,9 @@ dev = [
     "pre-commit>=3.7",
     "beartype>=0.18",
     "jupytext>=1.19.1",
+    # Test-only: the constants tests compare gaussx's defaults with geophysix's.
+    # gaussx sits below geophysix and never imports it at run time.
+    "geophysix",
 ]
 lint = [
     "ruff>=0.16.10",
@@ -65,6 +68,9 @@ docs = [
     "jupytext>=1.19.1",
     "ipykernel>=6.29",
 ]
+
+[tool.uv.sources]
+geophysix = { git = "https://github.com/jejjohnson/geophysix.git", tag = "v0.0.3" }
 
 [build-system]
 requires = ["hatchling"]
