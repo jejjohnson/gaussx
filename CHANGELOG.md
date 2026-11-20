@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.8.0](https://github.com/jejjohnson/gaussx/compare/v0.7.0...v0.8.0) (2026-11-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* the names, keywords, layouts and behaviours listed above are removed; use the replacement given for each.
+
+### Features
+
+* **ssm:** add rts_sample, joint draws of the state path by forward-filtering backward-sampling ([#855](https://github.com/jejjohnson/gaussx/issues/855)) ([fc2fddd](https://github.com/jejjohnson/gaussx/commit/fc2fdddc645e32a772ff5f7edb343131412c1a0e))
+
+
+### Code Refactoring
+
+* remove the deprecations scheduled for gaussx 0.7.0 ([#848](https://github.com/jejjohnson/gaussx/issues/848)) ([65cc141](https://github.com/jejjohnson/gaussx/commit/65cc1415a4236d918f9e238800aa843dbf61d220))
+
 ## [0.7.0](https://github.com/jejjohnson/gaussx/compare/v0.6.16...v0.7.0) (2026-11-19)
 
 
