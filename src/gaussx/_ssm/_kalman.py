@@ -538,6 +538,67 @@ def kalman_filter(
     )
 
 
+def _transition_stack(
+    transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
+    num_steps: int,
+) -> Float[Array, "T N N"]:
+    """The dense dynamics F_t as a ``(T, N, N)`` stack, for a backward pass.
+
+    Args:
+        transition: Linear dynamics F_t, as a matrix, a stack over time or
+            an operator, as `kalman_filter` takes it.
+        num_steps: Number of steps T.
+
+    Returns:
+        The stack of dense transitions, one per step.
+
+    Raises:
+        TypeError: If an operator-typed ``transition`` has a time axis.
+        ValueError: If ``transition`` is neither a matrix nor a stack.
+    """
+    transition_dense = _materialise(transition)
+    if transition_dense.ndim == 2:
+        return repeat(transition_dense, "row col -> t row col", t=num_steps)
+    if transition_dense.ndim == 3:
+        if isinstance(transition, lx.AbstractLinearOperator):
+            raise TypeError(
+                "Operator-typed transition cannot have a leading time axis."
+            )
+        return transition_dense
+    raise ValueError(f"transition must have ndim 2 or 3, got {transition_dense.ndim}.")
+
+
+def _smoother_gain(
+    filtered_covariance: Float[Array, "N N"],
+    predicted_covariance_next: Float[Array, "N N"],
+    transition_next: Float[Array, "N N"],
+    solver: AbstractSolverStrategy | None,
+) -> Float[Array, "N N"]:
+    """The RTS smoother gain G_t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹.
+
+    Args:
+        filtered_covariance: Filtered covariance Σ_x,t|t.
+        predicted_covariance_next: Predicted covariance Σ_x,t+1|t.
+        transition_next: Dense dynamics F_t+1 from step t to t + 1.
+        solver: Solver strategy for Σ_x,t+1|t; ``None`` uses structural
+            dispatch.
+
+    Returns:
+        The gain G_t.
+    """
+    predicted_covariance_next_op = lx.MatrixLinearOperator(
+        predicted_covariance_next, lx.positive_semidefinite_tag
+    )
+    # Σ_x,t|t F_t+1ᵀ
+    cross_covariance = einsum(
+        filtered_covariance,
+        transition_next,
+        "state col, next col -> state next",
+    )
+    # G_t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹, row by row (symmetric)
+    return solve_rows(predicted_covariance_next_op, cross_covariance, solver=solver)
+
+
 def rts_smoother(
     filter_state: FilterState,
     transition: Float[Array, "*T N N"] | lx.AbstractLinearOperator,
@@ -597,25 +658,7 @@ def rts_smoother(
         True
     """
     num_steps = filter_state.filtered_means.shape[0]
-
-    # Materialise once outside the scan for the sandwich; matvec stays
-    # structural via the operator's mv.
-    transition_dense = _materialise(transition)
-    transition_op = (
-        transition if isinstance(transition, lx.AbstractLinearOperator) else None
-    )
-    if transition_dense.ndim == 2:
-        transitions = repeat(transition_dense, "row col -> t row col", t=num_steps)
-    elif transition_dense.ndim == 3:
-        if transition_op is not None:
-            raise TypeError(
-                "Operator-typed transition cannot have a leading time axis."
-            )
-        transitions = transition_dense
-    else:
-        raise ValueError(
-            f"transition must have ndim 2 or 3, got {transition_dense.ndim}."
-        )
+    transitions = _transition_stack(transition, num_steps)
 
     def step(carry, inputs):
         smoothed_mean_next, smoothed_covariance_next = carry
@@ -627,18 +670,9 @@ def rts_smoother(
             transition_next,
         ) = inputs
 
-        predicted_covariance_next_op = lx.MatrixLinearOperator(
-            predicted_covariance_next, lx.positive_semidefinite_tag
-        )
-        # Σ_x,t|t F_t+1ᵀ
-        cross_covariance = einsum(
-            filtered_covariance,
-            transition_next,
-            "state col, next col -> state next",
-        )
-        # G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹, row by row (symmetric)
-        smoother_gain = solve_rows(
-            predicted_covariance_next_op, cross_covariance, solver=solver
+        # G_smooth,t = Σ_x,t|t F_t+1ᵀ Σ_x,t+1|t⁻¹
+        smoother_gain = _smoother_gain(
+            filtered_covariance, predicted_covariance_next, transition_next, solver
         )
 
         # μ_x,t+1|T − μ_x,t+1|t

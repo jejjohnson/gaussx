@@ -337,7 +337,7 @@ names = [
     "infinite_horizon_filter", "infinite_horizon_smoother", "kalman_filter",
     "kalman_gain", "masked_moment_inputs", "meanfield_kalman_filter",
     "meanfield_rts_smoother", "naturals_to_ssm", "pairwise_marginals",
-    "parallel_kalman_filter", "parallel_rts_smoother", "rts_smoother",
+    "parallel_kalman_filter", "parallel_rts_smoother", "rts_sample", "rts_smoother",
     "ssm_to_expectations", "ssm_to_naturals", "udl_decomposition",
     "udl_from_ssm_params", "udl_to_ssm_params", "UDLDecomposition",
 ]
