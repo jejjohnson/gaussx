@@ -1,0 +1,119 @@
+# ---------------------------------------------------------------------------
+# mystmd builds the prose half of the documentation: the home page, the
+# guides, the design page and the executed notebooks. The API reference is
+# built separately by Zensical + mkdocstrings and mounted at `/reference/`.
+# See `docs/README.md`.
+#
+# `references.api` points at a LOCAL server because mystmd only loads
+# intersphinx inventories over http(s) — a filesystem path is rejected and a
+# `file://` URL is silently ignored. `scripts/build_docs.py` serves the freshly
+# built API `site/` on this exact port, then rewrites the resulting localhost
+# URLs to the deployed `/reference/` path. Keep the port in sync with API_PORT
+# in that script.
+# ---------------------------------------------------------------------------
+version: 1
+
+project:
+  id: gaussx-docs
+  title: gaussx
+  description: >-
+    Structured linear algebra, Gaussian distributions, and exponential family
+    primitives for JAX.
+  github: https://github.com/jejjohnson/gaussx
+  authors:
+    - name: J. Emmanuel Johnson
+  references:
+    api: http://127.0.0.1:8910/
+  exclude:
+    - README.md
+    - api/**
+  toc:
+    - file: index.md
+    - title: Getting started
+      children:
+        - file: vision.md
+          title: Vision
+        - file: architecture.md
+          title: Architecture
+        - file: agents.md
+          title: Building with agents
+        - file: capabilities.md
+          title: Capability index
+    - title: Design
+      children:
+        - file: design/unified-solvers.md
+          title: Unified solvers
+    - title: Examples
+      children:
+        - title: Operators
+          children:
+            - file: notebooks/basics.ipynb
+              title: Basics
+            - file: notebooks/operator_zoo.ipynb
+              title: Operator zoo
+            - file: notebooks/sugar_ops.ipynb
+              title: Sugar operations
+            - file: notebooks/woodbury_solve.ipynb
+              title: Woodbury solve
+            - file: notebooks/kronecker_eigen.ipynb
+              title: Kronecker eigendecomposition
+        - title: Solvers
+          children:
+            - file: notebooks/solver_comparison.ipynb
+              title: Solver comparison
+            - file: notebooks/solver_strategies.ipynb
+              title: Solver strategies
+            - file: notebooks/differentiating_solve.ipynb
+              title: Differentiating through solve
+            - file: notebooks/love_crossval.ipynb
+              title: LOVE cross-validation
+        - title: Gaussian processes
+          children:
+            - file: notebooks/kernel_regression.ipynb
+              title: Kernel regression
+            - file: notebooks/gp_2d_grid.ipynb
+              title: GP on a 2D grid
+            - file: notebooks/structured_gp.ipynb
+              title: Structured GP
+            - file: notebooks/sparse_variational_gp.ipynb
+              title: Sparse variational GP
+            - file: notebooks/whitened_svgp.ipynb
+              title: Whitened SVGP and BLR
+            - file: notebooks/uncertain_gp_inputs.ipynb
+              title: GP with uncertain inputs
+        - title: Distributions and inference
+          children:
+            - file: notebooks/exponential_family.ipynb
+              title: Exponential family
+            - file: notebooks/conditional_distributions.ipynb
+              title: Conditional distributions
+            - file: notebooks/bayesian_updates.ipynb
+              title: Bayesian updates
+            - file: notebooks/uncertainty_propagation.ipynb
+              title: Uncertainty propagation
+            - file: notebooks/expectation_propagation.ipynb
+              title: Expectation propagation
+            - file: notebooks/natural_gradient_vi.ipynb
+              title: Natural-gradient VI
+        - title: State-space models
+          children:
+            - file: notebooks/kalman_filter.ipynb
+              title: Kalman filter
+            - file: notebooks/parallel_kalman.ipynb
+              title: Parallel Kalman filter
+            - file: notebooks/ensemble_kalman.ipynb
+              title: Ensemble Kalman filter
+    - title: Project
+      children:
+        - file: CHANGELOG.md
+          title: Changelog
+
+site:
+  template: book-theme
+  options:
+    logo: assets/logo-light.svg
+    logo_dark: assets/logo-dark.svg
+    favicon: assets/icon.svg
+  nav:
+    - title: API reference
+      url: https://jejjohnson.github.io/gaussx/reference/

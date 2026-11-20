@@ -58,11 +58,13 @@ exercised weekly by the latest-deps `lowest-direct` job; check it locally
 with `uv lock --upgrade --resolution lowest-direct` in a scratch copy if the
 change depends on a new upstream feature (and don't commit that lock).
 
-## When docstrings, docs or `mkdocs.yml` changed
+## When docstrings, docs, `mkdocs.yml` or `docs/myst.yml` changed
 
 ```bash
-uv run --group docs mkdocs build --strict
+make docs
 ```
+
+It builds the prose with mystmd (`npm install -g mystmd`) and the API reference with Zensical, and fails on any broken link.
 
 A notebook `.py` edit needs its `.ipynb` re-executed (`add-notebook` skill).
 

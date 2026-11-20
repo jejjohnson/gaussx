@@ -37,6 +37,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 INDEX = ROOT / "docs" / "capabilities.md"
+# mystmd builds this page but not docs/api/ (Zensical does, under /reference/),
+# so a relative link to an API page would publish its Markdown source as a
+# download. Link to the deployed page instead (docs/README.md).
+_API_URL = "https://jejjohnson.github.io/gaussx/reference/"
 DOCS_API = ROOT / "docs" / "api"
 SRC = ROOT / "src"
 
@@ -212,8 +216,7 @@ def _gaussx_part() -> tuple[list[str], int]:
     seen: set[str] = set()
     for page in _pages():
         title, sections = _sections(page)
-        rel = page.relative_to(ROOT / "docs").as_posix()
-        out += [f"## [{title}]({rel})", ""]
+        out += [f"## [{title}]({_API_URL}{page.stem}/)", ""]
         for heading, names in sections:
             if heading:
                 out += [f"### {heading}", ""]

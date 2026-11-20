@@ -19,22 +19,22 @@ Claude Code users can install the `gaussx` plugin: `/plugin marketplace add jejj
 
 ## API reference
 
-- [Overview and conventions](https://jejjohnson.github.io/gaussx/api/): tags, `solver=`, lazy results, naming, deprecation policy
-- [Primitives](https://jejjohnson.github.io/gaussx/api/primitives/): `solve`, `logdet`, `cholesky`, `trace`, `diag`, `sqrt`, `inv`, `eig`, `svd`, root decompositions
-- [Operators & tags](https://jejjohnson.github.io/gaussx/api/operators/): Kronecker, low-rank, banded, Toeplitz, interpolated, masked operators and structural tags
-- [Sparse operators](https://jejjohnson.github.io/gaussx/api/sparse/): `SparseOperator`, sparse Cholesky, selected inverse
-- [GMRF precision builders](https://jejjohnson.github.io/gaussx/api/gmrf/): RW1 / RW2, AR(1), Besag / BYM2, SPDE Matérn
-- [Solvers & preconditioners](https://jejjohnson.github.io/gaussx/api/solvers/): strategies, `linear_solve`, preconditioners
-- [Linear-algebra utilities](https://jejjohnson.github.io/gaussx/api/linalg/): `safe_cholesky`, Woodbury, Schur, tridiagonal and Lyapunov solves
-- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/api/distributions/): Gaussian sugar ops, GMRFs, KL, natural parameters
-- [Gaussian processes](https://jejjohnson.github.io/gaussx/api/gp/): conditioning, prediction caches, ELBOs, whitening, LOVE, OILMM
-- [State-space models & Kalman](https://jejjohnson.github.io/gaussx/api/ssm/): SDE kernels, Kalman / RTS (sequential, parallel, infinite-horizon), SpInGP, CVI
-- [Quadrature & moment matching](https://jejjohnson.github.io/gaussx/api/quadrature/): integrators, likelihoods, expectations, uncertain-input GPs
-- [Bayesian inference & ensembles](https://jejjohnson.github.io/gaussx/api/inference/): BLR, natural gradients, Laplace, EnKF / ETKF, localisation, inflation
+- [Overview and conventions](https://jejjohnson.github.io/gaussx/reference/): tags, `solver=`, lazy results, naming, deprecation policy
+- [Primitives](https://jejjohnson.github.io/gaussx/reference/primitives/): `solve`, `logdet`, `cholesky`, `trace`, `diag`, `sqrt`, `inv`, `eig`, `svd`, root decompositions
+- [Operators & tags](https://jejjohnson.github.io/gaussx/reference/operators/): Kronecker, low-rank, banded, Toeplitz, interpolated, masked operators and structural tags
+- [Sparse operators](https://jejjohnson.github.io/gaussx/reference/sparse/): `SparseOperator`, sparse Cholesky, selected inverse
+- [GMRF precision builders](https://jejjohnson.github.io/gaussx/reference/gmrf/): RW1 / RW2, AR(1), Besag / BYM2, SPDE Matérn
+- [Solvers & preconditioners](https://jejjohnson.github.io/gaussx/reference/solvers/): strategies, `linear_solve`, preconditioners
+- [Linear-algebra utilities](https://jejjohnson.github.io/gaussx/reference/linalg/): `safe_cholesky`, Woodbury, Schur, tridiagonal and Lyapunov solves
+- [Distributions & exponential family](https://jejjohnson.github.io/gaussx/reference/distributions/): Gaussian sugar ops, GMRFs, KL, natural parameters
+- [Gaussian processes](https://jejjohnson.github.io/gaussx/reference/gp/): conditioning, prediction caches, ELBOs, whitening, LOVE, OILMM
+- [State-space models & Kalman](https://jejjohnson.github.io/gaussx/reference/ssm/): SDE kernels, Kalman / RTS (sequential, parallel, infinite-horizon), SpInGP, CVI
+- [Quadrature & moment matching](https://jejjohnson.github.io/gaussx/reference/quadrature/): integrators, likelihoods, expectations, uncertain-input GPs
+- [Bayesian inference & ensembles](https://jejjohnson.github.io/gaussx/reference/inference/): BLR, natural gradients, Laplace, EnKF / ETKF, localisation, inflation
 
 ## Optional
 
 - [Vision](https://jejjohnson.github.io/gaussx/vision/): why structure matters, and what gaussx deliberately is not
-- [Unified solvers design](https://jejjohnson.github.io/gaussx/design/unified-solvers/): how the PDE packages share gaussx's solver layer
-- [Basics notebook](https://jejjohnson.github.io/gaussx/notebooks/basics/) and [Operator zoo](https://jejjohnson.github.io/gaussx/notebooks/operator_zoo/)
+- [Unified solvers design](https://jejjohnson.github.io/gaussx/unified-solvers/): how the PDE packages share gaussx's solver layer
+- [Basics notebook](https://jejjohnson.github.io/gaussx/basics/) and [Operator zoo](https://jejjohnson.github.io/gaussx/operator-zoo/)
 - [Source code](https://github.com/jejjohnson/gaussx)

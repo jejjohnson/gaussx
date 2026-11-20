@@ -8,7 +8,7 @@ applyTo: "docs/**/*.py,docs/**/*.md,notebooks/**/*.py"
 
 Example notebooks live in `docs/notebooks/` as **jupytext percent-format `.py` files**. They are the single source of truth for all figures, tables, and timing data shown in the documentation.
 
-**Execution model**: `mkdocs-jupyter` renders notebooks with `execute: false`. Authors run notebooks locally via jupytext to produce `.ipynb` files with inline cell outputs, and commit both the `.py` source and the executed `.ipynb`.
+**Execution model**: mystmd renders the notebooks from their saved outputs and does not execute them. Authors run notebooks locally via jupytext to produce `.ipynb` files with inline cell outputs, and commit both the `.py` source and the executed `.ipynb`.
 
 ## Directory Layout
 
@@ -28,7 +28,7 @@ docs/
 3. Review the executed notebook and clear or suppress noisy outputs (e.g. local filesystem paths, long stack traces, or irrelevant warnings/stderr) so that only intentional, documentation-quality output remains.
 4. Commit both `.py` and `.ipynb`
 
-**Note**: `mkdocs-jupyter` renders whatever is captured in the `.ipynb` cell outputs, so any noisy or unwanted output will appear verbatim on the docs site.
+**Note**: mystmd renders whatever is captured in the `.ipynb` cell outputs, so any noisy or unwanted output will appear verbatim on the docs site.
 
 Figures render inline from `plt.show()` — the executed `.ipynb` cell outputs are the single source of rendered figures. Do **not** use `savefig` or commit separate PNG files.
 
@@ -128,19 +128,24 @@ for name, stats in results.items():
     )
 ```
 
-The printed output is captured in the `.ipynb` cell output and rendered by mkdocs.
+The printed output is captured in the `.ipynb` cell output and rendered by mystmd.
 
 ## Adding to the Docs Site
 
-Every new notebook must be added to the `nav` section in `mkdocs.yml`:
+Every new notebook must be added to the `toc` in `docs/myst.yml`, under the topic it belongs to in "Examples", with a short nav title:
 
 ```yaml
-nav:
-  - Examples:
-      - My New Notebook: notebooks/my_new_notebook.ipynb
+    - title: Examples
+      children:
+        - title: Gaussian processes
+          children:
+            - file: notebooks/my_new_notebook.ipynb
+              title: My new notebook
 ```
 
-Without this entry the notebook won't appear in the site navigation.
+Without this entry mystmd does not build the notebook. It is served at `/my-new-notebook/` (the file name, with `_` turned into `-`), so keep notebook file names unique.
+
+Maths in markdown cells is rendered by KaTeX, which rejects a bare `_` inside `\text{}` or `\texttt{}`: write `\_` there. `make docs` fails on any KaTeX error.
 
 ## Checklist for New Notebooks
 
@@ -148,4 +153,4 @@ Without this entry the notebook won't appear in the site navigation.
 - [ ] Executed `.ipynb` committed alongside `.py` source
 - [ ] Figures use `plt.show()` (no `savefig`)
 - [ ] Timing uses warm-up + `block_until_ready()` (if JAX)
-- [ ] Notebook added to `mkdocs.yml` nav
+- [ ] Notebook added to the `toc` in `docs/myst.yml`

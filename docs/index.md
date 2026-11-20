@@ -1,20 +1,38 @@
 # gaussx
 
-<!-- The shared sections below are included from README.md (gh-399); edit them there. -->
+% The shared sections below are included from README.md (gh-399); edit them there.
 
---8<-- "README.md:intro"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:intro] -->
+:end-before: <!-- --8<-- [end:intro] -->
+```
 
 **New here?** Start with the [Vision](vision.md) to understand why gaussx exists, then read the [Architecture](architecture.md) to see how it's organized.
 
---8<-- "README.md:install"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:install] -->
+:end-before: <!-- --8<-- [end:install] -->
+```
 
---8<-- "README.md:quickstart"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:quickstart] -->
+:end-before: <!-- --8<-- [end:quickstart] -->
+```
 
---8<-- "README.md:gp-example"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:gp-example] -->
+:end-before: <!-- --8<-- [end:gp-example] -->
+```
 
---8<-- "README.md:inside"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:inside] -->
+:end-before: <!-- --8<-- [end:inside] -->
+```
 
---8<-- "README.md:api-notes"
+```{include} ../README.md
+:start-after: <!-- --8<-- [start:api-notes] -->
+:end-before: <!-- --8<-- [end:api-notes] -->
+```
 
 ## Examples
 
@@ -33,5 +51,5 @@ The full list is in the Examples section of the navigation.
 
 ## Links
 
-- [API Reference](api/index.md)
+- [API reference](https://jejjohnson.github.io/gaussx/reference/)
 - [GitHub](https://github.com/jejjohnson/gaussx)

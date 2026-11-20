@@ -1,6 +1,6 @@
 """Keep the README (and the docs home page that includes it) honest.
 
-``docs/index.md`` includes the README's sections with ``pymdownx.snippets``
+``docs/index.md`` includes the README's sections with MyST ``{include}`` directives
 (gh-399), so the README is the single copy. These tests run its quick start
 and check that every name in "What's Inside" is a current public name listed
 under the layer its subpackage belongs to in ``docs/architecture.md``.

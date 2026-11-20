@@ -97,8 +97,10 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
+# the Zensical API reference and the assembled two-tool docs site
+# (scripts/build_docs.py)
 /site
+/public
 
 # mypy
 .mypy_cache/

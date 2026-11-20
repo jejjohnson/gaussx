@@ -287,7 +287,8 @@ make format               # ruff format . && ruff check --fix .
 make typecheck            # ty check src/gaussx
 make capabilities         # regenerate docs/capabilities.md
 make skill-shelf          # regenerate the generated parts of the plugin's skills
-make docs-serve           # local MkDocs preview
+make docs                 # build the docs site into public/ and check every link
+make docs-serve           # build, then serve the docs at http://127.0.0.1:8000
 ```
 
 Run one test with `uv run pytest tests/operators/test_kronecker.py::test_name -v`.
@@ -361,8 +362,7 @@ All of these must pass, from the repo root:
    dependencies take `>=` floors and no upper bounds.
 6. After changing a public API: `make capabilities`, then add the name to
    `plugins/gaussx/tree/shelf.toml` and run `make skill-shelf`.
-7. After changing docstrings, `docs/` or `mkdocs.yml`:
-   `uv run --group docs mkdocs build --strict`.
+7. After changing docstrings, `docs/`, `mkdocs.yml` or `docs/myst.yml`: `make docs` (needs mystmd: `npm install -g mystmd`).
 
 ## Coding principles
 
@@ -429,17 +429,12 @@ operations.
 
 ## Documentation
 
-MkDocs + Material + mkdocstrings + mkdocs-jupyter; `pages.yml` deploys on
-every push to `main`, and CI builds with `--strict`.
+Two tools build one site (`docs/README.md` has the details): mystmd builds the prose and the notebooks from `docs/myst.yml`, and Zensical + mkdocstrings builds the API reference from `mkdocs.yml` into `/reference/`. `scripts/build_docs.py` (`make docs`) builds both, assembles them into `public/` and fails on any broken link; the `docs` job in CI runs it on every PR, and `pages.yml` deploys on every push to `main`.
 
-- **API pages** (`docs/api/*.md`) list members explicitly, organised by
-  layer; prose pages are `index.md`, `vision.md`, `architecture.md` and
-  `docs/design/`.
-- **Notebooks** live in `docs/notebooks/` as jupytext percent-format `.py`
-  sources **and** their executed `.ipynb` (both committed;
-  `jupytext --to notebook --execute foo.py -o foo.ipynb`). Figures render
-  inline with `plt.show()`: no `savefig`, no committed PNGs. Full standards:
-  `.github/instructions/docs-examples.instructions.md`.
+- **API pages** (`docs/api/*.md`) list members explicitly, organised by layer; prose pages are `index.md`, `vision.md`, `architecture.md`, `agents.md`, `capabilities.md` and `docs/design/`, each listed in the `toc` of `docs/myst.yml` with its nav title.
+- **Links from prose into the API** use `[name](xref:api#gaussx.name)` for an object and the deployed URL (`https://jejjohnson.github.io/gaussx/reference/operators/`) for a page. A relative link into `docs/api/` publishes the Markdown source as a download, and the build fails on it.
+- **MyST syntax** in prose pages: `:::{note}`, not MkDocs' `!!! note`, which renders as plain text.
+- **Notebooks** live in `docs/notebooks/` as jupytext percent-format `.py` sources **and** their executed `.ipynb` (both committed; `jupytext --to notebook --execute foo.py -o foo.ipynb`), and listed in the "Examples" part of the `toc` in `docs/myst.yml`. Figures render inline with `plt.show()`: no `savefig`, no committed PNGs. Full standards: `.github/instructions/docs-examples.instructions.md`.
 
 ## Plans
 

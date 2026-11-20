@@ -61,11 +61,11 @@ flowchart TB
 
 | Layer | Name | Owns | Entry point |
 |-------|------|------|-------------|
-| 0 | **Primitives** | Pure functions with structural dispatch | [`solve`, `logdet`, `cholesky`, …](api/primitives.md) |
-| 1 | **Operators** | Structured matrices + tags | [`Kronecker`, `BlockDiag`, …](api/operators.md) |
-| 1.5 | **Strategies** | *How* a solve/logdet is computed | [`DenseSolver`, `CGSolver`, …](api/solvers.md) |
-| 2 | **Distributions** | Gaussians over operators, sugar ops, exp-family | [`gaussian_log_prob`, `GaussianMRF`, …](api/distributions.md) |
-| 3 | **Recipes** | Domain sequences wiring layers 0–2 | [GP](api/gp.md) · [SSM](api/ssm.md) · [quadrature](api/quadrature.md) · [inference](api/inference.md) |
+| 0 | **Primitives** | Pure functions with structural dispatch | [`solve`, `logdet`, `cholesky`, …](https://jejjohnson.github.io/gaussx/reference/primitives/) |
+| 1 | **Operators** | Structured matrices + tags | [`Kronecker`, `BlockDiag`, …](https://jejjohnson.github.io/gaussx/reference/operators/) |
+| 1.5 | **Strategies** | *How* a solve/logdet is computed | [`DenseSolver`, `CGSolver`, …](https://jejjohnson.github.io/gaussx/reference/solvers/) |
+| 2 | **Distributions** | Gaussians over operators, sugar ops, exp-family | [`gaussian_log_prob`, `GaussianMRF`, …](https://jejjohnson.github.io/gaussx/reference/distributions/) |
+| 3 | **Recipes** | Domain sequences wiring layers 0–2 | [GP](https://jejjohnson.github.io/gaussx/reference/gp/) · [SSM](https://jejjohnson.github.io/gaussx/reference/ssm/) · [quadrature](https://jejjohnson.github.io/gaussx/reference/quadrature/) · [inference](https://jejjohnson.github.io/gaussx/reference/inference/) |
 
 ---
 
@@ -92,7 +92,7 @@ Two properties are worth internalising:
 - **The expensive surprise is flagged.** `cholesky(SumOfKroneckers)` is the one
   path where a structured operator you would reasonably expect to stay
   structured must materialize the dense covariance, so it raises a
-  [`DenseFallbackWarning`](api/primitives.md#gaussx.DenseFallbackWarning) and
+  [`DenseFallbackWarning`](xref:api#gaussx.DenseFallbackWarning) and
   points you at `sqrt(...)` / `sum_of_kroneckers_sample(...)` instead. Ordinary
   unstructured operators densify quietly --- there was never a fast path to
   lose.
@@ -234,13 +234,14 @@ perturbed = K + 0.1 * lx.IdentityLinearOperator(K.in_structure())
 gaussx.solve(perturbed, y)  # dispatches through the sum
 ```
 
-!!! note "Kernel operators live in kernellib"
-    `KernelOperator`, `ImplicitKernelOperator` and `ImplicitCrossKernelOperator`
-    moved to [kernellib](https://github.com/jejjohnson/kernellib) in gaussx
-    0.2.0, with Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro.
-    They are lineax operators, so every primitive and strategy here works on
-    them unchanged --- as long as their structural tags are set: tags are
-    claims, not inferences.
+:::{note} Kernel operators live in kernellib
+`KernelOperator`, `ImplicitKernelOperator` and `ImplicitCrossKernelOperator`
+moved to [kernellib](https://github.com/jejjohnson/kernellib) in gaussx
+0.2.0, with Nyström / RFF operators, HSIC / MMD, Falkon and EigenPro.
+They are lineax operators, so every primitive and strategy here works on
+them unchanged --- as long as their structural tags are set: tags are
+claims, not inferences.
+:::
 
 ### Structural tags
 
@@ -264,7 +265,7 @@ only one import.
 
 Query with `is_kronecker`, `is_low_rank`, `is_positive_semidefinite`, … to
 inspect an operator without knowing its concrete type. Full list in the
-[Operators & Tags](api/operators.md) reference.
+[Operators & Tags](https://jejjohnson.github.io/gaussx/reference/operators/) reference.
 
 ---
 
@@ -326,7 +327,7 @@ is a **stochastic**, fixed-seed SLQ estimate; pass
 
 ### The front door
 
-[`linear_solve`](api/solvers.md#gaussx.linear_solve) is the high-level entry
+[`linear_solve`](xref:api#gaussx.linear_solve) is the high-level entry
 point. It accepts a lineax operator *or* a bare `(matvec, in_structure)` pair,
 normalises negative-definite systems, picks an iterative solver from the
 operator's tags, and threads a preconditioner through.
@@ -405,13 +406,13 @@ flowchart TB
     D -->|"posterior updates"| D1["blr_full_update · damped_natural_update<br/>ensemble_kalman_gain · gaspari_cohn"]
 ```
 
-**Gaussian processes** ([API](api/gp.md)) --- posterior conditioning, prediction
+**Gaussian processes** ([API](https://jejjohnson.github.io/gaussx/reference/gp/)) --- posterior conditioning, prediction
 caches, Matheron pathwise sampling, whitened parameterizations, Gaussian and MC
 ELBOs, the collapsed (Titsias) bound, LOVE predictive variances, closed-form
 leave-one-out CV, Kronecker GP marginal likelihood, and OILMM multi-output
 projections.
 
-**State-space models** ([API](api/ssm.md)) --- stationary 1-D kernels with
+**State-space models** ([API](https://jejjohnson.github.io/gaussx/reference/ssm/)) --- stationary 1-D kernels with
 rational spectral densities have exact SDE representations, turning $O(N^3)$ GP
 inference into $O(N d^3)$ Kalman filtering. Ships the SDE kernel zoo (Matérn,
 periodic, quasi-periodic, cosine, constant, plus sum/product composition), the
@@ -420,14 +421,14 @@ counterparts (optionally PSD-projected), steady-state (infinite-horizon) filters
 the discrete algebraic Riccati equation, SpInGP, and CVI site machinery for
 non-conjugate likelihoods.
 
-**Quadrature & moment matching** ([API](api/quadrature.md)) --- one
+**Quadrature & moment matching** ([API](https://jejjohnson.github.io/gaussx/reference/quadrature/)) --- one
 `AbstractIntegrator` interface over Gauss-Hermite, unscented/cubature, Taylor,
 and Monte Carlo rules. Everything needing an expectation (expected
 log-likelihoods, EP tilted moments, uncertain-input GP prediction, $\Psi$
 statistics) takes an integrator argument, so swapping the rule never touches the
 model.
 
-**Bayesian inference & ensembles** ([API](api/inference.md)) --- conjugate BLR
+**Bayesian inference & ensembles** ([API](https://jejjohnson.github.io/gaussx/reference/inference/)) --- conjugate BLR
 updates (full and diagonal), Newton and damped natural-gradient steps,
 Gauss-Newton curvature, Riemannian PSD correction, ensemble covariances and
 Kalman gain, ETKF transforms, Gaspari-Cohn localization, and the RTPP/RTPS
@@ -498,6 +499,7 @@ Layer 3 lives in *named* subpackages (`_gp/`, `_ssm/`, …) rather than a single
 namespaces, and each maps one-to-one onto an API reference page.
 
 
+(import-structure)=
 ### Import structure
 
 Layers 3 and 2 import only from below. Layers 0, 1 and 1.5 form one
@@ -626,4 +628,4 @@ boundary conditions, spectral transforms, multigrid V-cycles --- those stay
 upstairs).
 
 For the philosophy behind these boundaries, see [Vision](vision.md). For the
-symbol-level reference, see the [API docs](api/index.md).
+symbol-level reference, see the [API docs](https://jejjohnson.github.io/gaussx/reference/).
