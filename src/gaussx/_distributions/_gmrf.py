@@ -60,6 +60,7 @@ from gaussx._primitives._diag import diag
 from gaussx._primitives._logdet import pseudo_logdet
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
+from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
@@ -169,26 +170,23 @@ def _eigen_draw(eigen: FactoredEigen, z: Array, *, pinv: bool = False) -> Array:
     return eigen._output(draw, z)
 
 
-def _cg_solve(operator: lx.AbstractLinearOperator, vector: Array) -> Array:
-    """CG solve of Λ x = b at tolerance √eps of the dtype.
+def _default_cg(vector: Array, size: int) -> CGSolver:
+    """The CG strategy for Λ x = b when the GMRF holds none.
 
-        x = Λ⁻¹ b
+        tol_rel = tol_abs = √eps of b's dtype,   at most 10 N steps
 
     CG converges on a singular Λ too, when b lies in range(Λ).
 
     Args:
-        operator: The symmetric positive (semi)definite Λ.
-        vector: Right-hand side b.
+        vector: Right-hand side b, whose dtype sets the tolerance.
+        size: N, the size of Λ.
 
     Returns:
-        The solution x.
+        A `gaussx.CGSolver` at √eps with lineax's default step limit.
     """
     # √eps of b's dtype
     tolerance = float(jnp.finfo(vector.dtype).eps) ** 0.5
-    # x = Λ⁻¹ b
-    return lx.linear_solve(
-        operator, vector, lx.CG(rtol=tolerance, atol=tolerance)
-    ).value
+    return CGSolver(rtol=tolerance, atol=tolerance, max_steps=10 * size)
 
 
 def _perturbation_draw(
@@ -227,11 +225,11 @@ def _perturbation_draw(
             factor.transpose().mv(block)
             for factor, block in zip(factors, noise_blocks, strict=True)
         )
-        if solver is not None:
-            # x = Λ⁻¹ ∑_k F_kᵀ z_k, by the given strategy
-            return solver.solve(psd_precision, perturbed_rhs)
-        # x = Λ⁻¹ ∑_k F_kᵀ z_k, by CG
-        return _cg_solve(psd_precision, perturbed_rhs)
+        strategy = solver
+        if strategy is None:
+            strategy = _default_cg(perturbed_rhs, psd_precision.in_size())
+        # x = Λ⁻¹ ∑_k F_kᵀ z_k, by the given strategy or CG
+        return strategy.solve(psd_precision, perturbed_rhs)
 
     return sum(factor_sizes), draw
 
