@@ -31,6 +31,16 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
       show_root_toc_entry: false
       members: [linear_solve, as_linear_operator]
 
+### Prescribed values
+
+`solve_with_known_values` solves A x = b when x is prescribed on an index set K (an inhomogeneous Dirichlet boundary, values pinned at interior points): it drops the rows on K, lifts the known values to the right-hand side, and solves A_EE x_E = b_E − A_EK g_K on the rest with any strategy. `CapacitanceSolver` and `MaskedOperator` cover the zero-valued case on a fast base solve.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [solve_with_known_values, lift_known_values]
+
 ## Abstract interfaces
 
 ::: gaussx

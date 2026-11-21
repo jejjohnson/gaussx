@@ -139,6 +139,10 @@ from gaussx._inference._laplace import (
 from gaussx._inference._vb_correction import (
     vb_mean_correction as vb_mean_correction,
 )
+from gaussx._known_values import (
+    lift_known_values as lift_known_values,
+    solve_with_known_values as solve_with_known_values,
+)
 from gaussx._linalg import (
     EigenDecomposition as EigenDecomposition,
     conditional_variance as conditional_variance,
@@ -663,6 +667,7 @@ __all__ = [
     "laplace_result",
     "leave_one_out_cv",
     "ledoit_wolf_shrinkage",
+    "lift_known_values",
     "linear_gaussian_update",
     "linear_solve",
     "linearize_sde",
@@ -752,6 +757,7 @@ __all__ = [
     "solve_columns",
     "solve_matrix",
     "solve_rows",
+    "solve_with_known_values",
     "sparse_cholesky",
     "sparse_conditional",
     "spde_precision",

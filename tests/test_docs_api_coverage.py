@@ -65,6 +65,7 @@ _PAGE_OF_PACKAGE = {
     "gaussx._quadrature": "quadrature.md",
     "gaussx._randomized": "randomized.md",
     "gaussx._sketching": "sketching.md",
+    "gaussx._known_values": "solvers.md",
     "gaussx._solve_frontend": "solvers.md",
     "gaussx._sparse": "sparse.md",
     "gaussx._ssm": "ssm.md",
