@@ -164,6 +164,18 @@ names = [
 ]
 
 [[entries]]
+file = "multigrid"
+title = "Multigrid"
+role = "strategy"
+unit = "strategies"
+skill = "solvers-and-preconditioners"
+covers = "V-cycles over a caller-built hierarchy, as a CG preconditioner or a solve strategy"
+names = [
+    "AbstractSmoother", "galerkin_levels", "MultigridLevel", "MultigridPreconditioner",
+    "MultigridSolver", "WeightedJacobi",
+]
+
+[[entries]]
 file = "logdet"
 title = "Log-determinant strategies"
 role = "strategy"

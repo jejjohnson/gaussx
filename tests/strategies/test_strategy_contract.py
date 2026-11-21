@@ -23,6 +23,7 @@ name their issue, so the PR that fixes one has to remove its marker.
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import Callable
 
 import einx
@@ -76,6 +77,32 @@ def _nystrom(K, noise, **opts):
     return gaussx.CGSolver(preconditioner=pre, **_cg_options(**opts))
 
 
+def _linear_prolongation(n_fine: int, n_coarse: int) -> jax.Array:
+    """Linear interpolation between n_coarse and n_fine equispaced points."""
+    fine = jnp.linspace(0.0, 1.0, n_fine)
+    coarse = jnp.linspace(0.0, 1.0, n_coarse)
+    # P[i, j] = max(0, 1 − |x_i − X_j| / H), H the coarse spacing
+    return jnp.maximum(
+        0.0, 1.0 - jnp.abs(einx.subtract("i, j -> i j", fine, coarse)) * (n_coarse - 1)
+    )
+
+
+def _multigrid(K, noise, **opts):
+    # Galerkin levels of A = K + σ² I on halving 1-D grids: a hierarchy with
+    # no PDE behind it, so the contract holds for whatever levels CG is given.
+    n = K.shape[0]
+    system = psd_operator(K + noise * jnp.eye(n, dtype=K.dtype))
+    sizes = [n]
+    while sizes[-1] > 8:
+        sizes.append((sizes[-1] + 1) // 2)
+    transfers = [
+        lx.MatrixLinearOperator(_linear_prolongation(a, b).astype(K.dtype))
+        for a, b in itertools.pairwise(sizes)
+    ]
+    levels = gaussx.galerkin_levels(system, transfers, restriction_scale=0.5)
+    return gaussx.MultigridSolver(levels, **_cg_options(**opts))
+
+
 STRATEGIES: dict[str, Factory] = {
     "dense": lambda K, noise, **opts: gaussx.DenseSolver(),
     "cg": lambda K, noise, **opts: gaussx.CGSolver(**_cg_options(**opts)),
@@ -96,6 +123,7 @@ STRATEGIES: dict[str, Factory] = {
     "lsmr_damped": _lsmr(0.5),
     # size_threshold below n, so a PSD system goes to CG.
     "auto": lambda K, noise, **opts: gaussx.AutoSolver(size_threshold=10),
+    "multigrid": _multigrid,
 }
 
 ITERATIVE = [name for name in STRATEGIES if name not in ("dense", "auto")]
