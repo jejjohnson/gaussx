@@ -666,3 +666,29 @@ def test_sparse_sample_is_the_factor_draw():
     z = jr.normal(jr.key(21), (n,))
     expected = gx.sparse_cholesky(op).solve_lower_transpose(z)
     np.testing.assert_allclose(d.sample(jr.key(21)), expected, rtol=1e-12)
+
+
+def test_perturbation_draws_go_through_the_strategy():
+    # The draws solve Λ x = ∑_k F_kᵀ z_k; without a strategy by CGSolver at
+    # √eps (gh-859), with one by that strategy, preconditioned CG included.
+    op, _, _, _ = proper_precision("spectral", 6, 0.5)
+    n = 36
+    idx = np.arange(0, n, 5)
+    A = gx.SparseOperator.from_coo(
+        np.arange(idx.size), idx, jnp.ones(idx.size), (idx.size, n)
+    )
+    y = jnp.sin(jnp.arange(idx.size, dtype=float))
+
+    def draws(solver):
+        prior = gx.GaussianMRF(jnp.zeros(n), op, solver=solver)
+        post = prior.condition_on_observations(A, 4.0, y)
+        assert post.precision_factors is not None
+        return post.sample(jr.key(3), (3,))
+
+    exact = draws(gx.DenseSolver())
+    tol = 1e-3 if exact.dtype == jnp.float32 else 1e-6
+    np.testing.assert_allclose(draws(None), exact, rtol=tol, atol=tol)
+    preconditioned = gx.CGSolver(
+        rtol=tol * 1e-3, atol=tol * 1e-3, preconditioner=gx.JacobiPreconditioner()
+    )
+    np.testing.assert_allclose(draws(preconditioned), exact, rtol=tol, atol=tol)
