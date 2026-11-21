@@ -20,6 +20,14 @@ from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._lineax import LineaxSolver
 from gaussx._strategies._lsmr import LSMRSolver
 from gaussx._strategies._minres import MINRESSolver
+from gaussx._strategies._multigrid import (
+    AbstractSmoother,
+    MultigridLevel,
+    MultigridPreconditioner,
+    MultigridSolver,
+    WeightedJacobi,
+    galerkin_levels,
+)
 from gaussx._strategies._nystrom_logdet import NystromLogdet
 from gaussx._strategies._precond_cg import PreconditionedCGSolver
 from gaussx._strategies._sketch_precond import (
@@ -36,6 +44,7 @@ from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
 __all__ = [
     "AbstractLogdetStrategy",
+    "AbstractSmoother",
     "AbstractSolveStrategy",
     "AbstractSolverStrategy",
     "AutoSolver",
@@ -49,10 +58,15 @@ __all__ = [
     "LSMRSolver",
     "LineaxSolver",
     "MINRESSolver",
+    "MultigridLevel",
+    "MultigridPreconditioner",
+    "MultigridSolver",
     "NystromLogdet",
     "PreconditionedCGSolver",
     "SLQLogdet",
     "SketchAndPrecondLSMR",
     "SparseCholeskySolver",
+    "WeightedJacobi",
+    "galerkin_levels",
     "sketch_and_solve",
 ]

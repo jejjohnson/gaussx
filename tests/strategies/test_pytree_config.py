@@ -48,7 +48,10 @@ def _default(cls: type):
 # (gh-384); see test_keyed_solver_key_is_its_only_leaf. NystromLogdet's shift
 # is the model's noise variance, a learned parameter, so it is a leaf too
 # (gh-486); see test_nystrom_logdet_shift_is_its_only_leaf.
-_LEAF_CARRYING = (gaussx.KeyedSolver, gaussx.NystromLogdet)
+# MultigridSolver holds its level hierarchy (operators, transfers, smoother
+# diagonals), which are arrays by nature (gh-856); see
+# test_multigrid_solver_leaves_are_its_levels.
+_LEAF_CARRYING = (gaussx.KeyedSolver, gaussx.NystromLogdet, gaussx.MultigridSolver)
 _STRATEGIES = [
     _default(cls) for cls in _exported_strategy_classes() if cls not in _LEAF_CARRYING
 ] + [
@@ -79,6 +82,17 @@ def test_nystrom_logdet_shift_is_its_only_leaf():
     shift = jnp.asarray(0.1)
     strategy = gaussx.NystromLogdet(shift=shift, rank=3)
     assert jax.tree_util.tree_leaves(strategy) == [shift]
+
+
+def test_multigrid_solver_leaves_are_its_levels():
+    a = jnp.asarray(2 * np.eye(3) - np.eye(3, k=1) - np.eye(3, k=-1))
+    operator = lx.MatrixLinearOperator(a, lx.positive_semidefinite_tag)
+    transfer = lx.MatrixLinearOperator(jnp.asarray([[0.5], [1.0], [0.5]]))
+    levels = gaussx.galerkin_levels(operator, [transfer], restriction_scale=0.5)
+    solver = gaussx.MultigridSolver(levels, rtol=1e-6, max_steps=7)
+    leaves = jax.tree_util.tree_leaves(solver)
+    assert len(leaves) == len(jax.tree_util.tree_leaves(levels))
+    assert all(isinstance(leaf, jax.Array) for leaf in leaves)
 
 
 @pytest.mark.parametrize("strategy", _STRATEGIES, ids=_id)

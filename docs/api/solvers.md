@@ -47,6 +47,16 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
       show_root_toc_entry: false
       members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, KeyedSolver, LineaxSolver, SparseCholeskySolver]
 
+## Multigrid
+
+V-cycles over a level hierarchy the caller builds: gaussx owns the algorithm, a grid library builds the levels from its grid and mask. `MultigridSolver` is CG on the given operator, preconditioned by one V-cycle; `MultigridPreconditioner` is the V-cycle alone, for any CG.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [MultigridSolver, MultigridPreconditioner, MultigridLevel, galerkin_levels, WeightedJacobi, AbstractSmoother]
+
 ### Tolerances and float32
 
 The iterative strategies (`CGSolver`, `PreconditionedCGSolver`, `BBMMSolver`,
