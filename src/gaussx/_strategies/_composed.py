@@ -10,6 +10,7 @@ from gaussx._strategies._base import (
     AbstractLogdetStrategy,
     AbstractSolverStrategy,
     AbstractSolveStrategy,
+    _SolveStats,
 )
 
 
@@ -67,6 +68,22 @@ class ComposedSolver(AbstractSolverStrategy):
             Solution x, of length N.
         """
         return self.solve_strategy.solve(operator, vector)
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with the stats of ``solve_strategy``.
+
+        Args:
+            operator: Linear operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
+        return self.solve_strategy._solve_with_stats(operator, vector)
 
     def logdet(
         self,

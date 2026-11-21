@@ -30,7 +30,11 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float, Int
 
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import (
+    AbstractSolverStrategy,
+    _lineax_stats,
+    _SolveStats,
+)
 from gaussx._strategies._slq_logdet import IndefiniteSLQLogdet
 from gaussx._strategies._tolerances import operator_dtype, resolve_tolerance
 
@@ -414,6 +418,22 @@ class MINRESSolver(AbstractSolverStrategy):
             equinox.EquinoxRuntimeError: If MINRES has not converged after
                 ``max_steps`` steps and ``throw`` is set.
         """
+        return self._solve_with_stats(operator, vector).value
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with lineax's step count and verdict.
+
+        Args:
+            operator: Symmetric, possibly indefinite, operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
         dtype = operator_dtype(operator, vector)
         rtol = resolve_tolerance(self.rtol, dtype, 1e-5)
         atol = 1e-5 if self.atol is None else self.atol
@@ -429,7 +449,8 @@ class MINRESSolver(AbstractSolverStrategy):
             if lx.is_symmetric(operator):
                 shifted = lx.TaggedLinearOperator(shifted, lx.symmetric_tag)
             operator = shifted
-        return lx.linear_solve(operator, vector, solver, throw=self.throw).value
+        solution = lx.linear_solve(operator, vector, solver, throw=self.throw)
+        return _lineax_stats(solution, solution.value, rtol, atol, None)
 
     def logdet(
         self,

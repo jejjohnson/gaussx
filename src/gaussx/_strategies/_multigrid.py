@@ -29,7 +29,7 @@ from jaxtyping import Array, Float
 from gaussx._einx import einsum, rearrange
 from gaussx._preconditioners._base import AbstractPreconditioner
 from gaussx._primitives._diag import matrix_free_diag
-from gaussx._strategies._base import AbstractSolveStrategy
+from gaussx._strategies._base import AbstractSolveStrategy, _SolveStats
 from gaussx._strategies._cg import CGSolver
 
 
@@ -461,6 +461,22 @@ class MultigridSolver(AbstractSolveStrategy):
             equinox.EquinoxRuntimeError: If CG has not converged after
                 ``max_steps`` steps and ``throw`` is set.
         """
+        return self._solve_with_stats(operator, vector).value
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with the step count and verdict of its CG.
+
+        Args:
+            operator: The symmetric (positive or negative) definite A.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
         cg = CGSolver(
             rtol=self.rtol,
             atol=self.atol,
@@ -468,7 +484,8 @@ class MultigridSolver(AbstractSolveStrategy):
             preconditioner=self.as_preconditioner(),
             throw=self.throw,
         )
-        return _project_out(cg.solve(operator, vector), self.null_space)
+        stats = cg._solve_with_stats(operator, vector)
+        return stats._replace(value=_project_out(stats.value, self.null_space))
 
     def cycles(self, vector: Float[Array, " n"], n_cycles: int) -> Float[Array, " n"]:
         """``n_cycles`` plain V-cycles for A₀ u = b from zero.

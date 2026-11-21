@@ -19,7 +19,7 @@ from gaussx._preconditioners import (
     AbstractPreconditioner,
     PartialCholeskyPreconditioner,
 )
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import AbstractSolverStrategy, _SolveStats
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._slq_logdet import SLQLogdet
 
@@ -116,6 +116,22 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             equinox.EquinoxRuntimeError: If CG has not converged after
                 ``max_steps`` steps and ``throw`` is set.
         """
+        return self._solve_with_stats(operator, vector).value
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with the step count and verdict of its CG.
+
+        Args:
+            operator: Symmetric positive-definite operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
         preconditioner = self.preconditioner
         if preconditioner is None:
             preconditioner = PartialCholeskyPreconditioner(
@@ -127,7 +143,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             max_steps=self.max_steps,
             preconditioner=preconditioner,
             throw=self.throw,
-        ).solve(operator, vector)
+        )._solve_with_stats(operator, vector)
 
     def logdet(
         self,

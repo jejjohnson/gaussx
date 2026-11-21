@@ -309,8 +309,10 @@ from gaussx._sketching import (
     hadamard_transform as hadamard_transform,
 )
 from gaussx._solve_frontend import (
+    SolveInfo as SolveInfo,
     as_linear_operator as as_linear_operator,
     linear_solve as linear_solve,
+    linear_solve_with_info as linear_solve_with_info,
 )
 from gaussx._sparse import (
     SparseCholeskyFactor as SparseCholeskyFactor,
@@ -529,6 +531,7 @@ __all__ = [
     "SRHTSketch",
     "SketchAndPrecondLSMR",
     "SoftmaxLikelihood",
+    "SolveInfo",
     "SparseCholeskyFactor",
     "SparseCholeskySolver",
     "SparseOperator",
@@ -670,6 +673,7 @@ __all__ = [
     "lift_known_values",
     "linear_gaussian_update",
     "linear_solve",
+    "linear_solve_with_info",
     "linearize_sde",
     "localization_matrix",
     "localized_kalman_gain",

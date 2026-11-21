@@ -13,7 +13,7 @@ from jaxtyping import Array, Float
 
 from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._primitives._logdet import _has_structural_logdet
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import AbstractSolverStrategy, _SolveStats
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._dense import DenseSolver
 
@@ -89,6 +89,22 @@ class AutoSolver(AbstractSolverStrategy):
             Solution x, of length N.
         """
         return self._get_strategy(operator).solve(operator, vector)
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with the stats of the strategy it selects.
+
+        Args:
+            operator: Linear operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
+        return self._get_strategy(operator)._solve_with_stats(operator, vector)
 
     def logdet(
         self,
