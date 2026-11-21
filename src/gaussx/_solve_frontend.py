@@ -25,10 +25,12 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
+from typing import NamedTuple
 
 import jax
+import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Bool, Float, Int
 
 from gaussx._preconditioners import AbstractPreconditioner, OperatorPreconditioner
 from gaussx._strategies._auto import AutoSolver
@@ -222,6 +224,127 @@ def linear_solve(
         ...
         ValueError: Could not infer a default solver for a non-symmetric operator.
     """
+    op, rhs, strategy = _prepare(operator, vector, solver, preconditioner)
+    return strategy.solve(op, rhs)
+
+
+class SolveInfo(NamedTuple):
+    """How a solve ended, from `linear_solve_with_info`.
+
+    Attributes:
+        iterations: Steps the iteration took; 0 for a direct strategy.
+        residual_norm: ‖b − A x‖₂, recomputed from x after the solve.
+        converged: The iteration reported success, and
+            maxₙ |b − A x|ₙ ≤ tol_abs + tol_rel maxₙ |b_n| with the
+            strategy's own tolerances.
+
+    Examples:
+        >>> import gaussx
+        >>> gaussx.SolveInfo._fields
+        ('iterations', 'residual_norm', 'converged')
+    """
+
+    iterations: Int[Array, ""]
+    residual_norm: Float[Array, ""]
+    converged: Bool[Array, ""]
+
+
+def linear_solve_with_info(
+    operator: OperatorLike,
+    vector: Float[Array, " n"],
+    *,
+    solver: AbstractSolveStrategy | lx.AbstractLinearSolver | None = None,
+    preconditioner: PreconditionerLike | None = None,
+) -> tuple[Float[Array, " n"], SolveInfo]:
+    """Solve A x = b as `linear_solve` does, and report how the solve ended.
+
+        x = A⁻¹ b,   r = b − A x
+
+    The arguments mean what they mean in `linear_solve`, and x is the same
+    array. The difference is that the solve never raises at ``max_steps``
+    (the strategy runs with ``throw=False``): a model that runs many solves
+    inside a trajectory reads ``converged`` and carries on. The residual is
+    recomputed from x, not read from the iteration, whose recursive residual
+    drifts from the true one in finite precision; this costs one product
+    with A.
+
+    Algorithm:
+        1. Prepare the operator, sign and strategy as `linear_solve` does.
+        2. Turn off ``throw`` on the strategy (and the one it wraps).
+        3. Solve, keeping the step count, the verdict and the tolerances.
+        4. r = b − A x; converged when the verdict is success and
+           maxₙ |r_n| ≤ tol_abs + tol_rel maxₙ |b_n|.
+
+    Args:
+        operator: The linear operator A, or a ``(matvec, shape)`` pair.
+        vector: Right-hand side b, of length N.
+        solver: Solve strategy, or a lineax solver, as in `linear_solve`.
+        preconditioner: Optional preconditioner, as in `linear_solve`.
+
+    Returns:
+        The solution x, of length N, and its `SolveInfo`.
+
+    Raises:
+        TypeError: If ``operator`` or ``preconditioner`` has an unsupported
+            type.
+        ValueError: If no default solver fits A, or ``solver`` cannot take
+            a preconditioner.
+
+    Examples:
+        Too few CG steps are reported instead of raised:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> L = 2 * jnp.eye(50) - jnp.eye(50, k=1) - jnp.eye(50, k=-1)
+        >>> A = lx.MatrixLinearOperator(L, lx.positive_semidefinite_tag)
+        >>> b = jnp.ones(50)
+        >>> x, info = gaussx.linear_solve_with_info(
+        ...     A, b, solver=gaussx.CGSolver(max_steps=5)
+        ... )
+        >>> int(info.iterations), bool(info.converged)
+        (5, False)
+        >>> x, info = gaussx.linear_solve_with_info(A, b, solver=gaussx.CGSolver())
+        >>> bool(info.converged), int(info.iterations) <= 50
+        (True, True)
+    """
+    op, rhs, strategy = _prepare(operator, vector, solver, preconditioner)
+    stats = _without_throw(strategy)._solve_with_stats(op, rhs)
+    # r = b − A x
+    residual = rhs - op.mv(stats.value)
+    bound = stats.atol + stats.rtol * jnp.max(jnp.abs(rhs))
+    converged = stats.success & (jnp.max(jnp.abs(residual)) <= bound)
+    info = SolveInfo(
+        iterations=jnp.asarray(stats.num_steps, jnp.int32),
+        residual_norm=jnp.linalg.norm(residual),
+        converged=converged,
+    )
+    return stats.value, info
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _prepare(
+    operator: OperatorLike,
+    vector: Float[Array, " n"],
+    solver: AbstractSolveStrategy | lx.AbstractLinearSolver | None,
+    preconditioner: PreconditionerLike | None,
+) -> tuple[lx.AbstractLinearOperator, Float[Array, " n"], AbstractSolveStrategy]:
+    """The operator, right-hand side and strategy that `linear_solve` runs.
+
+    Args:
+        operator: Operator A, or a ``(matvec, shape)`` pair.
+        vector: Right-hand side b.
+        solver: Strategy, lineax solver or ``None``.
+        preconditioner: Optional preconditioner.
+
+    Returns:
+        A (negated when negative definite), b (negated with it) and the
+        strategy with the preconditioner attached.
+    """
     op = _coerce_operator(operator, vector)
 
     if is_negative_semidefinite(op) and not is_positive_semidefinite(op):
@@ -229,19 +352,37 @@ def linear_solve(
         op = _negate(op)
         vector = -vector
 
-    solver = as_solve_strategy(solver)
-    if solver is None:
-        solver = _default_solver(op)
+    strategy = as_solve_strategy(solver)
+    if strategy is None:
+        strategy = _default_solver(op)
 
     if preconditioner is not None:
-        solver = _attach_preconditioner(solver, _as_preconditioner(preconditioner))
+        strategy = _attach_preconditioner(strategy, _as_preconditioner(preconditioner))
+    return op, vector, strategy
 
-    return solver.solve(op, vector)
 
+def _without_throw(strategy: AbstractSolveStrategy) -> AbstractSolveStrategy:
+    """``strategy`` with ``throw=False``, here and in the strategy it wraps.
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+    Args:
+        strategy: Solve strategy.
+
+    Returns:
+        The strategy, set to return its last iterate at ``max_steps``.
+    """
+    if isinstance(strategy, ComposedSolver):
+        return dataclasses.replace(
+            strategy, solve_strategy=_without_throw(strategy.solve_strategy)
+        )
+    if isinstance(strategy, KeyedSolver) and isinstance(
+        strategy.strategy, AbstractSolveStrategy
+    ):
+        inner = _without_throw(strategy.strategy)
+        assert isinstance(inner, AbstractLogdetStrategy)
+        return dataclasses.replace(strategy, strategy=inner)
+    if any(field.name == "throw" for field in dataclasses.fields(strategy)):
+        return dataclasses.replace(strategy, throw=False)
+    return strategy
 
 
 def _normalise_in_structure(in_structure: object, dtype: object) -> object:

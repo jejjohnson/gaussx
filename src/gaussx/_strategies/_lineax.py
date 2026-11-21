@@ -10,7 +10,12 @@ import equinox as eqx
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._strategies._base import AbstractSolveStrategy
+from gaussx._strategies._base import (
+    AbstractSolveStrategy,
+    _default_tolerances,
+    _lineax_stats,
+    _SolveStats,
+)
 
 
 class LineaxSolver(AbstractSolveStrategy):
@@ -61,6 +66,29 @@ class LineaxSolver(AbstractSolveStrategy):
             Solution x, of length N.
         """
         return lx.linear_solve(operator, vector, self.solver).value
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with lineax's step count and verdict, never raising.
+
+        An unconverged iterative solve is reported rather than raised.
+
+        Args:
+            operator: Linear operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
+        solution = lx.linear_solve(operator, vector, self.solver, throw=False)
+        # an iterative lineax solver's own tolerances, else the defaults
+        rtol, atol = _default_tolerances(operator, vector)
+        rtol = getattr(self.solver, "rtol", rtol)
+        atol = getattr(self.solver, "atol", atol)
+        return _lineax_stats(solution, solution.value, rtol, atol, None)
 
 
 def as_solve_strategy(solver: object) -> AbstractSolveStrategy | None:

@@ -31,6 +31,16 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
       show_root_toc_entry: false
       members: [linear_solve, as_linear_operator]
 
+### Convergence reports
+
+`linear_solve_with_info` runs the same solve without raising at `max_steps`, and returns a `SolveInfo` with the step count, the explicit residual norm and whether the solve converged, for a model that runs many solves inside a trajectory and must flag a bad one rather than stop.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [linear_solve_with_info, SolveInfo]
+
 ### Prescribed values
 
 `solve_with_known_values` solves A x = b when x is prescribed on an index set K (an inhomogeneous Dirichlet boundary, values pinned at interior points): it drops the rows on K, lifts the known values to the right-hand side, and solves A_EE x_E = b_E − A_EK g_K on the rest with any strategy. `CapacitanceSolver` and `MaskedOperator` cover the zero-valued case on a fast base solve.

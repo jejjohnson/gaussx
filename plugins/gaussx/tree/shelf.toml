@@ -208,7 +208,8 @@ skill = "solvers-and-preconditioners"
 covers = "how a library above gaussx exposes `solver=`; `linear_solve` for a bare matvec; prescribed values"
 names = [
     "AbstractSolverStrategy", "AbstractSolveStrategy", "as_linear_operator",
-    "lift_known_values", "linear_solve", "solve_with_known_values",
+    "lift_known_values", "linear_solve", "linear_solve_with_info", "SolveInfo",
+    "solve_with_known_values",
 ]
 
 [[entries]]

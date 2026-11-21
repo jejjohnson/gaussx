@@ -15,7 +15,11 @@ import jax
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._strategies._base import AbstractSolverStrategy
+from gaussx._strategies._base import (
+    AbstractSolverStrategy,
+    _lineax_stats,
+    _SolveStats,
+)
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
     operator_dtype,
@@ -144,6 +148,22 @@ class BBMMSolver(AbstractSolverStrategy):
             equinox.EquinoxRuntimeError: If CG has not converged after
                 ``max_steps`` steps and ``throw`` is set.
         """
+        return self._solve_with_stats(operator, vector).value
+
+    def _solve_with_stats(
+        self,
+        operator: lx.AbstractLinearOperator,
+        vector: Float[Array, " n"],
+    ) -> _SolveStats:
+        """`solve`, with lineax's step count and verdict.
+
+        Args:
+            operator: Symmetric positive-definite operator A, N × N.
+            vector: Right-hand side b, of length N.
+
+        Returns:
+            The solution and how the solve ended.
+        """
         dtype = operator_dtype(operator, vector)
         # tol_abs and s = maxₙ |b_n| (s is None: no rescaling)
         atol, scale = rhs_scaling(self.atol, dtype, 1e-4, vector)
@@ -156,9 +176,10 @@ class BBMMSolver(AbstractSolverStrategy):
             max_steps=self.max_steps,
         )
         # y = A⁻¹ (b / s)
-        solution = lx.linear_solve(operator, rhs, solver, throw=self.throw).value
+        solution = lx.linear_solve(operator, rhs, solver, throw=self.throw)
         # x = s y
-        return solution if scale is None else solution * scale
+        value = solution.value if scale is None else solution.value * scale
+        return _lineax_stats(solution, value, rtol, atol, scale)
 
     def logdet(
         self,
