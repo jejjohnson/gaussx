@@ -350,19 +350,26 @@ class MultigridPreconditioner(AbstractPreconditioner):
         self,
         operator: lx.AbstractLinearOperator | None = None,
     ) -> lx.AbstractLinearOperator:
-        """Return M⁻¹ = V₀ (or −V₀ for a negative-definite A) as a PSD operator.
+        """Return M⁻¹ = V₀ (or −V₀ for negative-definite levels) as a PSD operator.
+
+        The sign is that of the finest level's operator A₀, which the
+        V-cycle inverts, not of the system being solved: CG on A₀ and CG on
+        −A₀ (as `gaussx.linear_solve` runs for a negative-definite A₀) both
+        need the positive-definite approximation of (±A₀)⁻¹, which is −V₀
+        when A₀ is negative definite.
 
         Args:
-            operator: The system operator A; only its sign is read.
+            operator: The system operator; unused, the sign comes from the
+                levels.
 
         Returns:
             A positive-semidefinite operator applying one V-cycle.
         """
-        sign = (
-            -1.0
-            if operator is not None and lx.is_negative_semidefinite(operator)
-            else 1.0
-        )
+        finest = self.levels[0].operator
+        negative = lx.is_negative_semidefinite(
+            finest
+        ) and not lx.is_positive_semidefinite(finest)
+        sign = -1.0 if negative else 1.0
         structure = jax.ShapeDtypeStruct(
             (self.levels[0].operator.in_size(),),
             self.levels[0].operator.in_structure().dtype,

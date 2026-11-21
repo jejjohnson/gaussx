@@ -130,6 +130,18 @@ def test_preconditioned_cg_converges_in_few_steps(sign):
 
 
 @pytest.mark.x64_only(reason="reference solve to 1e-10")
+def test_negative_definite_levels_solve_the_negated_system():
+    # linear_solve hands CG −A for a negative-definite A; the levels still
+    # describe A, and the V-cycle must stay a positive-definite M⁻¹ ≈ (−A)⁻¹
+    matrix, prolongations, scale = _problem_1d()
+    operator, levels = _levels(matrix, prolongations, scale, sign=-1.0)
+    b = jnp.asarray(np.random.default_rng(9).standard_normal(127))
+    solver = gaussx.MultigridSolver(levels, rtol=1e-12, atol=1e-12)
+    x = gaussx.linear_solve(operator, b, solver=solver)
+    assert jnp.allclose(x, jnp.linalg.solve(-matrix, b), rtol=1e-10, atol=1e-10)
+
+
+@pytest.mark.x64_only(reason="reference solve to 1e-10")
 def test_solve_equals_the_dense_solve():
     matrix, prolongations, scale = _problem_1d()
     operator, levels = _levels(matrix, prolongations, scale)
