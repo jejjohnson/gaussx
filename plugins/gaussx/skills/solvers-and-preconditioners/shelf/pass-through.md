@@ -14,6 +14,8 @@ The verb `solve` and the operators live in the skill `gaussx:structured-gaussian
 | `AbstractSolverStrategy` | A strategy with both `solve` and `logdet`, the type that gaussx distributions take as `solver=`. |
 | `linear_solve(operator, vector, *, solver=None, preconditioner=None)` | The front door: `operator` is a lineax operator or a `(matvec, shape)` pair, and the result is `x` for `A x = b`. |
 | `as_linear_operator(matvec, *, shape=None, in_structure=None, dtype=float, symmetric=False, positive_semidefinite=False, negative_definite=False)` | Wraps a bare `v -> A @ v` as a tagged `lineax.FunctionLinearOperator`. |
+| `solve_with_known_values(operator, vector, known, values, *, solver=None, preconditioner=None)` | `A x = b` with `x` prescribed (`values`) where the boolean `known` is set: the rows there are dropped and the values lifted to the right-hand side, so a Dirichlet boundary or pinned points need no hand-written elimination. |
+| `lift_known_values(operator, vector, known, values)` | The lift alone: `(b - A g)` on the unknowns and `g` on the knowns, for a caller that runs its own solve. |
 
 ## Use it
 
