@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.1](https://github.com/jejjohnson/gaussx/compare/v0.8.0...v0.8.1) (2026-11-21)
+
+
+### Features
+
+* **solve:** linear_solve_with_info reports iterations, residual and convergence instead of raising ([#862](https://github.com/jejjohnson/gaussx/issues/862)) ([f2a3a8c](https://github.com/jejjohnson/gaussx/commit/f2a3a8c5308375510e1778aec84a3ec206149713)), closes [#858](https://github.com/jejjohnson/gaussx/issues/858)
+* **solve:** solve_with_known_values solves with entries of x prescribed, by lifting them to the right-hand side ([#861](https://github.com/jejjohnson/gaussx/issues/861)) ([316bdb3](https://github.com/jejjohnson/gaussx/commit/316bdb3a3590c52585b3a766677da25f07026de1)), closes [#857](https://github.com/jejjohnson/gaussx/issues/857)
+* **strategies:** multigrid V-cycles over a caller-built hierarchy precondition CG in tens of steps ([#860](https://github.com/jejjohnson/gaussx/issues/860)) ([1ec782f](https://github.com/jejjohnson/gaussx/commit/1ec782fe21a4f51fdf868654ee5afd650b416481)), closes [#856](https://github.com/jejjohnson/gaussx/issues/856)
+
 ## [0.8.0](https://github.com/jejjohnson/gaussx/compare/v0.7.0...v0.8.0) (2026-11-20)
 
 
