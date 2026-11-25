@@ -128,6 +128,8 @@ def rw1_structure(
         inverse_gaps = 1.0 / gaps
         weights = jnp.broadcast_to(inverse_gaps, (num_edges,))
     if cyclic:
+        if n == 1:  # the closing edge is a self-loop, which adds nothing
+            weights = jnp.zeros_like(weights)
         return _cyclic_structure(n, [weights], [1])
     # [R]_t,t = w_t−1 + w_t, the weighted degree
     degree = jnp.zeros(n, dtype=weights.dtype)

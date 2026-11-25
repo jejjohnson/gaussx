@@ -82,6 +82,7 @@ _PAGE_EXCEPTIONS = {
     # The sparse operator lives with the sparse Cholesky machinery.
     "SparseOperator": "sparse.md",
     "SparsityPattern": "sparse.md",
+    "row_kron": "sparse.md",
     # Defined next to SqrtOperator in _primitives (which imports _operators),
     # documented next to KroneckerSumSqrt and SumOfKroneckers (gh-297).
     "SumOfKroneckersSqrt": "operators.md",

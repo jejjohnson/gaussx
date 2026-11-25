@@ -37,7 +37,8 @@ def row_kron(left: SparseOperator, right: SparseOperator) -> SparseOperator:
         Column ``p * Q + q`` is row-major, as in `Kronecker` and ``jnp.kron``.
 
     Raises:
-        ValueError: If A and B have different numbers of rows.
+        ValueError: If A and B have different numbers of rows, or the product has
+            more columns than a 32-bit index holds.
 
     Examples:
         Three observations of a field on a 2 × 3 grid, each at its own node of both
@@ -67,6 +68,11 @@ def row_kron(left: SparseOperator, right: SparseOperator) -> SparseOperator:
         raise ValueError(
             "row_kron needs operands with the same number of rows, got "
             f"{left.out_size()} and {right.out_size()}."
+        )
+    num_cols = left.in_size() * right.in_size()
+    if num_cols > np.iinfo(np.int32).max:
+        raise ValueError(
+            f"row_kron gives {num_cols} columns, more than a 32-bit index holds."
         )
     pattern, entry_left, entry_right, position = _row_kron_plan(
         left.pattern, right.pattern

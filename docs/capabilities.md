@@ -193,6 +193,7 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `SparseOperator` | class | Sparse matrix A with a static `SparsityPattern` and traced values. |
 | `SparsityPattern` | class | Static, hashable sparsity pattern of an M × N matrix A. |
+| `row_kron` | function | Row-wise Kronecker (face-splitting) product A • B of two sparse operators. |
 | `symbolic_cholesky` | function | Symbolic analysis of a sparse Cholesky factorisation (host, cached). |
 | `SymbolicCholesky` | class | Symbolic Cholesky factor of a symmetric sparsity pattern. |
 | `sparse_cholesky` | function | Sparse Cholesky factorisation of a symmetric positive-definite operator. |
@@ -771,12 +772,6 @@ public API (`tests/test_capabilities.py` checks it is current).
 |---|---|---|
 | `euclidean_distance` | function | Pairwise Euclidean distances ‖aₙ − bₘ‖₂. |
 | `haversine_distance` | function | Pairwise great-circle (haversine) distances on a sphere. |
-
-## Not yet in the API reference
-
-| Name | Kind | What it does |
-|---|---|---|
-| `row_kron` | function | Row-wise Kronecker (face-splitting) product A • B of two sparse operators. |
 
 <!-- upstream -->
 
