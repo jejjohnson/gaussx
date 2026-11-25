@@ -31,6 +31,7 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._diagonalised import DiagonalizedOperator, as_diagonalized
+from gaussx._operators._grounding import ground, ground_nodes, push_scalar
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import (
@@ -609,11 +610,17 @@ def pseudo_logdet(
       on the host (once per pattern), so every stored off-diagonal weight
       must be non-zero. Gradients are exact. A `KroneckerSum` (a grid
       Laplacian) takes the eigenvalue path below instead.
-    - ``null_space`` given: det₊ A = det(A + B Bᵀ) for an orthonormal B
-      spanning ker A (each zero eigenvalue becomes 1). Any basis B of the
-      kernel works, since det(A + B Bᵀ) = det₊ A det(Bᵀ B) and the second
-      factor is subtracted. A + B Bᵀ is a matvec-only lineax sum, so
-      ``strategy=gaussx.SLQLogdet()`` estimates it matrix-free; the default
+    - ``null_space`` given, for a `SparseOperator` or a symmetric
+      `BlockTriDiag` and no ``strategy``: with the c nodes P replaced by a unit
+      diagonal, where the rows B_P of the basis are invertible,
+      det₊ A = det A_FF det(Bᵀ B) / det(B_P)² on the other nodes F. One sparse
+      or banded Cholesky on A's pattern; the matrix-tree theorem is the case
+      B = 1 of a Laplacian. Exact gradients.
+    - ``null_space`` given otherwise: det₊ A = det(A + B Bᵀ) for an
+      orthonormal B spanning ker A (each zero eigenvalue becomes 1). Any basis
+      B of the kernel works, since det(A + B Bᵀ) = det₊ A det(Bᵀ B) and the
+      second factor is subtracted. A + B Bᵀ is a matvec-only lineax sum, so
+      ``strategy=gaussx.SLQLogdet()`` estimates it matrix-free; without one it
       is `gaussx.logdet` of it (dense). The matrix determinant lemma does not
       apply because A is singular.
     - A `KroneckerSum` (recursively, with dense, diagonal or
@@ -629,7 +636,8 @@ def pseudo_logdet(
     any θ loop, and keep it.
 
     Algorithm:
-        1. With ``null_space``: log det(A + B Bᵀ) − log det(Bᵀ B).
+        1. With ``null_space``: the grounded determinant of a sparse or banded
+           A, else log det(A + B Bᵀ) − log det(Bᵀ B).
         2. With ``structure="laplacian"``: one Cholesky of the grounded
            minor plus ∑_c log N_c.
         3. Otherwise: the spectrum γ of A, structured where possible, and
@@ -768,13 +776,14 @@ def _pseudo_logdet_null_space(
 ) -> Float[Array, ""]:
     """Log pseudo-determinant from a kernel basis B.
 
-        log det₊ A = log det(A + B Bᵀ) − log det(Bᵀ B)
+        log det₊ A = log det A_FF + log det(Bᵀ B) − 2 log |det B_P|   (sparse, banded)
+                   = log det(A + B Bᵀ) − log det(Bᵀ B)                (otherwise)
 
     Args:
         operator: Symmetric positive-semidefinite A.
         null_space: A basis B of ker A, ``(N, c)`` or ``(N,)``.
-        strategy: Log-determinant strategy for A + B Bᵀ, or ``None`` for
-            `logdet`.
+        strategy: Log-determinant strategy for A + B Bᵀ, or ``None`` for the
+            grounded determinant or `logdet`.
 
     Returns:
         The scalar log det₊ A.
@@ -790,6 +799,10 @@ def _pseudo_logdet_null_space(
         raise ValueError(
             f"null_space must have shape ({operator.in_size()}, c), got {basis.shape}."
         )
+
+    inner = push_scalar(operator)
+    if strategy is None and _is_groundable(inner):
+        return _pseudo_logdet_grounded(inner, basis)
 
     def project(vector: Float[Array, " N"]) -> Float[Array, " N"]:
         # Bᵀ v
@@ -809,6 +822,47 @@ def _pseudo_logdet_null_space(
     _, gram_logdet = jnp.linalg.slogdet(gram)
     # log det₊ A = log det(A + B Bᵀ) − log det(Bᵀ B)
     return shifted_logdet - gram_logdet
+
+
+def _is_groundable(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether A keeps a sparse or banded structure when a node is fixed."""
+    return isinstance(operator, SparseOperator) or (
+        isinstance(operator, BlockTriDiag) and operator.symmetric
+    )
+
+
+def _pseudo_logdet_grounded(
+    operator: lx.AbstractLinearOperator, basis: Float[Array, "N c"]
+) -> Float[Array, ""]:
+    """Log pseudo-determinant of a sparse or banded A, by fixing c nodes.
+
+        log det₊ A = log det A_FF − 2 log |det Q_P|,   B = Q R
+
+    Args:
+        operator: A `SparseOperator` or a symmetric `BlockTriDiag`, positive
+            semidefinite.
+        basis: A basis B of ker A.
+
+    Returns:
+        The scalar log det₊ A.
+    """
+    # lazy import, cycle: _strategies._sparse_cholesky -> _strategies ->
+    #   _strategies._auto -> _primitives._logdet
+    from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
+
+    # B = Q R, so that det(Bᵀ B) / det(B_P)² = 1 / det(Q_P)²
+    orthonormal, _ = jnp.linalg.qr(basis)
+    nodes = ground_nodes(orthonormal)
+    grounded = ground(operator, nodes)
+    if isinstance(grounded, SparseOperator):
+        # log det A_FF, by one sparse Cholesky
+        grounded_logdet = SparseCholeskySolver().logdet(grounded)
+    else:
+        # log det A_FF, by one banded Cholesky
+        grounded_logdet = logdet(grounded)
+    # log |det Q_P|
+    _, node_logdet = jnp.linalg.slogdet(orthonormal[nodes])
+    return grounded_logdet - 2.0 * node_logdet
 
 
 @ft.lru_cache(maxsize=_PLAN_CACHE_SIZE)

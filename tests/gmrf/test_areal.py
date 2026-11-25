@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 import gaussx
+from gaussx._deprecation import GaussxDeprecationWarning
 
 
 GOLDEN = (
@@ -88,6 +89,24 @@ class TestBesagStructure:
         assert out.shape == R.values.shape
 
 
+def rw2_scale(n: int) -> float:
+    """Exact scale of a second-order random walk, from the banded inverse.
+
+    Both end nodes are fixed, so the rest is D₂ᵀD₂ without them, the square of the
+    Dirichlet path Laplacian, whose inverse is min(i, j) (n − 1 − max(i, j)) / (n − 1).
+    """
+    i = np.arange(1, n - 1, dtype=float)
+    low, high = np.minimum.outer(i, i), np.maximum.outer(i, i)
+    inverse = low * (n - 1 - high) / (n - 1)
+    grounded = np.zeros((n, n))
+    grounded[1:-1, 1:-1] = np.einsum("ik,kj->ij", inverse, inverse)
+    t = np.arange(n) - (n - 1) / 2
+    basis = np.stack([np.ones(n) / np.sqrt(n), t / np.sqrt(np.sum(t**2))])
+    projector = np.eye(n) - np.einsum("ki,kj->ij", basis, basis)
+    variances = np.einsum("ij,jk,ki->i", projector, grounded, projector)
+    return float(np.exp(np.mean(np.log(variances))))
+
+
 def eqx_values(R, values):
     return gaussx.SparseOperator(values, R.pattern, tags=R.tags)
 
@@ -105,13 +124,84 @@ class TestGeneralizedVarianceScale:
         scaled = np.asarray(s * R.as_matrix())
         assert np.isclose(dense_scale(scaled), 1.0, rtol=1e-6)
 
-    # The default ridge ε = √eps · max diag(R) (R-INLA's) biases the variances
-    # by about ε / λ_min(range R): ~1e-6 for these random walks.
     @pytest.mark.slow
     def test_rw1_block_tridiagonal(self):
         R = gaussx.rw1_structure(25)
         s = gaussx.generalized_variance_scale(R, jnp.ones(25))
-        assert jnp.allclose(s, dense_scale(np.asarray(R.as_matrix())), rtol=1e-5)
+        assert jnp.allclose(s, dense_scale(np.asarray(R.as_matrix())), rtol=1e-9)
+
+    # A grounded path is conditioned like N² (RW1) and N⁴ (RW2), so each bound is
+    # ~100 machine epsilons times that, capped by what the test is for.
+    @pytest.mark.parametrize("n", [100, pytest.param(500, marks=pytest.mark.slow)])
+    @pytest.mark.parametrize(
+        "dtype",
+        [
+            jnp.float32,
+            pytest.param(
+                jnp.float64, marks=pytest.mark.x64_only(reason="float64 case")
+            ),
+        ],
+    )
+    def test_long_rw1_is_exact(self, n, dtype):
+        # gh-762: the ridge gave 0.74 of the scale at n = 100 in float32.
+        R = gaussx.rw1_structure(n)
+        R = gaussx.BlockTriDiag(
+            R.diagonal.astype(dtype), R.sub_diagonal.astype(dtype), symmetric=True
+        )
+        s = gaussx.generalized_variance_scale(R, jnp.ones(n, dtype))
+        assert s.dtype == dtype
+        # diag(R⁺) of a path, closed form: (Σ_k<i k² + Σ_k>i (n − k)²) / n².
+        i = np.arange(n, dtype=float)
+        left = i * (i + 1) * (2 * i + 1) / 6
+        right = (n - 1 - i) * (n - i) * (2 * (n - 1 - i) + 1) / 6
+        expected = np.exp(np.mean(np.log((left + right) / n**2)))
+        rtol = 2e-3 if dtype == jnp.float32 else 1e-10
+        assert np.isclose(float(s), expected, rtol=rtol)
+
+    @pytest.mark.x64_only(reason="a grounded RW2 is conditioned like N⁴")
+    @pytest.mark.parametrize("n", [100, pytest.param(500, marks=pytest.mark.slow)])
+    def test_long_rw2_is_exact(self, n):
+        # gh-866: the ridge gave 0.99 of the scale at n = 100 and 0.19 at 500.
+        t = jnp.arange(n, dtype=float)
+        null_space = einx.id("k n -> n k", jnp.stack([jnp.ones(n), t]))
+        s = gaussx.generalized_variance_scale(gaussx.rw2_structure(n), null_space)
+        assert np.isclose(float(s), rw2_scale(n), rtol=1e-6)
+
+    def test_sparse_and_banded_agree(self):
+        n = 40
+        banded = gaussx.rw2_structure(n)
+        dense = np.asarray(banded.as_matrix())
+        rows, cols = np.nonzero(np.tril(dense))
+        sparse = gaussx.SparseOperator.from_coo(
+            rows, cols, jnp.asarray(dense[rows, cols]), (n, n), symmetric=True
+        )
+        t = jnp.arange(n, dtype=float)
+        null_space = einx.id("k n -> n k", jnp.stack([jnp.ones(n), t]))
+        s_banded = gaussx.generalized_variance_scale(banded, null_space)
+        s_sparse = gaussx.generalized_variance_scale(sparse, null_space)
+        rtol = 1e-2 if s_banded.dtype == jnp.float32 else 1e-8
+        assert jnp.allclose(s_banded, s_sparse, rtol=rtol)
+
+    @pytest.mark.x64_only(reason="finite differences")
+    def test_gradient_in_the_weights(self):
+        n = 12
+
+        def scale(log_spacing):
+            R = gaussx.rw1_structure(n, spacing=jnp.exp(log_spacing))
+            return gaussx.generalized_variance_scale(R, jnp.ones(n))
+
+        point = jnp.linspace(-0.3, 0.4, n - 1)
+        direction = jnp.cos(jnp.arange(n - 1.0))
+        step = 1e-5
+        upper, lower = scale(point + step * direction), scale(point - step * direction)
+        slope = jnp.vdot(jax.grad(scale)(point), direction)
+        assert jnp.allclose(slope, (upper - lower) / (2 * step), rtol=1e-7)
+
+    def test_eps_is_deprecated_and_ignored(self):
+        R = gaussx.rw1_structure(10)
+        with pytest.warns(GaussxDeprecationWarning, match="0.9.0"):
+            s = gaussx.generalized_variance_scale(R, jnp.ones(10), eps=1.0)
+        assert s == gaussx.generalized_variance_scale(R, jnp.ones(10))
 
     @pytest.mark.slow
     @pytest.mark.parametrize("n", [11, 12])
@@ -121,7 +211,7 @@ class TestGeneralizedVarianceScale:
         null_space = einx.id("k n -> n k", jnp.stack([jnp.ones(n), t]))
         s = gaussx.generalized_variance_scale(R, null_space)
         expected = dense_scale(np.asarray(R.as_matrix())[:n, :n])
-        assert jnp.allclose(s, expected, rtol=1e-5)
+        assert jnp.allclose(s, expected, rtol=1e-9)
 
     @pytest.mark.slow
     def test_grid_kronecker_sum_is_exact(self):
@@ -142,9 +232,9 @@ class TestGeneralizedVarianceScale:
     def test_scotland_matches_r_inla(self):
         """Golden: R-INLA's inla.scale.model on the Scotland graph.
 
-        Generated offline by scripts/golden/inla/scotland_scale.R; the same
-        ridge ε as R-INLA makes the agreement ~1e-10, far tighter than the
-        ε-bias against the exact pseudo-inverse (~5e-7 here).
+        Generated offline by scripts/golden/inla/scotland_scale.R. R-INLA adds a
+        ridge of √eps times the diagonal, which biases its scale by 5e-7 here;
+        the exact pseudo-inverse is the reference below.
         """
         fixture = json.loads(GOLDEN.read_text())
         n = fixture["n"]
@@ -152,7 +242,8 @@ class TestGeneralizedVarianceScale:
         receivers = np.asarray(fixture["receivers"])
         R = laplacian_from_edges(n, senders, receivers)
         s = gaussx.generalized_variance_scale(R, jnp.ones(n))
-        assert jnp.allclose(s, fixture["scale"], rtol=1e-8)
+        assert jnp.allclose(s, fixture["scale"], rtol=1e-6)
+        assert jnp.allclose(s, dense_scale(np.asarray(R.as_matrix())), rtol=1e-10)
         # R-INLA's scaled structure is s · R
         scaled_diag = s * gaussx.diag(R)
         assert jnp.allclose(scaled_diag, jnp.asarray(fixture["scaled_diagonal"]))
