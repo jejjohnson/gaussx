@@ -122,6 +122,16 @@ class TestErrors:
         with pytest.raises(ValueError, match="square"):
             gaussx.symbolic_cholesky(p)
 
+    @pytest.mark.parametrize("ordering", ["rcm", "natural"])
+    def test_empty_pattern(self, ordering):
+        # gh-774
+        empty = np.empty(0, int)
+        pattern = gaussx.SparsityPattern(empty, empty, (0, 0), symmetric=True)
+        with pytest.raises(ValueError, match="empty pattern"):
+            gaussx.symbolic_cholesky(pattern, ordering=ordering)
+        with pytest.raises(ValueError, match="empty pattern"):
+            gaussx.sparse_cholesky(gaussx.SparseOperator(np.empty(0), pattern))
+
     def test_unknown_options(self):
         p = _path_pattern(3)
         with pytest.raises(ValueError, match="ordering"):
