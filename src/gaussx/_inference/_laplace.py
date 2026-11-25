@@ -61,11 +61,13 @@ class LaplaceResult(eqx.Module):
         factor: The factorisation of Λ_x|y, with ``solve(b)``, ``logdet()`` and
             ``diag_inv()`` (the marginal variances): a `SparseCholeskyFactor`, which
             also has the Takahashi ``selected_inverse()``, for a sparse Λ_x|y, else
-            the structured Cholesky factor. Under a hard constraint, where Λ_x|y may
-            be singular outside {Vᵀ x = 0}, it factorises Λ_x|y + V B Vᵀ for a
-            positive diagonal B instead, with the same methods: kriged onto
-            Vᵀ x = 0 they give the constrained Gaussian of Λ_x|y, and before that
-            they depend on B.
+            the structured Cholesky factor. Under a hard constraint and a projector,
+            where Λ_x|y may be singular outside {Vᵀ x = 0}, it factorises
+            Λ_x|y + V B Vᵀ for a positive diagonal B instead, with those methods:
+            kriged onto Vᵀ x = 0 they give the constrained Gaussian of Λ_x|y, and
+            before that they depend on B. To draw from that Gaussian, condition
+            ``GaussianMRF(mode, hessian)`` on the constraint with the prior's
+            ``null_space``.
         log_marginal: The Laplace log-marginal log π̃(y ∣ θ); see `laplace_result`
             for the constants it includes.
         n_iter: Newton steps taken.
@@ -85,24 +87,6 @@ class LaplaceResult(eqx.Module):
 # ---------------------------------------------------------------------------
 # Λ_x|y = Λ_x + Aᵀ Λ_site A, values only on a fixed structure
 # ---------------------------------------------------------------------------
-
-
-def _reads_every_node(projector: lx.AbstractLinearOperator | None) -> bool:
-    """Whether A reads each node on its own, so Aᵀ Λ_site A is positive definite.
-
-    Args:
-        projector: The projector A, or ``None``.
-
-    Returns:
-        ``True`` for the identity and a selection with an entry in every column.
-    """
-    if projector is None:
-        return True
-    if not _is_selection(projector):
-        return False
-    assert isinstance(projector, SparseOperator)
-    _, cols, _ = projector.pattern._full
-    return np.unique(cols).size == projector.pattern.shape[1]
 
 
 def _is_selection(projector: lx.AbstractLinearOperator | None) -> bool:
@@ -317,7 +301,8 @@ class LaplaceModel(eqx.Module):
         likelihood: Site-factorising likelihood, which holds y.
         null_space: Basis V of a hard constraint Vᵀ x = 0, or ``None``.
         ground_nodes: Nodes that determine the null space of Λ_x, for a Λ_x|y that
-            may be singular outside {Vᵀ x = 0}; ``None`` where it cannot be.
+            may be singular outside {Vᵀ x = 0}; ``None`` without a hard constraint
+            or a projector.
     """
 
     precision: lx.AbstractLinearOperator
@@ -373,7 +358,8 @@ class LaplaceModel(eqx.Module):
         outside it if A V u = 0 for some u ≠ 0: two intrinsic parts whose constants
         cancel in A x, or a part that no row of A reads. The added term is zero on
         the subspace, so `krige`, the log-determinant and the variances that follow
-        are those of the constrained Λ_x|y.
+        are those of the constrained Λ_x|y. A matrix-free Λ_x|y (a Kronecker prior
+        with a projector) has no such route and must be positive definite itself.
 
         Args:
             hessian: The operator Λ_x|y.
@@ -496,7 +482,9 @@ def laplace_model(
         null_space, nodes = None, None
         if prior.constraint == "hard":
             null_space = prior.hard_constraint
-            if not _reads_every_node(projector):
+            # The identity reads every node, which leaves nothing singular. A
+            # stored zero can hide an unread node in any other projector.
+            if projector is not None:
                 nodes = ground_nodes(prior.null_space)
     else:
         raise TypeError(

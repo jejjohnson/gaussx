@@ -509,6 +509,49 @@ def test_long_rw2_variances_and_draws_are_exact():
     assert abs(float(ratio) - 1.0) < 7 * math.sqrt(2 / 2000)
 
 
+@pytest.mark.parametrize("storage", ["sparse", "banded", "dense"])
+def test_scaled_structure_keeps_its_route(storage):
+    # 3.0 * R is a lazy multiple: the same field as a precision scale of 3.
+    n = 12
+    structure = {
+        "sparse": sparse_from_dense(path_laplacian(n)),
+        "banded": path_structure(n),
+        "dense": lx.MatrixLinearOperator(
+            jnp.asarray(path_laplacian(n)), lx.positive_semidefinite_tag
+        ),
+    }[storage]
+    null = jnp.ones(n) / jnp.sqrt(n)
+    kwargs = {"include_normalizer": True}
+    lazy = gx.IntrinsicGMRF(jnp.zeros(n), 2.0, 3.0 * structure, null, **kwargs)
+    scaled = gx.IntrinsicGMRF(jnp.zeros(n), 6.0, structure, null)
+    np.testing.assert_allclose(
+        lazy.marginal_variances(), scaled.marginal_variances(), rtol=1e-12
+    )
+    np.testing.assert_allclose(
+        lazy.sample(jr.key(2), (3,)), scaled.sample(jr.key(2), (3,)), rtol=1e-9
+    )
+    eigenvalues = np.linalg.eigvalsh(3.0 * path_laplacian(n))[1:]
+    np.testing.assert_allclose(
+        gx.pseudo_logdet(3.0 * structure, null_space=null),
+        np.log(eigenvalues).sum(),
+        rtol=1e-10,
+    )
+
+
+def test_uncentred_null_basis_loses_no_digits():
+    # V = [1, t + c] spans the same null space for any c; a solve with VᵀV would
+    # square its condition number, and lose six digits here.
+    n = 10
+    t = jnp.arange(n, dtype=float)
+    R = gx.rw2_structure(n)
+
+    def variances(offset):
+        null = rearrange(jnp.stack([jnp.ones(n), t + offset]), "k n -> n k")
+        return gx.IntrinsicGMRF(jnp.zeros(n), 1.0, R, null).marginal_variances()
+
+    np.testing.assert_allclose(variances(1e6), variances(-4.5), rtol=1e-7)
+
+
 def test_intrinsic_two_components_ground_one_node_each():
     # Two disjoint paths, sparse: one node is fixed per component.
     L = np.zeros((9, 9))
