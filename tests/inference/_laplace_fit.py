@@ -20,7 +20,6 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float
 
 import gaussx as gx
-from gaussx._inference._laplace import _factor
 
 
 def _stop_gradient(tree: Any) -> Any:
@@ -135,7 +134,7 @@ def _implicit_mode(
 
     fixed = _stop_gradient(model)
     frozen_mode = jax.lax.stop_gradient(mode_estimate)
-    factor = _factor(fixed.hessian(frozen_mode)[1])
+    factor = fixed.factor(fixed.hessian(frozen_mode)[1])
 
     def neg_inverse(_: Any, b: Array) -> Array:
         # Π_V b

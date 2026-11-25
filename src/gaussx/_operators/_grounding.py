@@ -63,7 +63,7 @@ def node_mask(nodes: Int[Array, " c"], size: int) -> Bool[Array, " N"]:
 def add_diagonal(
     operator: lx.AbstractLinearOperator, diagonal: Float[Array, " N"]
 ) -> lx.AbstractLinearOperator:
-    """A + diag(d), keeping a sparse or block-tridiagonal structure.
+    """A + diag(d), keeping a sparse, block-tridiagonal or diagonal structure.
 
     Args:
         operator: The operator A; anything but a (tagged or scaled)
@@ -76,6 +76,8 @@ def add_diagonal(
     operator = push_scalar(operator)
     if isinstance(operator, SparseOperator):
         return operator.add_diagonal(diagonal, tags=_PSD)
+    if isinstance(operator, lx.DiagonalLinearOperator):
+        return lx.DiagonalLinearOperator(operator.diagonal + diagonal)
     if isinstance(operator, BlockTriDiag):
         block_size = operator.diagonal.shape[-1]
         # d, one row per diagonal block

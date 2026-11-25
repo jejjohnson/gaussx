@@ -21,6 +21,7 @@ from jaxtyping import Array, ArrayLike, Float, Int
 
 from gaussx._distributions._gmrf import GaussianMRF, IntrinsicGMRF
 from gaussx._einx import einsum, rearrange
+from gaussx._gmrf._regularized import RegularizedFactor, has_selected_inverse
 from gaussx._inference._laplace import LaplaceResult, _is_selection, _Model, _model
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -95,7 +96,7 @@ def _diag_inverse(hessian: lx.AbstractLinearOperator, factor: Any) -> Array | No
     Returns:
         diag(Λ_x|y⁻¹), or ``None`` when no selected inverse covers the class.
     """
-    if isinstance(factor, SparseCholeskyFactor):
+    if isinstance(factor, SparseCholeskyFactor | RegularizedFactor):
         return factor.diag_inv()
     if isinstance(hessian, BlockTriDiag):
         return diag_inv(hessian)
@@ -128,9 +129,7 @@ def _unconstrained_variances(model: _Model, result: LaplaceResult) -> Array:
             return variances.at[rows].set(
                 projector._full_values() ** 2 * marginals[cols]
             )
-    elif isinstance(projector, SparseOperator) and isinstance(
-        factor, SparseCholeskyFactor
-    ):
+    elif isinstance(projector, SparseOperator) and has_selected_inverse(factor):
         plan = _pair_plan(projector.pattern, factor.symbolic.inverse_plan[0])
         if plan is not None:
             row, entry_a, entry_b, position = plan

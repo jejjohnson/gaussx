@@ -27,17 +27,20 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Bool, Float, Int
 
-from gaussx._distributions._gmrf import GaussianMRF, IntrinsicGMRF, _scaled, _unwrap
+from gaussx._distributions._gmrf import GaussianMRF, IntrinsicGMRF
+from gaussx._distributions._gmrf_dispatch import _scaled, _unwrap
 from gaussx._einx import einsum, rearrange
+from gaussx._gmrf._regularized import (
+    RegularizedFactor,
+    is_groundable,
+    precision_factor,
+    regularized_factor,
+)
 from gaussx._inference._inference import newton_update
 from gaussx._operators._block_tridiag import BlockTriDiag
+from gaussx._operators._grounding import ground_nodes
 from gaussx._operators._sparse import SparseOperator
-from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._diag import diag
-from gaussx._primitives._logdet import logdet
-from gaussx._primitives._solve import solve
 from gaussx._quadrature._likelihood import AbstractLikelihood
-from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
 
 _LOG_2PI = math.log(2.0 * math.pi)
@@ -55,10 +58,16 @@ class LaplaceResult(eqx.Module):
         hessian: Λ_x|y = Λ_x + Aᵀ Λ_site A at the mode: a `BlockTriDiag`,
             `SparseOperator`, diagonal or dense operator like Λ_x where the
             projector allows (see `LaplaceModel`).
-        factor: The factorisation of Λ_x|y, with ``solve(b)`` and ``logdet()``: a
-            `SparseCholeskyFactor` (whose ``diag_inv`` gives the marginal variances
-            by Takahashi) for a sparse Λ_x|y, else the structured Cholesky factor's
-            solves.
+        factor: The factorisation of Λ_x|y, with ``solve(b)``, ``logdet()`` and
+            ``diag_inv()`` (the marginal variances): a `SparseCholeskyFactor`, which
+            also has the Takahashi ``selected_inverse()``, for a sparse Λ_x|y, else
+            the structured Cholesky factor. Under a hard constraint and a projector,
+            where Λ_x|y may be singular outside {Vᵀ x = 0}, it factorises
+            Λ_x|y + V B Vᵀ for a positive diagonal B instead, with those methods:
+            kriged onto Vᵀ x = 0 they give the constrained Gaussian of Λ_x|y, and
+            before that they depend on B. To draw from that Gaussian, condition
+            ``GaussianMRF(mode, hessian)`` on the constraint with the prior's
+            ``null_space``.
         log_marginal: The Laplace log-marginal log π̃(y ∣ θ); see `laplace_result`
             for the constants it includes.
         n_iter: Newton steps taken.
@@ -73,71 +82,6 @@ class LaplaceResult(eqx.Module):
     log_marginal: Float[Array, ""]
     n_iter: Int[Array, ""]
     converged: Bool[Array, ""]
-
-
-# ---------------------------------------------------------------------------
-# Factorisations of Λ_x|y
-# ---------------------------------------------------------------------------
-
-
-class _CholeskyFactor(eqx.Module):
-    """Λ_x|y = L Lᵀ with a structured lower factor (block, diagonal or dense)."""
-
-    lower: lx.AbstractLinearOperator
-
-    def solve(self, b: Float[Array, " N"]) -> Float[Array, " N"]:
-        # Lᵀ, formed first: the order of the trace fixes reverse-mode accumulation
-        upper = self.lower.T
-        # L⁻¹ b
-        forward = solve(self.lower, b)
-        # Λ_x|y⁻¹ b = L⁻ᵀ L⁻¹ b
-        return solve(upper, forward)
-
-    def logdet(self) -> Float[Array, ""]:
-        # diag(L)
-        diagonal = diag(self.lower)
-        # log diag(L)
-        log_diagonal = jnp.log(diagonal)
-        # jnp, not einx: einx cannot resolve an empty factor (D_x = 0).
-        # log det Λ_x|y = 2 ∑_d log [L]_dd
-        return 2.0 * jnp.sum(log_diagonal)
-
-
-class _OperatorFactor(eqx.Module):
-    """No factor: `gaussx.solve` and `gaussx.logdet` dispatch on Λ_x|y itself."""
-
-    operator: lx.AbstractLinearOperator
-
-    def solve(self, b: Float[Array, " N"]) -> Float[Array, " N"]:
-        # Λ_x|y⁻¹ b
-        return solve(self.operator, b)
-
-    def logdet(self) -> Float[Array, ""]:
-        # log det Λ_x|y
-        return logdet(self.operator)
-
-
-_CHOLESKY = (BlockTriDiag, lx.MatrixLinearOperator, lx.DiagonalLinearOperator)
-
-
-def _factor(hessian: lx.AbstractLinearOperator) -> Any:
-    """Factorise Λ_x|y by the cheapest route its class allows.
-
-    Args:
-        hessian: The operator Λ_x|y.
-
-    Returns:
-        An object with ``solve(b)`` and ``logdet()``: a `SparseCholeskyFactor`, a
-        `_CholeskyFactor`, or an `_OperatorFactor` that dispatches on Λ_x|y.
-    """
-    if isinstance(hessian, SparseOperator):
-        # The symbolic analysis is cached per pattern: every Newton step and
-        # every θ reuses it, and only the numeric factorisation runs.
-        return SparseCholeskySolver().factor(hessian)
-    if isinstance(hessian, _CHOLESKY):
-        # Λ_x|y = L Lᵀ
-        return _CholeskyFactor(cholesky(hessian))
-    return _OperatorFactor(hessian)
 
 
 # ---------------------------------------------------------------------------
@@ -259,9 +203,12 @@ def _as_sparse(precision: lx.AbstractLinearOperator) -> SparseOperator | None:
         )
         sub_rows = np.add.outer(start[1:], sub_row_offsets).ravel()
         sub_cols = np.add.outer(start[:-1], sub_col_offsets).ravel()
-        sub_values = rearrange(
-            precision.sub_diagonal[:, sub_row_offsets, sub_col_offsets],
-            "block entry -> (block entry)",
+        sub_values = precision.sub_diagonal[:, sub_row_offsets, sub_col_offsets]
+        # einx rejects the empty block axis of a single block
+        sub_values = (
+            rearrange(sub_values, "block entry -> (block entry)")
+            if num_blocks > 1
+            else jnp.zeros(0, sub_values.dtype)
         )
         size = num_blocks * block_size
         return SparseOperator.from_coo(
@@ -353,6 +300,9 @@ class LaplaceModel(eqx.Module):
         offset: Offset o of the linear predictor.
         likelihood: Site-factorising likelihood, which holds y.
         null_space: Basis V of a hard constraint Vᵀ x = 0, or ``None``.
+        ground_nodes: Nodes that determine the null space of Λ_x, for a Λ_x|y that
+            may be singular outside {Vᵀ x = 0}; ``None`` without a hard constraint
+            or a projector.
     """
 
     precision: lx.AbstractLinearOperator
@@ -361,6 +311,7 @@ class LaplaceModel(eqx.Module):
     offset: Float[Array, " M"] | Float[Array, ""]
     likelihood: AbstractLikelihood
     null_space: Float[Array, "N c"] | None
+    ground_nodes: Int[Array, " p"] | None = None
 
     def project(self, x: Array) -> Array:
         """The linear predictor without its offset, A x."""
@@ -400,6 +351,30 @@ class LaplaceModel(eqx.Module):
             self.precision, self.projector, site_precision
         )
 
+    def factor(self, hessian: lx.AbstractLinearOperator) -> Any:
+        """Factorise Λ_x|y, or Λ_x|y + V B Vᵀ where Λ_x|y may be singular.
+
+        Λ_x|y is positive definite on {Vᵀ x = 0} when the model is proper, but not
+        outside it if A V u = 0 for some u ≠ 0: two intrinsic parts whose constants
+        cancel in A x, or a part that no row of A reads. The added term is zero on
+        the subspace, so `krige`, the log-determinant and the variances that follow
+        are those of the constrained Λ_x|y. A matrix-free Λ_x|y (a Kronecker prior
+        with a projector) has no such route and must be positive definite itself.
+
+        Args:
+            hessian: The operator Λ_x|y.
+
+        Returns:
+            The factor, with ``solve``, ``logdet`` and ``diag_inv``.
+        """
+        if (
+            self.null_space is None
+            or self.ground_nodes is None
+            or not is_groundable(hessian)
+        ):
+            return precision_factor(hessian)
+        return regularized_factor(hessian, self.null_space, self.ground_nodes)
+
     # -- the hard constraint Vᵀ x = 0 ---------------------------------------
 
     def null_component(self, x: Array) -> Array:
@@ -422,8 +397,12 @@ class LaplaceModel(eqx.Module):
             return z, None
         # Vᵀ
         null_rows = rearrange(self.null_space, "state con -> con state")
-        # Wᵀ with W = Λ_x|y⁻¹ V, one row per constraint
-        solved_rows = jax.vmap(factor.solve)(null_rows)
+        if isinstance(factor, RegularizedFactor):
+            # Wᵀ, from the solves the factor already made
+            solved_rows = factor.solve_constraints()
+        else:
+            # Wᵀ with W = Λ_x|y⁻¹ V, one row per constraint
+            solved_rows = jax.vmap(factor.solve)(null_rows)
         # S = Vᵀ Λ_x|y⁻¹ V
         schur = einsum(null_rows, solved_rows, "con state, other state -> con other")
         # Vᵀ z
@@ -437,7 +416,7 @@ class LaplaceModel(eqx.Module):
     def newton(self, x: Float[Array, " N"]) -> Float[Array, " N"]:
         """Constrained Newton target: krige(Λ_x|y⁻¹ (Λ_x μ_x + Aᵀ Λμ_site))."""
         site_information, hessian = self.hessian(x)
-        factor = _factor(hessian)
+        factor = self.factor(hessian)
         # Λ_x μ_x
         prior_information = self.precision.mv(self.loc)
         # Λ_x μ_x + Aᵀ Λμ_site
@@ -491,7 +470,7 @@ def laplace_model(
     """
     if isinstance(prior, GaussianMRF):
         precision = _unwrap(prior.precision)
-        null_space = None
+        null_space, nodes = None, None
     elif isinstance(prior, IntrinsicGMRF):
         if prior.constraint == "soft":
             raise NotImplementedError(
@@ -500,7 +479,13 @@ def laplace_model(
             )
         # Λ_x = τ R
         precision = _unwrap(_scaled(prior.structure, prior.precision_scale))
-        null_space = prior.null_space if prior.constraint == "hard" else None
+        null_space, nodes = None, None
+        if prior.constraint == "hard":
+            null_space = prior.hard_constraint
+            # The identity reads every node, which leaves nothing singular. A
+            # stored zero can hide an unread node in any other projector.
+            if projector is not None:
+                nodes = ground_nodes(prior.null_space)
     else:
         raise TypeError(
             "laplace_model needs a GaussianMRF or IntrinsicGMRF prior, got "
@@ -514,7 +499,9 @@ def laplace_model(
         )
     dtype = prior.loc.dtype
     offset = jnp.zeros((), dtype=dtype) if offset is None else jnp.asarray(offset)
-    return LaplaceModel(precision, prior.loc, projector, offset, likelihood, null_space)
+    return LaplaceModel(
+        precision, prior.loc, projector, offset, likelihood, null_space, nodes
+    )
 
 
 def laplace_result(
@@ -538,7 +525,9 @@ def laplace_result(
         log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
             [+ ½ log det(Vᵀ Λ_x|y⁻¹ V) − ½ log det(Vᵀ V) + (D_c / 2) log 2π]
 
-    the bracket for the hard constraint. For a `GaussianMRF` this is
+    the bracket for the hard constraint; where Λ_x|y is singular outside
+    {Vᵀ x = 0} the two log-determinants are taken on Λ_x|y + V B Vᵀ, which changes
+    neither their sum nor the mode (`LaplaceModel.factor`). For a `GaussianMRF` this is
     log p(y ∣ A x̂ + o) − ½ (x̂ − μ_x)ᵀ Λ_x (x̂ − μ_x) + ½ log det Λ_x
     − ½ log det Λ_x|y, the exact log-evidence for a Gaussian likelihood. For an
     `IntrinsicGMRF` it is exact with ``include_normalizer=True`` and otherwise off
@@ -579,7 +568,7 @@ def laplace_result(
         ('DiagonalLinearOperator', True)
     """
     _, hessian = model.hessian(mode)
-    factor = _factor(hessian)
+    factor = model.factor(hessian)
     # η̂ = A x̂ + o
     predictor = model.project(mode) + model.offset
     # log π̃_G(x̂) = ½ log det Λ_x|y − (D_x / 2) log 2π
