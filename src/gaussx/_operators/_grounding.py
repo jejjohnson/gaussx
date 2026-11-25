@@ -20,6 +20,8 @@ from gaussx._operators._sparse import SparseOperator
 
 
 _PSD = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
+# What a scalar multiple of unknown sign keeps.
+_SYMMETRIC = frozenset({lx.symmetric_tag})
 
 
 def ground_nodes(null_space: Float[Array, "N c"]) -> Int[Array, " c"]:
@@ -39,7 +41,8 @@ def ground_nodes(null_space: Float[Array, "N c"]) -> Int[Array, " c"]:
     num_null = null_space.shape[1]
     if num_null == 0:
         return jnp.zeros(0, dtype=int)
-    frozen_basis = jax.lax.stop_gradient(null_space)
+    # orthonormal columns, so the pivots do not depend on the basis's scaling
+    frozen_basis, _ = jnp.linalg.qr(jax.lax.stop_gradient(null_space))
     _, _, permutation = jax.lax.linalg.lu(frozen_basis)
     return permutation[:num_null]
 
@@ -63,14 +66,14 @@ def add_diagonal(
     """A + diag(d), keeping a sparse or block-tridiagonal structure.
 
     Args:
-        operator: The operator A; anything but a (tagged) `SparseOperator` or
-            `BlockTriDiag` is densified.
+        operator: The operator A; anything but a (tagged or scaled)
+            `SparseOperator` or `BlockTriDiag` is densified.
         diagonal: The diagonal d.
 
     Returns:
         A + diag(d), tagged symmetric positive semidefinite.
     """
-    operator = _untagged(operator)
+    operator = push_scalar(operator)
     if isinstance(operator, SparseOperator):
         return operator.add_diagonal(diagonal, tags=_PSD)
     if isinstance(operator, BlockTriDiag):
@@ -101,14 +104,14 @@ def ground(
     determinant det R_FF.
 
     Args:
-        operator: The structure R; anything but a (tagged) `SparseOperator` or
-            `BlockTriDiag` is densified.
+        operator: The structure R; anything but a (tagged or scaled)
+            `SparseOperator` or `BlockTriDiag` is densified.
         nodes: The node indices P.
 
     Returns:
         The grounded operator, tagged symmetric positive semidefinite.
     """
-    operator = _untagged(operator)
+    operator = push_scalar(operator)
     fixed = node_mask(nodes, operator.in_size())
     if isinstance(operator, SparseOperator):
         pattern = operator.pattern
@@ -143,8 +146,44 @@ def ground(
     )
 
 
-def _untagged(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
-    """Strip every `lineax.TaggedLinearOperator` wrapper from an operator."""
+def push_scalar(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
+    """A sparse, block-tridiagonal or dense A from under tags and scalar multiples.
+
+    ``3.0 * R`` is a lazy lineax multiple, which hides R's structure from every
+    dispatch on the operator's class.
+
+    Args:
+        operator: A, or A under any nesting of tags, scalar multiples and scalar
+            divisions.
+
+    Returns:
+        The scaled `SparseOperator`, `BlockTriDiag` or dense operator, or
+        ``operator`` without its outer tags when it wraps anything else.
+    """
+    inner, scalar = operator, None
+    while isinstance(
+        inner, lx.TaggedLinearOperator | lx.MulLinearOperator | lx.DivLinearOperator
+    ):
+        if isinstance(inner, lx.MulLinearOperator):
+            scalar = inner.scalar if scalar is None else scalar * inner.scalar
+        elif isinstance(inner, lx.DivLinearOperator):
+            inverse = 1.0 / inner.scalar
+            scalar = inverse if scalar is None else scalar * inverse
+        inner = inner.operator
+    if scalar is None:
+        return inner
+    if isinstance(inner, SparseOperator):
+        return SparseOperator(
+            scalar * inner.values, inner.pattern, tags=inner.tags & _SYMMETRIC
+        )
+    if isinstance(inner, BlockTriDiag):
+        return BlockTriDiag(
+            scalar * inner.diagonal,
+            scalar * inner.sub_diagonal,
+            symmetric=inner.symmetric,
+        )
+    if isinstance(inner, lx.MatrixLinearOperator):
+        return lx.MatrixLinearOperator(scalar * inner.matrix, inner.tags & _SYMMETRIC)
     while isinstance(operator, lx.TaggedLinearOperator):
         operator = operator.operator
     return operator

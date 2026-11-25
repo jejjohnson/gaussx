@@ -52,6 +52,7 @@ from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._factored_eigen import FactoredEigen, _reciprocal, factored_eigen
+from gaussx._operators._grounding import push_scalar
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sparse import SparseOperator
@@ -469,7 +470,7 @@ def _scaled(
     Returns:
         τ R, tagged symmetric positive semidefinite.
     """
-    inner = _unwrap(operator)
+    inner = push_scalar(operator)
     if isinstance(inner, SparseOperator):
         # τ R on R's pattern
         return SparseOperator(scale * inner.values, inner.pattern, tags=_PSD)
@@ -1309,7 +1310,7 @@ class IntrinsicGMRF(eqx.Module):
     def _project(self, x: Float[Array, "*sample N"]) -> Float[Array, "*sample N"]:
         """Orthogonal projection P⊥ x onto the complement of the null space.
 
-            P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
+            P⊥ x = x − Q Qᵀ x,   V = Q R
 
         Args:
             x: Points x, shape ``(..., N)``.
@@ -1317,13 +1318,13 @@ class IntrinsicGMRF(eqx.Module):
         Returns:
             P⊥ x, shape ``(..., N)``.
         """
-        # Vᵀ x
-        null_coeffs = einsum(x, self.null_space, "... state, state null -> ... null")
-        # V (Vᵀ V)⁻¹ Vᵀ x
-        null_component = einsum(
-            null_coeffs, self._null_dual(), "... null, state null -> ... state"
-        )
-        # P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
+        # an orthonormal basis Q of the null space
+        basis, _ = jnp.linalg.qr(self.null_space)
+        # Qᵀ x
+        null_coeffs = einsum(x, basis, "... state, state null -> ... null")
+        # Q Qᵀ x
+        null_component = einsum(null_coeffs, basis, "... null, state null -> ... state")
+        # P⊥ x = x − Q Qᵀ x
         return x - null_component
 
     def _eigen(self) -> FactoredEigen | None:
@@ -1367,7 +1368,7 @@ class IntrinsicGMRF(eqx.Module):
             # (τ R)^(+½) z
             return event_size, lambda noise: _eigen_draw(eigen, noise, pinv=True)
         factors = self.precision_factors
-        if factors is not None and not _is_factorable(_unwrap(self.structure)):
+        if factors is not None and not _is_factorable(push_scalar(self.structure)):
             # √τ
             root_scale = jnp.sqrt(self.precision_scale)
             # √τ F_k, so that τ R = ∑_k (√τ F_k)ᵀ (√τ F_k)
