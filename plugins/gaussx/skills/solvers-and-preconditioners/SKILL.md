@@ -118,6 +118,6 @@ Load its skill only when the card's last line applies.
 
 Nothing else in the stack: this is a base skill.
 
-Used by (pointers, not skills to load): argminax, filterax, finitevolX, gauss_flows, integrix, kernellib, manipy, plumax, pyrox, radtrax, spectraldiffx, vardax.
+Used by (pointers, not skills to load): argminax, filterax, gauss_flows, gridax, integrix, kernellib, manipy, plumax, pyrox, radtrax, sesmax, spectraldiffx, vardax.
 
 <!-- skill-tree:end -->
