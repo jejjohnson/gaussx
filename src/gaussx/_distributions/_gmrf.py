@@ -31,7 +31,6 @@ the lower Cholesky factor of Λ = L_Λ L_Λᵀ, and D_c the number of constraint
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
 from typing import Literal
 
 import einx
@@ -40,452 +39,46 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jsl
 import lineax as lx
-import numpy as np
 from jaxtyping import Array, ArrayLike, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI
-from gaussx._distributions._utils import _reshape_batch, _reshape_samples
+from gaussx._distributions._gmrf_dispatch import (
+    _EIGEN,
+    _PSD,
+    _as_operator,
+    _Draw,
+    _draw_samples,
+    _eigen_draw,
+    _flat,
+    _is_factorable,
+    _perturbation_draw,
+    _precision_sampler,
+    _quadratic,
+    _scaled,
+    _solve_fn,
+    _solve_strategy,
+    _symmetric_root,
+    _unwrap,
+)
+from gaussx._distributions._utils import _reshape_samples
 from gaussx._einx import einsum, rearrange, reduce
 from gaussx._gmrf._areal import _as_sparse, bym2_precision
 from gaussx._gmrf._intrinsic import grounded_structure, null_dual, pinv_diagonal
-from gaussx._linalg._diag_inv import diag_inv
-from gaussx._operators._block_tridiag import BlockTriDiag
-from gaussx._operators._diagonalised import DiagonalizedOperator
-from gaussx._operators._factored_eigen import FactoredEigen, _reciprocal, factored_eigen
-from gaussx._operators._kronecker import Kronecker
-from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
-from gaussx._operators._sparse import SparseOperator
-from gaussx._operators._spectral_function import SpectralFunction
-from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._logdet import pseudo_logdet
-from gaussx._primitives._solve import solve
-from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
-from gaussx._strategies._cg import CGSolver
-from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
-from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
-
-
-_PSD = frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag})
-# Operators sampled in their factored eigenbasis (dispatch branch 2).
-_EIGEN = (Kronecker, KroneckerSum, SpectralFunction, DiagonalizedOperator)
-# Operators factored by Cholesky even when factors are given (branch 1).
-_FACTORABLE = (
-    lx.MatrixLinearOperator,
-    lx.DiagonalLinearOperator,
-    lx.IdentityLinearOperator,
+from gaussx._gmrf._regularized import (
+    RegularizedFactor,
+    is_groundable,
+    regularized_factor,
 )
-
-# f(z): a zero-mean draw from standard normal noise z.
-_Draw = Callable[[Array], Array]
-
-
-# ---------------------------------------------------------------------------
-# Sampling dispatch
-# ---------------------------------------------------------------------------
-
-
-def _unwrap(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
-    """Strip every `lineax.TaggedLinearOperator` wrapper from an operator.
-
-    Args:
-        operator: The operator, possibly tagged.
-
-    Returns:
-        The innermost untagged operator.
-    """
-    while isinstance(operator, lx.TaggedLinearOperator):
-        operator = operator.operator
-    return operator
-
-
-def _is_factorable(operator: lx.AbstractLinearOperator) -> bool:
-    """Whether Cholesky is the cheapest exact path for a precision Λ.
-
-    True for a dense, diagonal or identity Λ and a symmetric `BlockTriDiag`.
-
-    Args:
-        operator: The untagged precision Λ.
-
-    Returns:
-        ``True`` if Λ should be sampled through its Cholesky factor.
-    """
-    return isinstance(operator, _FACTORABLE) or (
-        isinstance(operator, BlockTriDiag) and operator.symmetric
-    )
-
-
-def _cholesky_draw(operator: lx.AbstractLinearOperator) -> _Draw:
-    """Draw map z ↦ L_Λ⁻ᵀ z from the structured Cholesky factor of Λ.
-
-        Λ = L_Λ L_Λᵀ,   L_Λ⁻ᵀ z ~ 𝒩(0, Λ⁻¹)
-
-    Args:
-        operator: The precision Λ, factored here once.
-
-    Returns:
-        The map z ↦ L_Λ⁻ᵀ z.
-    """
-    # Λ = L_Λ L_Λᵀ
-    cholesky_factor = cholesky(operator)
-    if isinstance(cholesky_factor, lx.MatrixLinearOperator):
-        factor_matrix = cholesky_factor.matrix
-        # L_Λ⁻ᵀ z, by a dense triangular solve
-        return lambda noise: jsl.solve_triangular(
-            factor_matrix, noise, lower=True, trans="T"
-        )
-    # L_Λᵀ
-    upper_factor = cholesky_factor.T
-    # L_Λ⁻ᵀ z, by the structured solve
-    return lambda noise: solve(upper_factor, noise)
-
-
-def _eigen_draw(eigen: FactoredEigen, z: Array, *, pinv: bool = False) -> Array:
-    """Symmetric-root draw Λ^(−½) z in the factored eigenbasis of Λ.
-
-        Λ = W⁻¹ diag(γ) W,   Λ^(−½) z = W⁻¹ diag(γ^(−½)) W z
-
-    W is the joint forward transform of `FactoredEigen` and γ its eigenvalue
-    tensor. With ``pinv``, numerically zero eigenvalues get a zero root, so
-    the draw is from 𝒩(0, Λ⁺).
-
-    Args:
-        eigen: Factored eigendecomposition of Λ, holding W and γ.
-        z: Standard normal noise z.
-        pinv: Use the pseudo-inverse γ⁺ in place of γ⁻¹.
-
-    Returns:
-        The draw Λ^(−½) z, or (Λ⁺)^½ z with ``pinv``.
-    """
-    # γ⁻¹, or γ⁺ with pinv
-    inverse_eigenvalues = _reciprocal(eigen.eigenvalues, pinv=pinv)
-    # γ^(−½)
-    inverse_root_eigenvalues = jnp.sqrt(inverse_eigenvalues)
-    # W z
-    coeffs = eigen.to_eigenbasis(z)
-    # diag(γ^(−½)) W z
-    scaled_coeffs = coeffs * inverse_root_eigenvalues
-    # Λ^(−½) z = W⁻¹ diag(γ^(−½)) W z
-    draw = eigen.from_eigenbasis(scaled_coeffs)
-    # Drop the imaginary part a real-by-construction basis leaves behind.
-    return eigen._output(draw, z)
-
-
-def _default_cg(vector: Array, size: int) -> CGSolver:
-    """The CG strategy for Λ x = b when the GMRF holds none.
-
-        tol_rel = tol_abs = √eps of b's dtype,   at most 10 N steps
-
-    CG converges on a singular Λ too, when b lies in range(Λ).
-
-    Args:
-        vector: Right-hand side b, whose dtype sets the tolerance.
-        size: N, the size of Λ.
-
-    Returns:
-        A `gaussx.CGSolver` at √eps with lineax's default step limit.
-    """
-    # √eps of b's dtype
-    tolerance = float(jnp.finfo(vector.dtype).eps) ** 0.5
-    return CGSolver(rtol=tolerance, atol=tolerance, max_steps=10 * size)
-
-
-def _perturbation_draw(
-    precision: lx.AbstractLinearOperator,
-    factors: tuple[lx.AbstractLinearOperator, ...],
-    solver: AbstractSolverStrategy | None,
-) -> tuple[int, _Draw]:
-    """Perturbation-optimisation draw map: solve Λ x = ∑_k F_kᵀ z_k per draw.
-
-        Λ = ∑_k F_kᵀ F_k,   ∑_k F_kᵀ z_k ~ 𝒩(0, Λ),   x ~ 𝒩(0, Λ⁻¹)
-
-    Algorithm:
-        1. Split the noise z into one block z_k per factor F_k.
-        2. Form ∑_k F_kᵀ z_k, whose covariance is Λ.
-        3. Solve Λ x = ∑_k F_kᵀ z_k with ``solver``, or by CG without one.
-
-    Args:
-        precision: The precision Λ.
-        factors: The factors F_k with Λ = ∑_k F_kᵀ F_k.
-        solver: Strategy for the solve with Λ; ``None`` runs CG.
-
-    Returns:
-        Tuple ``(noise_size, draw)``: the length of z (the total number of
-        rows of the F_k) and the map z ↦ Λ⁻¹ ∑_k F_kᵀ z_k.
-    """
-    # rows of each F_k, the length of its noise block z_k
-    factor_sizes = [factor.out_size() for factor in factors]
-    split_points = np.cumsum(factor_sizes)[:-1].tolist()
-    psd_precision = lx.TaggedLinearOperator(precision, _PSD)
-
-    def draw(noise: Array) -> Array:
-        # z = (z_1, z_2, …), one block per factor
-        noise_blocks = jnp.split(noise, split_points)
-        # ∑_k F_kᵀ z_k
-        perturbed_rhs = sum(
-            factor.transpose().mv(block)
-            for factor, block in zip(factors, noise_blocks, strict=True)
-        )
-        strategy = solver
-        if strategy is None:
-            strategy = _default_cg(perturbed_rhs, psd_precision.in_size())
-        # x = Λ⁻¹ ∑_k F_kᵀ z_k, by the given strategy or CG
-        return strategy.solve(psd_precision, perturbed_rhs)
-
-    return sum(factor_sizes), draw
-
-
-def _precision_sampler(
-    precision: lx.AbstractLinearOperator,
-    solver: AbstractSolverStrategy | None,
-    factors: tuple[lx.AbstractLinearOperator, ...] | None,
-) -> tuple[int, _Draw]:
-    """Draw map f with f(z) ~ 𝒩(0, Λ⁻¹), chosen from the structure of Λ.
-
-        f(z) ~ 𝒩(0, Λ⁻¹)   for   z ~ 𝒩(0, I)
-
-    The factorisation is done here, once, outside any ``vmap`` over draws.
-
-    Algorithm:
-        1. A `SparseOperator` with no factors, or with a sparse Cholesky
-           solver: f(z) = Pᵀ L⁻ᵀ z from the sparse factor P Λ Pᵀ = L Lᵀ.
-        2. Dense, diagonal or symmetric `BlockTriDiag`: f(z) = L_Λ⁻ᵀ z.
-        3. Kronecker-structured with a factored eigenbasis: f(z) = Λ^(−½) z.
-        4. Factors F_k given: perturbation-optimisation.
-        5. Anything else: the structured Cholesky, f(z) = L_Λ⁻ᵀ z.
-
-    Args:
-        precision: The precision Λ.
-        solver: Solve strategy; a `SparseCholeskySolver` keeps a sparse Λ
-            on branch 1 even when factors are given; on branch 4 it does
-            the solve with Λ (CG when ``None``).
-        factors: The factors F_k with Λ = ∑_k F_kᵀ F_k, or ``None``.
-
-    Returns:
-        Tuple ``(noise_size, draw)``: the length of z and the map f.
-    """
-    inner = _unwrap(precision)
-    event_size = precision.in_size()
-    if isinstance(inner, SparseOperator) and (
-        factors is None or isinstance(solver, SparseCholeskySolver)
-    ):
-        if not isinstance(solver, SparseCholeskySolver):
-            solver = SparseCholeskySolver()
-        # Pᵀ L⁻ᵀ z with P Λ Pᵀ = L Lᵀ
-        return event_size, solver.factor(inner).solve_lower_transpose
-    if _is_factorable(inner):
-        # L_Λ⁻ᵀ z
-        return event_size, _cholesky_draw(inner)
-    if isinstance(inner, _EIGEN):
-        # Λ = W⁻¹ diag(γ) W
-        eigen = factored_eigen(inner)
-        if eigen is not None:
-            # Λ^(−½) z
-            return event_size, lambda noise: _eigen_draw(eigen, noise)
-    if factors is not None:
-        # Λ⁻¹ ∑_k F_kᵀ z_k
-        return _perturbation_draw(precision, factors, solver)
-    # L_Λ⁻ᵀ z
-    return event_size, _cholesky_draw(inner)
-
-
-def _draw_samples(
-    key: jax.Array | None,
-    sample_shape: tuple[int, ...],
-    noise_size: int,
-    draw: _Draw,
-    dtype: jnp.dtype,
-) -> Float[Array, "*sample N"]:
-    """Zero-mean draws f(z), one ``normal`` call for every sample.
-
-        z ~ 𝒩(0, I),   f(z) ~ 𝒩(0, Λ⁻¹)
-
-    Args:
-        key: PRNG key; ``None`` means ``jax.random.PRNGKey(0)``.
-        sample_shape: Leading sample shape.
-        noise_size: Length of the noise z of one draw.
-        draw: The draw map f.
-        dtype: Dtype of the noise z.
-
-    Returns:
-        Draws f(z), shape ``sample_shape + (N,)``.
-    """
-    if key is None:
-        key = jax.random.PRNGKey(0)
-    num_draws = math.prod(sample_shape)
-    # z ~ 𝒩(0, I), one row per draw
-    noise = jax.random.normal(key, (num_draws, noise_size), dtype=dtype)
-    # f(z), one row per draw
-    draws = jax.vmap(draw)(noise)
-    return _reshape_samples(draws, sample_shape)
-
-
-def _flat(value: Float[Array, "*sample N"]) -> Float[Array, "S N"]:
-    """Flatten every leading sample axis into one.
-
-    Args:
-        value: Points, shape ``(..., N)``.
-
-    Returns:
-        The points, one row per sample.
-    """
-    return rearrange(value, "... state -> (...) state")
-
-
-def _quadratic(operator: lx.AbstractLinearOperator, residual: Array) -> Array:
-    """Quadratic form rᵀ Λ r for each row r of ``residual``.
-
-        rᵀ Λ r,   r = x − μ
-
-    Args:
-        operator: The symmetric operator Λ (a precision, or a structure R).
-        residual: Residuals r, shape ``(..., N)``.
-
-    Returns:
-        The quadratic forms, shape ``(...)``.
-    """
-    flat_residual = _flat(residual)
-
-    def quadratic_form(row: Array) -> Array:
-        # Λ r
-        weighted_row = operator.mv(row)
-        # rᵀ Λ r
-        return einsum(row, weighted_row, "state, state ->")
-
-    values = jax.vmap(quadratic_form)(flat_residual)
-    return _reshape_batch(values, residual.shape[:-1])
-
-
-def _solve_strategy(
-    precision: lx.AbstractLinearOperator, solver: AbstractSolverStrategy | None
-) -> AbstractSolverStrategy | None:
-    """The solve strategy for Λ: ``solver``, or sparse Cholesky for a sparse Λ.
-
-    Args:
-        precision: The precision Λ.
-        solver: The caller's strategy, or ``None``.
-
-    Returns:
-        ``solver``, or a `SparseCholeskySolver` when it is ``None`` and Λ is
-        a `SparseOperator`.
-    """
-    if solver is None and isinstance(_unwrap(precision), SparseOperator):
-        return SparseCholeskySolver()
-    return solver
-
-
-def _solve_fn(
-    precision: lx.AbstractLinearOperator, solver: AbstractSolverStrategy | None
-) -> Callable[[Array], Array]:
-    """Solve map b ↦ Λ⁻¹ b, factoring a sparse precision once for many solves.
-
-    Args:
-        precision: The precision Λ.
-        solver: The caller's strategy, or ``None`` for structural dispatch.
-
-    Returns:
-        The map b ↦ Λ⁻¹ b.
-    """
-    strategy = _solve_strategy(precision, solver)
-    if isinstance(strategy, SparseCholeskySolver):
-        # P Λ Pᵀ = L Lᵀ, factored once
-        return strategy.factor(precision).solve
-    # Λ⁻¹ b
-    return lambda rhs: dispatch_solve(precision, rhs, strategy)
-
-
-class _Sqrt(eqx.Module):
-    """Square root γ ↦ √f(γ) of a spectral function f.
-
-    A pytree, so the parameters of f stay leaves.
-
-    Attributes:
-        fn: The spectral function f.
-    """
-
-    fn: Callable[[Array], Array]
-
-    def __call__(self, eigenvalues: Array) -> Array:
-        """Evaluate √f(γ).
-
-        Args:
-            eigenvalues: Eigenvalue tensor γ.
-
-        Returns:
-            The tensor √f(γ).
-        """
-        # f(γ)
-        values = self.fn(eigenvalues)
-        # √f(γ)
-        return jnp.sqrt(values)
-
-
-def _symmetric_root(
-    operator: lx.AbstractLinearOperator,
-) -> lx.AbstractLinearOperator | None:
-    """Symmetric square root Λ^½ of a grid precision.
-
-        (Λ^½)ᵀ Λ^½ = Λ
-
-    Args:
-        operator: The untagged precision Λ.
-
-    Returns:
-        Λ^½ for a `SpectralFunction` or a `KroneckerSum`, else ``None``.
-    """
-    if isinstance(operator, SpectralFunction):
-        # f(A)^½ = W⁻¹ diag(√f(γ)) W
-        return SpectralFunction(
-            operator.base, _Sqrt(operator.fn), _eigen=operator.eigen
-        )
-    if isinstance(operator, KroneckerSum):
-        # (A ⊕ B)^½
-        return KroneckerSumSqrt(operator.A, operator.B)
-    return None
-
-
-def _as_operator(A: lx.AbstractLinearOperator | ArrayLike) -> lx.AbstractLinearOperator:
-    """Wrap a dense matrix as a `lineax.MatrixLinearOperator`.
-
-    Args:
-        A: An operator, returned unchanged, or a dense matrix.
-
-    Returns:
-        The operator.
-    """
-    if isinstance(A, lx.AbstractLinearOperator):
-        return A
-    return lx.MatrixLinearOperator(jnp.asarray(A))
-
-
-def _scaled(
-    operator: lx.AbstractLinearOperator, scale: Float[Array, ""]
-) -> lx.AbstractLinearOperator:
-    """Scaled structure τ R, keeping a sparse, banded or dense structure.
-
-    Args:
-        operator: The structure R.
-        scale: The precision scale τ.
-
-    Returns:
-        τ R, tagged symmetric positive semidefinite.
-    """
-    inner = _unwrap(operator)
-    if isinstance(inner, SparseOperator):
-        # τ R on R's pattern
-        return SparseOperator(scale * inner.values, inner.pattern, tags=_PSD)
-    if isinstance(inner, BlockTriDiag):
-        # τ R, block by block
-        return BlockTriDiag(
-            scale * inner.diagonal,
-            scale * inner.sub_diagonal,
-            symmetric=inner.symmetric,
-            tags=_PSD,
-        )
-    if isinstance(inner, lx.MatrixLinearOperator):
-        # τ R, dense
-        return lx.MatrixLinearOperator(scale * inner.matrix, _PSD)
-    # τ R, lazily
-    return lx.TaggedLinearOperator(scale * operator, _PSD)
+from gaussx._linalg._diag_inv import diag_inv
+from gaussx._operators._diagonalised import DiagonalizedOperator
+from gaussx._operators._factored_eigen import FactoredEigen, factored_eigen
+from gaussx._operators._grounding import ground_nodes
+from gaussx._operators._kronecker_sum import KroneckerSum
+from gaussx._operators._sparse import SparseOperator
+from gaussx._primitives._logdet import pseudo_logdet
+from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
+from gaussx._strategies._dispatch import dispatch_logdet
+from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
 
 # ---------------------------------------------------------------------------
@@ -856,6 +449,8 @@ class GaussianMRF(eqx.Module):
         self,
         A_c: Float[ArrayLike, "c N"] | Float[ArrayLike, " N"],
         e: Float[ArrayLike, " c"] | Float[ArrayLike, ""],
+        *,
+        null_space: Float[ArrayLike, "N p"] | Float[ArrayLike, " N"] | None = None,
     ) -> ConstrainedGMRF:
         """Condition on hard linear constraints A_c x = e, by kriging.
 
@@ -865,11 +460,14 @@ class GaussianMRF(eqx.Module):
             A_c: Constraint matrix A_c, shape ``(c, N)`` (or ``(N,)`` for one
                 constraint).
             e: Constraint values e, shape ``(c,)``.
+            null_space: A basis whose span holds every null vector of Λ, for a Λ
+                that is positive definite on {A_c x = 0} but may be singular
+                outside it; ``None`` for a positive-definite Λ.
 
         Returns:
             The `ConstrainedGMRF` of x ∣ A_c x = e.
         """
-        return ConstrainedGMRF(self, A_c, e)
+        return ConstrainedGMRF(self, A_c, e, null_space)
 
 
 # ---------------------------------------------------------------------------
@@ -895,6 +493,14 @@ class ConstrainedGMRF(eqx.Module):
     Lebesgue measure), evaluated at points assumed to satisfy the
     constraint.
 
+    **Singular Λ.** The conditional is proper as soon as Λ is positive
+    definite on {A_c x = 0}. With ``null_space``, a basis whose span holds
+    ker Λ, every formula above takes Λ + A_cᵀ B A_c in place of Λ, for a
+    positive diagonal B: the added term is constant on {A_c x = e}, so the
+    conditional is the same, and the sum is positive definite. It is never
+    formed: Λ plus a diagonal at D_p nodes, on Λ's sparsity pattern, is
+    factored, and the rest is a correction of rank D_p + D_c.
+
     Built by `GaussianMRF.condition_on_constraints`.
 
     Args:
@@ -902,9 +508,15 @@ class ConstrainedGMRF(eqx.Module):
         constraint_matrix: Constraint matrix A_c, shape ``(c, N)`` (or
             ``(N,)``), of full row rank.
         constraint_value: Constraint values e, shape ``(c,)``.
+        null_space: A basis whose span holds every null vector of Λ, shape
+            ``(N, p)`` (or ``(N,)``), for a Λ singular outside {A_c x = 0};
+            ``None`` for a positive-definite Λ.
 
     Raises:
-        ValueError: If A_c and e do not have shapes ``(c, N)`` and ``(c,)``.
+        ValueError: If A_c and e do not have shapes ``(c, N)`` and ``(c,)``, or
+            ``null_space`` does not have N rows.
+        TypeError: For a ``null_space`` with a precision that is neither sparse,
+            symmetric block-tridiagonal nor dense.
 
     Examples:
         A sum-to-one constraint on four iid nodes of precision 2:
@@ -927,6 +539,17 @@ class ConstrainedGMRF(eqx.Module):
         >>> bool(jnp.allclose(field.marginal_variances(), 0.375))
         True
 
+        A random walk under a sum-to-zero constraint. Its precision is singular
+        along the constants, which the constraint removes:
+
+        >>> walk = gx.rw1_structure(6)
+        >>> field = gx.GaussianMRF(jnp.zeros(6), walk).condition_on_constraints(
+        ...     jnp.ones(6), 0.0, null_space=jnp.ones(6)
+        ... )
+        >>> exact = jnp.diag(jnp.linalg.pinv(walk.as_matrix()))
+        >>> bool(jnp.allclose(field.marginal_variances(), exact, atol=1e-4))
+        True
+
     References:
         Rue, H. and Held, L. (2005). Gaussian Markov Random Fields: Theory
         and Applications. Chapman & Hall/CRC.
@@ -935,12 +558,14 @@ class ConstrainedGMRF(eqx.Module):
     base: GaussianMRF
     constraint_matrix: Float[Array, "c N"]
     constraint_value: Float[Array, " c"]
+    null_space: Float[Array, "N p"] | None
 
     def __init__(
         self,
         base: GaussianMRF,
         constraint_matrix: Float[ArrayLike, "c N"] | Float[ArrayLike, " N"],
         constraint_value: Float[ArrayLike, " c"] | Float[ArrayLike, ""],
+        null_space: Float[ArrayLike, "N p"] | Float[ArrayLike, " N"] | None = None,
     ) -> None:
         dtype = base.loc.dtype
         A = jnp.atleast_2d(jnp.asarray(constraint_matrix, dtype=dtype))
@@ -951,9 +576,24 @@ class ConstrainedGMRF(eqx.Module):
                 f"constraint_matrix must have shape (c, {n}) and constraint_value "
                 f"shape (c,), got {A.shape} and {e.shape}."
             )
+        if null_space is not None:
+            null_space = jnp.asarray(null_space, dtype=dtype)
+            if null_space.ndim == 1:
+                null_space = rearrange(null_space, "state -> state 1")
+            if null_space.shape[0] != n:
+                raise ValueError(
+                    f"null_space must have {n} rows, got shape {null_space.shape}."
+                )
+            if not is_groundable(_unwrap(base.precision)):
+                raise TypeError(
+                    "a singular precision must be a SparseOperator, a symmetric "
+                    "BlockTriDiag or a dense operator, got "
+                    f"{type(_unwrap(base.precision)).__name__}."
+                )
         self.base = base
         self.constraint_matrix = A
         self.constraint_value = e
+        self.null_space = null_space
 
     @property
     def event_shape(self) -> tuple[int]:
@@ -965,19 +605,53 @@ class ConstrainedGMRF(eqx.Module):
         """The batch shape, always ``()``: one field per object."""
         return ()
 
-    def _kriging(self) -> tuple[Float[Array, "c N"], Float[Array, "c N"], Array]:
+    def _regularized(self) -> RegularizedFactor | None:
+        """Factor of Λ + A_cᵀ B A_c for a singular Λ, else ``None``."""
+        if self.null_space is None:
+            return None
+        solver = self.base.solver
+        return regularized_factor(
+            _unwrap(self.base.precision),
+            rearrange(self.constraint_matrix, "con state -> state con"),
+            ground_nodes(self.null_space),
+            solver if isinstance(solver, SparseCholeskySolver) else None,
+        )
+
+    def _kriging(
+        self, factor: RegularizedFactor | None
+    ) -> tuple[Float[Array, "c N"], Float[Array, "c N"], Array]:
         """Kriging terms Wᵀ, S⁻¹ Wᵀ and the Cholesky factor L_S of S.
 
             W = Λ⁻¹ A_cᵀ,   S = A_c W = L_S L_Sᵀ
+
+        Args:
+            factor: The factor of Λ + A_cᵀ B A_c for a singular Λ, which then
+                stands for Λ; ``None`` otherwise.
 
         Returns:
             Tuple ``(solved_constraints, kriging_rows, constraint_cholesky)``
             holding Wᵀ and S⁻¹ Wᵀ (one row per constraint) and L_S.
         """
+        if factor is None:
+            precision_solve = _solve_fn(self.base.precision, self.base.solver)
+            # Wᵀ = (Λ⁻¹ A_cᵀ)ᵀ, one solve per constraint
+            solved_constraints = jax.vmap(precision_solve)(self.constraint_matrix)
+        else:
+            solved_constraints = factor.solve_constraints()
+        return self._krige(solved_constraints)
+
+    def _krige(
+        self, solved_constraints: Float[Array, "c N"]
+    ) -> tuple[Float[Array, "c N"], Float[Array, "c N"], Array]:
+        """The kriging terms of ``_kriging`` from Wᵀ.
+
+        Args:
+            solved_constraints: Wᵀ, one row per constraint.
+
+        Returns:
+            Wᵀ, S⁻¹ Wᵀ and L_S.
+        """
         constraint_matrix = self.constraint_matrix
-        precision_solve = _solve_fn(self.base.precision, self.base.solver)
-        # Wᵀ = (Λ⁻¹ A_cᵀ)ᵀ, one solve per constraint
-        solved_constraints = jax.vmap(precision_solve)(constraint_matrix)
         # S = A_c Λ⁻¹ A_cᵀ
         constraint_covariance = einsum(
             constraint_matrix, solved_constraints, "row state, col state -> row col"
@@ -1035,7 +709,8 @@ class ConstrainedGMRF(eqx.Module):
         """
         constraint_matrix = self.constraint_matrix
         constraint_value = self.constraint_value
-        _, _, constraint_cholesky = self._kriging()
+        factor = self._regularized()
+        _, _, constraint_cholesky = self._kriging(factor)
         num_constraints = constraint_matrix.shape[0]
         # A_c μ
         constraint_mean = einsum(
@@ -1065,10 +740,94 @@ class ConstrainedGMRF(eqx.Module):
         )
         # log det(A_c A_cᵀ)
         log_det_gram = jnp.linalg.slogdet(constraint_gram)[1]
-        # log p(x)
-        base_log_prob = self.base.log_prob(value)
+        if factor is None:
+            # log p(x)
+            base_log_prob = self.base.log_prob(value)
+        else:
+            # log 𝒩(x; μ, (Λ + A_cᵀ B A_c)⁻¹), at A_c x = e
+            base_log_prob = self._regularized_log_prob(factor, value, residual)
         # log p(x ∣ A_c x = e)
         return base_log_prob - log_constraint - 0.5 * log_det_gram
+
+    def _regularized_log_prob(
+        self,
+        factor: RegularizedFactor,
+        value: Float[Array, "*sample N"],
+        constraint_residual: Float[Array, " c"],
+    ) -> Float[Array, "*sample"]:
+        """Log-density of 𝒩(μ, Λ'⁻¹) on A_c x = e, Λ' = Λ + A_cᵀ B A_c.
+
+            rᵀ Λ' r = rᵀ Λ r + (e − A_c μ)ᵀ B (e − A_c μ),   r = x − μ
+
+        Args:
+            factor: The factor of Λ'.
+            value: Points x satisfying the constraint, shape ``(..., N)``.
+            constraint_residual: e − A_c μ.
+
+        Returns:
+            Log-densities, shape ``(...)``.
+        """
+        event_size = self.event_shape[0]
+        # rᵀ Λ r
+        mahalanobis = _quadratic(self.base.precision, value - self.base.loc)
+        # B (e − A_c μ)
+        weighted_residual = factor.constraint_precision * constraint_residual
+        # (e − A_c μ)ᵀ B (e − A_c μ)
+        constraint_term = einsum(constraint_residual, weighted_residual, "con, con ->")
+        return 0.5 * (
+            factor.logdet() - mahalanobis - constraint_term - event_size * _LOG_2PI
+        )
+
+    def _singular_sample(
+        self,
+        factor: RegularizedFactor,
+        key: jax.Array | None,
+        sample_shape: tuple[int, ...],
+    ) -> Float[Array, "*sample N"]:
+        """Exact constrained draws for a singular Λ.
+
+            x = (kriged draw from 𝒩(μ, M⁻¹)) + F ξ,   ξ ~ 𝒩(0, I)
+
+        M = Λ + E K Eᵀ is positive definite, and F Fᵀ is what the kriged
+        covariance of M lacks (`RegularizedFactor.draw_correction`).
+
+        Args:
+            factor: The factor of Λ + A_cᵀ B A_c, which holds M.
+            key: PRNG key. ``None`` means ``jax.random.PRNGKey(0)``.
+            sample_shape: Leading sample shape.
+
+        Returns:
+            Draws, shape ``sample_shape + (N,)``.
+        """
+        if key is None:
+            key = jax.random.PRNGKey(0)
+        key_base, key_correction = jax.random.split(key)
+        # A_c M⁻¹, the constraint rows of the border's solves
+        num_nodes = factor.node_precision.shape[0]
+        solved_constraints, kriging_rows, _ = self._krige(
+            factor.solved_border[num_nodes:]
+        )
+        correction_rows = factor.draw_correction(solved_constraints, kriging_rows)
+        solver = self.base.solver
+        grounded_solver = solver if isinstance(solver, SparseCholeskySolver) else None
+        noise_size, draw = _precision_sampler(factor.grounded, grounded_solver, None)
+        dtype = self.base.loc.dtype
+        # f(z) ~ 𝒩(0, M⁻¹)
+        base_draws = _draw_samples(key_base, sample_shape, noise_size, draw, dtype)
+        # ξ ~ 𝒩(0, I)
+        noise = jax.random.normal(
+            key_correction, (*sample_shape, correction_rows.shape[0]), dtype=dtype
+        )
+        # F ξ
+        correction = einsum(noise, correction_rows, "... node, node state -> ... state")
+        # the conditional mean, plus the zero-mean draw off the constraint
+        excess = einsum(
+            base_draws, self.constraint_matrix, "... state, con state -> ... con"
+        )
+        # W S⁻¹ A_c f
+        null_part = einsum(excess, kriging_rows, "... con, con state -> ... state")
+        draws = base_draws - null_part + correction
+        return self._mean(factor) + draws
 
     def sample(
         self,
@@ -1083,6 +842,9 @@ class ConstrainedGMRF(eqx.Module):
             1. Draw x from the unconstrained base field.
             2. Apply the kriging correction, which needs W and S⁻¹ Wᵀ only.
 
+            For a singular Λ, the base field is the one with a diagonal added at
+            a few nodes, and an independent draw restores the variance it lacks.
+
         Args:
             key: PRNG key. ``None`` means ``jax.random.PRNGKey(0)``.
             sample_shape: Leading sample shape.
@@ -1090,7 +852,10 @@ class ConstrainedGMRF(eqx.Module):
         Returns:
             Draws, shape ``sample_shape + (N,)``.
         """
-        _, kriging_rows, _ = self._kriging()
+        factor = self._regularized()
+        if factor is not None:
+            return self._singular_sample(factor, key, sample_shape)
+        _, kriging_rows, _ = self._kriging(None)
         # x ~ 𝒩(μ, Λ⁻¹)
         base_draws = self.base.sample(key, sample_shape)
         # x − W S⁻¹ (A_c x − e)
@@ -1102,20 +867,31 @@ class ConstrainedGMRF(eqx.Module):
         Returns:
             Constrained marginal variances, shape ``(N,)``.
         """
-        solved_constraints, kriging_rows, _ = self._kriging()
+        factor = self._regularized()
+        solved_constraints, kriging_rows, _ = self._kriging(factor)
         # W ⊙ (S⁻¹ Wᵀ)ᵀ, entry by entry
         products = solved_constraints * kriging_rows
         # diag(W S⁻¹ Wᵀ)
         correction = reduce(products, "constraint state -> state", "sum")
+        if factor is None:
+            # diag(Λ⁻¹)
+            variances = self.base.marginal_variances()
+        else:
+            # diag((Λ + A_cᵀ B A_c)⁻¹)
+            variances = factor.diag_inv()
         # diag(Λ⁻¹) − diag(W S⁻¹ Wᵀ)
-        return self.base.marginal_variances() - correction
+        return variances - correction
+
+    def _mean(self, factor: RegularizedFactor | None) -> Float[Array, " N"]:
+        """The kriged mean, given the factor of a singular Λ."""
+        _, kriging_rows, _ = self._kriging(factor)
+        # μ − W S⁻¹ (A_c μ − e)
+        return self._correct(self.base.loc, kriging_rows)
 
     @property
     def mean(self) -> Float[Array, " N"]:
         """The kriged mean μ − W S⁻¹ (A_c μ − e)."""
-        _, kriging_rows, _ = self._kriging()
-        # μ − W S⁻¹ (A_c μ − e)
-        return self._correct(self.base.loc, kriging_rows)
+        return self._mean(self._regularized())
 
     @property
     def variance(self) -> Float[Array, " N"]:
@@ -1196,9 +972,15 @@ class IntrinsicGMRF(eqx.Module):
             ``"soft"``.
         include_normalizer: Add the τ-free constant (exact for an
             orthonormal ``null_space`` under ``"soft"``).
+        constraint_basis: Basis of the hard constraint a Laplace fit puts on
+            the field, when it is only part of ker R, shape ``(N, d)`` (or
+            ``(N,)``): R-INLA's RW2 constrains the sum and leaves the trend
+            free. ``None`` constrains all of ``null_space``. The field's own
+            samples and variances are always those of 𝒩(μ, (τ R)⁺).
 
     Raises:
-        ValueError: For an unknown ``constraint`` or mismatched shapes.
+        ValueError: For an unknown ``constraint`` or mismatched shapes, or a
+            ``constraint_basis`` without ``constraint="hard"``.
 
     Examples:
         An RW1 trend with a hard sum-to-zero constraint:
@@ -1250,6 +1032,7 @@ class IntrinsicGMRF(eqx.Module):
     constraint: Literal["none", "soft", "hard"] = eqx.field(static=True)
     soft_constraint_scale: float = eqx.field(static=True)
     include_normalizer: bool = eqx.field(static=True)
+    constraint_basis: Float[Array, "N d"] | None
 
     def __init__(
         self,
@@ -1261,6 +1044,9 @@ class IntrinsicGMRF(eqx.Module):
         constraint: Literal["none", "soft", "hard"] = "hard",
         soft_constraint_scale: float = 1e-3,
         include_normalizer: bool = False,
+        constraint_basis: Float[ArrayLike, "N d"]
+        | Float[ArrayLike, " N"]
+        | None = None,
     ) -> None:
         if constraint not in ("none", "soft", "hard"):
             raise ValueError(
@@ -1289,6 +1075,21 @@ class IntrinsicGMRF(eqx.Module):
         self.constraint = constraint
         self.soft_constraint_scale = soft_constraint_scale
         self.include_normalizer = include_normalizer
+        if constraint_basis is not None:
+            if constraint != "hard":
+                raise ValueError(
+                    "constraint_basis is the basis of a hard constraint, got "
+                    f"constraint={constraint!r}."
+                )
+            constraint_basis = jnp.asarray(constraint_basis, dtype=loc.dtype)
+            if constraint_basis.ndim == 1:
+                constraint_basis = rearrange(constraint_basis, "state -> state 1")
+            if constraint_basis.shape[0] != n:
+                raise ValueError(
+                    f"constraint_basis must have {n} rows, got shape "
+                    f"{constraint_basis.shape}."
+                )
+        self.constraint_basis = constraint_basis
 
     @property
     def event_shape(self) -> tuple[int]:
@@ -1299,6 +1100,13 @@ class IntrinsicGMRF(eqx.Module):
     def batch_shape(self) -> tuple[()]:
         """The batch shape, always ``()``: one field per object."""
         return ()
+
+    @property
+    def hard_constraint(self) -> Float[Array, "N d"]:
+        """Basis of the hard constraint: ``constraint_basis``, or ``null_space``."""
+        if self.constraint_basis is None:
+            return self.null_space
+        return self.constraint_basis
 
     # -- null space -----------------------------------------------------------
 
