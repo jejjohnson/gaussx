@@ -96,3 +96,9 @@ def test_dtype_follows_the_operands():
 def test_row_mismatch_raises():
     with pytest.raises(ValueError, match="same number of rows"):
         gaussx.row_kron(_sparse(np.ones((3, 2))), _sparse(np.ones((2, 2))))
+
+
+def test_too_many_columns_raises():
+    wide = gaussx.SparseOperator.from_coo([0], [0], jnp.ones(1), (1, 2**16))
+    with pytest.raises(ValueError, match="32-bit"):
+        gaussx.row_kron(wide, wide)
