@@ -115,6 +115,13 @@ def _uncertain_gp_predict_mc(dtype):
     )
 
 
+def _gaussian_expected_log_likelihood(dtype):
+    # gh-749: Σ_ε was built from a Python float at the default dtype.
+    y = jnp.zeros(2, dtype)
+    state = gaussx.GaussianState(y, lx.DiagonalLinearOperator(jnp.ones(2, dtype)))
+    return [gaussx.expected_log_likelihood(gaussx.GaussianLikelihood(y, 0.5), state)]
+
+
 CASES = [
     _logdet_identity,
     _trace_identity,
@@ -130,6 +137,7 @@ CASES = [
     _slq_logdet,
     _nystrom_preconditioner,
     _uncertain_gp_predict_mc,
+    _gaussian_expected_log_likelihood,
 ]
 
 

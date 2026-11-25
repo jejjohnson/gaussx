@@ -70,7 +70,9 @@ def _default_diffuse_variance(dtype) -> float:
     Returns:
         The diffuse variance κ.
     """
-    return float(1.0 / jnp.sqrt(jnp.finfo(dtype).eps))
+    # NumPy, not jnp: the value depends on the dtype only and must stay concrete
+    # under a trace.
+    return float(1.0 / np.sqrt(jnp.finfo(dtype).eps))
 
 
 class IntegratedWienerSDE(SDEKernel):

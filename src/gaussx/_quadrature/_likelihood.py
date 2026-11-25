@@ -211,9 +211,11 @@ class GaussianLikelihood(AbstractLikelihood):
             The scalar expected log-likelihood.
         """
         obs_size = self.y.shape[-1]
+        # a Python-float σ_ε² takes the data's dtype
+        dtype = jnp.result_type(self.y, q_mu, self.noise_var)
         # Σ_ε = σ_ε² I
         obs_noise_covariance = lx.DiagonalLinearOperator(
-            jnp.full(obs_size, self.noise_var)
+            jnp.full(obs_size, self.noise_var, dtype=dtype)
         )
         # log 𝒩(y; μ_f, Σ_ε)
         log_density = gaussian_log_prob(q_mu, obs_noise_covariance, self.y)

@@ -1067,3 +1067,18 @@ class TestStationaryKernelContract:
 
         with pytest.raises(ValueError, match="initial_covariance"):
             kern.initial_covariance()
+
+
+@pytest.mark.parametrize("order", [1, 2])
+def test_integrated_wiener_default_initial_covariance_under_jit(order):
+    # gh-837: κ came from jnp.sqrt, a tracer under jit that float() rejects.
+    sde = IntegratedWienerSDE(jnp.asarray(0.5), order=order)
+    eager = sde.initial_covariance()
+    jitted = jax.jit(lambda: sde.initial_covariance())()
+    np.testing.assert_array_equal(jitted, eager)
+    traced = jax.jit(
+        lambda diffusion: IntegratedWienerSDE(
+            diffusion, order=order
+        ).initial_covariance()
+    )(jnp.asarray(0.5))
+    np.testing.assert_array_equal(traced, eager)
