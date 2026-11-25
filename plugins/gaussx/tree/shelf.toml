@@ -98,8 +98,8 @@ unit = "structures-and-primitives"
 skill = "structured-gaussian-linalg"
 covers = "`SparseOperator`, patterns, symbolic and numeric sparse Cholesky"
 names = [
-    "sparse_cholesky", "SparseCholeskyFactor", "SparseOperator", "SparsityPattern",
-    "symbolic_cholesky", "SymbolicCholesky",
+    "row_kron", "sparse_cholesky", "SparseCholeskyFactor", "SparseOperator",
+    "SparsityPattern", "symbolic_cholesky", "SymbolicCholesky",
 ]
 
 [[entries]]
