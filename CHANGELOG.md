@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.8.2](https://github.com/jejjohnson/gaussx/compare/v0.8.1...v0.8.2) (2026-11-25)
+
+
+### Features
+
+* **sparse:** row_kron, the row-wise Kronecker product of two SparseOperators ([#873](https://github.com/jejjohnson/gaussx/issues/873)) ([17a55e6](https://github.com/jejjohnson/gaussx/commit/17a55e6baf2e0802d573b055366239e85a94f03f))
+
+
+### Bug Fixes
+
+* **gmrf:** the precision builders accept float32 Laplacians, integer parameters and single nodes ([#874](https://github.com/jejjohnson/gaussx/issues/874)) ([6c522de](https://github.com/jejjohnson/gaussx/commit/6c522deab890e882ee2515d5321d4b0f118119fb))
+* **gmrf:** the scale, variances and draws of an intrinsic field are exact on any size ([c8de705](https://github.com/jejjohnson/gaussx/commit/c8de705ddc68753c145a4bca0d9ce44b84d0e906))
+* **laplace:** a fit with several intrinsic parts is exact, although its posterior precision is singular ([#872](https://github.com/jejjohnson/gaussx/issues/872)) ([1180097](https://github.com/jejjohnson/gaussx/commit/1180097e364af84a3f3e4aa8fc1a54b002e2d280))
+* **logdet:** pseudo_logdet with a null space takes one sparse or banded Cholesky ([c8de705](https://github.com/jejjohnson/gaussx/commit/c8de705ddc68753c145a4bca0d9ce44b84d0e906))
+* **sparse:** the sparse factor rejects an empty pattern and differentiates a mixed-dtype solve ([#875](https://github.com/jejjohnson/gaussx/issues/875)) ([caad33c](https://github.com/jejjohnson/gaussx/commit/caad33ca8ce5825263c067dea890dcf8c5eba391))
+* **ssm:** the default initial covariance of IntegratedWienerSDE works under jit, and GaussianLikelihood keeps float32 ([#876](https://github.com/jejjohnson/gaussx/issues/876)) ([e4b2349](https://github.com/jejjohnson/gaussx/commit/e4b2349c4447c68e15e5252ea6413ca5fe0c6860))
+
+
+### Deprecations
+
+* **gmrf:** generalized_variance_scale's eps is ignored and will be removed in 0.9.0 ([c8de705](https://github.com/jejjohnson/gaussx/commit/c8de705ddc68753c145a4bca0d9ce44b84d0e906))
+
 ## [0.8.1](https://github.com/jejjohnson/gaussx/compare/v0.8.0...v0.8.1) (2026-11-21)
 
 
