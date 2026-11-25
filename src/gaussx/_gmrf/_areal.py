@@ -35,8 +35,10 @@ from gaussx._primitives._diag import diag
 
 
 _PSD = frozenset({lx.positive_semidefinite_tag})
-# Row sums of a Laplacian must vanish to this fraction of its largest diagonal.
+# Row sums of a Laplacian must vanish to this fraction of its largest diagonal, or to
+# this many machine epsilons of its dtype where that is more (float32).
 _ROW_SUM_TOLERANCE = 1e-8
+_ROW_SUM_EPSILONS = 64.0
 
 
 def besag_structure(
@@ -108,11 +110,13 @@ def besag_structure(
         row_sums = np.asarray(row_sums)
         diagonal = np.asarray(diag(laplacian_op))
         # max |[R]_ii|
-        scale = float(np.max(np.abs(diagonal)))
+        scale = float(np.max(np.abs(diagonal), initial=0.0))
     except jax.errors.TracerArrayConversionError:
         pass  # traced values: the check is skipped
     else:
-        tolerance = _ROW_SUM_TOLERANCE * max(scale, 1.0)
+        machine_eps = float(np.finfo(row_sums.dtype).eps)
+        relative = max(_ROW_SUM_TOLERANCE, _ROW_SUM_EPSILONS * machine_eps)
+        tolerance = relative * max(scale, 1.0)
         if np.max(np.abs(row_sums), initial=0.0) > tolerance:
             raise ValueError(
                 "A Besag structure matrix is a graph Laplacian, whose rows sum "
@@ -251,6 +255,7 @@ def generalized_variance_scale(
     if null_basis.ndim == 1:
         # The pattern is quoted by the AxisSizeError of an empty V: keep its text.
         null_basis = rearrange(null_basis, "n -> n 1")
+    weak_basis = null_basis
     n = null_basis.shape[0]
     size = structure.in_size()
     if size not in (n, n + 1):
@@ -262,10 +267,10 @@ def generalized_variance_scale(
         variances = diag_inv(structure, pinv=True)
     else:
         if size == n + 1:
-            padding = jnp.zeros((1, null_basis.shape[1]), dtype=null_basis.dtype)
             # V with a zero row on the padding node
-            null_basis = jnp.concatenate([null_basis, padding])
-        dtype = jnp.result_type(structure.in_structure().dtype, null_basis.dtype)
+            null_basis = jnp.pad(null_basis, ((0, 1), (0, 0)))
+        # the array, not its dtype: an integer V is weakly typed
+        dtype = jnp.result_type(structure.in_structure().dtype, weak_basis)
         # diag(R⁺) = diag(P⊥ G P⊥)
         variances = pinv_diagonal(structure, null_basis.astype(dtype))
     # [Σ]_ii on the n nodes, without a padding node

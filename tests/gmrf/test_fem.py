@@ -138,8 +138,39 @@ class TestFemMatrices:
 def lx_diag(C):
     return jnp.diag(C.as_matrix())
 
+    def test_empty_and_scalar_inputs_raise(self):
+        # gh-763: einx and IndexError before.
+        with pytest.raises(ValueError, match="at least one triangle"):
+            gaussx.fem_matrices(UNIT_SQUARE, np.zeros((0, 3), int))
+        with pytest.raises(ValueError, match="vertices must have shape"):
+            gaussx.fem_matrices(jnp.zeros(()), SQUARE_TRIANGLES)
+        with pytest.raises(ValueError, match="at least one triangle"):
+            gaussx.fem_projector(
+                UNIT_SQUARE, np.zeros((0, 3), int), np.array([[0.5, 0.5]])
+            )
+
+    @pytest.mark.x64_only(reason="promotion to float64 needs x64")
+    def test_integer_parameters_keep_float32(self):
+        mass, stiffness = gaussx.fem_matrices(
+            UNIT_SQUARE.astype(np.float32), SQUARE_TRIANGLES
+        )
+        precision = gaussx.spde_precision(mass, stiffness, 1, 2, 2)
+        assert precision.values.dtype == jnp.float32
+
 
 class TestFemProjectorPlanar:
+    @pytest.mark.parametrize("triangle_index", [None, np.zeros(0, int)])
+    def test_no_points(self, triangle_index):
+        # gh-763: a projector with no rows, whose transpose maps to zero.
+        A = gaussx.fem_projector(
+            UNIT_SQUARE,
+            SQUARE_TRIANGLES,
+            np.zeros((0, 2)),
+            triangle_index=triangle_index,
+        )
+        assert A.mv(jnp.ones(4)).shape == (0,)
+        np.testing.assert_array_equal(A.T.mv(jnp.zeros(0)), np.zeros(4))
+
     def test_barycentric_weights(self):
         A = gaussx.fem_projector(UNIT_SQUARE, SQUARE_TRIANGLES, np.array([[0.5, 0.25]]))
         assert A.pattern.shape == (1, 4)
