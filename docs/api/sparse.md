@@ -46,6 +46,8 @@ operators.
 `JacobiPreconditioner` works through the exact diagonal, which is usually
 enough for a graph Laplacian plus a diagonal shift.
 
+**Products of fields.** `row_kron(A, B)` is the row-wise Kronecker product, row $m$ being $[\mathbf{A}]_{m,:} \otimes [\mathbf{B}]_{m,:}$: the observation operator of a Kronecker-structured field read at scattered points.
+
 **Example.** An ICAR structure matrix from an edge list, then the Laplace
 Hessian rebuilt on its precomputed pattern at each Newton step:
 
@@ -200,4 +202,4 @@ jax.grad(logdet)(0.0)  # d log det Λ / d log κ, through one Takahashi sweep
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [SparseOperator, SparsityPattern, symbolic_cholesky, SymbolicCholesky, sparse_cholesky, SparseCholeskyFactor]
+      members: [SparseOperator, SparsityPattern, row_kron, symbolic_cholesky, SymbolicCholesky, sparse_cholesky, SparseCholeskyFactor]

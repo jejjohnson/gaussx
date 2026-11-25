@@ -14,6 +14,7 @@ The pattern is fixed on the host and only the values are traced, so one analysis
 | `SparseOperator(values, pattern, *, tags=())` | A `lineax` operator whose only leaf is `values`, shape `(nnz,)`, in the pattern's canonical order. |
 | `SparseOperator.from_coo(rows, cols, values, shape, *, symmetric=False)` | Builds from triplets. Duplicates are summed. With `symmetric=True` give each off-diagonal pair once. |
 | `SparseOperator.add_diagonal(d)`, `.union(other)`, `.congruence(A, w)` | `A + diag(d)`, `A + B` on the union pattern, and `Aᵀ diag(w) A`. |
+| `row_kron(A, B)` | The row-wise Kronecker product, shape `(M, P Q)`: row `m` is `kron(A[m], B[m])`, the observation operator of a Kronecker-structured field at scattered points. |
 | `SymbolicCholesky` | The host-side analysis of a pattern: ordering, elimination tree and the pattern of the factor. Build it with `symbolic_cholesky`. |
 | `symbolic_cholesky(pattern, *, ordering="rcm", backend="jax")` | The cached symbolic analysis. Orderings are `"rcm"`, `"natural"` and `"amd"`; backends are `"jax"` and `"cholmod"`. |
 | `sparse_cholesky(op, symbolic=None)` | The numeric factorisation of a symmetric positive-definite `SparseOperator`. It `jit`s, `vmap`s and differentiates. |
