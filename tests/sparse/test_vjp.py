@@ -165,3 +165,32 @@ def test_reverse_over_reverse_hessian_matches_dense(grid, symbolic_for, banded):
     np.testing.assert_allclose(
         jax.jacrev(jax.jacrev(f))(theta), jax.hessian(f_dense)(theta), atol=1e-9
     )
+
+
+@pytest.mark.x64_only(reason="mixed precision needs x64")
+@pytest.mark.parametrize(
+    "factor_dtype, rhs_dtype",
+    [(jnp.float32, jnp.float64), (jnp.float64, jnp.float32)],
+)
+def test_mixed_dtype_solve_differentiates(factor_dtype, rhs_dtype):
+    # gh-775: the primal promoted and its gradient raised.
+    pattern = gaussx.SparsityPattern(
+        np.array([0, 1, 1]), np.array([0, 0, 1]), (2, 2), symmetric=True
+    )
+    values = jnp.array([2.0, -1.0, 2.0], factor_dtype)
+    rhs = jnp.array([1.0, 3.0], rhs_dtype)
+
+    def loss(values, rhs):
+        factor = gaussx.sparse_cholesky(gaussx.SparseOperator(values, pattern))
+        return jnp.sum(factor.solve(rhs) ** 2)
+
+    assert loss(values, rhs).dtype == jnp.float64
+    grads = jax.grad(loss, argnums=(0, 1))(values, rhs)
+    expected = jax.grad(loss, argnums=(0, 1))(
+        values.astype(jnp.float64), rhs.astype(jnp.float64)
+    )
+    for got, want, dtype in zip(
+        grads, expected, (factor_dtype, rhs_dtype), strict=True
+    ):
+        assert got.dtype == dtype
+        np.testing.assert_allclose(got, want, rtol=1e-5)

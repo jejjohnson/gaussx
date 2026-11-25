@@ -295,17 +295,21 @@ def _sorted_union(pieces: list[np.ndarray]) -> np.ndarray:
 
 
 def _check_pattern(pattern: SparsityPattern) -> None:
-    """Reject a non-square pattern.
+    """Reject a non-square or empty pattern.
 
     Args:
         pattern: The pattern of the matrix to factor.
 
     Raises:
-        ValueError: If the pattern is not square.
+        ValueError: If the pattern is not square, or has no rows.
     """
     m, n = pattern.shape
     if m != n:
         raise ValueError(f"A Cholesky factor needs a square pattern, got {(m, n)}.")
+    if n == 0:
+        raise ValueError(
+            "A Cholesky factor needs at least one row, got an empty pattern."
+        )
 
 
 def _symmetric_graph(pattern: SparsityPattern) -> Any:
@@ -403,7 +407,7 @@ def symbolic_cholesky(
         The cached `SymbolicCholesky`.
 
     Raises:
-        ValueError: For a non-square pattern or an unknown option.
+        ValueError: For a non-square or empty pattern, or an unknown option.
         ImportError: For ``"amd"`` or ``"cholmod"`` without ``scikit-sparse``.
 
     Examples:

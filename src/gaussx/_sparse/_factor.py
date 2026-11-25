@@ -97,7 +97,7 @@ class SparseCholeskyFactor(eqx.Module):
             b: Right-hand side b, of length N.
 
         Returns:
-            The solution x, of length N.
+            The solution x, of length N, in the promoted dtype of A and b.
 
         Examples:
             A diagonal A:
@@ -115,8 +115,15 @@ class SparseCholeskyFactor(eqx.Module):
         sym = self.symbolic
         # y = P b
         permuted_rhs = b[jnp.asarray(sym.perm)]
+        # The cotangent rule takes one dtype, so promote outside it.
+        dtype = jnp.result_type(self.values, permuted_rhs)
         # z = L⁻ᵀ L⁻¹ y
-        permuted_solution = _vjp.solve(sym, self.matrix_values, self._L(), permuted_rhs)
+        permuted_solution = _vjp.solve(
+            sym,
+            self.matrix_values.astype(dtype),
+            self._L().astype(dtype),
+            permuted_rhs.astype(dtype),
+        )
         # x = Pᵀ z
         return permuted_solution[jnp.asarray(sym.iperm)]
 
