@@ -23,6 +23,7 @@ from gaussx._einx import einsum, rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._factored_eigen import FactoredEigen, _reciprocal, factored_eigen
+from gaussx._operators._grounding import push_scalar
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sparse import SparseOperator
@@ -439,7 +440,7 @@ def _scaled(
     Returns:
         τ R, tagged symmetric positive semidefinite.
     """
-    inner = _unwrap(operator)
+    inner = push_scalar(operator)
     if isinstance(inner, SparseOperator):
         # τ R on R's pattern
         return SparseOperator(scale * inner.values, inner.pattern, tags=_PSD)

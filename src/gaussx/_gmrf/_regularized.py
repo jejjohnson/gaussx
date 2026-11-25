@@ -126,7 +126,9 @@ class RegularizedFactor(eqx.Module):
 
         Λ'⁻¹ = M⁻¹ − W T⁻¹ Wᵀ,   W = M⁻¹ U,   T = C⁻¹ + Uᵀ W
 
-    ``solve``, ``logdet``, ``diag_inv`` and ``selected_inverse`` are those of Λ'.
+    ``solve``, ``logdet``, ``diag_inv`` and ``selected_inverse`` are those of Λ';
+    there is no ``solve_lower_transpose``, since Λ'⁻¹ has no triangular root here
+    (draw through `ConstrainedGMRF`).
     Kriged onto Vᵀ x = 0 they give the constrained field of Λ, whatever the
     positive K and B; before that they depend on both.
 
@@ -257,9 +259,10 @@ class RegularizedFactor(eqx.Module):
 
 def is_groundable(precision: lx.AbstractLinearOperator) -> bool:
     """Whether Λ takes a diagonal at a few nodes and keeps its factorisation."""
-    return isinstance(precision, SparseOperator | lx.MatrixLinearOperator) or (
-        isinstance(precision, BlockTriDiag) and precision.symmetric
-    )
+    return isinstance(
+        precision,
+        SparseOperator | lx.MatrixLinearOperator | lx.DiagonalLinearOperator,
+    ) or (isinstance(precision, BlockTriDiag) and precision.symmetric)
 
 
 def regularized_factor(
@@ -270,13 +273,15 @@ def regularized_factor(
 ) -> RegularizedFactor:
     """Factorise Λ' = Λ + V B Vᵀ for a Λ that is singular outside {Vᵀ x = 0}.
 
-    K and B follow the diagonal of Λ, which keeps M as well conditioned as the data
-    allow; the constrained field does not depend on them, so no gradient flows
-    through them.
+    K is the diagonal of Λ at P, which keeps M as well conditioned as the data allow.
+    B is 1 / diag(Vᵀ M⁻¹ V), the precision of each constraint under M, so that
+    Vᵀ Λ'⁻¹ V is neither swamped by B⁻¹ nor left as a difference of far larger
+    numbers. The constrained field depends on neither, so no gradient flows through
+    them.
 
     Args:
-        precision: Λ, a `SparseOperator`, a symmetric `BlockTriDiag` or a dense
-            operator (`is_groundable`).
+        precision: Λ, a `SparseOperator`, a symmetric `BlockTriDiag`, or a diagonal
+            or dense operator (`is_groundable`).
         constraint_basis: The constraint basis V, of full column rank.
         nodes: Nodes P on which every vector of ker Λ is determined.
         solver: The sparse Cholesky strategy; the default one if ``None``.
@@ -288,15 +293,6 @@ def regularized_factor(
     typical = jnp.mean(diagonal)
     # K, the diagonal of Λ at P; its mean at a node Λ does not touch
     node_precision = jnp.where(diagonal[nodes] > 0.0, diagonal[nodes], typical)
-    frozen_basis = jax.lax.stop_gradient(constraint_basis)
-    squared_basis = frozen_basis**2
-    # ∑_i [V]²_ic [Λ]_ii and ∑_i [V]²_ic
-    weighted = einsum(squared_basis, diagonal, "state con, state -> con")
-    square_norm = reduce(squared_basis, "state con -> con", "sum")
-    # B, so that V B Vᵀ has the size of Λ on each constraint
-    constraint_precision = (
-        jnp.where(weighted > 0.0, weighted, typical * square_norm) / square_norm**2
-    )
     size = precision.in_size()
     ground_diagonal = jnp.zeros(size, diagonal.dtype).at[nodes].set(node_precision)
     # M = Λ + E K Eᵀ
@@ -314,10 +310,12 @@ def regularized_factor(
     solved_border = jax.vmap(base.solve)(border)
     # Uᵀ M⁻¹ U
     border_covariance = einsum(border, solved_border, "row state, col state -> row col")
-    # diag(C⁻¹) = (−1 / K, 1 / B)
-    inverse_diagonal = jnp.concatenate(
-        [-1.0 / node_precision, 1.0 / constraint_precision]
+    # 1 / B = diag(Vᵀ M⁻¹ V)
+    constraint_variance = jax.lax.stop_gradient(
+        jnp.diagonal(border_covariance)[nodes.shape[0] :]
     )
+    # diag(C⁻¹) = (−1 / K, 1 / B)
+    inverse_diagonal = jnp.concatenate([-1.0 / node_precision, constraint_variance])
     capacitance = jnp.diag(inverse_diagonal) + border_covariance
     # log |det C|
     log_det_border = -jnp.sum(jnp.log(jnp.abs(inverse_diagonal)))
@@ -328,7 +326,7 @@ def regularized_factor(
         solved_border,
         capacitance,
         node_precision,
-        constraint_precision,
+        1.0 / constraint_variance,
         log_det_border,
     )
 

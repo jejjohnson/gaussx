@@ -2,7 +2,7 @@
 
 With P the nodes that ground R (`gaussx._operators._grounding`), G the inverse of
 the grounded block padded with zeros on P, V the null-space basis and
-P⊥ = I − V (Vᵀ V)⁻¹ Vᵀ, the pseudo-inverse is
+P⊥ = I − Q Qᵀ with V = Q R, the pseudo-inverse is
 
     R⁺ = P⊥ G P⊥,
 
@@ -17,6 +17,7 @@ from collections.abc import Callable
 
 import jax
 import jax.numpy as jnp
+import jax.scipy.linalg as jsl
 import lineax as lx
 from jaxtyping import Array, Float
 
@@ -29,9 +30,12 @@ from gaussx._sparse._factor import sparse_cholesky
 
 
 def null_dual(null_space: Float[Array, "N c"]) -> Float[Array, "N c"]:
-    """Dual basis V (Vᵀ V)⁻¹ of the null space.
+    """Dual basis V (Vᵀ V)⁻¹ of the null space, through V = Q R.
 
-        P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
+        V (Vᵀ V)⁻¹ = Q R⁻ᵀ
+
+    The QR factorisation keeps the condition number of V, where a solve with Vᵀ V
+    squares it.
 
     Args:
         null_space: The basis V.
@@ -39,13 +43,12 @@ def null_dual(null_space: Float[Array, "N c"]) -> Float[Array, "N c"]:
     Returns:
         V (Vᵀ V)⁻¹, shape ``(N, c)``.
     """
-    # Vᵀ V
-    null_gram = einsum(null_space, null_space, "state row, state col -> row col")
-    # Vᵀ
-    null_rows = rearrange(null_space, "state null -> null state")
-    # (Vᵀ V)⁻¹ Vᵀ, a small dense solve
-    solved = jnp.linalg.solve(null_gram, null_rows)
-    # V (Vᵀ V)⁻¹
+    # V = Q R
+    orthonormal, upper = jnp.linalg.qr(null_space)
+    orthonormal_rows = rearrange(orthonormal, "state null -> null state")
+    # R⁻¹ Qᵀ
+    solved = jsl.solve_triangular(upper, orthonormal_rows, lower=False)
+    # Q R⁻ᵀ
     return rearrange(solved, "null state -> state null")
 
 
@@ -55,12 +58,11 @@ def pinv_diagonal(
     """Diagonal of the pseudo-inverse R⁺ of a singular structure.
 
         diag(R⁺) = diag(P⊥ G P⊥)
-                 = diag(G) − 2 diag(D (G V)ᵀ) + diag(D Vᵀ G V Dᵀ),
-        D = V (Vᵀ V)⁻¹
+                 = diag(G) − 2 diag(Q (G Q)ᵀ) + diag(Q Qᵀ G Q Qᵀ),   V = Q R
 
     Args:
-        structure: The structure R; anything but a (tagged) `SparseOperator` or
-            `BlockTriDiag` is densified.
+        structure: The structure R; anything but a (tagged or scaled)
+            `SparseOperator` or `BlockTriDiag` is densified.
         null_space: Basis V of ker R.
 
     Returns:
@@ -77,15 +79,16 @@ def pinv_diagonal(
 
     # diag(G)
     inverse_diagonal = jnp.where(free, grounded_diag_inv(), 0.0)
-    dual = null_dual(null_space)
-    # G V
-    solved_null_space = jax.vmap(inverse, in_axes=1, out_axes=1)(null_space)
-    # Vᵀ G V
-    null_covariance = einsum(null_space, solved_null_space, "n a, n b -> a b")
-    # diag(D (G V)ᵀ)
-    cross = einsum(dual, solved_null_space, "n a, n a -> n")
-    # diag(D Vᵀ G V Dᵀ)
-    null_part = einsum(dual, null_covariance, dual, "n a, a b, n b -> n")
+    # an orthonormal basis Q of the null space
+    basis, _ = jnp.linalg.qr(null_space)
+    # G Q
+    solved_basis = jax.vmap(inverse, in_axes=1, out_axes=1)(basis)
+    # Qᵀ G Q
+    null_covariance = einsum(basis, solved_basis, "n a, n b -> a b")
+    # diag(Q (G Q)ᵀ)
+    cross = einsum(basis, solved_basis, "n a, n a -> n")
+    # diag(Q Qᵀ G Q Qᵀ)
+    null_part = einsum(basis, null_covariance, basis, "n a, a b, n b -> n")
     # diag(R⁺)
     return inverse_diagonal - 2.0 * cross + null_part
 

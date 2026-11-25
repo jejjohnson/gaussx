@@ -31,7 +31,7 @@ from gaussx._operators._block_tridiag import (
     UpperBlockTriDiag,
 )
 from gaussx._operators._diagonalised import DiagonalizedOperator, as_diagonalized
-from gaussx._operators._grounding import ground, ground_nodes
+from gaussx._operators._grounding import ground, ground_nodes, push_scalar
 from gaussx._operators._kronecker import Kronecker
 from gaussx._operators._kronecker_sum import KroneckerSum, _eigh_factor
 from gaussx._operators._low_rank_update import (
@@ -800,8 +800,9 @@ def _pseudo_logdet_null_space(
             f"null_space must have shape ({operator.in_size()}, c), got {basis.shape}."
         )
 
-    if strategy is None and _is_groundable(operator):
-        return _pseudo_logdet_grounded(operator, basis)
+    inner = push_scalar(operator)
+    if strategy is None and _is_groundable(inner):
+        return _pseudo_logdet_grounded(inner, basis)
 
     def project(vector: Float[Array, " N"]) -> Float[Array, " N"]:
         # Bᵀ v
@@ -835,7 +836,7 @@ def _pseudo_logdet_grounded(
 ) -> Float[Array, ""]:
     """Log pseudo-determinant of a sparse or banded A, by fixing c nodes.
 
-        log det₊ A = log det A_FF + log det(Bᵀ B) − 2 log |det B_P|
+        log det₊ A = log det A_FF − 2 log |det Q_P|,   B = Q R
 
     Args:
         operator: A `SparseOperator` or a symmetric `BlockTriDiag`, positive
@@ -849,7 +850,9 @@ def _pseudo_logdet_grounded(
     #   _strategies._auto -> _primitives._logdet
     from gaussx._strategies._sparse_cholesky import SparseCholeskySolver
 
-    nodes = ground_nodes(basis)
+    # B = Q R, so that det(Bᵀ B) / det(B_P)² = 1 / det(Q_P)²
+    orthonormal, _ = jnp.linalg.qr(basis)
+    nodes = ground_nodes(orthonormal)
     grounded = ground(operator, nodes)
     if isinstance(grounded, SparseOperator):
         # log det A_FF, by one sparse Cholesky
@@ -857,12 +860,9 @@ def _pseudo_logdet_grounded(
     else:
         # log det A_FF, by one banded Cholesky
         grounded_logdet = logdet(grounded)
-    # Bᵀ B
-    gram = einsum(basis, basis, "n c, n d -> c d")
-    _, gram_logdet = jnp.linalg.slogdet(gram)
-    # log |det B_P|
-    _, node_logdet = jnp.linalg.slogdet(basis[nodes])
-    return grounded_logdet + gram_logdet - 2.0 * node_logdet
+    # log |det Q_P|
+    _, node_logdet = jnp.linalg.slogdet(orthonormal[nodes])
+    return grounded_logdet - 2.0 * node_logdet
 
 
 @ft.lru_cache(maxsize=_PLAN_CACHE_SIZE)
