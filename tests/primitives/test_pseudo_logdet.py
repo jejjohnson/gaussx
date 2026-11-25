@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -275,3 +276,70 @@ def test_errors():
         )
     with pytest.raises(ValueError, match="1 x 1"):
         gaussx.pseudo_logdet(gaussx.rw2_structure(6), structure="laplacian")
+
+
+# ---------------------------------------------------------------------------
+# Null-space path on a sparse or banded structure: one grounded Cholesky (gh-868)
+# ---------------------------------------------------------------------------
+
+
+def _rw2(n, storage):
+    banded = gaussx.rw2_structure(n)
+    if storage == "banded":
+        return banded
+    dense = np.asarray(banded.as_matrix())
+    rows, cols = np.nonzero(np.tril(dense) if storage == "lower" else dense)
+    return gaussx.SparseOperator.from_coo(
+        rows, cols, jnp.asarray(dense[rows, cols]), (n, n), symmetric=storage == "lower"
+    )
+
+
+def _rw2_null_space(n):
+    t = jnp.arange(n, dtype=float)
+    return einx.id("k n -> n k", jnp.stack([jnp.ones(n), t - t.mean()]))
+
+
+@pytest.mark.parametrize("storage", ["banded", "lower", "full"])
+def test_rw2_null_space_closed_form(storage):
+    # Both ends fixed, R_FF is the square of the Dirichlet path Laplacian, whose
+    # determinant is n − 1, so det₊ R = det(VᵀV) = n · n (n² − 1) / 12.
+    n = 60
+    value = gaussx.pseudo_logdet(_rw2(n, storage), null_space=_rw2_null_space(n))
+    expected = np.log(n * n * (n**2 - 1) / 12)
+    # A grounded RW2 is conditioned like n⁴ / 60: 2e5 of those, times eps.
+    rtol = 5e-2 if value.dtype == jnp.float32 else 1e-9
+    assert jnp.allclose(value, expected, rtol=rtol)
+
+
+@pytest.mark.x64_only(reason="a grounded RW2 is conditioned like N⁴")
+def test_long_rw2_null_space_takes_no_dense_path(monkeypatch):
+    def no_dense(self):
+        raise AssertionError("densified")
+
+    monkeypatch.setattr(gaussx.BlockTriDiag, "as_matrix", no_dense)
+    n = 1000
+    value = gaussx.pseudo_logdet(gaussx.rw2_structure(n), null_space=_rw2_null_space(n))
+    assert jnp.allclose(value, np.log(n * n * (n**2 - 1) / 12), rtol=1e-7)
+
+
+def test_null_space_path_two_components_sparse():
+    R = _laplacian(7, _path_edges(3) + _path_edges(4, offset=3), jnp.ones(5))
+    basis = jnp.zeros((7, 2)).at[:3, 0].set(1.0).at[3:, 1].set(2.0)
+    value = gaussx.pseudo_logdet(R, null_space=basis)
+    assert jnp.allclose(value, jnp.log(12.0), rtol=1e-5)
+    laplacian = gaussx.pseudo_logdet(R, structure="laplacian")
+    assert jnp.allclose(value, laplacian, rtol=1e-5)
+
+
+def test_null_space_path_gradient_matches_laplacian_path():
+    weights = jnp.array([1.0, 0.5, 2.0, 0.7])
+
+    def through(**kwargs):
+        return lambda w: gaussx.pseudo_logdet(
+            _laplacian(5, _path_edges(5), w), **kwargs
+        )
+
+    grounded = jax.grad(through(null_space=jnp.ones(5)))(weights)
+    cofactor = jax.grad(through(structure="laplacian"))(weights)
+    rtol = 1e-4 if grounded.dtype == jnp.float32 else 1e-9
+    assert jnp.allclose(grounded, cofactor, rtol=rtol)

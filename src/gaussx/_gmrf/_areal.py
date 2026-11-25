@@ -16,7 +16,9 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Float
 
-from gaussx._einx import einsum, rearrange
+from gaussx._deprecation import warn_deprecated
+from gaussx._einx import rearrange
+from gaussx._gmrf._intrinsic import pinv_diagonal
 from gaussx._gmrf._temporal import _as_float
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
@@ -30,8 +32,6 @@ from gaussx._operators._sparse import (
 )
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._primitives._diag import diag
-from gaussx._primitives._solve import solve
-from gaussx._sparse._factor import sparse_cholesky
 
 
 _PSD = frozenset({lx.positive_semidefinite_tag})
@@ -157,16 +157,23 @@ def generalized_variance_scale(
       ``pinv=True``). This assumes ``null_space`` spans exactly the zero
       eigenspace.
     - **Anything else** (a `SparseOperator` graph Laplacian, a `BlockTriDiag` random
-      walk): as R-INLA's ``inla.scale.model``, the marginal variances of R + β I
-      from `gaussx.diag_inv` (the block selected inverse for a `BlockTriDiag`;
-      sparse Cholesky / Takahashi for a `SparseOperator`), then the kriging
-      correction for the constraint, at D_c solves:
+      walk): the rows and columns of D_c nodes P that determine the null space are
+      replaced by a unit diagonal, which leaves a positive-definite matrix on R's
+      pattern. Its inverse with zeros on P, G, is a generalised inverse of R, so
 
-          Σ = (R + β I)⁻¹ − W S⁻¹ Wᵀ,   W = (R + β I)⁻¹ V,   S = Vᵀ W
+          Σ = P⊥ G P⊥,   P⊥ = I − V (Vᵀ V)⁻¹ Vᵀ,
 
-    **Graphs too large to factor.** The ridge path cancels two O(1 / β) terms, so
-    it needs exact variances. Instead, with V orthonormal, (R + V Vᵀ)⁻¹ = R⁺ + V Vᵀ
-    is a well-conditioned system, and
+      with no ridge to choose: one sparse or banded Cholesky, its selected inverse,
+      and D_c solves. R-INLA's ``inla.scale.model`` adds a ridge of √eps times the
+      diagonal instead, which overtakes the smallest eigenvalue of a second-order
+      random walk near 200 nodes in float64.
+
+    **Accuracy.** The grounded matrix of a path is conditioned like N² for RW1 and
+    like N⁴ for RW2, so float64 carries an RW2 of a few thousand nodes and float32
+    one of about fifty.
+
+    **Graphs too large to factor.** With V orthonormal, (R + V Vᵀ)⁻¹ = R⁺ + V Vᵀ is a
+    well-conditioned system, and
 
         [Σ]_ii = [(R + V Vᵀ)⁻¹]_ii − ∑_c [V]_ic²
 
@@ -179,18 +186,17 @@ def generalized_variance_scale(
 
     Algorithm:
         1. Eigen-structured R with no padding row: read diag(R⁺) from the factors.
-        2. Otherwise pad V with a zero row if R has a padding node, and set the
-           ridge β.
-        3. Factor R + β I once, and solve W = (R + β I)⁻¹ V.
-        4. Correct: diag(Σ) = diag((R + β I)⁻¹) − diag(W S⁻¹ Wᵀ).
-        5. Return the geometric mean of the first n variances.
+        2. Otherwise pad V with a zero row if R has a padding node.
+        3. Ground R at the pivot nodes of V, factor it once, and project its
+           inverse: diag(Σ) = diag(P⊥ G P⊥).
+        4. Return the geometric mean of the first n variances.
 
     Args:
         structure: The structure matrix R (symmetric positive semidefinite).
         null_space: Basis V of the null space of R, shape ``(n, k)`` or ``(n,)``
             (e.g. the constants for a connected graph).
-        eps: Ridge β. Defaults to √(machine eps) · max diag(R), the value R-INLA
-            uses.
+        eps: Deprecated and ignored: the scale takes no ridge. Removed in gaussx
+            0.9.0.
 
     Returns:
         The scalar s.
@@ -236,6 +242,11 @@ def generalized_variance_scale(
         >>> jnp.exp(jnp.mean(jnp.log(variances))).shape
         ()
     """
+    if eps is not None:
+        warn_deprecated(
+            "generalized_variance_scale's eps is deprecated, ignored, and will be "
+            "removed in gaussx 0.9.0; the scale is exact and takes no ridge."
+        )
     null_basis = _as_float(null_space)
     if null_basis.ndim == 1:
         # The pattern is quoted by the AxisSizeError of an empty V: keep its text.
@@ -255,44 +266,8 @@ def generalized_variance_scale(
             # V with a zero row on the padding node
             null_basis = jnp.concatenate([null_basis, padding])
         dtype = jnp.result_type(structure.in_structure().dtype, null_basis.dtype)
-        if eps is None:
-            machine_eps = jnp.finfo(dtype).eps
-            root_eps = jnp.sqrt(machine_eps)
-            diagonal = diag(structure)
-            largest_diagonal = jnp.max(diagonal)
-            # β = √eps · max diag(R)
-            ridge = root_eps * largest_diagonal
-        else:
-            ridge = jnp.asarray(eps, dtype=dtype)
-        # R + β I
-        ridged_structure = _add_ridge(structure, ridge)
-        # diag((R + β I)⁻¹) and the correction are both O(1 / β) and cancel to
-        # O(1), so they must come from the same factorisation for the rounding
-        # to cancel.
-        if isinstance(ridged_structure, SparseOperator):
-            factor = sparse_cholesky(ridged_structure)
-            ridged_solve, ridged_diag_inv = factor.solve, factor.diag_inv
-        else:
-            ridged_solve = ft.partial(solve, ridged_structure)
-            ridged_diag_inv = ft.partial(diag_inv, ridged_structure)
-        column_solve = jax.vmap(ridged_solve, in_axes=1, out_axes=1)
-        # W = (R + β I)⁻¹ V
-        solved_null_space = column_solve(null_basis)
-        # S = Vᵀ W. The pattern is quoted by the AxisSizeError of a V with no
-        # columns: keep its text.
-        constraint_covariance = einsum(null_basis, solved_null_space, "i a, i b -> a b")
-        # S⁻¹
-        constraint_inverse = jnp.linalg.inv(constraint_covariance)
-        # diag(W S⁻¹ Wᵀ)
-        correction = einsum(
-            solved_null_space,
-            constraint_inverse,
-            solved_null_space,
-            "state row, row col, state col -> state",
-        )
-        ridged_variances = ridged_diag_inv()
-        # diag(Σ) = diag((R + β I)⁻¹) − diag(W S⁻¹ Wᵀ)
-        variances = ridged_variances - correction
+        # diag(R⁺) = diag(P⊥ G P⊥)
+        variances = pinv_diagonal(structure, null_basis.astype(dtype))
     # [Σ]_ii on the n nodes, without a padding node
     node_variances = variances[:n]
     log_variances = jnp.log(node_variances)
@@ -406,49 +381,6 @@ def _has_eigenbasis(operator: lx.AbstractLinearOperator) -> bool:
     if isinstance(operator, lx.TaggedLinearOperator):
         return _has_eigenbasis(operator.operator)
     return isinstance(operator, KroneckerSum | DiagonalizedOperator | SpectralFunction)
-
-
-def _add_ridge(
-    operator: lx.AbstractLinearOperator, eps: Float[Array, ""]
-) -> lx.AbstractLinearOperator:
-    """Ridged structure R + β I, keeping a sparse or block-tridiagonal structure.
-
-    Args:
-        operator: The structure R; anything but a (tagged) `SparseOperator` or
-            `BlockTriDiag` is densified.
-        eps: The ridge β.
-
-    Returns:
-        R + β I, tagged positive semidefinite.
-    """
-    n = operator.in_size()
-    if isinstance(operator, lx.TaggedLinearOperator) and isinstance(
-        operator.operator, SparseOperator | BlockTriDiag
-    ):
-        operator = operator.operator
-    if isinstance(operator, SparseOperator):
-        ridge_diagonal = jnp.full(n, eps, dtype=operator.values.dtype)
-        # R + β I on the pattern of R
-        return operator.add_diagonal(ridge_diagonal, tags=_PSD)
-    if isinstance(operator, BlockTriDiag):
-        block_size = operator.diagonal.shape[-1]
-        eye = jnp.eye(block_size, dtype=operator.diagonal.dtype)
-        # [R]_t,t + β I, block by block
-        ridged_diagonal = operator.diagonal + eps * eye
-        return BlockTriDiag(
-            ridged_diagonal,
-            operator.sub_diagonal,
-            symmetric=operator.symmetric,
-            tags=_PSD,
-        )
-    matrix = operator.as_matrix()
-    eye = jnp.eye(n, dtype=matrix.dtype)
-    # R + β I, dense
-    ridged_matrix = matrix + eps * eye
-    return lx.MatrixLinearOperator(
-        ridged_matrix,
-        frozenset({lx.symmetric_tag, lx.positive_semidefinite_tag}),
-    )
 
 
 def _as_sparse(

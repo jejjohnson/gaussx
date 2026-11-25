@@ -46,7 +46,8 @@ from jaxtyping import Array, ArrayLike, Float
 from gaussx._distributions._gaussian import _LOG_2PI
 from gaussx._distributions._utils import _reshape_batch, _reshape_samples
 from gaussx._einx import einsum, rearrange, reduce
-from gaussx._gmrf._areal import _add_ridge, _as_sparse, bym2_precision
+from gaussx._gmrf._areal import _as_sparse, bym2_precision
+from gaussx._gmrf._intrinsic import grounded_structure, null_dual, pinv_diagonal
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._diagonalised import DiagonalizedOperator
@@ -56,7 +57,6 @@ from gaussx._operators._kronecker_sum import KroneckerSum, KroneckerSumSqrt
 from gaussx._operators._sparse import SparseOperator
 from gaussx._operators._spectral_function import SpectralFunction
 from gaussx._primitives._cholesky import cholesky
-from gaussx._primitives._diag import diag
 from gaussx._primitives._logdet import pseudo_logdet
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
@@ -1148,26 +1148,30 @@ class IntrinsicGMRF(eqx.Module):
 
     - ``"hard"`` (default, what INLA needs): the field lives on
       {x : Vᵀ x = 0}. The log-density above (with the normaliser) is then
-      exactly the constrained density on that subspace. Samples are kriged
-      onto it: R-INLA's recipe of factoring τ R + β I (with the ridge
-      β = √eps times the mean diagonal) and kriging against Vᵀ x = 0
-      reduces, since (τ R + β I)⁻¹ V = V / β, to the orthogonal projection
-      P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x, which is what is applied (exactly, with no
-      extra solves). Marginal variances are kriging-corrected
-      (`ConstrainedGMRF`) on the shifted factor, or exact from the
-      pseudo-inverse on a Kronecker-structured R.
+      exactly the constrained density on that subspace, and samples and
+      marginal variances are those of 𝒩(μ, (τ R)⁺).
     - ``"soft"`` (for NUTS, which cannot sample a hard constraint): adds a
       tight Gaussian Vᵀ x ~ 𝒩(0, s² I), s = ``soft_constraint_scale``, to
       the density and to the samples.
     - ``"none"``: only μ plus a draw from 𝒩(0, (τ R)⁺); the density is
       improper and invariant along ker R.
 
-    The draw from 𝒩(0, (τ R)⁺) dispatches like `GaussianMRF`: Cholesky of
-    τ R + β I (sparse, banded or dense), the pseudo-inverse root in the
-    factored eigenbasis (exact, no shift), or perturbation-optimisation
-    with ``precision_factors`` (R = ∑_k F_kᵀ F_k, so the right-hand side
-    lies in range(R) and CG converges on the singular system); each is then
-    projected orthogonally to ``null_space``.
+    The draw from 𝒩(0, (τ R)⁺) dispatches like `GaussianMRF`: the Cholesky
+    factor of the grounded structure (sparse, banded or dense), the
+    pseudo-inverse root in the factored eigenbasis, or
+    perturbation-optimisation with ``precision_factors``
+    (R = ∑_k F_kᵀ F_k, so the right-hand side lies in range(R) and CG
+    converges on the singular system); each is then projected orthogonally
+    to ``null_space``.
+
+    **Grounding.** R is singular, so it is factored with the rows and columns
+    of D_c nodes replaced by a unit diagonal, nodes on which every vector of
+    ker R is determined (one per connected component of a graph, the two ends
+    of an RW2). With zeros on those nodes, that inverse G is a generalised
+    inverse of R, and R⁺ = P⊥ G P⊥ with P⊥ = I − V (Vᵀ V)⁻¹ Vᵀ: exact, on
+    R's sparsity pattern, with no ridge. The grounded matrix of a path is
+    conditioned like N² for RW1 and N⁴ for RW2, so float64 carries an RW2 of a
+    few thousand nodes and float32 one of about fifty.
 
     **Odd-n RW2.** `rw2_structure` with odd n returns n + 1 rows, the last a
     decoupled unit-precision node. Build the field on all D_x = n + 1 nodes
@@ -1299,22 +1303,8 @@ class IntrinsicGMRF(eqx.Module):
     # -- null space -----------------------------------------------------------
 
     def _null_dual(self) -> Float[Array, "N c"]:
-        """Dual basis V (Vᵀ V)⁻¹ of the null space.
-
-            P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
-
-        Returns:
-            V (Vᵀ V)⁻¹, shape ``(N, c)``.
-        """
-        null_basis = self.null_space
-        # Vᵀ V
-        null_gram = einsum(null_basis, null_basis, "state row, state col -> row col")
-        # Vᵀ
-        null_basis_transpose = rearrange(null_basis, "state null -> null state")
-        # (Vᵀ V)⁻¹ Vᵀ, a small dense solve
-        solved = jnp.linalg.solve(null_gram, null_basis_transpose)
-        # V (Vᵀ V)⁻¹
-        return rearrange(solved, "null state -> state null")
+        """Dual basis V (Vᵀ V)⁻¹ of the null space."""
+        return null_dual(self.null_space)
 
     def _project(self, x: Float[Array, "*sample N"]) -> Float[Array, "*sample N"]:
         """Orthogonal projection P⊥ x onto the complement of the null space.
@@ -1335,23 +1325,6 @@ class IntrinsicGMRF(eqx.Module):
         )
         # P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
         return x - null_component
-
-    def _shifted(self) -> lx.AbstractLinearOperator:
-        """Ridge-shifted precision τ R + β I, as R-INLA builds it.
-
-            β = √eps · mean(diag(τ R))
-
-        Returns:
-            τ R + β I, keeping a sparse or block-tridiagonal structure.
-        """
-        # τ R
-        scaled_structure = _scaled(self.structure, self.precision_scale)
-        # diag(τ R)
-        diagonal = diag(scaled_structure)
-        # β = √eps · mean(diag(τ R))
-        ridge = float(jnp.finfo(diagonal.dtype).eps) ** 0.5 * jnp.mean(diagonal)
-        # τ R + β I
-        return _add_ridge(scaled_structure, ridge)
 
     def _eigen(self) -> FactoredEigen | None:
         """Factored eigendecomposition of τ R, for a Kronecker structure.
@@ -1382,7 +1355,8 @@ class IntrinsicGMRF(eqx.Module):
             1. A factored eigenbasis: the pseudo-inverse root (τ R)^(+½) z.
             2. Factors F_k on a structure Cholesky does not suit:
                perturbation-optimisation on τ R = ∑_k (√τ F_k)ᵀ (√τ F_k).
-            3. Otherwise: the `GaussianMRF` dispatch on τ R + β I.
+            3. Otherwise: the `GaussianMRF` dispatch on the grounded R, with
+               zeros on the fixed nodes, over √τ.
 
         Returns:
             Tuple ``(noise_size, draw)``: the length of z and the map f.
@@ -1402,8 +1376,18 @@ class IntrinsicGMRF(eqx.Module):
             scaled_structure = _scaled(self.structure, self.precision_scale)
             # (τ R)⁻¹ ∑_k √τ F_kᵀ z_k, by CG on the singular system
             return _perturbation_draw(scaled_structure, scaled_factors, None)
-        # (τ R + β I)^(−½) z, by its structural factor
-        return _precision_sampler(self._shifted(), None, None)
+        grounded, free = grounded_structure(self.structure, self.null_space)
+        noise_size, draw = _precision_sampler(grounded, None, None)
+        # √τ
+        root_scale = jnp.sqrt(self.precision_scale)
+
+        def grounded_draw(noise: Array) -> Array:
+            # g ~ 𝒩(0, G), zero on the fixed nodes
+            free_draw = jnp.where(free, draw(noise), 0.0)
+            # g / √τ
+            return free_draw / root_scale
+
+        return noise_size, grounded_draw
 
     # -- density --------------------------------------------------------------
 
@@ -1494,8 +1478,7 @@ class IntrinsicGMRF(eqx.Module):
             1. Split the key into one for the field and one for the null
                space.
             2. Draw f(z) by the structural dispatch of ``_sampler``.
-            3. Project twice with P⊥: a shifted-Cholesky draw carries a
-               null component of order β^(−½).
+            3. Project with P⊥, twice for the rounding of the first.
             4. ``"none"``: return μ + P⊥ f(z). Otherwise centre on P⊥ μ, and
                for ``"soft"`` add V (Vᵀ V)⁻¹ s z_null, so Vᵀ x ~ 𝒩(0, s² I).
 
@@ -1514,8 +1497,8 @@ class IntrinsicGMRF(eqx.Module):
         dtype = self.loc.dtype
         # f(z)
         field_draws = _draw_samples(key_field, sample_shape, noise_size, draw, dtype)
-        # Twice is enough: a shifted-Cholesky draw carries a ~β^(−½) null
-        # component, and one projection leaves eps times that.
+        # A grounded draw's null component can be far larger than the draw; the
+        # second projection removes what rounding left of it.
         # P⊥ f(z)
         projected_once = self._project(field_draws)
         # P⊥ P⊥ f(z)
@@ -1544,14 +1527,12 @@ class IntrinsicGMRF(eqx.Module):
     def marginal_variances(self) -> Float[Array, " N"]:
         """Marginal variances diag((τ R)⁺), plus s² diag(V (Vᵀ V)⁻² Vᵀ) for soft.
 
-        The pseudo-inverse diagonal is exact from the factor eigenvalues on a
-        Kronecker structure, and otherwise the kriging-corrected
-        diag((τ R + β I)⁻¹) (R-INLA's constrained marginal variances).
+        The pseudo-inverse diagonal comes from the factor eigenvalues on a
+        Kronecker structure, and from the grounded structure otherwise.
 
         Algorithm:
             1. A factored eigenbasis: diag((τ R)⁺) from the eigenvalues.
-            2. Otherwise: krige 𝒩(0, (τ R + β I)⁻¹) onto Vᵀ x = 0 and take
-               its `ConstrainedGMRF` variances.
+            2. Otherwise: diag(R⁺) / τ, with R⁺ = P⊥ G P⊥.
             3. ``"soft"``: add s² diag(V (Vᵀ V)⁻² Vᵀ).
 
         Returns:
@@ -1562,19 +1543,14 @@ class IntrinsicGMRF(eqx.Module):
             # diag((τ R)⁺), exact
             variances = eigen.diag_inv(pinv=True)
         else:
-            shifted = GaussianMRF(jnp.zeros_like(self.loc), self._shifted())
-            # Vᵀ, the constraint matrix
-            null_constraints = rearrange(self.null_space, "state null -> null state")
-            null_values = jnp.zeros(self.null_space.shape[1], dtype=self.loc.dtype)
-            # x ∣ Vᵀ x = 0, x ~ 𝒩(0, (τ R + β I)⁻¹)
-            kriged = shifted.condition_on_constraints(null_constraints, null_values)
-            # diag((τ R + β I)⁻¹) − diag(W S⁻¹ Wᵀ)
-            variances = kriged.marginal_variances()
+            # diag(R⁺) / τ
+            variances = (
+                pinv_diagonal(self.structure, self.null_space) / self.precision_scale
+            )
         if self.constraint == "soft":
-            null_dual = self._null_dual()
             soft_scale = self.soft_constraint_scale
             # (V (Vᵀ V)⁻¹)², entry by entry
-            squared_dual = null_dual**2
+            squared_dual = self._null_dual() ** 2
             # diag(V (Vᵀ V)⁻² Vᵀ)
             dual_row_norms = reduce(squared_dual, "state null -> state", "sum")
             # + s² diag(V (Vᵀ V)⁻² Vᵀ)
@@ -1621,8 +1597,8 @@ class BYM2GMRF(IntrinsicGMRF):
     depends on θ = (τ, φ). So the bracket `IntrinsicGMRF` drops by default
     is not θ-free (it holds the (n / 2) log(τ / (1 − φ)) above), its
     normaliser takes a dense determinant of size 2n at every θ, and its
-    sampler's projection along ``null_space`` leaves the b-part of a
-    shifted-Cholesky draw unbounded. Here the θ-dependent term is always
+    sampler's projection along ``null_space`` leaves the b-part of a draw
+    off the null vector. Here the θ-dependent term is always
     included, the bracket is truly constant (from R* alone: the matrix-tree
     theorem, one sparse Cholesky, or ``log_pdet``), and draws are exact: u*
     from the constrained ICAR on R*, then b from its definition.

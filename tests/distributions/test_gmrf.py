@@ -481,8 +481,44 @@ def test_intrinsic_hard_marginal_variances_equal_pinv(kind):
     n = dense.shape[0]
     d = gx.IntrinsicGMRF(jnp.zeros(n), 2.0, op, null, factors)
     expected = np.diag(np.linalg.pinv(2.0 * dense, hermitian=True, rtol=None))
-    # The ε-shift biases the kriged path by ~ε/λ_min ≈ 1e-7 (relative).
-    np.testing.assert_allclose(d.marginal_variances(), expected, rtol=1e-6)
+    np.testing.assert_allclose(d.marginal_variances(), expected, rtol=1e-9)
+
+
+def test_long_rw2_variances_and_draws_are_exact():
+    # gh-866: √eps · diag as a ridge gave 0.22 of both at 500 nodes.
+    n, tau = 300, 2.5
+    t = jnp.arange(n, dtype=float)
+    null, _ = jnp.linalg.qr(
+        einx.id("k n -> n k", jnp.stack([jnp.ones(n), t - t.mean()]))
+    )
+    d = gx.IntrinsicGMRF(jnp.zeros(n), tau, gx.rw2_structure(n), null)
+    # Both ends fixed, what is left is the square of the Dirichlet path Laplacian,
+    # whose inverse is min(i, j) (n − 1 − max(i, j)) / (n − 1).
+    i = np.arange(1, n - 1, dtype=float)
+    low, high = np.minimum.outer(i, i), np.maximum.outer(i, i)
+    inverse = low * (n - 1 - high) / (n - 1)
+    grounded = np.zeros((n, n))
+    grounded[1:-1, 1:-1] = einsum(inverse, inverse, "i k, k j -> i j")
+    projector = np.eye(n) - einsum(null, null, "i c, j c -> i j")
+    cov = einsum(projector, grounded, projector, "i k, k l, l j -> i j") / tau
+    np.testing.assert_allclose(d.marginal_variances(), jnp.diag(cov), rtol=1e-7)
+    draws = d.sample(jr.key(30), (2000,))
+    # Each variance estimate has relative sd √(2/2000) ≈ 0.032; the mean over the
+    # strongly correlated nodes is within 7 of those.
+    ratio = jnp.mean(draws.var(0) / jnp.diag(cov))
+    assert abs(float(ratio) - 1.0) < 7 * math.sqrt(2 / 2000)
+
+
+def test_intrinsic_two_components_ground_one_node_each():
+    # Two disjoint paths, sparse: one node is fixed per component.
+    L = np.zeros((9, 9))
+    L[:4, :4], L[4:, 4:] = path_laplacian(4), path_laplacian(5)
+    null = np.zeros((9, 2))
+    null[:4, 0], null[4:, 1] = 1.0, 1.0
+    d = gx.IntrinsicGMRF(jnp.zeros(9), 1.7, sparse_from_dense(L), null)
+    cov = np.linalg.pinv(1.7 * L, hermitian=True, rtol=None)
+    np.testing.assert_allclose(d.marginal_variances(), np.diag(cov), rtol=1e-9)
+    assert_sample_moments(d.sample(jr.key(31), (4000,)), jnp.zeros(9), jnp.asarray(cov))
 
 
 @pytest.mark.slow
@@ -507,7 +543,7 @@ def test_intrinsic_soft_constraint_density_and_variances():
     expected = multivariate_normal.logpdf(x, jnp.zeros(n), jnp.linalg.inv(Q))
     np.testing.assert_allclose(d.log_prob(x), expected, rtol=1e-9)
     np.testing.assert_allclose(
-        d.marginal_variances(), np.diag(np.linalg.inv(Q)), rtol=1e-6
+        d.marginal_variances(), np.diag(np.linalg.inv(Q)), rtol=1e-9
     )
 
 
@@ -537,8 +573,8 @@ def test_intrinsic_odd_rw2_padding_node():
     assert jnp.max(jnp.abs(coeffs)) < 1e-10
     variances = d.marginal_variances()
     pinv = np.linalg.pinv(tau * R_n, hermitian=True, rtol=None)
-    np.testing.assert_allclose(variances[:n], np.diag(pinv), rtol=1e-6)
-    np.testing.assert_allclose(variances[n], 1 / tau, rtol=1e-6)
+    np.testing.assert_allclose(variances[:n], np.diag(pinv), rtol=1e-9)
+    np.testing.assert_allclose(variances[n], 1 / tau, rtol=1e-12)
 
 
 @pytest.mark.slow
