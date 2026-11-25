@@ -64,6 +64,17 @@ class TestRW1:
         assert jnp.allclose(R.as_matrix(), expected)
 
     @pytest.mark.slow
+    @pytest.mark.parametrize("spacing", [None, 2.0])
+    def test_single_node_is_zero(self, spacing):
+        # gh-763: no increment, so no edges.
+        R = gaussx.rw1_structure(1, spacing=spacing)
+        np.testing.assert_array_equal(R.as_matrix(), np.zeros((1, 1)))
+        np.testing.assert_array_equal(R.mv(jnp.ones(1)), np.zeros(1))
+
+    def test_no_nodes_raises(self):
+        with pytest.raises(ValueError, match="n >= 1"):
+            gaussx.rw1_structure(0)
+
     def test_selected_inverse_dispatch(self):
         R = gaussx.rw1_structure(8)
         H = gaussx.BlockTriDiag(R.diagonal + 0.5, R.sub_diagonal)
@@ -111,6 +122,16 @@ class TestRW2:
         assert jnp.allclose(R.as_matrix(), gram(D))
         assert jnp.allclose(R.mv(jnp.ones(7)), 0.0)
 
+    @pytest.mark.parametrize("n", [3, 4, 5, 6, 17, 18])
+    def test_bands_equal_the_dense_gram(self, n):
+        R = gaussx.rw2_structure(n)
+        D = second_difference(n)
+        expected = np.zeros((n + n % 2, n + n % 2))
+        expected[:n, :n] = np.einsum("ki,kj->ij", D, D)
+        if n % 2:
+            expected[n, n] = 1.0
+        np.testing.assert_array_equal(R.as_matrix(), expected)
+
     def test_too_small_raises(self):
         with pytest.raises(ValueError, match="n >= 3"):
             gaussx.rw2_structure(2)
@@ -142,3 +163,11 @@ class TestAR1:
     def test_dtype_follows_parameters(self):
         Q = gaussx.ar1_precision(4, jnp.float32(0.5), jnp.float32(1.0))
         assert Q.diagonal.dtype == jnp.float32
+
+
+@pytest.mark.x64_only(reason="promotion to float64 needs x64")
+@pytest.mark.parametrize("tau", [2, 2.0, True, np.int32(2)])
+def test_integer_parameters_keep_float32(tau):
+    # gh-761: an integer hyperparameter takes the dtype of what it meets.
+    rho = jnp.asarray(0.5, jnp.float32)
+    assert gaussx.ar1_precision(4, rho, tau).diagonal.dtype == jnp.float32

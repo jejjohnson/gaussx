@@ -77,6 +77,24 @@ class TestBesagStructure:
         with pytest.raises(ValueError, match="sum"):
             gaussx.besag_structure(shifted)
 
+    def test_float32_laplacian_is_accepted(self):
+        # gh-760: rounding leaves row sums of 1.5e-8, above a fixed 1e-8.
+        weights = np.array([0.1, 0.2, 0.3])
+        lower, upper = np.array([1, 2, 3]), np.array([0, 1, 2])
+        degree = np.bincount(lower, weights, 4) + np.bincount(upper, weights, 4)
+        values = jnp.asarray(np.r_[degree, -weights], dtype=jnp.float32)
+        R = gaussx.SparseOperator.from_coo(
+            np.r_[np.arange(4), lower],
+            np.r_[np.arange(4), upper],
+            values,
+            (4, 4),
+            symmetric=True,
+        )
+        assert gaussx.besag_structure(R).values.dtype == jnp.float32
+        # a row sum of 1e-4 of the diagonal is still an error
+        with pytest.raises(ValueError, match="sum to zero"):
+            gaussx.besag_structure(eqx_values(R, values.at[0].add(1e-4)))
+
     def test_non_symmetric_raises(self):
         with pytest.raises(ValueError, match="symmetric"):
             gaussx.besag_structure(lx.MatrixLinearOperator(jnp.ones((3, 3))))
@@ -303,6 +321,14 @@ class TestBYM2:
             return jnp.sum(gaussx.bym2_precision(R_star, tau, 0.5).values)
 
         assert jnp.isfinite(jax.grad(total)(2.0))
+
+    @pytest.mark.x64_only(reason="promotion to float64 needs x64")
+    @pytest.mark.parametrize("tau, phi", [(2, 0), (2.0, 0.0), (np.int32(2), 0.3)])
+    def test_integer_parameters_keep_float32(self, tau, phi):
+        # gh-761
+        R = graph_laplacian(5)
+        R = eqx_values(R, R.values.astype(jnp.float32))
+        assert gaussx.bym2_precision(R, tau, phi).values.dtype == jnp.float32
 
     def test_requires_sparse_structure(self):
         with pytest.raises(TypeError, match="SparseOperator"):

@@ -14,7 +14,7 @@ import lineax as lx
 import numpy as np
 from jaxtyping import Array, ArrayLike, Float
 
-from gaussx._einx import einsum, rearrange
+from gaussx._einx import rearrange
 from gaussx._operators._block_tridiag import BlockTriDiag
 from gaussx._operators._sparse import SparseOperator
 
@@ -26,15 +26,16 @@ def _as_float(value: ArrayLike) -> Array:
     """Convert a value to an inexact array, keeping a floating input's dtype.
 
     Args:
-        value: Scalar or array; an integer or boolean input becomes the default
-            float.
+        value: Scalar or array; an integer or boolean input becomes a weakly typed
+            float, which takes the dtype of what it meets, as a Python float does.
 
     Returns:
         The value as an inexact array.
     """
     value = jnp.asarray(value)
     if not jnp.issubdtype(value.dtype, jnp.inexact):
-        value = value.astype(jnp.result_type(float))
+        # an integer times a Python float is a weakly typed float
+        value = value * 1.0
     return value
 
 
@@ -90,7 +91,11 @@ def rw1_structure(
 
     Returns:
         R as a positive-semidefinite `BlockTriDiag` with 1 × 1 blocks, or a
-        symmetric `SparseOperator` with ``cyclic=True``.
+        symmetric `SparseOperator` with ``cyclic=True``. A single node has no
+        increment, and its R is zero.
+
+    Raises:
+        ValueError: If n < 1.
 
     Examples:
         Constants are in the null space:
@@ -110,6 +115,8 @@ def rw1_structure(
         >>> bool(jnp.allclose(cycle.mv(jnp.ones(4)), 0.0))
         True
     """
+    if n < 1:
+        raise ValueError(f"rw1_structure needs n >= 1, got {n}.")
     num_edges = n if cyclic else n - 1
     if spacing is None:
         dtype = jnp.result_type(float)
@@ -126,8 +133,10 @@ def rw1_structure(
     degree = jnp.zeros(n, dtype=weights.dtype)
     degree = degree.at[1:].add(weights)
     degree = degree.at[:-1].add(weights)
-    # The pattern below is quoted by the AxisSizeError of n = 1: keep its text.
     diagonal_blocks = rearrange(degree, "(n a b) -> n a b", a=1, b=1)
+    if n == 1:  # no sub-diagonal, which einx rejects
+        no_edges = jnp.zeros((0, 1, 1), dtype=weights.dtype)
+        return BlockTriDiag(diagonal_blocks, no_edges, tags=_PSD)
     # [R]_t+1,t = −w_t
     negated_weights = -weights
     sub_diagonal_blocks = rearrange(negated_weights, "(n a b) -> n a b", a=1, b=1)
@@ -192,33 +201,37 @@ def rw2_structure(n: int, *, cyclic: bool = False) -> BlockTriDiag | SparseOpera
         first_band = -4.0 * ones
         # [R]_t+2,t = 1
         return _cyclic_structure(n, [main_band, first_band, ones], [0, 1, 2])
-    # D₂ for the open chain, padded to an even size with a decoupled node.
+    # The bands of D₂ᵀ D₂ for the open chain, padded to an even size with a decoupled
+    # node. Row r of D₂ is (1, −2, 1) on the nodes r, r + 1, r + 2.
     size = n + (n % 2)
-    stencil = np.zeros((n - 2, size))
-    rows = np.arange(n - 2)
-    stencil[rows, rows] = 1.0
-    stencil[rows, rows + 1] = -2.0
-    stencil[rows, rows + 2] = 1.0
-    second_difference = jnp.asarray(stencil, dtype=dtype)
-    # R = D₂ᵀ D₂
-    structure = einsum(
-        second_difference,
-        second_difference,
-        "stencil row, stencil col -> row col",
-    )
+    num_rows = n - 2
+    main_band = np.zeros(size)
+    for shift, square in ((0, 1.0), (1, 4.0), (2, 1.0)):
+        main_band[shift : shift + num_rows] += square
+    first_band = np.zeros(size)
+    for shift in (0, 1):
+        first_band[shift : shift + num_rows] -= 2.0
+    second_band = np.zeros(size)
+    second_band[:num_rows] = 1.0
     if size != n:
         # [R]_n,n = 1, the padding node
-        structure = structure.at[n, n].set(1.0)
-    blocks = rearrange(
-        structure,
-        "(block_row a) (block_col b) -> block_row block_col a b",
-        a=2,
-        b=2,
-    )
+        main_band[n] = 1.0
+    # 2 × 2 blocks: nodes (2b, 2b + 1) on the diagonal, coupled to (2b + 2, 2b + 3)
     num_blocks = size // 2
-    diagonal = blocks[jnp.arange(num_blocks), jnp.arange(num_blocks)]
-    sub_diagonal = blocks[jnp.arange(1, num_blocks), jnp.arange(num_blocks - 1)]
-    return BlockTriDiag(diagonal, sub_diagonal, tags=_PSD)
+    diagonal = np.zeros((num_blocks, 2, 2))
+    diagonal[:, 0, 0] = main_band[0::2]
+    diagonal[:, 1, 1] = main_band[1::2]
+    diagonal[:, 1, 0] = diagonal[:, 0, 1] = first_band[0::2]
+    sub_diagonal = np.zeros((num_blocks - 1, 2, 2))
+    # [R]_2b+2,2b, [R]_2b+2,2b+1 and [R]_2b+3,2b+1
+    sub_diagonal[:, 0, 0] = second_band[0::2][:-1]
+    sub_diagonal[:, 0, 1] = first_band[1::2][:-1]
+    sub_diagonal[:, 1, 1] = second_band[1::2][:-1]
+    return BlockTriDiag(
+        jnp.asarray(diagonal, dtype=dtype),
+        jnp.asarray(sub_diagonal, dtype=dtype),
+        tags=_PSD,
+    )
 
 
 def ar1_precision(

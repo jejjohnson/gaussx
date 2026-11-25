@@ -91,11 +91,11 @@ def fem_matrices(
         ValueError: triangle indices out of range for 3 vertices.
     """
     vertex_coords = _as_float(vertices)
-    triangle_vertices = _host_triangles(triangles, vertex_coords.shape[0])
     if vertex_coords.ndim != 2 or vertex_coords.shape[1] not in (2, 3):
         raise ValueError(
             f"vertices must have shape (V, 2) or (V, 3), got {vertex_coords.shape}."
         )
+    triangle_vertices = _host_triangles(triangles, vertex_coords.shape[0])
     corners = vertex_coords[triangle_vertices]
     # e_iᵀ e_j and |T|
     gram, area = _local_geometry(corners)
@@ -205,16 +205,24 @@ def fem_projector(
         ValueError: point 0 does not lie on the mesh (1 such points in this block).
     """
     vertex_coords = _as_float(vertices)
-    triangle_vertices = _host_triangles(triangles, vertex_coords.shape[0])
     if vertex_coords.ndim != 2 or vertex_coords.shape[1] not in (2, 3):
         raise ValueError(
             f"vertices must have shape (V, 2) or (V, 3), got {vertex_coords.shape}."
         )
+    triangle_vertices = _host_triangles(triangles, vertex_coords.shape[0])
     point_coords = jnp.asarray(points, dtype=vertex_coords.dtype)
     if point_coords.ndim != 2 or point_coords.shape[1] != vertex_coords.shape[1]:
         raise ValueError(
             f"points must have shape (n, {vertex_coords.shape[1]}) like vertices, "
             f"got {point_coords.shape}."
+        )
+    if point_coords.shape[0] == 0:
+        # no points: A has no rows
+        return SparseOperator.from_coo(
+            np.zeros(0, int),
+            np.zeros(0, int),
+            jnp.zeros(0, dtype=vertex_coords.dtype),
+            (0, vertex_coords.shape[0]),
         )
     centre = None
     if triangle_index is None:
@@ -280,7 +288,8 @@ def _host_triangles(triangles: ArrayLike, n_vertices: int) -> np.ndarray:
 
     Raises:
         TypeError: If they are traced.
-        ValueError: If the shape or dtype is wrong or an index is out of range.
+        ValueError: If the shape or dtype is wrong, there is no triangle or an index
+            is out of range.
     """
     try:
         host_triangles = np.asarray(triangles)
@@ -294,9 +303,9 @@ def _host_triangles(triangles: ArrayLike, n_vertices: int) -> np.ndarray:
         raise ValueError(
             f"triangles must be integers of shape (T, 3), got {host_triangles.shape}."
         )
-    if host_triangles.size and (
-        host_triangles.min() < 0 or host_triangles.max() >= n_vertices
-    ):
+    if not host_triangles.size:
+        raise ValueError("triangles must hold at least one triangle.")
+    if host_triangles.min() < 0 or host_triangles.max() >= n_vertices:
         raise ValueError(f"triangle indices out of range for {n_vertices} vertices.")
     return host_triangles.astype(np.int64)
 

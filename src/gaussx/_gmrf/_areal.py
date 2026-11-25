@@ -35,8 +35,10 @@ from gaussx._primitives._diag import diag
 
 
 _PSD = frozenset({lx.positive_semidefinite_tag})
-# Row sums of a Laplacian must vanish to this fraction of its largest diagonal.
+# Row sums of a Laplacian must vanish to this fraction of its largest diagonal, or to
+# this many machine epsilons of its dtype where that is more (float32).
 _ROW_SUM_TOLERANCE = 1e-8
+_ROW_SUM_EPSILONS = 64.0
 
 
 def besag_structure(
@@ -108,11 +110,13 @@ def besag_structure(
         row_sums = np.asarray(row_sums)
         diagonal = np.asarray(diag(laplacian_op))
         # max |[R]_ii|
-        scale = float(np.max(np.abs(diagonal)))
+        scale = float(np.max(np.abs(diagonal), initial=0.0))
     except jax.errors.TracerArrayConversionError:
         pass  # traced values: the check is skipped
     else:
-        tolerance = _ROW_SUM_TOLERANCE * max(scale, 1.0)
+        machine_eps = float(np.finfo(row_sums.dtype).eps)
+        relative = max(_ROW_SUM_TOLERANCE, _ROW_SUM_EPSILONS * machine_eps)
+        tolerance = relative * max(scale, 1.0)
         if np.max(np.abs(row_sums), initial=0.0) > tolerance:
             raise ValueError(
                 "A Besag structure matrix is a graph Laplacian, whose rows sum "
