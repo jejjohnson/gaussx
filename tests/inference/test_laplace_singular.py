@@ -316,24 +316,109 @@ def test_constrained_value_off_zero():
     )
 
 
-def test_every_node_read_keeps_the_plain_factor():
+def test_identity_projector_keeps_the_plain_factor():
     n = 8
     prior = gx.IntrinsicGMRF(
         jnp.zeros(n), 1.0, sparse(walk(n), symmetric=True), jnp.ones(n)
     )
-    likelihood = gx.PoissonLikelihood(jnp.ones(n))
-    assert gx.laplace_model(prior, likelihood).ground_nodes is None
-    # every node read once, node 0 twice
-    selection = sparse(np.eye(n)[[*range(n), 0]])
-    model = gx.laplace_model(
-        prior, gx.PoissonLikelihood(jnp.ones(n + 1)), projector=selection
-    )
+    model = gx.laplace_model(prior, gx.PoissonLikelihood(jnp.ones(n)))
     assert model.ground_nodes is None
-    partial = sparse(np.eye(n)[:-1])
-    model = gx.laplace_model(
-        prior, gx.PoissonLikelihood(jnp.ones(n - 1)), projector=partial
+
+
+def test_scaled_structure_and_stored_zeros():
+    # 3 R is a lazy multiple, and a square projector stores zeros on its diagonal:
+    # neither may hide the singular posterior.
+    case = two_walks()
+    n = case.structure.shape[0]
+    mask = np.zeros((n, n))
+    mask[:4, :4] = np.eye(4)
+    likelihood = gx.GaussianLikelihood(jnp.arange(n) / n, 0.1)
+    prior = gx.IntrinsicGMRF(
+        jnp.zeros(n),
+        0.5,
+        3.0 * sparse(case.structure, symmetric=True),
+        jnp.asarray(case.kernel),
+        include_normalizer=True,
     )
-    assert model.ground_nodes is not None
+    fit = laplace_fit(prior, likelihood, projector=sparse(mask))
+    reduced_prior, _ = case.reference(1.5)
+    reduced_projector = lx.MatrixLinearOperator(jnp.asarray(mask @ case.complement()))
+    reduced = laplace_fit(reduced_prior, likelihood, projector=reduced_projector)
+    np.testing.assert_allclose(fit.log_marginal, reduced.log_marginal, rtol=1e-10)
+
+
+@pytest.mark.parametrize("noise", [1e-6, 1e-12])
+@pytest.mark.parametrize("order", [1, 2])
+def test_precise_observations_of_few_nodes(noise, order):
+    # B must not follow the data's precision, or Vᵀ Λ'⁻¹ V loses its digits.
+    n, kernel = 12, np.ones((12, 1))
+    if order == 2:
+        kernel = np.stack([np.ones(n), np.arange(n) - (n - 1) / 2]).T
+    A = np.zeros((2, n))
+    A[0, 0], A[1, n - 1] = 1.0, 1.0
+    case = Case(walk(n, order), kernel, kernel, A)
+    likelihood = gx.GaussianLikelihood(jnp.array([0.3, -0.2]), noise)
+
+    def full(log_tau):
+        return laplace_fit(
+            case.prior(jnp.exp(log_tau)), likelihood, projector=sparse(A)
+        ).log_marginal
+
+    # the exact evidence, from the covariance of the two observations
+    N = case.complement()
+    cov = A @ N @ np.linalg.inv(N.T @ case.structure @ N) @ N.T @ A.T
+    y = np.asarray(likelihood.y)
+
+    def exact(log_tau):
+        total = jnp.asarray(cov) / jnp.exp(log_tau) + noise * jnp.eye(2)
+        return -0.5 * (
+            y @ jnp.linalg.solve(total, y)
+            + jnp.linalg.slogdet(total)[1]
+            + 2 * jnp.log(2 * jnp.pi)
+        )
+
+    value, slope = jax.value_and_grad(full)(0.4)
+    expected, expected_slope = jax.value_and_grad(exact)(0.4)
+    np.testing.assert_allclose(value, expected, rtol=1e-7)
+    np.testing.assert_allclose(slope, expected_slope, rtol=1e-6)
+
+
+def test_float32_precise_observations():
+    n = 100
+    kernel = np.stack([np.ones(n), np.arange(n) - (n - 1) / 2]).T
+    kernel = np.linalg.qr(kernel)[0]
+    nodes = np.array([3, 20, 50, 71, 96])
+    A = np.zeros((5, n))
+    A[np.arange(5), nodes] = 1.0
+    y = np.sin(nodes / 9.0)
+    noise, tau = 1e-6, 1.0
+
+    def fit(dtype):
+        dense = walk(n, 2)
+        rows, cols = np.nonzero(np.tril(dense))
+        structure = gx.SparseOperator.from_coo(
+            rows, cols, jnp.asarray(dense[rows, cols], dtype), (n, n), symmetric=True
+        )
+        prior = gx.IntrinsicGMRF(
+            jnp.zeros(n, dtype),
+            jnp.asarray(tau, dtype),
+            structure,
+            jnp.asarray(kernel, dtype),
+            include_normalizer=True,
+        )
+        projector = gx.SparseOperator.from_coo(
+            np.arange(5), nodes, jnp.ones(5, dtype), (5, n)
+        )
+        likelihood = gx.GaussianLikelihood(
+            jnp.asarray(y, dtype), jnp.asarray(noise, dtype)
+        )
+        return laplace_fit(prior, likelihood, projector=projector, max_iter=5)
+
+    single, double = fit(jnp.float32), fit(jnp.float64)
+    assert single.log_marginal.dtype == jnp.float32
+    # RW2 at 100 nodes keeps about two digits of a variance in float32; the
+    # log-marginal was off by 1.5 when B followed the data's precision.
+    assert abs(float(single.log_marginal) - float(double.log_marginal)) < 0.1
 
 
 def test_validation():

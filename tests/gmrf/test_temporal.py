@@ -65,9 +65,10 @@ class TestRW1:
 
     @pytest.mark.slow
     @pytest.mark.parametrize("spacing", [None, 2.0])
-    def test_single_node_is_zero(self, spacing):
+    @pytest.mark.parametrize("cyclic", [False, True])
+    def test_single_node_is_zero(self, spacing, cyclic):
         # gh-763: no increment, so no edges.
-        R = gaussx.rw1_structure(1, spacing=spacing)
+        R = gaussx.rw1_structure(1, spacing=spacing, cyclic=cyclic)
         np.testing.assert_array_equal(R.as_matrix(), np.zeros((1, 1)))
         np.testing.assert_array_equal(R.mv(jnp.ones(1)), np.zeros(1))
 

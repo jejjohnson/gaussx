@@ -46,6 +46,7 @@ assert jnp.abs(u.sum()) < 1e-4  # the hard constraint 1ᵀ u = 0
 ## Rules
 
 - A `GaussianMRF` precision can be sparse, block-tridiagonal, Kronecker or dense, and it takes the cheapest exact path for each.
+- A precision that is singular along a constrained direction (the Laplace posterior of two intrinsic parts) needs `condition_on_constraints(A_c, e, null_space=V)`.
 - For a graph with a null space (ICAR), use `IntrinsicGMRF`, or `BYM2GMRF` when the structure depends on the hyperparameters.
 - For a Gaussian given by its covariance, use the functions in [gaussians](gaussians.md) (`gaussian_log_prob`, `sample_mvn`) rather than a field.
 

@@ -215,6 +215,14 @@ class TestGeneralizedVarianceScale:
         slope = jnp.vdot(jax.grad(scale)(point), direction)
         assert jnp.allclose(slope, (upper - lower) / (2 * step), rtol=1e-7)
 
+    @pytest.mark.x64_only(reason="promotion to float64 needs x64")
+    def test_integer_null_space_keeps_float32(self):
+        # gh-761
+        R = graph_laplacian(10)
+        R = eqx_values(R, R.values.astype(jnp.float32))
+        s = gaussx.generalized_variance_scale(R, np.ones(10, int))
+        assert s.dtype == jnp.float32
+
     def test_eps_is_deprecated_and_ignored(self):
         R = gaussx.rw1_structure(10)
         with pytest.warns(GaussxDeprecationWarning, match="0.9.0"):

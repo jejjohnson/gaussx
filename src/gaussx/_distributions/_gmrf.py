@@ -72,7 +72,7 @@ from gaussx._gmrf._regularized import (
 from gaussx._linalg._diag_inv import diag_inv
 from gaussx._operators._diagonalised import DiagonalizedOperator
 from gaussx._operators._factored_eigen import FactoredEigen, factored_eigen
-from gaussx._operators._grounding import ground_nodes
+from gaussx._operators._grounding import ground_nodes, push_scalar
 from gaussx._operators._kronecker_sum import KroneckerSum
 from gaussx._operators._sparse import SparseOperator
 from gaussx._primitives._logdet import pseudo_logdet
@@ -516,7 +516,7 @@ class ConstrainedGMRF(eqx.Module):
         ValueError: If A_c and e do not have shapes ``(c, N)`` and ``(c,)``, or
             ``null_space`` does not have N rows.
         TypeError: For a ``null_space`` with a precision that is neither sparse,
-            symmetric block-tridiagonal nor dense.
+            symmetric block-tridiagonal, diagonal nor dense.
 
     Examples:
         A sum-to-one constraint on four iid nodes of precision 2:
@@ -584,11 +584,12 @@ class ConstrainedGMRF(eqx.Module):
                 raise ValueError(
                     f"null_space must have {n} rows, got shape {null_space.shape}."
                 )
-            if not is_groundable(_unwrap(base.precision)):
+            precision = push_scalar(base.precision)
+            if not is_groundable(precision):
                 raise TypeError(
                     "a singular precision must be a SparseOperator, a symmetric "
-                    "BlockTriDiag or a dense operator, got "
-                    f"{type(_unwrap(base.precision)).__name__}."
+                    "BlockTriDiag, or a diagonal or dense operator, got "
+                    f"{type(precision).__name__}."
                 )
         self.base = base
         self.constraint_matrix = A
@@ -611,7 +612,7 @@ class ConstrainedGMRF(eqx.Module):
             return None
         solver = self.base.solver
         return regularized_factor(
-            _unwrap(self.base.precision),
+            push_scalar(self.base.precision),
             rearrange(self.constraint_matrix, "con state -> state con"),
             ground_nodes(self.null_space),
             solver if isinstance(solver, SparseCholeskySolver) else None,
@@ -1117,7 +1118,7 @@ class IntrinsicGMRF(eqx.Module):
     def _project(self, x: Float[Array, "*sample N"]) -> Float[Array, "*sample N"]:
         """Orthogonal projection P⊥ x onto the complement of the null space.
 
-            P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
+            P⊥ x = x − Q Qᵀ x,   V = Q R
 
         Args:
             x: Points x, shape ``(..., N)``.
@@ -1125,13 +1126,13 @@ class IntrinsicGMRF(eqx.Module):
         Returns:
             P⊥ x, shape ``(..., N)``.
         """
-        # Vᵀ x
-        null_coeffs = einsum(x, self.null_space, "... state, state null -> ... null")
-        # V (Vᵀ V)⁻¹ Vᵀ x
-        null_component = einsum(
-            null_coeffs, self._null_dual(), "... null, state null -> ... state"
-        )
-        # P⊥ x = x − V (Vᵀ V)⁻¹ Vᵀ x
+        # an orthonormal basis Q of the null space
+        basis, _ = jnp.linalg.qr(self.null_space)
+        # Qᵀ x
+        null_coeffs = einsum(x, basis, "... state, state null -> ... null")
+        # Q Qᵀ x
+        null_component = einsum(null_coeffs, basis, "... null, state null -> ... state")
+        # P⊥ x = x − Q Qᵀ x
         return x - null_component
 
     def _eigen(self) -> FactoredEigen | None:
@@ -1175,7 +1176,7 @@ class IntrinsicGMRF(eqx.Module):
             # (τ R)^(+½) z
             return event_size, lambda noise: _eigen_draw(eigen, noise, pinv=True)
         factors = self.precision_factors
-        if factors is not None and not _is_factorable(_unwrap(self.structure)):
+        if factors is not None and not _is_factorable(push_scalar(self.structure)):
             # √τ
             root_scale = jnp.sqrt(self.precision_scale)
             # √τ F_k, so that τ R = ∑_k (√τ F_k)ᵀ (√τ F_k)
