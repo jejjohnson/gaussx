@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Float, PRNGKeyArray
 
 from gaussx._einx import einsum
+from gaussx._operators import low_rank_plus_identity
 from gaussx._preconditioners._base import AbstractPreconditioner
 from gaussx._randomized._nystrom import randomized_nystrom
 
@@ -57,6 +59,19 @@ class NystromPreconditioner(AbstractPreconditioner):
     orth(K Ω) rather than orth(Ω), which is more accurate, so it is not
     numerically identical to the old preconditioner.
 
+    **As P itself.** The inverse of M⁻¹ is
+
+        P = I + U diag(s − 1) Uᵀ,   s_j = (γ̂_j + σ²) / (γ̂_k + σ²) ≥ 1,
+
+    which is A / (γ̂_k + σ²) on range(U) and I on its complement, so
+    P ≈ A / (γ̂_k + σ²) up to the scale. `approximation`, `logdet` and
+    `sample` use this P, the one CG applies, so that
+    log det A = log det P + log det(P⁻¹ A) holds exactly and the stochastic
+    part sees the near-identity P⁻¹ A:
+
+        log det P = ∑_j log s_j,
+        z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n) ~ 𝒩(0, P).
+
     Attributes:
         basis: Orthonormal basis U, N × k.
         eigenvalues: Nyström eigenvalues γ̂, descending, of length k.
@@ -83,6 +98,15 @@ class NystromPreconditioner(AbstractPreconditioner):
         >>> solver = gaussx.PreconditionedCGSolver(preconditioner=preconditioner)
         >>> x = solver.solve(A, jnp.ones(100))
         >>> bool(jnp.allclose(A.mv(x), jnp.ones(100), atol=1e-2))
+        True
+
+        P itself, an orthonormal low-rank update with an exact inverse:
+
+        >>> P = preconditioner.approximation()
+        >>> type(P).__name__
+        'LowRankUpdate'
+        >>> identity = preconditioner.as_operator().mv(P.mv(jnp.ones(100)))
+        >>> bool(jnp.allclose(identity, jnp.ones(100), atol=1e-4))
         True
 
         A non-positive shift is rejected:
@@ -172,4 +196,109 @@ class NystromPreconditioner(AbstractPreconditioner):
 
         return lx.FunctionLinearOperator(
             matvec, structure, lx.positive_semidefinite_tag
+        )
+
+    def supports_slq(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> bool:
+        """``True``: P = (M⁻¹)⁻¹ is known from the stored factors.
+
+        Args:
+            operator: The system operator A; unused.
+
+        Returns:
+            ``True``.
+        """
+        del operator
+        return True
+
+    def logdet(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> Float[Array, ""]:
+        """log det P = ∑_j log s_j, s_j = (γ̂_j + σ²) / (γ̂_k + σ²).
+
+        Args:
+            operator: The system operator A; unused, since the factors are
+                stored.
+
+        Returns:
+            The scalar log det P (≥ 0, since every s_j ≥ 1).
+        """
+        del operator
+        # s_j = (γ̂_j + σ²) / (γ̂_k + σ²)
+        ratio = self._ratio()
+        # log det P = ∑_j log s_j
+        return jnp.sum(jnp.log(ratio))
+
+    def sample(
+        self,
+        key: PRNGKeyArray,
+        operator: lx.AbstractLinearOperator | None = None,
+        *,
+        shape: tuple[int, ...] = (),
+    ) -> Float[Array, "*batch n"]:
+        """Draw z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n) ~ 𝒩(0, P).
+
+        The two parts are independent and cover range(U) and its
+        complement, so Cov(z) = U diag(s) Uᵀ + (I − U Uᵀ) = P.
+
+        Args:
+            key: PRNG key for ε_k and ε_n.
+            operator: The system operator A; unused, since the factors are
+                stored.
+            shape: Batch shape of the draws.
+
+        Returns:
+            The draws z, of shape ``(*shape, n)``.
+        """
+        del operator
+        basis = self.basis
+        size, rank = basis.shape
+        range_key, complement_key = jr.split(key)
+        # ε_k ~ 𝒩(0, I_k), ε_n ~ 𝒩(0, I_n)
+        range_noise = jr.normal(range_key, (*shape, rank), dtype=basis.dtype)
+        noise = jr.normal(complement_key, (*shape, size), dtype=basis.dtype)
+        # √s ⊙ ε_k
+        scaled = jnp.sqrt(self._ratio()) * range_noise
+        # Uᵀ ε_n
+        coefficients = einsum(basis, noise, "row rank, ... row -> ... rank")
+        # U (√s ⊙ ε_k − Uᵀ ε_n)
+        in_range = einsum(basis, scaled - coefficients, "row rank, ... rank -> ... row")
+        # z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n)
+        return noise + in_range
+
+    def approximation(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> lx.AbstractLinearOperator:
+        """P = I + U diag(s − 1) Uᵀ, an orthonormal `LowRankUpdate`.
+
+        Its solve and log-determinant take the O(N k) orthonormal closed
+        forms, with no k × k factorisation.
+
+        Args:
+            operator: The system operator A; unused, since the factors are
+                stored.
+
+        Returns:
+            P as a PSD-tagged `gaussx.LowRankUpdate` on an identity base.
+        """
+        del operator
+        # s − 1 = (γ̂ − γ̂_k) / (γ̂_k + σ²) ≥ 0
+        update = self._ratio() - 1.0
+        # P = I + U diag(s − 1) Uᵀ
+        return low_rank_plus_identity(self.basis, update, psd=True, orthonormal=True)
+
+    def _ratio(self) -> Float[Array, " l"]:
+        """The eigenvalues s_j = (γ̂_j + σ²) / (γ̂_k + σ²) of P on range(U).
+
+        Returns:
+            s, of length k.
+        """
+        noise_variance = self.shift
+        # s_j = (γ̂_j + σ²) / (γ̂_k + σ²)
+        return (self.eigenvalues + noise_variance) / (
+            self.eigenvalues[-1] + noise_variance
         )
