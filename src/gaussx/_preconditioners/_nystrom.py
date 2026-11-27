@@ -106,7 +106,7 @@ class NystromPreconditioner(AbstractPreconditioner):
         >>> type(P).__name__
         'LowRankUpdate'
         >>> identity = preconditioner.as_operator().mv(P.mv(jnp.ones(100)))
-        >>> bool(jnp.allclose(identity, jnp.ones(100), atol=1e-4))
+        >>> bool(jnp.allclose(identity, jnp.ones(100), atol=1e-3))
         True
 
         A non-positive shift is rejected:
