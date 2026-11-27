@@ -59,8 +59,8 @@ from gaussx._operators._masked import (
 )
 from gaussx._operators._row_kron import row_kron
 from gaussx._operators._sparse import SparseOperator, SparsityPattern
-from gaussx._operators._split import DiagonalSplit, split_diagonal
 from gaussx._operators._spectral_function import SpectralFunction
+from gaussx._operators._split import DiagonalSplit, split_diagonal
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     is_eigen_reducible as is_eigen_reducible,

@@ -54,8 +54,8 @@ def _summand_diagonal(
     """The diagonal of a summand that is diagonal by type, else ``None``.
 
     Recognised: ``DiagonalLinearOperator(d)`` (d), ``IdentityLinearOperator``
-    (𝟏), and a scalar multiple ``s * D`` (s d) or quotient ``D / s`` (d / s)
-    of either, through any tags.
+    (a vector of ones), and a scalar multiple ``s * D`` (s d) or quotient
+    ``D / s`` (d / s) of either, through any tags.
 
     Args:
         operator: One summand of the system.
@@ -109,7 +109,7 @@ def split_diagonal(
     | System | ``base`` | ``diagonal`` |
     | --- | --- | --- |
     | ``K + DiagonalLinearOperator(d)`` | K | d |
-    | ``K + s * IdentityLinearOperator(...)`` | K | s 𝟏 |
+    | ``K + s * IdentityLinearOperator(...)`` | K | s · ones |
     | ``K + s * DiagonalLinearOperator(d)``, ``K + D / s`` | K | s d, d / s |
     | ``TaggedLinearOperator(<any of these>)`` | as inside | as inside |
     | nested sums with several diagonals | the other summands | their sum |
@@ -154,8 +154,8 @@ def split_diagonal(
         A scaled identity, on either side, gives a constant diagonal:
 
         >>> identity = lx.IdentityLinearOperator(kernel.in_structure())
-        >>> gaussx.split_diagonal(0.1 * identity + kernel).diagonal.round(2).tolist()
-        [0.1, 0.1]
+        >>> gaussx.split_diagonal(0.5 * identity + kernel).diagonal.tolist()
+        [0.5, 0.5]
 
         A single dense matrix has no split:
 

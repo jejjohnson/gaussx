@@ -93,7 +93,7 @@ Open the one the task needs; do not read them all.
 <!-- shelf:begin -->
 | Role | Entry | Covers | Names |
 |---|---|---|---|
-| ⓪ structure | [Structured operators](shelf/operators.md) | the Kronecker family, block, low-rank, Toeplitz and circulant, masked and interpolated operators | 34 |
+| ⓪ structure | [Structured operators](shelf/operators.md) | the Kronecker family, block, low-rank, Toeplitz and circulant, masked and interpolated operators | 36 |
 | ⓪ structure | [Tags and predicates](shelf/tags.md) | PSD, symmetric, Kronecker and the other tags, and what each unlocks | 24 |
 | ⓪ structure | [Sparse operators](shelf/sparse.md) | `SparseOperator`, patterns, symbolic and numeric sparse Cholesky | 7 |
 | ⓪ structure | [GMRF precisions](shelf/gmrf.md) | SPDE, random-walk, AR1, Besag and BYM2 precision builders | 12 |
