@@ -38,6 +38,7 @@ Every operator is a `lineax.AbstractLinearOperator`, so `op.mv(x)`, `op.as_matri
 | `grid_coupling_indices(mask)` | Flat indices of masked-out grid cells next to the masked-in region. |
 | `CapacitanceSolver(base_solve, boundary_indices, n)` | A base solve under homogeneous point constraints. |
 | `sum_operator(*ops)`, `product_operator(A, B)`, `scaled_operator(A, c)` | Lazy `A + B`, `A B` and `c A` that keep the tags you pass. |
+| `split_diagonal(A)` → `DiagonalSplit` | `A = K + diag(d)` read back into `base` K and `diagonal` d by type (or `None`), for a preconditioner that approximates K and adds d exactly. |
 | `kronecker_sum_sample`, `sum_of_kroneckers_sample`, `toeplitz_sample` | Draws from `𝒩(0, op)` that use the structure. |
 
 ## Use it
