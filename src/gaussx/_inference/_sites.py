@@ -22,6 +22,7 @@ from gaussx._gp._prediction_cache import (
     build_prediction_cache,
     predict_variance,
 )
+from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._dispatch import dispatch_solve
@@ -168,15 +169,14 @@ class SitePosterior(eqx.Module):
                 alpha=self.weights, operator=self.system, factor=self.factor
             )
             return _dense_variance(self.prior_cov, cache)
-        return _iterative_variance(
-            self.prior_cov, self.system, self.solver, batch_size
-        )
+        return _iterative_variance(self.prior_cov, self.system, self.solver, batch_size)
 
     def covariance(self) -> lx.AbstractLinearOperator:
         """Σ_f|y = K_XX − K_XX A⁻¹ K_XX, as a lazy PSD operator.
 
-        Each matvec costs two products with K_XX and one solve against A
-        with ``solver``.
+        Each matvec costs two products with K_XX and one solve against A:
+        two triangular solves with the cached factor on the dense path,
+        ``solver`` otherwise.
 
         Returns:
             The posterior covariance as a `lineax.FunctionLinearOperator`.
@@ -184,12 +184,18 @@ class SitePosterior(eqx.Module):
         prior_cov = self.prior_cov
         system = self.system
         solver = self.solver
+        factor = self.factor
 
         def matvec(vector: Float[Array, " N"]) -> Float[Array, " N"]:
             # K_XX v
             prior_product = prior_cov.mv(vector)
-            # A⁻¹ K_XX v
-            solved = dispatch_solve(system, prior_product, solver)
+            if factor is not None:
+                # A⁻¹ K_XX v = L⁻ᵀ L⁻¹ K_XX v
+                forward = solve(factor, prior_product)
+                solved = solve(factor.transpose(), forward)
+            else:
+                # A⁻¹ K_XX v
+                solved = dispatch_solve(system, prior_product, solver)
             # Σ_f|y v = K_XX v − K_XX A⁻¹ K_XX v
             return prior_product - prior_cov.mv(solved)
 
@@ -324,7 +330,7 @@ def site_posterior(
         >>> bool(jnp.allclose(posterior.mean, expected, atol=1e-5))
         True
         >>> [round(float(v), 4) for v in posterior.variance()]
-        [0.1786, 0.1786]
+        [0.1905, 0.1905]
 
         The same posterior through conjugate gradients:
 

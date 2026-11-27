@@ -148,6 +148,7 @@ NO_X64_TESTS := tests/primitives \
 	tests/linalg \
 	tests/strategies/test_preconditioner_protocol.py \
 	tests/inference/test_natural_gradient.py \
+	tests/inference/test_site_posterior.py \
 	tests/quadrature/test_callable_likelihood.py \
 	tests/distributions/test_conditional.py \
 	tests/distributions/test_information.py \

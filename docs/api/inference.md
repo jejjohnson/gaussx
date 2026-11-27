@@ -40,6 +40,16 @@ Two conventions for the second natural parameter coexist. Both share the first o
 | `newton_update`, `cavity_distribution` | $+\boldsymbol{\Lambda}_x$ |
 | `damped_natural_update` | either (it is linear), as long as both arguments share it |
 
+## Diagonal sites
+
+Laplace, Gauss-Newton, posterior linearisation and expectation propagation replace each likelihood term by a Gaussian site of precision $\lambda_n > 0$ and mean $\mu_{\text{site},n}$, and differ only in how they choose the sites (for example with `newton_update`). `site_posterior` is the step they share: with $\mathbf{A} = \mathbf{K}_{XX} + \mathrm{diag}(\mathbf{d})$, $d_n = 1 / \lambda_n$, it returns the weights $\mathbf{w} = \mathbf{A}^{-1} (\boldsymbol{\mu}_\text{site} - \boldsymbol{\mu}_f)$, the mean $\boldsymbol{\mu}_{f \mid y} = \boldsymbol{\mu}_f + \mathbf{K}_{XX} \mathbf{w}$ and, on request, the variances $\mathrm{diag}(\mathbf{K}_{XX} - \mathbf{K}_{XX} \mathbf{A}^{-1} \mathbf{K}_{XX})$, through any solver strategy. That form of the variances stays accurate in float32 for weak sites, where $\mathbf{d} - \mathbf{d} \odot \mathrm{diag}(\mathbf{A}^{-1}) \odot \mathbf{d}$ cancels.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [site_posterior, SitePosterior]
+
 ## Precision-form Laplace (INLA)
 
 The Laplace loop lives in `argminax.solve.laplace_mode`, which iterates gaussx's single step (below) and returns its `LaplaceResult`; gaussx's own `laplace_mode` was removed after its deprecation. The algebra on this page describes that loop, and the examples call argminax.

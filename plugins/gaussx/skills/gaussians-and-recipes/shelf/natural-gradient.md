@@ -14,6 +14,7 @@ The caller supplies gradients and Hessians of the log-likelihood; these function
 | `blr_diag_update(nat1, nat2_diag, grad, hessian_diag, lr, *, convention="expfam")` | One diagonal Bayesian learning rule step, returning `(nat1_new, nat2_new)`. |
 | `blr_full_update(nat1, nat2, grad, hessian, lr, *, solver=None, convention="expfam")` | One full-rank Bayesian learning rule step. |
 | `newton_update(mean, jacobian, hessian, *, precision_floor=1e-6)` | Converts a Newton step into site natural parameters `(nat1, nat2) = (g − H m, −H)`; `jacobian` is the gradient. |
+| `site_posterior(prior_mean, prior_cov, site_information, site_precision, *, solver=None)` → `SitePosterior` | The posterior of diagonal sites under a covariance-form prior, through any solver: `weights` `A⁻¹(μ_site − μ_f)`, `mean` `μ_f + K w`, and on request `variance()` `diag(K − K A⁻¹ K)` and the lazy `covariance()`, with `A = K + diag(1/λ)`. |
 | `cavity_distribution(post_mean, post_cov, site_nat1, site_nat2, power=1.0, *, precision_floor=None)` | The EP cavity mean and covariance after removing a site, on operators or on `(N,)` arrays. |
 | `riemannian_psd_correction(hessian, site_precision, site_covariance, lr=1.0)` | A corrected Hessian that keeps the damped precision update positive definite. |
 | `gauss_newton_precision(jacobian, *, base=None)` | The Gauss-Newton precision `JᵀJ`, or `base + JᵀJ` as a `LowRankUpdate` when `base` is given. |
