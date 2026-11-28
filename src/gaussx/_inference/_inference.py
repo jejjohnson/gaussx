@@ -12,12 +12,15 @@ import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
-from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
+from gaussx._distributions._gaussian import (
+    _LOG_2PI,
+    _quadratic_and_logdet,
+    gaussian_log_prob,
+)
 from gaussx._linalg._linalg import solve_rows, trace_product
 from gaussx._primitives._inv import inv
 from gaussx._primitives._trace import trace
 from gaussx._strategies._base import AbstractSolverStrategy, AbstractSolveStrategy
-from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 
 
 def log_marginal_likelihood(
@@ -26,6 +29,7 @@ def log_marginal_likelihood(
     y: Float[Array, " N"],
     *,
     solver: AbstractSolverStrategy | None = None,
+    key: jax.Array | None = None,
 ) -> Float[Array, ""]:
     """GP log marginal likelihood, by way of `gaussx.gaussian_log_prob`.
 
@@ -36,6 +40,9 @@ def log_marginal_likelihood(
         cov_operator: Covariance Σ_y of the observations.
         y: Observations y.
         solver: Solver strategy for Σ_y; ``None`` uses structural dispatch.
+            A `gaussx.BBMMSolver` takes both terms from one shared pass.
+        key: PRNG key for a stochastic logdet strategy's probes. ``None``
+            uses the strategy's own seed (see `gaussx.KeyedSolver`).
 
     Returns:
         The log marginal likelihood log p(y).
@@ -48,7 +55,7 @@ def log_marginal_likelihood(
         >>> bool(jnp.allclose(value, -jnp.log(2.0 * jnp.pi)))
         True
     """
-    return gaussian_log_prob(loc, cov_operator, y, solver=solver)
+    return gaussian_log_prob(loc, cov_operator, y, solver=solver, key=key)
 
 
 def gaussian_expected_log_lik(
@@ -64,8 +71,9 @@ def gaussian_expected_log_lik(
         𝔼_q[log 𝒩(y ∣ x, Σ_ε)] = log 𝒩(y ∣ μ_q, Σ_ε) − ½ tr(Σ_ε⁻¹ Σ_q)
 
     Algorithm:
-        1. Solve Σ_ε⁻¹ r for the residual r = y − μ_q and form rᵀ Σ_ε⁻¹ r.
-        2. Take log det Σ_ε and the trace correction tr(Σ_ε⁻¹ Σ_q).
+        1. Form rᵀ Σ_ε⁻¹ r for the residual r = y − μ_q and log det Σ_ε
+           (from one shared pass with `gaussx.BBMMSolver`).
+        2. Take the trace correction tr(Σ_ε⁻¹ Σ_q).
         3. Add the terms and the constant.
 
     Args:
@@ -92,12 +100,8 @@ def gaussian_expected_log_lik(
     obs_size = y.shape[-1]
     # r = y − μ_q
     residual = y - q_mu
-    # Σ_ε⁻¹ r
-    precision_residual = dispatch_solve(noise, residual, solver)
-    # rᵀ Σ_ε⁻¹ r
-    quadratic = residual @ precision_residual
-    # log det Σ_ε
-    log_det_noise = dispatch_logdet(noise, solver)
+    # rᵀ Σ_ε⁻¹ r and log det Σ_ε, from one pass for BBMM
+    quadratic, log_det_noise = _quadratic_and_logdet(noise, residual, solver=solver)
 
     # Σ_ε⁻¹
     noise_precision = inv(noise)
