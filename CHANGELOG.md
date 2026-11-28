@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.8.4](https://github.com/jejjohnson/gaussx/compare/v0.8.3...v0.8.4) (2026-11-28)
+
+
+### Features
+
+* **distributions:** gaussian_kl takes a solver for every solve and log-determinant of its second covariance ([#898](https://github.com/jejjohnson/gaussx/issues/898)) ([4183e30](https://github.com/jejjohnson/gaussx/commit/4183e30b441b7ebb7c788d949fdddd9cecca4fe5)), closes [#884](https://github.com/jejjohnson/gaussx/issues/884)
+* **gp:** simulation-based predictive variances (SBPV, SPV) without bias, and the stochastic variance of site posteriors ([#902](https://github.com/jejjohnson/gaussx/issues/902)) ([04ee5ec](https://github.com/jejjohnson/gaussx/commit/04ee5ec4019b9180d6a03dc238ac5fa3108cb053)), closes [#827](https://github.com/jejjohnson/gaussx/issues/827)
+* **preconditioners:** a FITC preconditioner adds the Nyström approximation's missing diagonal and reads the shift from each system ([#899](https://github.com/jejjohnson/gaussx/issues/899)) ([38ea5fb](https://github.com/jejjohnson/gaussx/commit/38ea5fbb5da96907bfde417cbfce8a242115146e)), closes [#824](https://github.com/jejjohnson/gaussx/issues/824)
+* **strategies:** log-determinant gradients carry the preconditioner as a control variate, in SLQ and in BBMM's shared pass ([#901](https://github.com/jejjohnson/gaussx/issues/901)) ([5dc3f1e](https://github.com/jejjohnson/gaussx/commit/5dc3f1e5b761632b485ae5bbd1eee1326bcb67b7)), closes [#826](https://github.com/jejjohnson/gaussx/issues/826)
+* **strategies:** the SLQ log-determinant takes a preconditioner and estimates only the whitened log-determinant ([#900](https://github.com/jejjohnson/gaussx/issues/900)) ([3c70585](https://github.com/jejjohnson/gaussx/commit/3c705857032eb66172018c1454950efe8b9e8d63)), closes [#825](https://github.com/jejjohnson/gaussx/issues/825)
+
 ## [0.8.3](https://github.com/jejjohnson/gaussx/compare/v0.8.2...v0.8.3) (2026-11-28)
 
 
