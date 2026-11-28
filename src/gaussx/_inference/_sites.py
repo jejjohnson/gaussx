@@ -377,7 +377,10 @@ def _diagonal_variance(
 ) -> Float[Array, " N"]:
     """diag(K − K A⁻¹ K) for a diagonal K = diag(k), elementwise.
 
-        [Σ_f|y]_nn = k_n − k_n² / (k_n + d_n),   d_n = 1 / λ_n
+        [Σ_f|y]_nn = k_n − k_n² / (k_n + d_n) = k_n / (1 + k_n λ_n)
+
+    The right-hand form has no cancellation when λ_n is large and no
+    overflow from k_n², so it is the one evaluated.
 
     Args:
         prior_diagonal: The prior variances k.
@@ -386,10 +389,8 @@ def _diagonal_variance(
     Returns:
         The marginal variances.
     """
-    # k + d
-    system_diagonal = prior_diagonal + 1.0 / site_precision
-    # k − k² / (k + d), the same K − K A⁻¹ K form as the dense path
-    return prior_diagonal - prior_diagonal**2 / system_diagonal
+    # k / (1 + k λ) = k − k² / (k + d), without the cancellation or k²
+    return prior_diagonal / (1.0 + prior_diagonal * site_precision)
 
 
 def _dense_variance(

@@ -433,3 +433,19 @@ def test_diagonal_prior_stays_diagonal(getkey, solver):
     assert tree_allclose(posterior.mean, mean)
     assert tree_allclose(variance, expected)
     assert tree_allclose(jnp.diag(covariance_diagonal), expected)
+
+
+def test_diagonal_prior_variance_has_no_cancellation_or_overflow():
+    # k / (1 + k λ): a strong site in float32 keeps its ~1/λ variance
+    # (k − k² / (k + d) rounds to 0), and a huge k with a tiny λ does not
+    # overflow through k².
+    prior_variance = jnp.array([1.0, 1e20, 1.0], dtype=jnp.float32)
+    precision = jnp.array([1e8, 1e-20, 0.5], dtype=jnp.float32)
+    prior_cov = lx.TaggedLinearOperator(lx.DiagonalLinearOperator(prior_variance), _PSD)
+    posterior = gaussx.site_posterior(
+        jnp.zeros(3, jnp.float32), prior_cov, jnp.zeros(3, jnp.float32), precision
+    )
+    variance = posterior.variance()
+    expected = np.array([1.0 / (1.0 + 1e8), 5e19, 1.0 / 1.5])
+    assert variance.dtype == jnp.float32
+    np.testing.assert_allclose(np.asarray(variance), expected, rtol=1e-6)
