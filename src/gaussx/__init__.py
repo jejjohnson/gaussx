@@ -212,6 +212,7 @@ from gaussx._operators import (
 )
 from gaussx._preconditioners import (
     AbstractPreconditioner as AbstractPreconditioner,
+    FITCPreconditioner as FITCPreconditioner,
     JacobiPreconditioner as JacobiPreconditioner,
     NystromPreconditioner as NystromPreconditioner,
     OperatorPreconditioner as OperatorPreconditioner,
@@ -480,6 +481,7 @@ __all__ = [
     "DiagonalizedOperator",
     "EigenDecomposition",
     "EmissionModel",
+    "FITCPreconditioner",
     "FifthOrderCubatureIntegrator",
     "FilterState",
     "GaussHermiteIntegrator",

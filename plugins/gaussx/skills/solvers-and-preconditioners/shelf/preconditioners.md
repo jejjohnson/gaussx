@@ -16,6 +16,7 @@ A preconditioner is an `equinox.Module` whose `as_operator(operator=None)` retur
 | `JacobiPreconditioner(diagonal=None)` | `diag(1 / abs(diag(A)))`, the cheapest choice; read from the operator when `diagonal` is not given. |
 | `NystromPreconditioner(basis, eigenvalues, shift)` | Randomized Nyström preconditioner for `A + μ I`; build it with `NystromPreconditioner.from_operator(K, rank, *, shift, key=...)`. |
 | `PartialCholeskyPreconditioner(rank=50, shift=1.0, pivoting="greedy", ...)` | Pivoted partial Cholesky of the PSD part, applied by the Woodbury identity; build it once with `from_operator(K, rank, *, shift, ...)`. |
+| `FITCPreconditioner(U, prior_residual, diagonal_shift=None)` | Nyström plus its diagonal correction, `P = U Uᵀ + diag(r + λ)`, for `K_XX + Λ`; build it with `FITCPreconditioner.from_kernel(kernel, X, Z)`. With `diagonal_shift=None` it reads `λ` from each system, so one object serves every Laplace step. |
 | `OperatorPreconditioner(approx_inverse, in_structure=None)` | Wraps an approximate inverse you already have, a lineax operator or a callable `v -> M⁻¹ v`. |
 
 ## Use it

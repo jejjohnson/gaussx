@@ -193,10 +193,11 @@ title = "Preconditioners"
 role = "strategy"
 unit = "strategies"
 skill = "solvers-and-preconditioners"
-covers = "Jacobi, Nyström, partial Cholesky, and wrapping your own"
+covers = "Jacobi, Nyström, partial Cholesky, FITC, and wrapping your own"
 names = [
-    "AbstractPreconditioner", "JacobiPreconditioner", "NystromPreconditioner",
-    "OperatorPreconditioner", "PartialCholeskyPreconditioner",
+    "AbstractPreconditioner", "FITCPreconditioner", "JacobiPreconditioner",
+    "NystromPreconditioner", "OperatorPreconditioner",
+    "PartialCholeskyPreconditioner",
 ]
 
 [[entries]]
