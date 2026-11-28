@@ -4,25 +4,30 @@ Laplace, Gauss-Newton, posterior linearisation and expectation propagation
 replace each likelihood term by a Gaussian site of precision λ_n and mean
 μ_site,n, and differ only in how they choose the sites. The step they share,
 from a prior 𝒩(μ_f, K_XX) and the sites to the posterior 𝒩(μ_f|y, Σ_f|y), is
-`site_posterior`, through any solver strategy.
+`site_posterior`, through any solver strategy, and its log evidence is
+`site_log_evidence`.
 """
 
 from __future__ import annotations
 
 from typing import Literal
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
-from jaxtyping import Array, Float
+from jaxtyping import Array, Bool, Float
 
+from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
 from gaussx._gp._prediction_cache import (
     PredictionCache,
     build_prediction_cache,
     predict_variance,
 )
 from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
+from gaussx._primitives._inv_quad_logdet import _has_exact_logdet
+from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dense import DenseSolver
@@ -50,20 +55,25 @@ def _site_system(
     prior_cov: lx.AbstractLinearOperator,
     site_precision: Float[Array, " N"],
 ) -> lx.AbstractLinearOperator:
-    """A = K_XX + diag(d), d = 1 / λ, PSD-tagged.
+    """A = K_XX + diag(d), d = 1 / λ, tagged symmetric and PSD.
+
+    The symmetric tag lets a stochastic Lanczos log-determinant take A
+    (gh-883).
 
     Args:
         prior_cov: The prior covariance K_XX.
         site_precision: The site precisions λ.
 
     Returns:
-        The lazy, PSD-tagged system A.
+        The lazy, symmetric PSD-tagged system A.
     """
     # d = 1 / λ, the site variances
     site_variance = 1.0 / site_precision
     # A = K_XX + diag(d)
     system = prior_cov + lx.DiagonalLinearOperator(site_variance)
-    return lx.TaggedLinearOperator(system, lx.positive_semidefinite_tag)
+    return lx.TaggedLinearOperator(
+        system, (lx.symmetric_tag, lx.positive_semidefinite_tag)
+    )
 
 
 class SitePosterior(eqx.Module):
@@ -471,3 +481,270 @@ def site_posterior(
         solver=solver,
         factor=factor,
     )
+
+
+def site_evidence_correction(
+    log_likelihood: Float[Array, ""],
+    mean: Float[Array, " N"],
+    site_information: Float[Array, " N"],
+    site_precision: Float[Array, " N"],
+    *,
+    mask: Bool[Array, " N"] | None = None,
+) -> Float[Array, ""]:
+    """The correction from the pseudo-observation marginal to the site evidence.
+
+        c = ∑_n log p(y_n ∣ m_n) − ∑_n o_n log 𝒩(μ_site,n; m_n, d_n),
+        d_n = 1 / λ_n,   μ_site,n = (Λμ)_site,n / λ_n
+
+    Added to the marginal log 𝒩(μ_site; μ_f, K_XX + diag(d)) of the
+    pseudo-observations, it gives `site_log_evidence`. A caller with its own
+    marginal of the pseudo-observations, such as a Kalman filter over a
+    state-space prior, adds this correction to it. Both sums run over the
+    observed sites only: ``log_likelihood`` is the caller's sum over them,
+    and a site with ``mask`` false is left out of the second (its λ_n may be
+    zero).
+
+    Args:
+        log_likelihood: ∑_n log p(y_n ∣ m_n) over the observed sites, at the
+            posterior mean m.
+        mean: The posterior mean m.
+        site_information: The site information (Λμ)_site.
+        site_precision: The site precisions λ, positive where observed.
+        mask: The observed sites o_n; ``None`` means all.
+
+    Returns:
+        The scalar correction c.
+
+    Examples:
+        At m = μ_site the correction removes only the normalisers:
+
+        >>> import jax.numpy as jnp
+        >>> import gaussx
+        >>> precision = jnp.array([1.0, 4.0])
+        >>> mean = jnp.array([0.5, -1.0])
+        >>> correction = gaussx.site_evidence_correction(
+        ...     jnp.asarray(-1.0), mean, precision * mean, precision
+        ... )
+        >>> expected = -1.0 + jnp.log(2.0 * jnp.pi) - 0.5 * jnp.log(4.0)
+        >>> bool(jnp.allclose(correction, expected))
+        True
+
+        A masked site contributes nothing, whatever its (zero) precision:
+
+        >>> masked = gaussx.site_evidence_correction(
+        ...     jnp.asarray(-1.0),
+        ...     mean,
+        ...     jnp.array([0.5, 0.0]),
+        ...     jnp.array([1.0, 0.0]),
+        ...     mask=jnp.array([True, False]),
+        ... )
+        >>> bool(jnp.allclose(masked, -1.0 + 0.5 * jnp.log(2.0 * jnp.pi)))
+        True
+    """
+    if mask is None:
+        mask = jnp.ones(site_precision.shape, dtype=bool)
+    # λ_n, with 1 on masked sites: a double where keeps their gradient finite
+    safe_precision = jnp.where(mask, site_precision, 1.0)
+    # μ_site,n = (Λμ)_site,n / λ_n
+    site_mean = site_information / safe_precision
+    # log 𝒩(μ_site,n; m_n, 1 / λ_n) = −½ (log 2π − log λ_n + λ_n (μ_site,n − m_n)²)
+    per_site = -0.5 * (
+        _LOG_2PI - jnp.log(safe_precision) + safe_precision * (site_mean - mean) ** 2
+    )
+    # ∑_n o_n log 𝒩(μ_site,n; m_n, d_n)
+    pseudo_fit = jnp.sum(jnp.where(mask, per_site, 0.0))
+    return log_likelihood - pseudo_fit
+
+
+def site_log_evidence(
+    posterior: SitePosterior,
+    log_likelihood: Float[Array, ""],
+    *,
+    key: jax.Array | None = None,
+) -> Float[Array, ""]:
+    """log Z of a Gaussian-site posterior, from its system A = K_XX + diag(d).
+
+    Standard form, at m = μ_f|y = μ_f + K_XX w:
+
+        log Z = ∑_n log p(y_n ∣ m_n) − ½ wᵀ K_XX w − ½ log det B,
+        B = I + Λ_site^½ K_XX Λ_site^½
+
+    Pseudo-observation form, which needs only rᵀ A⁻¹ r and log det A:
+
+        log Z = log 𝒩(μ_site; μ_f, A)
+            + ∑_n [log p(y_n ∣ m_n) − log 𝒩(μ_site,n; m_n, d_n)]
+
+    The two are equal for any sites, not only at a Laplace mode. An exact
+    solver (``None``, `gaussx.DenseSolver`, or any strategy whose
+    log-determinant is exact) takes the standard form, with log det B from a
+    Cholesky factor of B, whose eigenvalues are at least one; it stays
+    accurate in float32 for weak sites, where the pseudo-observation form
+    subtracts two large numbers. A stochastic log-determinant takes the
+    pseudo-observation form, whose first term is `gaussx.gaussian_log_prob`
+    on A: one shared pass of `gaussx.inv_quad_logdet` with a
+    `gaussx.BBMMSolver`, and its rounding error is far below its sampling
+    error. The standard form densifies a structured prior with a
+    `gaussx.DenseFallbackWarning`, as `site_posterior`'s dense path does; a
+    diagonal prior stays diagonal.
+
+    **Meaning per method.** At a Laplace mode this is the Laplace evidence.
+    For posterior linearisation and expectation propagation it is the
+    Laplace-type approximation their classes report, not the EP evidence,
+    which also needs the cavity normalisers.
+
+    Algorithm:
+        1. If the posterior's solver has an exact log-determinant: wᵀ K_XX w
+           = wᵀ (m − μ_f), and log det B from one Cholesky of B.
+        2. Otherwise: log 𝒩(μ_site; μ_f, A) through the posterior's solver
+           with ``key``, plus `site_evidence_correction`.
+
+    Args:
+        posterior: The `SitePosterior` of `gaussx.site_posterior`.
+        log_likelihood: ∑_n log p(y_n ∣ m_n), the log-likelihood at the
+            posterior mean m = ``posterior.mean``.
+        key: PRNG key for a stochastic log-determinant's probes; ignored on
+            the exact route.
+
+    Returns:
+        The scalar log Z.
+
+    Examples:
+        Gaussian sites λ = 1 / σ² at y give the exact GP marginal likelihood:
+
+        >>> import jax.numpy as jnp
+        >>> import lineax as lx
+        >>> import gaussx
+        >>> kernel = jnp.array([[1.0, 0.5], [0.5, 1.0]])
+        >>> prior_cov = lx.MatrixLinearOperator(kernel, lx.positive_semidefinite_tag)
+        >>> y = jnp.array([1.0, -1.0])
+        >>> precision = jnp.full(2, 4.0)  # σ² = 0.25
+        >>> posterior = gaussx.site_posterior(
+        ...     jnp.zeros(2), prior_cov, precision * y, precision
+        ... )
+        >>> residual = y - posterior.mean
+        >>> fit = jnp.sum(-0.5 * (jnp.log(2 * jnp.pi * 0.25) + residual**2 / 0.25))
+        >>> evidence = gaussx.site_log_evidence(posterior, fit)
+        >>> marginal = gaussx.gaussian_log_prob(
+        ...     jnp.zeros(2),
+        ...     lx.MatrixLinearOperator(
+        ...         kernel + 0.25 * jnp.eye(2), lx.positive_semidefinite_tag
+        ...     ),
+        ...     y,
+        ... )
+        >>> bool(jnp.allclose(evidence, marginal, atol=1e-5))
+        True
+
+        Through BBMM it is a stochastic estimate, from one shared pass:
+
+        >>> import jax.random as jr
+        >>> stochastic = gaussx.site_posterior(
+        ...     jnp.zeros(2), prior_cov, precision * y, precision,
+        ...     solver=gaussx.BBMMSolver(num_probes=16),
+        ... )
+        >>> estimate = gaussx.site_log_evidence(stochastic, fit, key=jr.key(0))
+        >>> bool(jnp.abs(estimate - marginal) < 0.5)
+        True
+    """
+    if posterior.solver is None or _has_exact_logdet(
+        posterior.solver, posterior.system
+    ):
+        return _standard_evidence(posterior, log_likelihood)
+    return _pseudo_observation_evidence(posterior, log_likelihood, key)
+
+
+def _standard_evidence(
+    posterior: SitePosterior,
+    log_likelihood: Float[Array, ""],
+) -> Float[Array, ""]:
+    """log Z = ∑_n log p(y_n ∣ m_n) − ½ wᵀ K_XX w − ½ log det B.
+
+    Args:
+        posterior: The site posterior.
+        log_likelihood: ∑_n log p(y_n ∣ m_n) at its mean.
+
+    Returns:
+        The scalar log Z.
+    """
+    # m − μ_f = K_XX w, so wᵀ K_XX w needs no solve against K_XX
+    shift = posterior.mean - posterior.prior_mean
+    # wᵀ K_XX w
+    quadratic = posterior.weights @ shift
+    # log det(I + Λ^½ K_XX Λ^½)
+    log_det = _whitened_logdet(posterior.prior_cov, posterior.site_precision)
+    # ∑_n log p(y_n ∣ m_n) − ½ wᵀ K_XX w − ½ log det B
+    return log_likelihood - 0.5 * quadratic - 0.5 * log_det
+
+
+def _whitened_logdet(
+    prior_cov: lx.AbstractLinearOperator,
+    site_precision: Float[Array, " N"],
+) -> Float[Array, ""]:
+    """log det B, B = I + Λ^½ K_XX Λ^½, from a Cholesky factor of B.
+
+        log det B = 2 ∑_n log L_nn,   L Lᵀ = B
+
+    Every eigenvalue of B is at least one, so this is accurate in float32
+    where log det A + ∑ log λ cancels.
+
+    Args:
+        prior_cov: The prior covariance K_XX.
+        site_precision: The site precisions λ.
+
+    Returns:
+        The scalar log det B.
+    """
+    prior_diagonal = _prior_diagonal(prior_cov)
+    if prior_diagonal is not None:
+        # B = diag(1 + λ k): log det B = ∑_n log(1 + λ_n k_n)
+        return jnp.sum(jnp.log1p(site_precision * prior_diagonal))
+    if not _is_dense_matrix(prior_cov):
+        warn_dense_fallback(
+            "site_log_evidence: the exact route densifies the structured prior "
+            f"covariance {type(_untagged(prior_cov)).__name__} into an N × N "
+            "matrix for one Cholesky of B = I + Λ^½ K Λ^½. Use an iterative "
+            "solver with a stochastic log-determinant (gaussx.BBMMSolver) to "
+            "keep it matrix-free."
+        )
+    # Λ^½
+    root = jnp.sqrt(site_precision)
+    # Λ^½ K_XX Λ^½
+    whitened = einx.multiply(
+        "row, row col, col -> row col", root, prior_cov.as_matrix(), root
+    )
+    # B = I + Λ^½ K_XX Λ^½ = L Lᵀ
+    factor = jnp.linalg.cholesky(jnp.eye(root.shape[0], dtype=root.dtype) + whitened)
+    return cholesky_logdet(factor)
+
+
+def _pseudo_observation_evidence(
+    posterior: SitePosterior,
+    log_likelihood: Float[Array, ""],
+    key: jax.Array | None,
+) -> Float[Array, ""]:
+    """log Z = log 𝒩(μ_site; μ_f, A) + `site_evidence_correction`.
+
+    Args:
+        posterior: The site posterior.
+        log_likelihood: ∑_n log p(y_n ∣ m_n) at its mean.
+        key: PRNG key for the stochastic log-determinant.
+
+    Returns:
+        The scalar log Z.
+    """
+    # μ_site = (Λμ)_site / λ
+    site_mean = posterior.site_information / posterior.site_precision
+    # log 𝒩(μ_site; μ_f, A), one shared pass for BBMM
+    marginal = gaussian_log_prob(
+        posterior.prior_mean,
+        posterior.system,
+        site_mean,
+        solver=posterior.solver,
+        key=key,
+    )
+    correction = site_evidence_correction(
+        log_likelihood,
+        posterior.mean,
+        posterior.site_information,
+        posterior.site_precision,
+    )
+    return marginal + correction

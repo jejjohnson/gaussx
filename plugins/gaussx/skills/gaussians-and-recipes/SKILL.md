@@ -90,7 +90,7 @@ Open the one the task needs; do not read them all.
 | ④ algorithm | [Kalman filtering and smoothing](shelf/kalman.md) | sequential, parallel, mean-field and infinite-horizon filters and smoothers | 24 |
 | ④ algorithm | [Nonlinear filtering and sites](shelf/nonlinear-filtering.md) | nonlinear Kalman, CVI site updates, SpInGP | 14 |
 | ④ algorithm | [Expectations and moment matching](shelf/expectations.md) | expected log-likelihood, EP moments, psi statistics, uncertain inputs | 22 |
-| ④ algorithm | [Natural-gradient and Newton updates](shelf/natural-gradient.md) | BLR, damped natural updates, Gauss–Newton, Laplace | 20 |
+| ④ algorithm | [Natural-gradient and Newton updates](shelf/natural-gradient.md) | BLR, damped natural updates, Gauss–Newton, Laplace | 22 |
 | ④ algorithm | [Ensemble Kalman](shelf/ensemble-kalman.md) | analysis, ETKF, EKI, localisation, inflation | 21 |
 <!-- shelf:end -->
 
