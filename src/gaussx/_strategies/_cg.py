@@ -30,6 +30,35 @@ from gaussx._strategies._tolerances import (
 )
 
 
+def preconditioner_options(
+    preconditioner: AbstractPreconditioner | None,
+    operator: lx.AbstractLinearOperator,
+) -> dict[str, lx.AbstractLinearOperator]:
+    """lineax CG ``options`` holding M⁻¹, with its gradient stopped.
+
+    Args:
+        preconditioner: The preconditioner, or ``None``.
+        operator: The system A, for a preconditioner built at solve time.
+
+    Returns:
+        ``{"preconditioner": M⁻¹}``, or ``{}`` without one.
+    """
+    options: dict[str, lx.AbstractLinearOperator] = {}
+    if preconditioner is not None:
+        precond_op = preconditioner.as_operator(operator)
+        if precond_op is not None:
+            # lineax treats `options` as non-differentiable and raises if a
+            # tangent reaches it, but a preconditioner built from the
+            # (traced) operator carries one. The CG solution does not
+            # depend on M⁻¹, only the iteration count does, so stopping
+            # its gradient is exact (as `_inv_quad_logdet` does).
+            dynamic, static = eqx.partition(precond_op, eqx.is_array)
+            options["preconditioner"] = eqx.combine(
+                jax.lax.stop_gradient(dynamic), static
+            )
+    return options
+
+
 class CGSolver(AbstractSolverStrategy):
     """Conjugate-gradient solve with a stochastic log-determinant.
 
@@ -161,19 +190,7 @@ class CGSolver(AbstractSolverStrategy):
             atol=atol,
             max_steps=self.max_steps,
         )
-        options: dict[str, lx.AbstractLinearOperator] = {}
-        if self.preconditioner is not None:
-            precond_op = self.preconditioner.as_operator(operator)
-            if precond_op is not None:
-                # lineax treats `options` as non-differentiable and raises if a
-                # tangent reaches it, but a preconditioner built from the
-                # (traced) operator carries one. The CG solution does not
-                # depend on M⁻¹, only the iteration count does, so stopping
-                # its gradient is exact (as `_inv_quad_logdet` does).
-                dynamic, static = eqx.partition(precond_op, eqx.is_array)
-                options["preconditioner"] = eqx.combine(
-                    jax.lax.stop_gradient(dynamic), static
-                )
+        options = preconditioner_options(self.preconditioner, operator)
         # y = A⁻¹ (b / s)
         solution = lx.linear_solve(
             operator, rhs, solver, options=options, throw=self.throw
