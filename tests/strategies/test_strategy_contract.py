@@ -127,6 +127,17 @@ STRATEGIES: dict[str, Factory] = {
     ),
     "bbmm": _bbmm,
     "bbmm_nystrom": _bbmm_nystrom,
+    # compose_solver (gh-881): CG with a Jacobi preconditioner and an exact
+    # log-determinant, and BBMM with one preconditioner for both maps
+    "composed_cg_jacobi_dense": lambda K, noise, **opts: gaussx.compose_solver(
+        gaussx.CGSolver(**_cg_options(**opts)),
+        preconditioner=gaussx.JacobiPreconditioner(),
+        logdet=gaussx.DenseLogdet(),
+    ),
+    "composed_bbmm_jacobi": lambda K, noise, **opts: gaussx.compose_solver(
+        gaussx.BBMMSolver(**_cg_options(**opts)),
+        preconditioner=gaussx.JacobiPreconditioner(),
+    ),
     "minres": lambda K, noise, **opts: gaussx.MINRESSolver(**_cg_options(**opts)),
     "lsmr": _lsmr(0.0),
     "lsmr_damped": _lsmr(0.5),
