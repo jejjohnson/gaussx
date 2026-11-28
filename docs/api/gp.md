@@ -77,11 +77,13 @@ ELBOs for Gaussian and Monte-Carlo variational families, the collapsed
 LOVE-style cached predictive variances and closed-form leave-one-out
 cross-validation from a single factorization.
 
+When the LOVE bound (`love_variance_error_bound`) comes back too loose, `predictive_variance_sbpv` and `predictive_variance_spv` estimate the predictive variances $\mathrm{diag}(\boldsymbol{\Omega}_\text{det} - \mathbf{C}^\top (\mathbf{W} + \boldsymbol{\Sigma}^{-1})^{-1} \mathbf{C})$ without bias from draws (SBPV) or sign probes (SPV), with an error that falls as $1/\sqrt{\ell}$ (Gyger, Furrer & Sigrist, 2026, §4.2). They take the draws and solves as callables, so any model can use them. For a sparse precision, `selected_inverse` gives the variances on the factor's pattern exactly.
+
 ::: gaussx
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [love_cache, love_variance, love_residual, love_variance_error_bound, LOVECache, leave_one_out_cv, LOOResult]
+      members: [love_cache, love_variance, love_residual, love_variance_error_bound, LOVECache, predictive_variance_sbpv, predictive_variance_spv, leave_one_out_cv, LOOResult]
 
 ## Multi-output projections
 

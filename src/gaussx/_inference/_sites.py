@@ -16,16 +16,28 @@ import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
+import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
+from gaussx._distributions._sample import sample_mvn
 from gaussx._gp._prediction_cache import (
     PredictionCache,
     build_prediction_cache,
     predict_variance,
 )
+from gaussx._gp._predictive_variance import sbpv_mean_and_error, spv_mean_and_error
+from gaussx._operators import (
+    BlockDiag,
+    BlockTriDiag,
+    Kronecker,
+    KroneckerSum,
+    LowRankUpdate,
+    Toeplitz,
+)
 from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
+from gaussx._primitives._diag import matrix_free_diag
 from gaussx._primitives._inv_quad_logdet import _has_exact_logdet
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._primitives._solve import solve
@@ -120,6 +132,7 @@ class SitePosterior(eqx.Module):
         method: Literal["auto", "exact", "stochastic"] = "auto",
         num_probes: int = 100,
         batch_size: int | None = None,
+        estimator: Literal["sbpv", "spv"] = "sbpv",
         key: jax.Array | None = None,
     ) -> Float[Array, " N"]:
         """The posterior marginal variances diag(Σ_f|y).
@@ -138,26 +151,36 @@ class SitePosterior(eqx.Module):
           A v_n = K_XX e_n, ``batch_size`` at a time (one at a time when
           ``None``), so memory is O(N · batch_size) and K_XX is never
           densified.
-        - ``"stochastic"``: a probe estimate of diag(K_XX A⁻¹ K_XX) with
-          ``num_probes`` solves. Not available yet: it waits on the
-          estimators of gaussx#827 and raises ``NotImplementedError``.
+        - ``"stochastic"``: an unbiased estimate of diag(K_XX A⁻¹ K_XX)
+          from ``num_probes`` solves (gh-827), clamped at zero.
+          ``estimator="sbpv"`` (the default, the more accurate) draws
+          r ~ 𝒩(0, A) from the prior and the sites and averages
+          (K_XX A⁻¹ r)², with `gaussx.predictive_variance_sbpv`; a prior
+          `gaussx.sample_mvn` cannot sample by structure is densified once
+          for its square root, with a `gaussx.DenseFallbackWarning`.
+          ``estimator="spv"`` averages z ⊙ K_XX A⁻¹ K_XX z over sign probes
+          z, with `gaussx.predictive_variance_spv`, and needs only products
+          with K_XX. For the standard errors, and an estimate a caller can
+          test against 1 / λ before clamping (EP cavities), use
+          `variance_and_error`.
         - ``"auto"``: exact for a dense solver, and for an iterative one up
           to N = 2048 (the threshold of `gaussx.diag_inv`); stochastic
           above, which needs ``key``.
 
         Args:
             method: ``"auto"``, ``"exact"`` or ``"stochastic"``, as above.
-            num_probes: Number of probe solves of the stochastic method.
+            num_probes: Number of draws or probes of the stochastic method.
             batch_size: Number of solves vectorised together by the exact
                 iterative method; ``None`` runs them one at a time.
+            estimator: ``"sbpv"`` or ``"spv"``, for the stochastic method.
             key: PRNG key of the stochastic method.
 
         Returns:
             The marginal variances [Σ_f|y]_nn, one per point.
 
         Raises:
-            ValueError: If ``method`` is not one of the three.
-            NotImplementedError: If the stochastic method is chosen.
+            ValueError: If ``method`` or ``estimator`` is not one of its
+                options, or the stochastic method gets no ``key``.
         """
         if method not in ("auto", "exact", "stochastic"):
             raise ValueError(
@@ -169,12 +192,11 @@ class SitePosterior(eqx.Module):
             exact = dense or size <= _EXACT_VARIANCE_MAX_SIZE
             method = "exact" if exact else "stochastic"
         if method == "stochastic":
-            del num_probes, key
-            raise NotImplementedError(
-                "site_posterior: the stochastic variance waits on the diagonal "
-                "estimators of gaussx#827; use method='exact' (N solves, in "
-                "batches of batch_size)."
+            estimate, _ = self.variance_and_error(
+                num_probes=num_probes, estimator=estimator, key=key
             )
+            # clamped at zero, as base_conditional is (gh-363)
+            return jnp.maximum(estimate, 0.0)
         prior_diagonal = _prior_diagonal(self.prior_cov)
         if self.factor is not None and prior_diagonal is not None:
             return _diagonal_variance(prior_diagonal, self.site_precision)
@@ -184,6 +206,101 @@ class SitePosterior(eqx.Module):
             )
             return _dense_variance(self.prior_cov, cache)
         return _iterative_variance(self.prior_cov, self.system, self.solver, batch_size)
+
+    def variance_and_error(
+        self,
+        *,
+        num_probes: int = 100,
+        estimator: Literal["sbpv", "spv"] = "sbpv",
+        key: jax.Array | None = None,
+    ) -> tuple[Float[Array, " N"], Float[Array, " N"]]:
+        """The stochastic marginal variances and their standard errors, unclamped.
+
+            diag(Σ_f|y) ≈ diag(K_XX) − (1 / ℓ) ∑_i (K_XX A⁻¹ r^(i))²,
+            r^(i) ~ 𝒩(0, A)   (SBPV), or
+            diag(Σ_f|y) ≈ diag(K_XX) − (1 / ℓ) ∑_i z^(i) ⊙ K_XX A⁻¹ K_XX z^(i)
+            (SPV)
+
+        EP and posterior linearisation use these variances in cavities,
+        1 / σ² − λ, where an estimate above 1 / λ gives a negative cavity
+        precision; the estimate is returned as it is, with its standard
+        error, so that the caller decides how to clamp it.
+
+        Args:
+            num_probes: Number of draws (SBPV) or sign probes (SPV) ℓ, one
+                solve against A each.
+            estimator: ``"sbpv"`` (the default) or ``"spv"``; see `variance`.
+            key: PRNG key of the draws or probes.
+
+        Returns:
+            Tuple ``(estimate, standard_error)``, one entry per point.
+
+        Raises:
+            ValueError: If ``estimator`` is not ``"sbpv"`` or ``"spv"``, or
+                ``key`` is ``None``.
+        """
+        if estimator not in ("sbpv", "spv"):
+            raise ValueError(f"estimator must be 'sbpv' or 'spv', got {estimator!r}.")
+        if key is None:
+            raise ValueError(
+                "The stochastic site variance needs a PRNG key for its draws."
+            )
+        prior_cov = self.prior_cov
+        # diag(K_XX), exactly, by structure or N matvecs
+        prior_diagonal = matrix_free_diag(prior_cov, estimate=False)
+        solve = self._system_solve
+        if estimator == "spv":
+
+            def quadratic_fn(vector: Float[Array, " N"]) -> Float[Array, " N"]:
+                # K_XX A⁻¹ K_XX v
+                return prior_cov.mv(solve(prior_cov.mv(vector)))
+
+            return spv_mean_and_error(
+                key,
+                deterministic_part=prior_diagonal,
+                quadratic_fn=quadratic_fn,
+                num_probes=num_probes,
+            )
+        _warn_if_prior_draws_densify(prior_cov)
+        # d^½, the site standard deviations
+        site_scale = 1.0 / jnp.sqrt(self.site_precision)
+        zeros = jnp.zeros_like(self.prior_mean)
+
+        def sample_fn(draw_key: jax.Array) -> Float[Array, " N"]:
+            prior_key, site_key = jr.split(draw_key)
+            # f ~ 𝒩(0, K_XX)
+            prior_draw = sample_mvn(zeros, prior_cov, key=prior_key)[0]
+            # ε ~ 𝒩(0, I)
+            noise = jr.normal(site_key, zeros.shape, dtype=zeros.dtype)
+            # r = f + d^½ ⊙ ε ~ 𝒩(0, K_XX + diag(d)) = 𝒩(0, A)
+            return prior_draw + site_scale * noise
+
+        def solve_fn(draw: Float[Array, " N"]) -> Float[Array, " N"]:
+            # K_XX A⁻¹ r
+            return prior_cov.mv(solve(draw))
+
+        return sbpv_mean_and_error(
+            key,
+            deterministic_part=prior_diagonal,
+            sample_fn=sample_fn,
+            solve_fn=solve_fn,
+            num_samples=num_probes,
+        )
+
+    def _system_solve(self, vector: Float[Array, " N"]) -> Float[Array, " N"]:
+        """A⁻¹ v, by the cached factor on the dense path, ``solver`` otherwise.
+
+        Args:
+            vector: v.
+
+        Returns:
+            A⁻¹ v.
+        """
+        if self.factor is not None:
+            # A⁻¹ v = L⁻ᵀ L⁻¹ v
+            forward = solve(self.factor, vector)
+            return solve(self.factor.transpose(), forward)
+        return dispatch_solve(self.system, vector, self.solver)
 
     def covariance(self) -> lx.AbstractLinearOperator:
         """Σ_f|y = K_XX − K_XX A⁻¹ K_XX, as a lazy PSD operator.
@@ -196,20 +313,13 @@ class SitePosterior(eqx.Module):
             The posterior covariance as a `lineax.FunctionLinearOperator`.
         """
         prior_cov = self.prior_cov
-        system = self.system
-        solver = self.solver
-        factor = self.factor
+        solve_system = self._system_solve
 
         def matvec(vector: Float[Array, " N"]) -> Float[Array, " N"]:
             # K_XX v
             prior_product = prior_cov.mv(vector)
-            if factor is not None:
-                # A⁻¹ K_XX v = L⁻ᵀ L⁻¹ K_XX v
-                forward = solve(factor, prior_product)
-                solved = solve(factor.transpose(), forward)
-            else:
-                # A⁻¹ K_XX v
-                solved = dispatch_solve(system, prior_product, solver)
+            # A⁻¹ K_XX v, by the cached factor or ``solver``
+            solved = solve_system(prior_product)
             # Σ_f|y v = K_XX v − K_XX A⁻¹ K_XX v
             return prior_product - prior_cov.mv(solved)
 
@@ -340,6 +450,35 @@ def _iterative_variance(
         return column[index] - column @ solved
 
     return jax.lax.map(one_point, jnp.arange(size), batch_size=batch_size)
+
+
+# The priors `gaussx.sample_mvn` samples by structure, with no dense root.
+_STRUCTURED_DRAWS = (
+    lx.DiagonalLinearOperator,
+    lx.IdentityLinearOperator,
+    BlockDiag,
+    Kronecker,
+    KroneckerSum,
+    BlockTriDiag,
+    Toeplitz,
+    LowRankUpdate,
+)
+
+
+def _warn_if_prior_draws_densify(prior_cov: lx.AbstractLinearOperator) -> None:
+    """Warn when SBPV's prior draws need a dense root of a matrix-free K_XX.
+
+    Args:
+        prior_cov: The prior covariance K_XX.
+    """
+    inner = _untagged(prior_cov)
+    if _is_dense_matrix(prior_cov) or isinstance(inner, _STRUCTURED_DRAWS):
+        return
+    warn_dense_fallback(
+        f"SitePosterior.variance(estimator='sbpv') draws from the prior "
+        f"{type(inner).__name__} through gaussx.sample_mvn, which densifies it "
+        "for its square root. estimator='spv' needs only products with K_XX."
+    )
 
 
 def site_posterior(

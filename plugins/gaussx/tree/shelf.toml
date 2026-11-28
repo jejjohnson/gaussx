@@ -322,7 +322,8 @@ names = [
     "kronecker_mll", "kronecker_posterior_predictive", "leave_one_out_cv", "LOOResult",
     "love_cache", "love_residual", "love_variance", "love_variance_error_bound",
     "LOVECache", "matheron_update", "oilmm_back_project", "oilmm_project",
-    "predict_mean", "predict_variance", "PredictionCache", "rts_interpolate",
+    "predict_mean", "predict_variance", "predictive_variance_sbpv",
+    "predictive_variance_spv", "PredictionCache", "rts_interpolate",
     "sparse_conditional",
 ]
 

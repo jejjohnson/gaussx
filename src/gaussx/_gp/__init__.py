@@ -44,6 +44,10 @@ from gaussx._gp._prediction_cache import (
     predict_mean,
     predict_variance,
 )
+from gaussx._gp._predictive_variance import (
+    predictive_variance_sbpv,
+    predictive_variance_spv,
+)
 from gaussx._gp._svgp import whitened_svgp_predict
 from gaussx._gp._svgp_variance import svgp_variance_adjustment
 from gaussx._gp._unwhiten import unwhiten, unwhiten_covariance, whiten_covariance
@@ -69,6 +73,8 @@ __all__ = [
     "oilmm_project",
     "predict_mean",
     "predict_variance",
+    "predictive_variance_sbpv",
+    "predictive_variance_spv",
     "rts_interpolate",
     "sparse_conditional",
     "svgp_variance_adjustment",
