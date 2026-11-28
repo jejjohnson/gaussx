@@ -50,6 +50,14 @@ Laplace, Gauss-Newton, posterior linearisation and expectation propagation repla
       show_root_toc_entry: false
       members: [site_posterior, SitePosterior]
 
+`site_log_evidence` gives the log evidence of a site posterior. With an exact solver it takes the standard form $\sum_n \log p(y_n \mid m_n) - \tfrac{1}{2} \mathbf{w}^\top \mathbf{K}_{XX} \mathbf{w} - \tfrac{1}{2} \log \det(\mathbf{I} + \boldsymbol{\Lambda}_\text{site}^{1/2} \mathbf{K}_{XX} \boldsymbol{\Lambda}_\text{site}^{1/2})$, which stays accurate in float32 for weak sites. With a stochastic log-determinant it takes the equal pseudo-observation form $\log \mathcal{N}(\boldsymbol{\mu}_\text{site}; \boldsymbol{\mu}_f, \mathbf{A}) + \sum_n [\log p(y_n \mid m_n) - \log \mathcal{N}(\mu_{\text{site},n}; m_n, d_n)]$, whose first term is one shared pass of `inv_quad_logdet` through `BBMMSolver`. `site_evidence_correction` is the bracketed sum alone, with a mask, for a caller that has its own marginal of the pseudo-observations, such as a Kalman filter.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [site_log_evidence, site_evidence_correction]
+
 ## Precision-form Laplace (INLA)
 
 The Laplace loop lives in `argminax.solve.laplace_mode`, which iterates gaussx's single step (below) and returns its `LaplaceResult`; gaussx's own `laplace_mode` was removed after its deprecation. The algebra on this page describes that loop, and the examples call argminax.

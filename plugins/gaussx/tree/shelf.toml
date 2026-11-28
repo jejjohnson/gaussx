@@ -400,7 +400,8 @@ names = [
     "gaussian_expected_log_lik", "ggn_diagonal", "hutchinson_hessian_diag",
     "laplace_model", "laplace_result", "LaplaceModel", "LaplaceResult",
     "log_marginal_likelihood", "newton_update", "riemannian_psd_correction",
-    "site_posterior", "SitePosterior", "trace_correction", "vb_mean_correction",
+    "site_evidence_correction", "site_log_evidence", "site_posterior",
+    "SitePosterior", "trace_correction", "vb_mean_correction",
 ]
 
 [[entries]]
