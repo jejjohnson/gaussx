@@ -242,7 +242,7 @@ def test_preconditioner_reaches_the_cg_of_composed_and_auto(wrapper):
     assert tree_allclose(A @ x, b, rtol=rtol, atol=rtol * float(jnp.max(jnp.abs(b))))
 
 
-@pytest.mark.parametrize("name", ["preconditioned_cg", "minres"])
+@pytest.mark.parametrize("name", ["preconditioned_cg", "minres", "cg"])
 def test_preconditioner_on_other_strategies_raises_clearly(name):
     from gaussx import JacobiPreconditioner, PreconditionedCGSolver
 
@@ -253,9 +253,11 @@ def test_preconditioner_on_other_strategies_raises_clearly(name):
             preconditioner=JacobiPreconditioner()
         ),
         "minres": MINRESSolver(),
+        # before gh-881 linear_solve replaced a CGSolver's own preconditioner
+        "cg": CGSolver(preconditioner=JacobiPreconditioner()),
     }[name]
     op = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
-    match = "already carries" if name == "preconditioned_cg" else "not implemented"
+    match = "already carries" if name != "minres" else "not implemented"
     with pytest.raises(ValueError, match=match):
         linear_solve(
             op, jnp.ones(3), solver=solver, preconditioner=JacobiPreconditioner()
