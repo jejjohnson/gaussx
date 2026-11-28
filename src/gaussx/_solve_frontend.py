@@ -35,12 +35,10 @@ from jaxtyping import Array, Bool, Float, Int
 from gaussx._preconditioners import AbstractPreconditioner, OperatorPreconditioner
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolveStrategy
-from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._lineax import as_solve_strategy
 from gaussx._strategies._minres import MINRESSolver
-from gaussx._strategies._precond_cg import PreconditionedCGSolver
 from gaussx._tags import (
     is_negative_semidefinite,
     is_positive_semidefinite,
@@ -521,10 +519,10 @@ def _attach_preconditioner(
 ) -> AbstractSolveStrategy:
     """Attach ``preconditioner`` to the CG solve inside ``solver`` (gh-390).
 
-    `CGSolver` and `AutoSolver` take it as a field; `ComposedSolver` and
-    `KeyedSolver` pass it on to the strategy that solves. A
-    `PreconditionedCGSolver` already has its own; other strategies have no
-    preconditioned solve.
+    One rule for every strategy (gh-881): ``solver.with_preconditioner``.
+    `CGSolver`, `PreconditionedCGSolver`, `AutoSolver` and `BBMMSolver`
+    take it as a field; `ComposedSolver` and `KeyedSolver` pass it on to the
+    strategy that solves; the others have no preconditioned solve.
 
     Args:
         solver: Solve strategy.
@@ -534,31 +532,7 @@ def _attach_preconditioner(
         The strategy with M⁻¹ attached to its CG solve.
 
     Raises:
-        ValueError: If ``solver`` is a `PreconditionedCGSolver` or has no CG
-            solve to precondition.
+        ValueError: If ``solver`` already carries a preconditioner or has no
+            preconditioned solve.
     """
-    if isinstance(solver, CGSolver | AutoSolver):
-        return dataclasses.replace(solver, preconditioner=preconditioner)
-    if isinstance(solver, ComposedSolver):
-        return dataclasses.replace(
-            solver,
-            solve_strategy=_attach_preconditioner(
-                solver.solve_strategy, preconditioner
-            ),
-        )
-    if isinstance(solver, KeyedSolver) and isinstance(
-        solver.strategy, AbstractSolveStrategy
-    ):
-        attached = _attach_preconditioner(solver.strategy, preconditioner)
-        assert isinstance(attached, AbstractLogdetStrategy)
-        return dataclasses.replace(solver, strategy=attached)
-    if isinstance(solver, PreconditionedCGSolver):
-        raise ValueError(
-            "PreconditionedCGSolver has its own preconditioner; pass it as "
-            "PreconditionedCGSolver(preconditioner=...) instead of "
-            "linear_solve(..., preconditioner=...)."
-        )
-    raise ValueError(
-        f"Preconditioning is not implemented for {type(solver).__name__}. "
-        "Use CGSolver, AutoSolver, or a ComposedSolver whose solve is one."
-    )
+    return solver.with_preconditioner(preconditioner)

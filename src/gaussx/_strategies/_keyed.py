@@ -6,6 +6,9 @@ key bound here decides which.
 
 from __future__ import annotations
 
+import dataclasses
+from typing import TYPE_CHECKING
+
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -16,6 +19,10 @@ from gaussx._strategies._base import (
     AbstractSolveStrategy,
     _SolveStats,
 )
+
+
+if TYPE_CHECKING:
+    from gaussx._preconditioners import AbstractPreconditioner
 
 
 class KeyedSolver(AbstractSolverStrategy):
@@ -76,6 +83,24 @@ class KeyedSolver(AbstractSolverStrategy):
 
     strategy: AbstractLogdetStrategy
     key: jax.Array
+
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> KeyedSolver:
+        """The wrapped strategy with ``preconditioner``, under the same key.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            A `KeyedSolver` around the preconditioned strategy, same ``key``.
+
+        Raises:
+            ValueError: If the wrapped strategy cannot take it.
+        """
+        attached = self.strategy.with_preconditioner(preconditioner)
+        assert isinstance(attached, AbstractLogdetStrategy)
+        return dataclasses.replace(self, strategy=attached)
 
     def solve(
         self,

@@ -407,6 +407,7 @@ from gaussx._strategies import (
     SLQLogdet as SLQLogdet,
     SparseCholeskySolver as SparseCholeskySolver,
     WeightedJacobi as WeightedJacobi,
+    compose_solver as compose_solver,
     galerkin_levels as galerkin_levels,
     sketch_and_solve as sketch_and_solve,
 )
@@ -576,6 +577,7 @@ __all__ = [
     "circulant_from_symbol",
     "collapsed_elbo",
     "column_id",
+    "compose_solver",
     "compute_psi_statistics",
     "conditional",
     "conditional_interpolate",

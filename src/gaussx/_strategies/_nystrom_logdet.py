@@ -11,6 +11,8 @@ Lanczos quadrature (SLQ) estimate over probes z^(i), i = 1, …, N_probe.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -135,6 +137,10 @@ class NystromLogdet(AbstractLogdetStrategy):
         Frangella, Z., Tropp, J. A. & Udell, M. (2023). Randomized Nyström
         preconditioning. *SIAM J. Matrix Anal. Appl.*, 44(2), 718-752.
     """
+
+    _no_preconditioner_reason: ClassVar[str] = (
+        "it builds its own Nyström preconditioner"
+    )
 
     shift: float | Float[Array, ""] | Float[Array, " n"] | None
     rank: int = eqx.field(static=True, default=50)

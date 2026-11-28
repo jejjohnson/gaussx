@@ -67,6 +67,16 @@ tagged `FunctionLinearOperator` for matrix-free workflows.
       show_root_toc_entry: false
       members: [DenseSolver, AutoSolver, CGSolver, PreconditionedCGSolver, MINRESSolver, LSMRSolver, BBMMSolver, ComposedSolver, KeyedSolver, LineaxSolver, SparseCholeskySolver]
 
+### Composing the three choices
+
+A model that lets its user pick a solver, a preconditioner and a log-determinant separately builds its strategy with `compose_solver(solver, preconditioner=..., logdet=...)`. The preconditioner is attached to the solve with the strategy's `with_preconditioner` (the rule `linear_solve(preconditioner=...)` also follows), and to the log-determinant when that uses one, as `BBMMSolver`'s shared pass does; `logdet=None` keeps the solver's own. Combinations that would ignore a preconditioner, or give two, raise `ValueError` naming the classes.
+
+::: gaussx
+    options:
+      show_root_heading: false
+      show_root_toc_entry: false
+      members: [compose_solver]
+
 ## Multigrid
 
 V-cycles over a level hierarchy the caller builds: gaussx owns the algorithm, a grid library builds the levels from its grid and mask. `MultigridSolver` is CG on the given operator, preconditioned by one V-cycle; `MultigridPreconditioner` is the V-cycle alone, for any CG.
