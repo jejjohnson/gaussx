@@ -214,8 +214,11 @@ def sbpv_mean_and_error(
     """
 
     def sampler(sample_key: PRNGKeyArray) -> Float[Array, "draw n"]:
-        # r^(i) ~ 𝒩(0, W + Σ⁻¹), one row per draw
-        return jax.vmap(sample_fn)(jr.split(sample_key, num_samples))
+        # r^(i) ~ 𝒩(0, W + Σ⁻¹), one row per draw. Drawn in sequence, not
+        # with vmap: a structured sampler that picks its route per key with
+        # lax.cond (BlockTriDiag in sample_mvn) would run both routes, the
+        # dense one included, once batched.
+        return jax.lax.map(sample_fn, jr.split(sample_key, num_samples))
 
     def integrand(solve, draw: Float[Array, " n"]) -> Float[Array, " n_star"]:
         # s^(i) = Cᵀ (W + Σ⁻¹)⁻¹ r^(i)
