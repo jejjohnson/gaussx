@@ -373,6 +373,30 @@ def test_sbpv_warns_before_densifying_a_matrix_free_prior(getkey):
         posterior.variance_and_error(num_probes=4, estimator="spv", key=getkey())
 
 
+@pytest.mark.parametrize("weight", [0.5, -0.5])
+def test_sbpv_warns_when_a_low_rank_prior_falls_back_to_dense_draws(getkey, weight):
+    # sample_mvn draws I + w e₁e₁ᵀ through its low-rank route only for w > 0;
+    # a PSD downdate (w = −0.5) goes through the dense root, so SBPV warns.
+    prior_mean, _, information, precision = _problem(getkey())
+    dtype = prior_mean.dtype
+    prior = gaussx.LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.ones(_N, dtype)),
+        jnp.eye(_N, 1, dtype=dtype),
+        jnp.array([weight], dtype),
+        tags=_PSD,
+    )
+    posterior = gaussx.site_posterior(
+        prior_mean, prior, information, precision, solver=gaussx.CGSolver()
+    )
+    if weight < 0:
+        with pytest.warns(gaussx.DenseFallbackWarning, match="spv"):
+            posterior.variance_and_error(num_probes=4, key=getkey())
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", gaussx.DenseFallbackWarning)
+            posterior.variance_and_error(num_probes=4, key=getkey())
+
+
 def test_dense_path_warns_when_it_densifies_a_structured_prior(getkey):
     size = 10
     prior_cov, dense = _matrix_free_prior(getkey(), size)

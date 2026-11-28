@@ -21,7 +21,11 @@ import lineax as lx
 from jaxtyping import Array, Bool, Float
 
 from gaussx._distributions._gaussian import _LOG_2PI, gaussian_log_prob
-from gaussx._distributions._sample import sample_mvn
+from gaussx._distributions._sample import (
+    _all_square,
+    _low_rank_is_sampleable,
+    sample_mvn,
+)
 from gaussx._gp._prediction_cache import (
     PredictionCache,
     build_prediction_cache,
@@ -466,6 +470,33 @@ _STRUCTURED_DRAWS = (
 )
 
 
+def _draws_are_structured(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether `sample_mvn` draws from ``operator`` without a dense root.
+
+    Mirrors the routing of `sample_mvn`: a rectangular block or factor, and
+    a low-rank update whose weights or base fail ``_low_rank_is_sampleable``
+    (or are only known at run time), go through the dense square root.
+
+    Args:
+        operator: The untagged prior covariance K_XX.
+
+    Returns:
+        ``True`` when the draws are certain to take a structured route.
+    """
+    if isinstance(operator, BlockDiag | Kronecker):
+        return _all_square(operator.operators)
+    if isinstance(operator, LowRankUpdate):
+        if not operator.symmetric_factors:
+            return False
+        sampleable = _low_rank_is_sampleable(operator)
+        try:
+            return bool(sampleable)
+        except jax.errors.TracerBoolConversionError:
+            # decided per value at run time: the dense route may run
+            return False
+    return isinstance(operator, _STRUCTURED_DRAWS)
+
+
 def _warn_if_prior_draws_densify(prior_cov: lx.AbstractLinearOperator) -> None:
     """Warn when SBPV's prior draws need a dense root of a matrix-free K_XX.
 
@@ -473,7 +504,7 @@ def _warn_if_prior_draws_densify(prior_cov: lx.AbstractLinearOperator) -> None:
         prior_cov: The prior covariance K_XX.
     """
     inner = _untagged(prior_cov)
-    if _is_dense_matrix(prior_cov) or isinstance(inner, _STRUCTURED_DRAWS):
+    if _is_dense_matrix(prior_cov) or _draws_are_structured(inner):
         return
     warn_dense_fallback(
         f"SitePosterior.variance(estimator='sbpv') draws from the prior "
