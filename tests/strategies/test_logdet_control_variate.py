@@ -19,6 +19,7 @@ import pytest
 import gaussx
 import gaussx._primitives._inv_quad_logdet as shared_pass
 import gaussx._strategies._slq_logdet as slq_module
+from gaussx._einx import reduce
 from gaussx._strategies._control_variate import logdet_control_variate
 from gaussx._strategies._whitening import whitened_operator
 
@@ -212,10 +213,9 @@ def test_controlled_gradient_is_unbiased(route):
     grads = jax.jit(jax.vmap(jax.grad(lambda t, k: value(t, k, n)), in_axes=(None, 0)))(
         theta, keys
     )
-    error = jnp.std(grads, axis=0) / jnp.sqrt(200.0)
-    assert jnp.all(
-        jnp.abs(jnp.mean(grads, axis=0) - _exact_gradient(theta, n)) <= 2.0 * error
-    )
+    mean = reduce(grads, "key param -> param", "mean")
+    error = reduce(grads, "key param -> param", "std") / jnp.sqrt(200.0)
+    assert jnp.all(jnp.abs(mean - _exact_gradient(theta, n)) <= 2.0 * error)
 
 
 def _spread(route, rank, n, num_probes, theta, keys):
@@ -223,7 +223,8 @@ def _spread(route, rank, n, num_probes, theta, keys):
     gradient = jax.jit(jax.grad(lambda t, k: value(t, k, n)))
     grads = jnp.stack([gradient(theta, k) for k in keys])
     exact = _exact_gradient(theta, n)
-    return jnp.sqrt(jnp.mean((grads - exact) ** 2, axis=0)) / jnp.abs(exact)
+    squared = reduce((grads - exact) ** 2, "key param -> param", "mean")
+    return jnp.sqrt(squared) / jnp.abs(exact)
 
 
 @pytest.mark.slow
