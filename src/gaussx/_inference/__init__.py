@@ -48,6 +48,7 @@ from gaussx._inference._natural_gradient import (
     gauss_newton_precision,
     riemannian_psd_correction,
 )
+from gaussx._inference._sites import SitePosterior, site_posterior
 
 # ``process_noise_covariance`` is a state-space concept and now lives in
 # ``gaussx._ssm``. Re-exported here so the historical import path keeps
@@ -59,6 +60,7 @@ from gaussx._ssm._discretise import process_noise_covariance
 __all__ = [
     "LaplaceModel",
     "LaplaceResult",
+    "SitePosterior",
     "blr_diag_update",
     "blr_full_update",
     "cavity_distribution",
@@ -93,6 +95,7 @@ __all__ = [
     "newton_update",
     "process_noise_covariance",
     "riemannian_psd_correction",
+    "site_posterior",
     "soar_taper",
     "tikhonov_augment",
     "trace_correction",

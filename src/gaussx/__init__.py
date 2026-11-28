@@ -95,6 +95,7 @@ from gaussx._gp import (
     whitened_svgp_predict as whitened_svgp_predict,
 )
 from gaussx._inference import (
+    SitePosterior as SitePosterior,
     blr_diag_update as blr_diag_update,
     blr_full_update as blr_full_update,
     cavity_distribution as cavity_distribution,
@@ -126,6 +127,7 @@ from gaussx._inference import (
     log_marginal_likelihood as log_marginal_likelihood,
     newton_update as newton_update,
     riemannian_psd_correction as riemannian_psd_correction,
+    site_posterior as site_posterior,
     soar_taper as soar_taper,
     tikhonov_augment as tikhonov_augment,
     trace_correction as trace_correction,
@@ -533,6 +535,7 @@ __all__ = [
     "SLQLogdet",
     "SLRResult",
     "SRHTSketch",
+    "SitePosterior",
     "SketchAndPrecondLSMR",
     "SoftmaxLikelihood",
     "SolveInfo",
@@ -759,6 +762,7 @@ __all__ = [
     "sigma_points",
     "site_mean_var_from_natural",
     "site_natural_from_tilted",
+    "site_posterior",
     "sites_to_precision",
     "sketch_and_solve",
     "soar_taper",
