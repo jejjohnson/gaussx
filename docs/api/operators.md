@@ -154,7 +154,7 @@ On a single axis the source is `functax.geometry.Axis(g)` itself. For multilinea
 
 ## Lazy algebra & sampling
 
-Sum / scale / compose operators without materializing, sample
+Sum / scale / compose operators without materializing, read a system $\mathbf{K} + \mathrm{diag}(\mathbf{d})$ back into its kernel part and its diagonal (`split_diagonal`), sample
 $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{A})$ for the structured families, and solve
 bordered systems through the capacitance (Schur-complement) form.
 
@@ -162,7 +162,7 @@ bordered systems through the capacitance (Schur-complement) form.
     options:
       show_root_heading: false
       show_root_toc_entry: false
-      members: [sum_operator, scaled_operator, product_operator, kronecker_sum_sample, sum_of_kroneckers_sample, toeplitz_sample, CapacitanceSolver]
+      members: [sum_operator, scaled_operator, product_operator, split_diagonal, DiagonalSplit, kronecker_sum_sample, sum_of_kroneckers_sample, toeplitz_sample, CapacitanceSolver]
 
 ## Structural tags & predicates
 

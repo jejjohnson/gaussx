@@ -60,6 +60,7 @@ from gaussx._operators._masked import (
 from gaussx._operators._row_kron import row_kron
 from gaussx._operators._sparse import SparseOperator, SparsityPattern
 from gaussx._operators._spectral_function import SpectralFunction
+from gaussx._operators._split import DiagonalSplit, split_diagonal
 from gaussx._operators._sum_kronecker import (
     SumOfKroneckers,
     is_eigen_reducible as is_eigen_reducible,
@@ -503,6 +504,7 @@ __all__ = [
     "BlockDiag",
     "BlockTriDiag",
     "CapacitanceSolver",
+    "DiagonalSplit",
     "DiagonalizedOperator",
     "InterpolatedOperator",
     "Kronecker",
@@ -533,6 +535,7 @@ __all__ = [
     "product_operator",
     "row_kron",
     "scaled_operator",
+    "split_diagonal",
     "sum_of_kroneckers_sample",
     "sum_operator",
     "svd_low_rank_plus_diag",
