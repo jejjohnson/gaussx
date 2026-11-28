@@ -10,11 +10,14 @@ from __future__ import annotations
 
 import math
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._einx import rearrange
+from gaussx._primitives._inv_quad_logdet import inv_quad_logdet
 from gaussx._primitives._logdet import _cholesky_logdet, _dense_psd_matrix
 from gaussx._primitives._trace import trace
 from gaussx._strategies._auto import AutoSolver
@@ -23,6 +26,8 @@ from gaussx._strategies._base import (
     AbstractSolverStrategy,
     AbstractSolveStrategy,
 )
+from gaussx._strategies._bbmm import BBMMSolver
+from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._dispatch import dispatch_logdet, dispatch_solve
 from gaussx._strategies._keyed import KeyedSolver
@@ -91,7 +96,9 @@ def _gaussian_log_prob_residual(
     Algorithm:
         1. For a dense PSD Σ under structural dispatch, factor Σ = L Lᵀ once
            and read both rᵀ Σ⁻¹ r = ‖L⁻¹ r‖² and log det Σ from L.
-        2. Otherwise solve Σ⁻¹ r and take log det Σ through the strategy.
+        2. Otherwise take rᵀ Σ⁻¹ r and log det Σ from
+           `_quadratic_and_logdet`: BBMM's shared pass, or the strategy's
+           solve and logdet.
         3. Combine the terms.
 
     Args:
@@ -120,14 +127,110 @@ def _gaussian_log_prob_residual(
         mahalanobis = whitened_residual @ whitened_residual
         # log 𝒩(x; μ, Σ) = −½ (D_x log 2π + log det Σ + rᵀ Σ⁻¹ r)
         return -0.5 * (event_size * _LOG_2PI + logdet + mahalanobis)
+    # rᵀ Σ⁻¹ r and log det Σ
+    mahalanobis, logdet = _quadratic_and_logdet(
+        cov_operator, residual, solver=solver, key=key
+    )
+    # log 𝒩(x; μ, Σ) = −½ (D_x log 2π + log det Σ + rᵀ Σ⁻¹ r)
+    return -0.5 * (event_size * _LOG_2PI + logdet + mahalanobis)
+
+
+def _quadratic_and_logdet(
+    operator: lx.AbstractLinearOperator,
+    residual: Float[Array, " N"],
+    *,
+    solver: AbstractSolverStrategy | None = None,
+    key: jax.Array | None = None,
+) -> tuple[Float[Array, ""], Float[Array, ""]]:
+    """rᵀ Σ⁻¹ r and log det Σ, from one BBMM pass when the strategy has one.
+
+        (rᵀ Σ⁻¹ r, log det Σ)
+
+    Routes, in order (gh-880):
+
+    1. A `gaussx.BBMMSolver`, a `gaussx.KeyedSolver` around one, or a
+       `gaussx.ComposedSolver` whose two parts are the same `BBMMSolver`:
+       `gaussx.inv_quad_logdet` with ``key``, one modified-batched-CG pass
+       over [r ∣ probes]. Its ``rtol`` controls the quadratic form only; the
+       probes run to breakdown.
+    2. Everything else: the strategy's solve, then its logdet, as before.
+
+    Args:
+        operator: Covariance Σ.
+        residual: Residual r.
+        solver: Solver strategy for Σ; ``None`` uses structural dispatch.
+        key: PRNG key for a stochastic logdet strategy's probes.
+
+    Returns:
+        Tuple ``(rᵀ Σ⁻¹ r, log det Σ)``.
+    """
+    shared = _shared_pass_strategy(solver)
+    if shared is not None:
+        # [r], N × 1
+        column = rearrange(residual, "row -> row 1")
+        # rᵀ Σ⁻¹ r and log det Σ, in one block-CG pass
+        return inv_quad_logdet(operator, column, strategy=shared, key=key)
     # Σ⁻¹ r
-    precision_residual = dispatch_solve(cov_operator, residual, solver)
+    precision_residual = dispatch_solve(operator, residual, solver)
     # rᵀ Σ⁻¹ r
     mahalanobis = residual @ precision_residual
     # log det Σ
-    logdet = dispatch_logdet(cov_operator, solver, key=key)
-    # log 𝒩(x; μ, Σ) = −½ (D_x log 2π + log det Σ + rᵀ Σ⁻¹ r)
-    return -0.5 * (event_size * _LOG_2PI + logdet + mahalanobis)
+    logdet = dispatch_logdet(operator, solver, key=key)
+    return mahalanobis, logdet
+
+
+def _shared_pass_strategy(
+    solver: AbstractSolverStrategy | None,
+) -> AbstractSolverStrategy | None:
+    """The strategy to give `gaussx.inv_quad_logdet`, if ``solver`` shares a pass.
+
+    Args:
+        solver: The strategy, or ``None``.
+
+    Returns:
+        ``solver`` for a `gaussx.BBMMSolver` or a `gaussx.KeyedSolver` around
+        one; the `BBMMSolver` of a `gaussx.ComposedSolver` whose solve and
+        logdet parts are the same one; ``None`` otherwise.
+    """
+    if isinstance(solver, BBMMSolver):
+        return solver
+    if isinstance(solver, KeyedSolver) and isinstance(solver.strategy, BBMMSolver):
+        return solver
+    if (
+        isinstance(solver, ComposedSolver)
+        and isinstance(solver.logdet_strategy, BBMMSolver)
+        and _same_strategy(solver.solve_strategy, solver.logdet_strategy)
+    ):
+        return solver.logdet_strategy
+    return None
+
+
+def _same_strategy(
+    first: AbstractSolveStrategy,
+    second: AbstractLogdetStrategy,
+) -> bool:
+    """Whether two strategies are the same object or equal pytrees.
+
+    A static check: a comparison that depends on traced arrays counts as
+    different, so under ``jit`` a composed pair built from two copies takes
+    the separate route unless it is one object.
+
+    Args:
+        first: The solve strategy.
+        second: The logdet strategy.
+
+    Returns:
+        ``True`` when they are the same strategy.
+    """
+    if first is second:
+        return True
+    equal = eqx.tree_equal(first, second)
+    if isinstance(equal, bool):
+        return equal
+    try:
+        return bool(equal)
+    except jax.errors.TracerBoolConversionError:
+        return False
 
 
 def _uses_structural_dispatch(
@@ -184,7 +287,11 @@ def gaussian_log_prob(
         cov_operator: Covariance Σ.
         value: Point x at which the density is evaluated.
         solver: Solver strategy for Σ (it needs both solve and logdet);
-            ``None`` uses structural dispatch.
+            ``None`` uses structural dispatch. A `gaussx.BBMMSolver` (or a
+            `gaussx.KeyedSolver` around one) takes the quadratic form and
+            the log-determinant from one shared pass of
+            `gaussx.inv_quad_logdet`, whose ``rtol`` controls the quadratic
+            form only.
         key: PRNG key for a stochastic logdet strategy's probes. ``None``
             uses the strategy's own seed, i.e. the same probes on every call
             (see `gaussx.KeyedSolver`). Ignored by exact strategies.
@@ -212,6 +319,19 @@ def gaussian_log_prob(
         >>> diagonal = lx.DiagonalLinearOperator(jnp.ones(3))
         >>> structured = gaussx.gaussian_log_prob(jnp.zeros(3), diagonal, jnp.ones(3))
         >>> bool(jnp.allclose(structured, log_density))
+        True
+
+        BBMM gives both terms from one shared pass, with a key:
+
+        >>> import jax.random as jr
+        >>> matrix = jnp.array([[2.0, 0.5, 0.0], [0.5, 2.0, 0.5], [0.0, 0.5, 2.0]])
+        >>> dense = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+        >>> exact = gaussx.gaussian_log_prob(jnp.zeros(3), dense, jnp.ones(3))
+        >>> shared = gaussx.gaussian_log_prob(
+        ...     jnp.zeros(3), dense, jnp.ones(3),
+        ...     solver=gaussx.BBMMSolver(num_probes=16), key=jr.key(0),
+        ... )
+        >>> bool(jnp.abs(shared - exact) < 0.3)
         True
     """
     # r = x − μ

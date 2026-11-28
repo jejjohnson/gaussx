@@ -154,6 +154,7 @@ NO_X64_TESTS := tests/primitives \
 	tests/distributions/test_conditional.py \
 	tests/distributions/test_information.py \
 	tests/distributions/test_gaussian.py \
+	tests/distributions/test_gaussian_bbmm.py \
 	tests/distributions/test_sample_mvn.py \
 	tests/distributions/test_sample_dtype.py \
 	tests/inference/test_ensemble_da.py \
