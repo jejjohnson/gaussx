@@ -85,7 +85,7 @@ Open the one the task needs; do not read them all.
 | ③ model | [Exponential-family forms](shelf/expfam.md) | natural, expectation and mean-covariance conversions | 14 |
 | ③ model | [Likelihoods](shelf/likelihoods.md) | Gaussian, Poisson, Bernoulli, Student-t and the rest | 10 |
 | ③ model | [SDE kernels](shelf/sde-kernels.md) | Matérn, periodic, quasi-periodic, sums and products, and their discretisation | 17 |
-| ④ algorithm | [GP conditioning and prediction](shelf/gp.md) | conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out | 19 |
+| ④ algorithm | [GP conditioning and prediction](shelf/gp.md) | conditionals, prediction caches, LOVE, Kronecker GPs, leave-one-out | 21 |
 | ④ algorithm | [Variational GPs](shelf/variational-gp.md) | ELBOs, the collapsed bound, whitening | 9 |
 | ④ algorithm | [Kalman filtering and smoothing](shelf/kalman.md) | sequential, parallel, mean-field and infinite-horizon filters and smoothers | 24 |
 | ④ algorithm | [Nonlinear filtering and sites](shelf/nonlinear-filtering.md) | nonlinear Kalman, CVI site updates, SpInGP | 14 |

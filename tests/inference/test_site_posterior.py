@@ -317,19 +317,84 @@ def test_grad_in_the_sites_and_the_lengthscale(getkey, name):
     assert tree_allclose(gradient, expected, rtol=rtol, atol=rtol)
 
 
-def test_stochastic_variance_waits_on_827(getkey):
+@pytest.mark.parametrize("estimator", ["sbpv", "spv"])
+@pytest.mark.parametrize("solver", [None, "cg"])
+def test_stochastic_variance_within_its_standard_error(getkey, estimator, solver):
+    """The stochastic variance is the exact one up to 7 of its SEMs (gh-827).
+
+    The band is the estimator's own standard error per point (gh-220).
+    """
     prior_mean, kernel, information, precision = _problem(getkey())
     posterior = gaussx.site_posterior(
         prior_mean,
         lx.MatrixLinearOperator(kernel, _PSD),
         information,
         precision,
-        solver=gaussx.CGSolver(),
+        solver=None if solver is None else gaussx.CGSolver(),
     )
-    with pytest.raises(NotImplementedError, match="827"):
-        posterior.variance(method="stochastic", key=jr.key(0))
+    _, _, expected = _dense_reference(prior_mean, kernel, information, precision)
+    estimate, error = posterior.variance_and_error(
+        num_probes=200, estimator=estimator, key=getkey()
+    )
+    # float32 solves add ~1e-4 on top of the sampling error
+    slack = 1e-6 if information.dtype == jnp.float64 else 1e-3
+    assert jnp.all(jnp.abs(estimate - expected) <= 7.0 * error + slack)
+    clamped = posterior.variance(
+        method="stochastic", num_probes=200, estimator=estimator, key=jr.key(0)
+    )
+    assert jnp.all(clamped >= 0.0)
+
+
+def test_stochastic_variance_options_are_checked(getkey):
+    prior_mean, kernel, information, precision = _problem(getkey())
+    posterior = gaussx.site_posterior(
+        prior_mean, lx.MatrixLinearOperator(kernel, _PSD), information, precision
+    )
+    with pytest.raises(ValueError, match="key"):
+        posterior.variance(method="stochastic")
+    with pytest.raises(ValueError, match="estimator"):
+        posterior.variance_and_error(estimator="love", key=jr.key(0))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="method"):
         posterior.variance(method="hutchinson")  # type: ignore[arg-type]
+
+
+def test_sbpv_warns_before_densifying_a_matrix_free_prior(getkey):
+    prior_mean, kernel, information, precision = _problem(getkey())
+    matrix_free = lx.FunctionLinearOperator(
+        lambda v: kernel @ v, jax.ShapeDtypeStruct((_N,), kernel.dtype), _PSD
+    )
+    posterior = gaussx.site_posterior(
+        prior_mean, matrix_free, information, precision, solver=gaussx.CGSolver()
+    )
+    with pytest.warns(gaussx.DenseFallbackWarning, match="spv"):
+        posterior.variance_and_error(num_probes=4, key=getkey())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", gaussx.DenseFallbackWarning)
+        posterior.variance_and_error(num_probes=4, estimator="spv", key=getkey())
+
+
+@pytest.mark.parametrize("weight", [0.5, -0.5])
+def test_sbpv_warns_when_a_low_rank_prior_falls_back_to_dense_draws(getkey, weight):
+    # sample_mvn draws I + w e₁e₁ᵀ through its low-rank route only for w > 0;
+    # a PSD downdate (w = −0.5) goes through the dense root, so SBPV warns.
+    prior_mean, _, information, precision = _problem(getkey())
+    dtype = prior_mean.dtype
+    prior = gaussx.LowRankUpdate(
+        lx.DiagonalLinearOperator(jnp.ones(_N, dtype)),
+        jnp.eye(_N, 1, dtype=dtype),
+        jnp.array([weight], dtype),
+        tags=_PSD,
+    )
+    posterior = gaussx.site_posterior(
+        prior_mean, prior, information, precision, solver=gaussx.CGSolver()
+    )
+    if weight < 0:
+        with pytest.warns(gaussx.DenseFallbackWarning, match="spv"):
+            posterior.variance_and_error(num_probes=4, key=getkey())
+    else:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", gaussx.DenseFallbackWarning)
+            posterior.variance_and_error(num_probes=4, key=getkey())
 
 
 def test_dense_path_warns_when_it_densifies_a_structured_prior(getkey):

@@ -18,6 +18,7 @@ Build the training covariance as an operator first (skill `gaussx:structured-gau
 | `LOVECache(Q, inv_eigvals)` | The Ritz vectors and inverse Ritz values stored by `love_cache`. |
 | `love_variance(cache, K_star_row)` | An `O(Nk)` approximation of `k_*ᵀ K⁻¹ k_*` for one test point. |
 | `love_residual(cache, K_op, K_star_row)`, `love_variance_error_bound(cache, K_op, K_star_row, lambda_min)` | Convergence checks for a LOVE cache at one cross-covariance. |
+| `predictive_variance_sbpv(key, *, deterministic_part, sample_fn, solve_fn, num_samples=100)`, `predictive_variance_spv(key, *, deterministic_part, quadratic_fn, num_probes=100)` | Unbiased simulation (SBPV) and sign-probe (SPV) estimates of the predictive variances, clamped at zero, for when the LOVE bound is too loose. |
 | `leave_one_out_cv(operator, y, *, solver=None, diag_inv_method="solve", ...)` | Leave-one-out means, variances and log-likelihood without refitting, returned as a `LOOResult`. |
 | `LOOResult` | Holds `loo_log_likelihood`, `loo_means` and `loo_variances`. |
 | `kronecker_mll(K_factors, y, noise_var, grid_shape)` | The exact marginal log-likelihood of a Kronecker GP by per-factor eigendecomposition. |
