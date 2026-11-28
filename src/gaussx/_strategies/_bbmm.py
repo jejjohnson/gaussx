@@ -12,14 +12,17 @@ from __future__ import annotations
 
 import equinox as eqx
 import jax
+import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Float
 
+from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._strategies._base import (
     AbstractSolverStrategy,
     _lineax_stats,
     _SolveStats,
 )
+from gaussx._strategies._cg import preconditioner_options
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
     operator_dtype,
@@ -55,6 +58,22 @@ class BBMMSolver(AbstractSolverStrategy):
 
     The options use the names shared by every iterative strategy (gh-405).
 
+    **Preconditioner.** With a ``preconditioner``, `solve` passes its
+    M⁻¹ = P⁻¹ to lineax CG (as `gaussx.CGSolver` does), and the shared pass
+    of `gaussx.inv_quad_logdet` (and `logdet`, which runs that pass with no
+    right-hand side) uses P itself, from the preconditioner's
+    ``approximation``, ``logdet`` and ``sample`` (Artemev et al., 2021):
+
+        log det A = log det P + tr log(P^(−½) A P^(−½)),
+
+    with probes z^(i) ~ 𝒩(0, P) drawn by ``preconditioner.sample``, so only
+    the near-identity remainder is estimated and its variance falls as
+    P → A. The preconditioner must know P (``supports_slq()``), or the
+    log-determinant raises. **The gradient does not get this reduction**:
+    the backward pass estimates A⁻¹ ≈ (1 / N_probe) ∑_i (A⁻¹ z^(i))
+    (P⁻¹ z^(i))ᵀ, which is unbiased but keeps its variance as P → A;
+    gaussx#826 adds the control variate that fixes it.
+
     Attributes:
         rtol: Relative tolerance tol_rel. ``None``: 1e-4 in float64, 1e-3
             in float32 (gh-327).
@@ -68,6 +87,9 @@ class BBMMSolver(AbstractSolverStrategy):
         throw: Raise when CG does not converge within ``max_steps``. With
             ``False`` the last iterate is returned unchecked (see
             `gaussx.CGSolver`).
+        preconditioner: Optional preconditioner, used by the solve and by
+            the shared pass (see **Preconditioner**). Its gradient is
+            stopped.
 
     Examples:
         A solve, and an SLQ estimate that is exact on a diagonal:
@@ -87,6 +109,17 @@ class BBMMSolver(AbstractSolverStrategy):
         >>> round(float(solver.logdet(diagonal)), 3)
         0.693
 
+        With a preconditioner, for the solve and the shared pass:
+
+        >>> import jax.random as jr
+        >>> pre = gaussx.JacobiPreconditioner()
+        >>> preconditioned = gaussx.BBMMSolver(num_probes=4, preconditioner=pre)
+        >>> bool(jnp.allclose(matrix @ preconditioned.solve(A, b), b, atol=1e-3))
+        True
+        >>> estimate = preconditioned.logdet(A, key=jr.key(0))
+        >>> bool(jnp.abs(estimate - jnp.log(11.0)) < 0.5)
+        True
+
     References:
         Gardner, J. R., Pleiss, G., Weinberger, K. Q., Bindel, D., &
         Wilson, A. G. (2018). GPyTorch: Blackbox matrix-matrix Gaussian
@@ -100,6 +133,7 @@ class BBMMSolver(AbstractSolverStrategy):
     num_probes: int = eqx.field(static=True, default=10)
     seed: int = eqx.field(static=True, default=0)
     throw: bool = eqx.field(static=True, default=True)
+    preconditioner: AbstractPreconditioner | None = None
 
     def __init__(
         self,
@@ -111,6 +145,7 @@ class BBMMSolver(AbstractSolverStrategy):
         num_probes: int = 10,
         seed: int = 0,
         throw: bool = True,
+        preconditioner: AbstractPreconditioner | None = None,
     ) -> None:
         self.rtol = rtol
         self.atol = atol
@@ -119,6 +154,7 @@ class BBMMSolver(AbstractSolverStrategy):
         self.num_probes = num_probes
         self.seed = seed
         self.throw = throw
+        self.preconditioner = preconditioner
 
     def solve(
         self,
@@ -133,9 +169,10 @@ class BBMMSolver(AbstractSolverStrategy):
             1. Resolve tol_rel and tol_abs for the dtype; below float64 with
                the default ``atol``, rescale to A y = b / s with
                s = maxₙ |b_n|.
-            2. Run lineax CG to |r_j,n| ≤ tol_abs + tol_rel |b_n|, raising
+            2. Build M⁻¹ from ``preconditioner``, with its gradient stopped.
+            3. Run lineax CG to |r_j,n| ≤ tol_abs + tol_rel |b_n|, raising
                at ``max_steps`` when ``throw`` is set.
-            3. Undo the rescaling, x = s y.
+            4. Undo the rescaling, x = s y.
 
         Args:
             operator: Symmetric positive-definite operator A, N × N.
@@ -175,8 +212,11 @@ class BBMMSolver(AbstractSolverStrategy):
             atol=atol,
             max_steps=self.max_steps,
         )
+        options = preconditioner_options(self.preconditioner, operator)
         # y = A⁻¹ (b / s)
-        solution = lx.linear_solve(operator, rhs, solver, throw=self.throw)
+        solution = lx.linear_solve(
+            operator, rhs, solver, options=options, throw=self.throw
+        )
         # x = s y
         value = solution.value if scale is None else solution.value * scale
         return _lineax_stats(solution, value, rtol, atol, scale)
@@ -192,7 +232,9 @@ class BBMMSolver(AbstractSolverStrategy):
             log det A ≈ (1 / N_probe) ∑_i ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁
 
         With no ``key`` the probes z^(i) come from ``PRNGKey(seed)``, the
-        same on every call.
+        same on every call. Without a ``preconditioner`` this is plain SLQ;
+        with one it is the preconditioned mBCG pass of
+        `gaussx.inv_quad_logdet` with no right-hand side.
 
         Args:
             operator: Symmetric positive-definite operator A, N × N.
@@ -201,7 +243,19 @@ class BBMMSolver(AbstractSolverStrategy):
 
         Returns:
             Scalar estimate of log det A.
+
+        Raises:
+            ValueError: If the preconditioner does not know P
+                (``supports_slq()`` is ``False``).
         """
+        if self.preconditioner is not None:
+            # lazy import, cycle: _primitives._inv_quad_logdet -> _strategies._bbmm
+            from gaussx._primitives._inv_quad_logdet import inv_quad_logdet
+
+            dtype = operator.in_structure().dtype
+            no_rhs = jnp.zeros((operator.in_size(), 0), dtype=dtype)
+            _, logdet_value = inv_quad_logdet(operator, no_rhs, strategy=self, key=key)
+            return logdet_value
         return SLQLogdet(
             num_probes=self.num_probes,
             lanczos_order=self.lanczos_order,

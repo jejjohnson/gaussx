@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import einx
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -10,6 +11,7 @@ import lineax as lx
 import pytest
 
 import gaussx
+import gaussx._primitives._inv_quad_logdet
 from gaussx import LowRankUpdate
 
 # Private helpers whose own behaviour these tests check.
@@ -645,3 +647,221 @@ def test_shared_pass_honours_throw():
         op, rhs, strategy=gaussx.BBMMSolver(max_steps=1, throw=False)
     )
     assert jnp.isfinite(inv_quad)
+
+
+# ---------------------------------------------------------------------------
+# BBMMSolver(preconditioner=...) and key= (gh-879)
+# ---------------------------------------------------------------------------
+
+_SYMMETRIC_PSD = (lx.symmetric_tag, _PSD)
+
+
+def _matern32_site_system(size: int, key, lengthscale=0.3):
+    """The smooth site system of gh-879: Matérn-3/2 in the unit square,
+    variance 1, d on [4, 10.9]; returns (A, dense A, K, d)."""
+    input_key, shift_key = jr.split(key)
+    inputs = jr.uniform(input_key, (size, 2))
+    gaps = einx.subtract("row dim, col dim -> row col dim", inputs, inputs)
+    distance = jnp.sqrt(einx.sum("row col dim -> row col", gaps**2) + 1e-30)
+    scaled = jnp.sqrt(3.0) * distance / lengthscale
+    kernel = (1.0 + scaled) * jnp.exp(-scaled) + 1e-6 * jnp.eye(size)
+    shift = 4.0 + 6.9 * jr.uniform(shift_key, (size,), dtype=kernel.dtype)
+    system = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(kernel) + lx.DiagonalLinearOperator(shift),
+        _SYMMETRIC_PSD,
+    )
+    return system, kernel + jnp.diag(shift), kernel, shift
+
+
+class _CountingCore:
+    """Counts the calls of `_shared_work_core`, the shared mBCG pass."""
+
+    def __init__(self, monkeypatch):
+        module = gaussx._primitives._inv_quad_logdet
+        original = module._shared_work_core
+        self.calls = 0
+
+        def counting(*args, **kwargs):
+            self.calls += 1
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(module, "_shared_work_core", counting)
+
+
+def test_bbmm_key_none_is_the_seed_key() -> None:
+    system, _, _, _ = _matern32_site_system(30, jr.key(0))
+    rhs = jr.normal(jr.key(1), (30, 1))
+    strategy = gaussx.BBMMSolver(num_probes=4, seed=3)
+    default = gaussx.inv_quad_logdet(system, rhs, strategy=strategy)
+    keyed = gaussx.inv_quad_logdet(system, rhs, strategy=strategy, key=jr.PRNGKey(3))
+    assert jnp.array_equal(default[0], keyed[0])
+    assert jnp.array_equal(default[1], keyed[1])
+
+
+def test_bbmm_preconditioned_solve_takes_fewer_steps() -> None:
+    system, dense, _, _ = _matern32_site_system(200, jr.key(0))
+    rhs = jnp.ones(200)
+    pre = gaussx.PartialCholeskyPreconditioner(rank=30, shift=None)
+
+    def steps(preconditioner):
+        solver = gaussx.BBMMSolver(rtol=1e-6, atol=1e-6, preconditioner=preconditioner)
+        solution, info = gaussx.linear_solve_with_info(system, rhs, solver=solver)
+        return solution, int(info.iterations)
+
+    plain_solution, plain = steps(None)
+    solution, preconditioned = steps(pre)
+    assert preconditioned < plain
+    rtol = 1e-4 if solution.dtype == jnp.float64 else 1e-2
+    assert jnp.allclose(solution, jnp.linalg.solve(dense, rhs), rtol=rtol, atol=rtol)
+    assert jnp.allclose(solution, plain_solution, rtol=rtol, atol=rtol)
+
+
+@pytest.mark.slow
+@pytest.mark.x64_only(reason="the issue's measurement is float64")
+def test_bbmm_preconditioned_logdet_rms_is_a_quarter_of_the_plain_one() -> None:
+    system, dense, _, _ = _matern32_site_system(400, jr.key(1))
+    rhs = jr.normal(jr.key(2), (400, 1))
+    exact = jnp.linalg.slogdet(dense)[1]
+    keys = jr.split(jr.key(3), 20)
+    pre = gaussx.PartialCholeskyPreconditioner(rank=60, shift=None)
+
+    def rms(preconditioner):
+        strategy = gaussx.BBMMSolver(num_probes=50, preconditioner=preconditioner)
+        _, logdets = jax.vmap(
+            lambda key: gaussx.inv_quad_logdet(system, rhs, strategy=strategy, key=key)
+        )(keys)
+        return jnp.sqrt(jnp.mean((logdets - exact) ** 2))
+
+    # the issue's bar: below 25 % (measured there with a FITC P: 0.109
+    # against 0.995)
+    assert rms(pre) < 0.25 * rms(None)
+
+
+def test_keyed_bbmm_takes_the_shared_pass(monkeypatch) -> None:
+    system, _, _, _ = _matern32_site_system(20, jr.key(0))
+    rhs = jr.normal(jr.key(1), (20, 1))
+    pre = gaussx.JacobiPreconditioner()
+    bbmm = gaussx.BBMMSolver(num_probes=8, preconditioner=pre)
+    counter = _CountingCore(monkeypatch)
+    first = gaussx.inv_quad_logdet(
+        system, rhs, strategy=gaussx.KeyedSolver(bbmm, jr.key(5))
+    )
+    assert counter.calls == 1
+    second = gaussx.inv_quad_logdet(
+        system, rhs, strategy=gaussx.KeyedSolver(bbmm, jr.key(6))
+    )
+    again = gaussx.inv_quad_logdet(
+        system, rhs, strategy=gaussx.KeyedSolver(bbmm, jr.key(5))
+    )
+    assert counter.calls == 3
+    # two keys give two values; one key repeats
+    assert not jnp.array_equal(first[1], second[1])
+    assert jnp.array_equal(first[1], again[1])
+    # an explicit key wins over the bound one
+    explicit = gaussx.inv_quad_logdet(
+        system, rhs, strategy=gaussx.KeyedSolver(bbmm, jr.key(6)), key=jr.key(5)
+    )
+    assert jnp.array_equal(first[1], explicit[1])
+
+
+@pytest.mark.slow
+def test_bbmm_logdet_with_a_preconditioner_runs_the_shared_pass(monkeypatch) -> None:
+    system, dense, _, _ = _matern32_site_system(40, jr.key(0))
+    counter = _CountingCore(monkeypatch)
+    pre = gaussx.PartialCholeskyPreconditioner(rank=10, shift=None)
+    estimate = gaussx.BBMMSolver(num_probes=16, preconditioner=pre).logdet(
+        system, key=jr.key(1)
+    )
+    assert counter.calls == 1
+    exact = jnp.linalg.slogdet(dense)[1]
+    assert jnp.abs(estimate - exact) < 0.05 * jnp.abs(exact)
+    # without one it stays plain SLQ
+    gaussx.BBMMSolver(num_probes=4).logdet(system)
+    assert counter.calls == 1
+
+
+def test_bbmm_preconditioner_and_logdet_preconditioner_both_raise() -> None:
+    system, _, _, _ = _matern32_site_system(10, jr.key(0))
+    rhs = jnp.ones((10, 1))
+    strategy = gaussx.BBMMSolver(preconditioner=gaussx.JacobiPreconditioner())
+    P = lx.DiagonalLinearOperator(jnp.ones(10))
+    with pytest.raises(ValueError, match="logdet_preconditioner.*preconditioner="):
+        gaussx.inv_quad_logdet(system, rhs, strategy=strategy, logdet_preconditioner=P)
+
+
+def test_bbmm_opaque_preconditioner_cannot_precondition_the_logdet() -> None:
+    system, dense, _, _ = _matern32_site_system(10, jr.key(0))
+    opaque = gaussx.OperatorPreconditioner(lambda v: v / 5.0)
+    strategy = gaussx.BBMMSolver(preconditioner=opaque)
+    # the solve is fine with M⁻¹ alone
+    solution = strategy.solve(system, jnp.ones(10))
+    assert jnp.allclose(dense @ solution, jnp.ones(10), atol=1e-2)
+    with pytest.raises(ValueError, match="supports_slq"):
+        strategy.logdet(system)
+
+
+class _NoDensify(lx.FunctionLinearOperator):
+    """A matrix-free kernel that fails the test if anything densifies it."""
+
+    def as_matrix(self):
+        raise AssertionError("as_matrix called on the matrix-free system")
+
+
+def test_bbmm_preconditioned_pass_never_densifies() -> None:
+    _, dense, kernel, shift = _matern32_site_system(40, jr.key(0))
+    structure = jax.ShapeDtypeStruct((40,), kernel.dtype)
+    matrix_free = _NoDensify(lambda v: kernel @ v, structure, _PSD)
+    system = lx.TaggedLinearOperator(
+        matrix_free + lx.DiagonalLinearOperator(shift), _SYMMETRIC_PSD
+    )
+    rhs = jr.normal(jr.key(1), (40, 1))
+    pre = gaussx.PartialCholeskyPreconditioner(rank=10, shift=None)
+    strategy = gaussx.BBMMSolver(num_probes=8, preconditioner=pre)
+    inv_quad, logdet = gaussx.inv_quad_logdet(system, rhs, strategy=strategy)
+    expected = rhs[:, 0] @ jnp.linalg.solve(dense, rhs[:, 0])
+    assert jnp.allclose(inv_quad, expected, rtol=1e-2)
+    assert jnp.isfinite(logdet)
+
+
+@pytest.mark.slow
+def test_bbmm_preconditioned_jit_vmap_grad() -> None:
+    size = 60
+    inputs_key, shift_key, rhs_key = jr.split(jr.key(0), 3)
+    inputs = jnp.sort(jr.uniform(inputs_key, (size,)))
+    shift = 0.5 + jr.uniform(shift_key, (size,))
+    rhs = jr.normal(rhs_key, (size, 1))
+    pre = gaussx.PartialCholeskyPreconditioner(rank=15, shift=None)
+    strategy = gaussx.BBMMSolver(num_probes=32, preconditioner=pre)
+
+    def kernel(lengthscale):
+        gaps = jnp.abs(einx.subtract("row, col -> row col", inputs, inputs))
+        scaled = jnp.sqrt(3.0) * gaps / lengthscale
+        return (1.0 + scaled) * jnp.exp(-scaled) + 1e-6 * jnp.eye(size)
+
+    def objective(lengthscale, key):
+        system = lx.TaggedLinearOperator(
+            lx.MatrixLinearOperator(kernel(lengthscale))
+            + lx.DiagonalLinearOperator(shift),
+            _SYMMETRIC_PSD,
+        )
+        inv_quad, logdet = gaussx.inv_quad_logdet(
+            system, rhs, strategy=strategy, key=key
+        )
+        return inv_quad + logdet
+
+    def dense_objective(lengthscale):
+        matrix = kernel(lengthscale) + jnp.diag(shift)
+        quadratic = rhs[:, 0] @ jnp.linalg.solve(matrix, rhs[:, 0])
+        return quadratic + jnp.linalg.slogdet(matrix)[1]
+
+    lengthscale = jnp.asarray(0.3)
+    keys = jr.split(jr.key(1), 20)
+    jitted = jax.jit(objective)(lengthscale, keys[0])
+    assert jnp.allclose(jitted, objective(lengthscale, keys[0]))
+    gradients = jax.vmap(jax.jit(jax.grad(objective)), in_axes=(None, 0))(
+        lengthscale, keys
+    )
+    expected = jax.grad(dense_objective)(lengthscale)
+    # unbiased, so the mean over 20 keys is within 3 standard errors
+    standard_error = jnp.std(gradients) / jnp.sqrt(20.0)
+    assert jnp.abs(jnp.mean(gradients) - expected) < 3.0 * standard_error + 1e-6

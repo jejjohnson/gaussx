@@ -46,6 +46,7 @@ ALLOWED_LAZY_IMPORTS = {
     ("_primitives._solve", "_strategies._base"),
     ("_primitives._solve", "_strategies._cg"),
     ("_quadrature._integrator", "_quadrature._unscented"),
+    ("_strategies._bbmm", "_primitives._inv_quad_logdet"),
     ("_sparse._numeric", "_primitives._cholesky"),
     ("_sparse._numeric", "_primitives._solve"),
     ("_sparse._symbolic", "_sparse._cholmod"),

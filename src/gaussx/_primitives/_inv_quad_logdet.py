@@ -25,6 +25,7 @@ from jaxtyping import Array, Float
 
 from gaussx._einx import rearrange, reduce, repeat
 from gaussx._operators._diagonalised import as_diagonalized
+from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._primitives._logdet import _has_structural_logdet, logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
 from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
@@ -33,6 +34,7 @@ from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrat
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
+from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._slq_logdet import DenseLogdet
 from gaussx._strategies._tolerances import resolve_tolerance
 
@@ -44,6 +46,7 @@ def inv_quad_logdet(
     strategy: AbstractSolverStrategy | None = None,
     reduce_inv_quad: bool = True,
     logdet_preconditioner: lx.AbstractLinearOperator | None = None,
+    key: jax.Array | None = None,
 ) -> tuple[Float[Array, " *C"], Float[Array, ""]]:
     """Joint inverse-quadratic and log-determinant via shared BBMM CG.
 
@@ -62,13 +65,25 @@ def inv_quad_logdet(
 
         log det A = log det P + tr(log(P⁻¹ A))
 
-    only has to estimate a trace of a near-identity operator.
+    only has to estimate a trace of a near-identity operator. A
+    `gaussx.BBMMSolver` with a ``preconditioner`` supplies P itself: its
+    ``sample`` draws the probes z^(i) ~ 𝒩(0, P), its ``logdet`` gives
+    log det P, and its M⁻¹ = P⁻¹ preconditions the pass. A
+    `gaussx.KeyedSolver` around a `gaussx.BBMMSolver` takes the shared pass
+    too, with its key.
+
+    The right-hand-side columns run to the strategy's ``rtol`` and the
+    probe columns to numerical breakdown, so ``rtol`` controls the accuracy
+    of the quadratic form only.
 
     Algorithm:
         1. If ``strategy`` is ``None`` and A has an exact structural
            log-determinant, solve each column structurally and return
            (∑_c b_cᵀ A⁻¹ b_c, `gaussx.logdet`).
-        2. With `gaussx.BBMMSolver` (the default otherwise), run one mBCG pass
+        2. With `gaussx.BBMMSolver` (the default otherwise), or a
+           `gaussx.KeyedSolver` around one, take P from
+           ``logdet_preconditioner`` or the strategy's ``preconditioner``,
+           and run one mBCG pass
            over [B ∣ z^(1) … z^(N_probe)]: the B columns give A⁻¹ b_c, and the
            probe columns' CG coefficients give the Lanczos tridiagonals T^(i)
            for SLQ, log det A ≈ log det P + (1 / N_probe) ∑_i w_i e₁ᵀ log(T^(i)) e₁.
@@ -96,14 +111,22 @@ def inv_quad_logdet(
             the ``preconditioner=`` of `gaussx.CGSolver` and
             `gaussx.linear_solve`. Ignored when the strategy's
             log-determinant is already exact (e.g. `gaussx.DenseSolver`),
-            since there is no variance to reduce.
+            since there is no variance to reduce. With a
+            `gaussx.BBMMSolver` that has a ``preconditioner`` of its own,
+            leave it ``None``.
+        key: PRNG key for the probes of the shared pass. ``None`` uses the
+            `gaussx.KeyedSolver`'s key when there is one, else
+            ``PRNGKey(strategy.seed)``. Ignored by the other paths, whose
+            strategies take their own key.
 
     Returns:
         Tuple ``(inv_quad, logdet)``. ``inv_quad`` is a scalar when
         ``reduce_inv_quad`` is ``True`` and a length-C vector otherwise.
 
     Raises:
-        ValueError: If A is not square, or B is not N × C.
+        ValueError: If A is not square, B is not N × C, both
+            ``logdet_preconditioner`` and the strategy's ``preconditioner``
+            are given, or the strategy's ``preconditioner`` does not know P.
 
     Examples:
         A diagonal operator takes the exact structural pair:
@@ -136,6 +159,20 @@ def inv_quad_logdet(
         True
         >>> bool(jnp.allclose(logdet, jnp.log(11.0), atol=1e-5))
         True
+
+        BBMM with a preconditioner and a key, in one shared pass:
+
+        >>> import jax.random as jr
+        >>> solver = gaussx.BBMMSolver(
+        ...     num_probes=8, preconditioner=gaussx.JacobiPreconditioner()
+        ... )
+        >>> inv_quad, logdet = gaussx.inv_quad_logdet(
+        ...     A, B, strategy=solver, key=jr.key(0)
+        ... )
+        >>> bool(jnp.allclose(inv_quad, expected, atol=1e-3))
+        True
+        >>> bool(jnp.abs(logdet - jnp.log(11.0)) < 0.5)
+        True
     """
     if operator.in_size() != operator.out_size():
         raise ValueError("inv_quad_logdet requires a square operator")
@@ -162,10 +199,15 @@ def inv_quad_logdet(
         return inv_quad, _logdet(operator)
     if strategy is None:
         strategy = BBMMSolver()
+    if isinstance(strategy, KeyedSolver) and isinstance(strategy.strategy, BBMMSolver):
+        # the shared pass, with the bound key unless one is passed
+        key = strategy.key if key is None else key
+        strategy = strategy.strategy
 
     if isinstance(strategy, BBMMSolver):
+        preconditioner = _shared_preconditioner(strategy, logdet_preconditioner)
         columns, logdet_value = _shared_work(
-            (operator, rhs), strategy, logdet_preconditioner
+            (operator, rhs), strategy, preconditioner, key
         )
     else:
         columns, logdet_value = _separate_work(
@@ -180,11 +222,53 @@ def inv_quad_logdet(
 # `equinox.filter_custom_vjp` rather than `jax.custom_vjp`: the operator may
 # carry non-array leaves -- the function of a `lineax.FunctionLinearOperator`,
 # static tags -- which `jax.custom_vjp` rejects as arguments.
+def _shared_preconditioner(
+    strategy: BBMMSolver,
+    logdet_preconditioner: lx.AbstractLinearOperator | None,
+) -> lx.AbstractLinearOperator | AbstractPreconditioner | None:
+    """P for the shared pass: the operator given, or the strategy's own.
+
+    The strategy's preconditioner is returned with its arrays' gradient
+    stopped: it is a variance-reduction device, and the quantities being
+    differentiated do not depend on it.
+
+    Args:
+        strategy: The BBMM strategy.
+        logdet_preconditioner: The operator P passed to `inv_quad_logdet`.
+
+    Returns:
+        ``logdet_preconditioner``, or the strategy's preconditioner, or
+        ``None``.
+
+    Raises:
+        ValueError: If both are given, or the strategy's preconditioner does
+            not know P.
+    """
+    preconditioner = strategy.preconditioner
+    if preconditioner is None:
+        return logdet_preconditioner
+    if logdet_preconditioner is not None:
+        raise ValueError(
+            "inv_quad_logdet got both `logdet_preconditioner` and a "
+            f"BBMMSolver(preconditioner={type(preconditioner).__name__}); "
+            "pass P in one place only."
+        )
+    if not preconditioner.supports_slq():
+        raise ValueError(
+            f"BBMMSolver(preconditioner={type(preconditioner).__name__}) cannot "
+            "precondition the log-determinant: the preconditioner does not know "
+            "P itself (supports_slq() is False)."
+        )
+    dynamic, static = eqx.partition(preconditioner, eqx.is_array)
+    return eqx.combine(jax.lax.stop_gradient(dynamic), static)
+
+
 @eqx.filter_custom_vjp
 def _shared_work(
     differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
     strategy: BBMMSolver,
-    preconditioner: lx.AbstractLinearOperator | None,
+    preconditioner: lx.AbstractLinearOperator | AbstractPreconditioner | None,
+    key: jax.Array | None,
 ) -> tuple[Float[Array, " C"], Float[Array, ""]]:
     """Per-column inverse-quadratics and the log-determinant, in one CG pass.
 
@@ -193,13 +277,15 @@ def _shared_work(
     Args:
         differentiable: The pair ``(operator, rhs)``, A and B.
         strategy: The BBMM strategy (probes, seed, tolerances, budget).
-        preconditioner: Log-determinant preconditioner P, or ``None``.
+        preconditioner: Log-determinant preconditioner P, as an operator or
+            as the strategy's preconditioner, or ``None``.
+        key: PRNG key for the probes, or ``None`` for ``PRNGKey(seed)``.
 
     Returns:
         Tuple ``(columns, logdet)``.
     """
     operator, rhs = differentiable
-    outputs, _ = _shared_work_core(operator, rhs, strategy, preconditioner)
+    outputs, _ = _shared_work_core(operator, rhs, strategy, preconditioner, key)
     return outputs
 
 
@@ -208,7 +294,8 @@ def _shared_work_fwd(
     perturbed,
     differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
     strategy: BBMMSolver,
-    preconditioner: lx.AbstractLinearOperator | None,
+    preconditioner: lx.AbstractLinearOperator | AbstractPreconditioner | None,
+    key: jax.Array | None,
 ):
     """Forward pass of `_shared_work`, keeping the solves for the backward pass.
 
@@ -217,6 +304,7 @@ def _shared_work_fwd(
         differentiable: The pair ``(operator, rhs)``, A and B.
         strategy: The BBMM strategy.
         preconditioner: Log-determinant preconditioner P, or ``None``.
+        key: PRNG key for the probes, or ``None``.
 
     Returns:
         The outputs of `_shared_work` and the residuals of
@@ -224,7 +312,7 @@ def _shared_work_fwd(
     """
     del perturbed
     operator, rhs = differentiable
-    return _shared_work_core(operator, rhs, strategy, preconditioner)
+    return _shared_work_core(operator, rhs, strategy, preconditioner, key)
 
 
 @_shared_work.def_bwd
@@ -234,7 +322,8 @@ def _shared_work_bwd(
     perturbed,
     differentiable: tuple[lx.AbstractLinearOperator, Float[Array, "N C"]],
     strategy: BBMMSolver,
-    preconditioner: lx.AbstractLinearOperator | None,
+    preconditioner: lx.AbstractLinearOperator | AbstractPreconditioner | None,
+    key: jax.Array | None,
 ):
     """Differentiate the quantities, not the recurrence that estimated them.
 
@@ -267,11 +356,12 @@ def _shared_work_bwd(
         differentiable: The pair ``(operator, rhs)``, A and B.
         strategy: The BBMM strategy (unused).
         preconditioner: Log-determinant preconditioner P (unused).
+        key: PRNG key of the probes (unused).
 
     Returns:
         Cotangents for ``(operator, rhs)``, ``None`` where unperturbed.
     """
-    del strategy, preconditioner
+    del strategy, preconditioner, key
     operator, _ = differentiable
     solutions, probe_solutions, probe_rights = residuals
     # ``None`` marks an output that is not being differentiated.
@@ -355,7 +445,8 @@ def _shared_work_core(
     operator: lx.AbstractLinearOperator,
     rhs: Float[Array, "N C"],
     strategy: BBMMSolver,
-    preconditioner: lx.AbstractLinearOperator | None,
+    preconditioner: lx.AbstractLinearOperator | AbstractPreconditioner | None,
+    key: jax.Array | None = None,
 ) -> tuple[
     tuple[Float[Array, " C"], Float[Array, ""]],
     tuple[Float[Array, "N C"], Float[Array, "N P"], Float[Array, "N P"]],
@@ -365,7 +456,9 @@ def _shared_work_core(
         log det A ≈ log det P + (1 / N_probe) ∑_i w_i e₁ᵀ log(T^(i)) e₁
 
     Algorithm:
-        1. Draw the probes z^(i) and their quadrature weights w_i.
+        1. Draw the probes z^(i) and their quadrature weights w_i (for a
+           strategy's preconditioner, z^(i) ~ 𝒩(0, P) from its ``sample``
+           and w_i = z^(i)ᵀ P⁻¹ z^(i) from the pass's first step).
         2. Run mBCG on [B ∣ z^(1) … z^(N_probe)], the B columns to CG's
            tolerance and the probes to numerical breakdown.
         3. Score b_cᵀ A⁻¹ b_c; raise if a B column used the whole budget.
@@ -376,7 +469,9 @@ def _shared_work_core(
         operator: The operator A.
         rhs: Right-hand side B, N × C.
         strategy: The BBMM strategy (probes, seed, tolerances, budget).
-        preconditioner: Log-determinant preconditioner P, or ``None``.
+        preconditioner: Log-determinant preconditioner P, as an operator or
+            as the strategy's preconditioner, or ``None``.
+        key: PRNG key for the probes, or ``None`` for ``PRNGKey(seed)``.
 
     Returns:
         Tuple ``((columns, logdet), cache)`` with the per-column
@@ -387,13 +482,21 @@ def _shared_work_core(
     size = operator.in_size()
     num_rhs = rhs.shape[1]
     dtype = rhs.dtype
-    key = jr.PRNGKey(strategy.seed)
+    if key is None:
+        key = jr.PRNGKey(strategy.seed)
 
-    # z^(i), w_i and log det P
-    probes, probe_weights, base_logdet = _probe_vectors(
-        preconditioner, size, strategy.num_probes, dtype, key
-    )
-    apply_inverse = _preconditioner_inverse(preconditioner)
+    if isinstance(preconditioner, AbstractPreconditioner):
+        # z^(i) ~ 𝒩(0, P), log det P, and M⁻¹ = P⁻¹ from P itself
+        probes, base_logdet, apply_inverse = _sampled_probes(
+            preconditioner, operator, strategy.num_probes, key
+        )
+        probe_weights = None
+    else:
+        # z^(i), w_i and log det P
+        probes, probe_weights, base_logdet = _probe_vectors(
+            preconditioner, size, strategy.num_probes, dtype, key
+        )
+        apply_inverse = _preconditioner_inverse(preconditioner)
 
     # The right-hand sides only need CG's own tolerance; the probes carry the
     # log-determinant, so they run until numerical breakdown to keep as much
@@ -416,6 +519,11 @@ def _shared_work_core(
     solutions, initial, alphas, betas, active = _mbcg(
         operator, block, apply_inverse, max_iter, floors
     )
+    if probe_weights is None:
+        # w_i = ‖u^(i)‖² = z^(i)ᵀ P⁻¹ z^(i), u^(i) = P^(−½) z^(i) ~ 𝒩(0, I)
+        probe_weights = reduce(
+            probes * initial[:, num_rhs:], "row probe -> probe", "sum"
+        )
 
     # b_cᵀ A⁻¹ b_c
     # jnp, not einx: einx cannot resolve a zero-column right-hand side (C = 0).
@@ -557,6 +665,44 @@ def _probe_vectors(
     # w_i = ‖u^(i)‖²
     weights = reduce(normals**2, "row probe -> probe", "sum")
     return probes, weights, _logdet(preconditioner)
+
+
+def _sampled_probes(
+    preconditioner: AbstractPreconditioner,
+    operator: lx.AbstractLinearOperator,
+    num_probes: int,
+    key: jax.Array,
+):
+    """Probes z^(i) ~ 𝒩(0, P), log det P and P⁻¹ from a preconditioner.
+
+        z^(i) = preconditioner.sample(key),   P⁻¹ = preconditioner.as_operator
+
+    The draws are closed-form for every low-rank-plus-diagonal
+    preconditioner (gh-823), rather than the contour quadrature of
+    `gaussx.sqrt_matmul`.
+
+    Args:
+        preconditioner: A preconditioner that knows P (``supports_slq()``).
+        operator: The system A, for a preconditioner built at solve time.
+        num_probes: Number of probes N_probe.
+        key: PRNG key for the draws.
+
+    Returns:
+        Tuple ``(probes, base_logdet, apply_inverse)``: z^(i) as columns,
+        log det P, and the column-wise P⁻¹ step of preconditioned CG.
+    """
+    # z^(i) ~ 𝒩(0, P), one row per probe
+    draws = preconditioner.sample(key, operator, shape=(num_probes,))
+    probes = rearrange(draws, "probe row -> row probe")
+    inverse = preconditioner.as_operator(operator)
+
+    def apply_inverse(block: Float[Array, "N T"]) -> Float[Array, "N T"]:
+        if inverse is None:
+            return block
+        # P⁻¹ V, one matvec per column
+        return jax.vmap(inverse.mv, in_axes=1, out_axes=1)(block)
+
+    return probes, preconditioner.logdet(operator), apply_inverse
 
 
 def _preconditioner_inverse(preconditioner: lx.AbstractLinearOperator | None):
