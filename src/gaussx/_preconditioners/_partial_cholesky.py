@@ -25,6 +25,13 @@ from jaxtyping import Array, Float, Int, PRNGKeyArray
 from gaussx._einx import einsum
 from gaussx._operators import BlockDiag, LowRankUpdate, low_rank_plus_diag
 from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
+from gaussx._preconditioners._scaled import (
+    _ScaledPreconditioner,
+    checked_shift,
+    resolve_shift,
+    scaled_diagonal,
+    scaled_operator,
+)
 from gaussx._primitives._diag import _CHEAP_DIAGONAL, matrix_free_diag
 from gaussx._primitives._gaussian_draws import diagonal_draws, low_rank_update_draws
 from gaussx._primitives._logdet import cholesky_logdet
@@ -89,11 +96,31 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
     the first by the matrix determinant lemma from the stored capacitance
     factor. A disabled lazy preconditioner (``rank <= 0``) is M = I.
 
+    **Per-point shifts.** A system A = K + diag(d) whose diagonal varies by
+    point (the site variances d_n = 1 / λ_n of a non-Gaussian GP, or
+    heteroscedastic noise) takes a vector ``shift=d``, or ``shift=None`` on
+    the lazy path to read d from the system with `gaussx.split_diagonal`.
+    The system is scaled to B = D^(−½) A D^(−½) = K_B + I, D = diag(d), and
+    the scalar-shift preconditioner of B with σ² = 1 is pulled back:
+
+        M = D^½ (I + L_B L_Bᵀ) D^½,   M⁻¹ = D^(−½) M_B⁻¹ D^(−½),
+        log det M = log det M_B + ∑_n log d_n,
+
+    with K_B ≈ L_B L_Bᵀ. The factor captures the top of K_B, the kernel
+    weighted by how strongly each point is observed, instead of the top of
+    K, so it is a much stronger preconditioner than any scalar σ² ≤ min d.
+    Every d_n must be positive (``eqx.error_if``); a masked site
+    (λ_n = 0, d_n = ∞) is out of scope. A scalar ``shift`` keeps the code
+    path above unchanged.
+
     Attributes:
         rank: Rank k of the partial Cholesky. ``<= 0`` disables the lazy
             preconditioner (`as_operator` returns ``None``).
         shift: Noise variance σ² for the lazy path: the part of the
-            system's diagonal treated as noise.
+            system's diagonal treated as noise. A vector d is a per-point
+            shift, and ``None`` reads d from the system with
+            `gaussx.split_diagonal` (see **Per-point shifts**). A PyTree
+            leaf, so it can be traced.
         pivoting: ``"greedy"`` (default) or ``"random"``.
         key: PRNG key for ``"random"`` pivoting and for the diagonal
             estimate of a matrix-free operator. ``None`` means
@@ -104,8 +131,9 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         factor: Stored factor L_k, N × k; set by `from_operator`.
         capacitance: Lower Cholesky factor of C = σ² I_k + L_kᵀ L_k,
             k × k; set by `from_operator`.
-        factor_shift: The σ² the stored factor was built with; set by
-            `from_operator`.
+        factor_shift: The σ² the stored factor was built with, or the
+            per-point d of a scaled factor (of K_B, with a unit shift); set
+            by `from_operator`.
 
     Examples:
         Build once on the PSD part, then reuse across solves:
@@ -144,16 +172,29 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         'LowRankUpdate'
         >>> bool(jnp.allclose(gaussx.logdet(M), preconditioner.logdet()))
         True
+
+        A per-point shift, read from a site system A = K + diag(d):
+
+        >>> variances = jnp.linspace(0.1, 10.0, 50)
+        >>> site_system = lx.TaggedLinearOperator(
+        ...     lx.MatrixLinearOperator(kernel)
+        ...     + lx.DiagonalLinearOperator(variances),
+        ...     psd,
+        ... )
+        >>> scaled = gaussx.PartialCholeskyPreconditioner(rank=20, shift=None)
+        >>> x = gaussx.CGSolver(preconditioner=scaled).solve(site_system, jnp.ones(50))
+        >>> bool(jnp.allclose(site_system.mv(x), jnp.ones(50), atol=1e-2))
+        True
     """
 
     rank: int = eqx.field(static=True, default=50)
-    shift: float = eqx.field(static=True, default=1.0)
+    shift: float | Float[Array, ""] | Float[Array, " n"] | None = 1.0
     pivoting: Literal["greedy", "random"] = eqx.field(static=True, default="greedy")
     key: jax.Array | None = None
     diagonal: Float[Array, " n"] | None = None
     factor: Float[Array, "n k"] | None = None
     capacitance: Float[Array, "k k"] | None = None
-    factor_shift: Float[Array, ""] | None = None
+    factor_shift: Float[Array, ""] | Float[Array, " n"] | None = None
 
     @classmethod
     def from_operator(
@@ -161,7 +202,7 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         operator: lx.AbstractLinearOperator,
         rank: int = 50,
         *,
-        shift: float | Float[Array, ""],
+        shift: float | Float[Array, ""] | Float[Array, " n"],
         pivoting: Literal["greedy", "random"] = "greedy",
         key: jax.Array | None = None,
         diagonal: Float[Array, " n"] | None = None,
@@ -181,7 +222,9 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
                 K + σ² I.
             rank: Number of pivots k, clamped to the operator size N.
             shift: Noise variance σ²; the preconditioner approximates
-                (K + σ² I)⁻¹. Must be positive.
+                (K + σ² I)⁻¹. Must be positive. A vector d is a per-point
+                shift: the factor is of K_B = D^(−½) K D^(−½) and the
+                preconditioner approximates (K + diag(d))⁻¹.
             pivoting: ``"greedy"`` or ``"random"`` (see `gaussx.rp_cholesky`).
             key: PRNG key for ``"random"`` pivoting and the diagonal
                 estimate. ``None`` means ``jax.random.PRNGKey(0)``.
@@ -203,6 +246,10 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         if rank < 1:
             raise ValueError("rank must be at least 1")
         rank = min(rank, operator.in_size())
+        if jnp.ndim(shift) == 1:
+            return _scaled_from_operator(
+                cls, operator, rank, shift, pivoting, key, diagonal, column
+            )
         # K ≈ L_k L_kᵀ
         factor = _factor(operator, rank, 0.0, pivoting, key, diagonal, column)
         noise_variance = jnp.asarray(shift, dtype=factor.dtype)
@@ -237,6 +284,9 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If the lazy path gets no ``operator``.
         """
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.as_operator(operator)
         parts = self._parts(operator)
         if parts is None:
             return None
@@ -277,6 +327,9 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If the lazy path gets no ``operator``.
         """
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.logdet(operator)
         parts = self._parts(operator)
         if parts is None:
             # M = I
@@ -343,6 +396,10 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If the lazy path gets no ``operator``.
         """
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            # D^½ (I + L_B L_Bᵀ) D^½ = D + (D^½ L_B)(D^½ L_B)ᵀ
+            return scaled.approximation(operator)
         parts = self._parts(operator)
         if parts is None:
             # M = I
@@ -352,6 +409,66 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         base_diagonal = jnp.full(factor.shape[0], noise_variance, dtype=factor.dtype)
         # M = σ² I + L_k L_kᵀ
         return low_rank_plus_diag(base_diagonal, factor, psd=True)
+
+    def _scaled(
+        self, operator: lx.AbstractLinearOperator | None
+    ) -> _ScaledPreconditioner | None:
+        """The scaled form for a per-point shift, else ``None``.
+
+        A stored factor with a vector ``factor_shift`` is the factor of K_B;
+        a lazy preconditioner with a vector or ``None`` ``shift`` builds a
+        unit-shift lazy preconditioner of B = D^(−½) A D^(−½).
+
+        Args:
+            operator: The system operator A, needed by the lazy path only.
+
+        Returns:
+            P = D^½ P_B D^½ as a `_ScaledPreconditioner`, or ``None`` for a
+            scalar shift and for a disabled lazy preconditioner.
+
+        Raises:
+            ValueError: If the lazy path gets no ``operator``, or
+                ``shift=None`` and the system does not split.
+        """
+        if self.factor is not None:
+            shift = self.factor_shift
+            assert shift is not None
+            if jnp.ndim(shift) == 0:
+                return None
+            # the stored factor and capacitance are of K_B, shift one
+            inner = PartialCholeskyPreconditioner(
+                rank=self.rank,
+                pivoting=self.pivoting,
+                key=self.key,
+                factor=self.factor,
+                capacitance=self.capacitance,
+                factor_shift=jnp.ones((), dtype=self.factor.dtype),
+            )
+            return _ScaledPreconditioner(inner=inner, shift=shift)
+        if self.rank <= 0:
+            return None
+        if self.shift is not None and jnp.ndim(self.shift) == 0:
+            return None
+        if operator is None:
+            raise ValueError(
+                "PartialCholeskyPreconditioner with a per-point shift requires "
+                "the system operator (or build it once with from_operator)."
+            )
+        # d, given or read from A = K + diag(d)
+        shift = resolve_shift(self.shift, operator, "PartialCholeskyPreconditioner")
+        # diag(B) = diag(A) / d, exact when diag(A) is
+        diagonal = scaled_diagonal(
+            self.diagonal, operator, shift, _diagonal_is_exact(operator)
+        )
+        # factors B − I = K_B at solve time
+        inner = PartialCholeskyPreconditioner(
+            rank=self.rank,
+            shift=1.0,
+            pivoting=self.pivoting,
+            key=self.key,
+            diagonal=diagonal,
+        )
+        return _ScaledPreconditioner(inner=inner, shift=shift)
 
     def _parts(
         self, operator: lx.AbstractLinearOperator | None
@@ -402,6 +519,68 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         )
         capacitance = _capacitance(factor, noise_variance)
         return factor, capacitance, noise_variance, operator.out_structure()
+
+
+def _scaled_from_operator(
+    cls: type[PartialCholeskyPreconditioner],
+    operator: lx.AbstractLinearOperator,
+    rank: int,
+    shift: float | Float[Array, ""] | Float[Array, " n"],
+    pivoting: Literal["greedy", "random"],
+    key: jax.Array | None,
+    diagonal: Float[Array, " n"] | None,
+    column: Callable[[Int[Array, ""]], Float[Array, " n"]] | None,
+) -> PartialCholeskyPreconditioner:
+    """`from_operator` for a per-point shift d: factor K_B = D^(−½) K D^(−½).
+
+        K_B ≈ L_B L_Bᵀ,   C = I_k + L_Bᵀ L_B
+
+    Args:
+        cls: The class to build.
+        operator: The PSD part K.
+        rank: Number of pivots k, already clamped.
+        shift: The per-point shift d > 0.
+        pivoting: ``"greedy"`` or ``"random"``.
+        key: PRNG key for random pivots and the diagonal estimate.
+        diagonal: diag(K), or ``None``.
+        column: ``n -> K[:, n]``, or ``None``.
+
+    Returns:
+        The preconditioner, with ``factor_shift`` = d.
+    """
+    dtype = operator.in_structure().dtype
+    shift = checked_shift(
+        jnp.asarray(shift, dtype=dtype), "PartialCholeskyPreconditioner"
+    )
+    # D^(−½)
+    inverse_root = 1.0 / jnp.sqrt(shift)
+    # K_B = D^(−½) K D^(−½)
+    scaled_kernel = scaled_operator(operator, shift)
+    # diag(K_B) = diag(K) / d
+    kernel_diagonal = scaled_diagonal(
+        diagonal, operator, shift, _diagonal_is_exact(operator)
+    )
+    scaled_column = None
+    if column is not None:
+        given_column = column
+
+        def scaled_column(index: Int[Array, ""]) -> Float[Array, " n"]:
+            # K_B[:, n] = D^(−½) K[:, n] d_n^(−½)
+            return inverse_root * given_column(index) * inverse_root[index]
+
+    # K_B ≈ L_B L_Bᵀ
+    factor = _factor(
+        scaled_kernel, rank, 0.0, pivoting, key, kernel_diagonal, scaled_column
+    )
+    unit = jnp.ones((), dtype=factor.dtype)
+    return cls(
+        rank=rank,
+        pivoting=pivoting,
+        key=key,
+        factor=factor,
+        capacitance=_capacitance(factor, unit),
+        factor_shift=shift,
+    )
 
 
 def _disabled_structure(

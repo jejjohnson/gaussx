@@ -18,6 +18,7 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._preconditioners._scaled import resolve_shift, scaled_operator
 from gaussx._primitives._samplers import SamplerName
 from gaussx._randomized._nystrom import randomized_nystrom
 from gaussx._strategies._base import AbstractLogdetStrategy
@@ -55,10 +56,24 @@ class NystromLogdet(AbstractLogdetStrategy):
     A − σ² I, plus a guard c = 10 N eps σ² that is removed again from γ̂,
     so the rounding of the subtraction cannot make it indefinite. So
     ``shift`` must be the σ² that ``operator`` contains (#345). ``shift``
-    is a PyTree leaf, so it can be a traced, learned noise variance.
+    is a PyTree leaf, so it can be a traced, learned noise variance. A
+    scalar ``shift`` larger than the noise A holds makes A − σ² I
+    indefinite; the non-finite estimate that follows raises
+    (``eqx.error_if``) instead of returning NaN.
+
+    **Per-point shifts.** For A = K + diag(d) with a diagonal that varies by
+    point, pass ``shift=d`` (a vector), or ``shift=None`` to read d from A
+    with `gaussx.split_diagonal`. The estimate then runs on the scaled
+    system B = D^(−½) A D^(−½) = K_B + I, D = diag(d), with a unit shift:
+
+        log det A = log det B + ∑_n log d_n,
+
+    so the sketch captures the top of K_B rather than of K. Every d_n must
+    be positive; a masked site (d_n = ∞) is out of scope.
 
     Attributes:
-        shift: Noise variance σ² > 0 contained in A.
+        shift: Noise variance σ² > 0 contained in A; a vector d of
+            per-point shifts; or ``None`` to read d from A.
         rank: Nyström rank k (``rank`` matvecs), clamped to N. Aim for
             k ≳ d_eff(σ²).
         oversample: Extra sketch columns (see `gaussx.randomized_nystrom`).
@@ -91,6 +106,18 @@ class NystromLogdet(AbstractLogdetStrategy):
         >>> bool(jnp.abs(estimate - exact) < 1e-2 * jnp.abs(exact))
         True
 
+        A site system with a per-point diagonal, read with ``shift=None``:
+
+        >>> site = lx.TaggedLinearOperator(
+        ...     lx.MatrixLinearOperator(kernel)
+        ...     + lx.DiagonalLinearOperator(jnp.linspace(0.1, 10.0, 200)),
+        ...     (lx.symmetric_tag, lx.positive_semidefinite_tag),
+        ... )
+        >>> estimate = gaussx.NystromLogdet(shift=None, rank=40).logdet(site)
+        >>> exact = jnp.linalg.slogdet(site.as_matrix())[1]
+        >>> bool(jnp.abs(estimate - exact) < 1e-2 * jnp.abs(exact))
+        True
+
         A non-positive shift is rejected at construction:
 
         >>> gaussx.NystromLogdet(shift=0.0)  # doctest: +IGNORE_EXCEPTION_DETAIL
@@ -107,7 +134,7 @@ class NystromLogdet(AbstractLogdetStrategy):
         preconditioning. *SIAM J. Matrix Anal. Appl.*, 44(2), 718-752.
     """
 
-    shift: float | Float[Array, ""]
+    shift: float | Float[Array, ""] | Float[Array, " n"] | None
     rank: int = eqx.field(static=True, default=50)
     oversample: int = eqx.field(static=True, default=0)
     num_probes: int = eqx.field(static=True, default=10)
@@ -143,20 +170,60 @@ class NystromLogdet(AbstractLogdetStrategy):
 
         Args:
             operator: The symmetric PSD system A = K + σ² I, ``shift`` = σ²
-                included; may be matrix-free.
+                included (or A = K + diag(d) for a per-point shift); may be
+                matrix-free.
             key: PRNG key for the sketch Ω and the probes z^(i). ``None``
                 means ``jax.random.PRNGKey(seed)``.
 
         Returns:
             Scalar estimate of log det(K + σ² I).
+
+        Raises:
+            ValueError: If ``shift`` is ``None`` and A does not split into
+                K + diag(d).
         """
         _check_symmetric(operator, "NystromLogdet")
         if key is None:
             key = jax.random.PRNGKey(self.seed)
+        if self.shift is None or jnp.ndim(self.shift) == 1:
+            # d, given or read from A = K + diag(d)
+            shift = resolve_shift(self.shift, operator, "NystromLogdet")
+            # B = D^(−½) A D^(−½) = K_B + I
+            scaled_system = scaled_operator(operator, shift)
+            unit = jnp.ones((), dtype=shift.dtype)
+            scaled_logdet = self._shifted_logdet(scaled_system, unit, key)
+            # log det A = log det B + ∑_n log d_n
+            return scaled_logdet + jnp.sum(jnp.log(shift))
+        noise_variance = jnp.asarray(self.shift, dtype=operator.in_structure().dtype)
+        # No check against split_diagonal(A): noise inside the kernel part is
+        # invisible to it, so σ² > min_n d_n can still leave A − σ² I PSD.
+        estimate = self._shifted_logdet(operator, noise_variance, key)
+        return eqx.error_if(
+            estimate,
+            ~jnp.isfinite(estimate),
+            "NystromLogdet: the estimate is not finite; the shift is probably "
+            "larger than the noise in the system, so A − shift·I is not PSD.",
+        )
+
+    def _shifted_logdet(
+        self,
+        operator: lx.AbstractLinearOperator,
+        noise_variance: Float[Array, ""],
+        key: jax.Array,
+    ) -> Float[Array, ""]:
+        """The estimate for A = K + σ² I with a scalar σ², as in `logdet`.
+
+        Args:
+            operator: The system A.
+            noise_variance: σ², in A's dtype.
+            key: PRNG key for the sketch and the probes.
+
+        Returns:
+            Scalar estimate of log det A.
+        """
         sketch_key, probe_key = jax.random.split(key)
         size = operator.in_size()
         structure = operator.in_structure()
-        noise_variance = jnp.asarray(self.shift, dtype=structure.dtype)
 
         # A − σ² I carries rounding noise of ~eps σ², indefinite once K is
         # small next to σ² (e.g. a zero kernel amplitude), which breaks the

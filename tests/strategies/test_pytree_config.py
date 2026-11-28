@@ -50,14 +50,27 @@ def _default(cls: type):
 # (gh-486); see test_nystrom_logdet_shift_is_its_only_leaf.
 # MultigridSolver holds its level hierarchy (operators, transfers, smoother
 # diagonals), which are arrays by nature (gh-856); see
-# test_multigrid_solver_leaves_are_its_levels.
-_LEAF_CARRYING = (gaussx.KeyedSolver, gaussx.NystromLogdet, gaussx.MultigridSolver)
+# test_multigrid_solver_leaves_are_its_levels. PreconditionedCGSolver's and
+# PartialCholeskyPreconditioner's shift is the noise variance, or the
+# per-point site variances d of a non-Gaussian GP that change at every
+# Newton step, so it is a leaf (gh-878); see
+# test_partial_cholesky_shift_is_its_only_leaf. With shift=None (read from
+# the system) they carry no leaf, so they stay in the checks below that way.
+_LEAF_CARRYING = (
+    gaussx.KeyedSolver,
+    gaussx.NystromLogdet,
+    gaussx.MultigridSolver,
+    gaussx.PreconditionedCGSolver,
+)
 _STRATEGIES = [
     _default(cls) for cls in _exported_strategy_classes() if cls not in _LEAF_CARRYING
 ] + [
     gaussx.ComposedSolver(gaussx.DenseSolver(), gaussx.IndefiniteSLQLogdet()),
-    gaussx.CGSolver(preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2)),
-    gaussx.PartialCholeskyPreconditioner(),
+    gaussx.CGSolver(
+        preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2, shift=None)
+    ),
+    gaussx.PartialCholeskyPreconditioner(shift=None),
+    gaussx.PreconditionedCGSolver(shift=None),
 ]
 
 
@@ -84,6 +97,19 @@ def test_nystrom_logdet_shift_is_its_only_leaf():
     assert jax.tree_util.tree_leaves(strategy) == [shift]
 
 
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda shift: gaussx.PartialCholeskyPreconditioner(rank=3, shift=shift),
+        lambda shift: gaussx.PreconditionedCGSolver(shift=shift),
+    ],
+    ids=["PartialCholeskyPreconditioner", "PreconditionedCGSolver"],
+)
+def test_partial_cholesky_shift_is_its_only_leaf(build):
+    for shift in (1.0, jnp.asarray(0.1), jnp.ones(3)):
+        assert jax.tree_util.tree_leaves(build(shift)) == [shift]
+
+
 def test_multigrid_solver_leaves_are_its_levels():
     a = jnp.asarray(2 * np.eye(3) - np.eye(3, k=1) - np.eye(3, k=-1))
     operator = lx.MatrixLinearOperator(a, lx.positive_semidefinite_tag)
@@ -105,7 +131,27 @@ def test_tree_map_leaves_strategy_config_unchanged(strategy):
     assert jax.tree_util.tree_map(lambda leaf: 2 * leaf, strategy) == strategy
 
 
-_SOLVERS = [s for s in _STRATEGIES if isinstance(s, gaussx.AbstractSolverStrategy)]
+def _reads_shift_from_system(strategy) -> bool:
+    """Whether a partial Cholesky inside ``strategy`` has ``shift=None``."""
+    if isinstance(strategy, gaussx.PreconditionedCGSolver):
+        return strategy.shift is None
+    preconditioner = getattr(strategy, "preconditioner", None)
+    return isinstance(preconditioner, gaussx.PartialCholeskyPreconditioner) and (
+        preconditioner.shift is None
+    )
+
+
+# shift=None needs a system that splits into K + diag(d); the jitted
+# log-density below takes a dense one, so those get the default shift (a
+# traced float leaf) instead.
+_SOLVERS = [
+    s
+    for s in _STRATEGIES
+    if isinstance(s, gaussx.AbstractSolverStrategy) and not _reads_shift_from_system(s)
+] + [
+    gaussx.CGSolver(preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2)),
+    gaussx.PreconditionedCGSolver(),
+]
 
 
 def _pytest_ids(objs) -> list[str]:

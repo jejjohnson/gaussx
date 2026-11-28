@@ -10,6 +10,7 @@ M⁻¹ ≈ A⁻¹ conjugate gradients applies to each residual r_j.
 
 from __future__ import annotations
 
+import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
@@ -18,6 +19,12 @@ from jaxtyping import Array, Float, PRNGKeyArray
 from gaussx._einx import einsum
 from gaussx._operators import LowRankUpdate, low_rank_plus_identity
 from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
+from gaussx._preconditioners._scaled import (
+    _ScaledPreconditioner,
+    checked_shift,
+    scaled_operator,
+    system_split,
+)
 from gaussx._primitives._gaussian_draws import diagonal_draws, low_rank_update_draws
 from gaussx._randomized._nystrom import randomized_nystrom
 
@@ -72,10 +79,31 @@ class NystromPreconditioner(AbstractPreconditioner):
         log det P = ∑_j log s_j,
         z = ε_n + U (√(s − 1) ⊙ ε_k) ~ 𝒩(0, P).
 
+    **Per-point shifts.** For A = K + diag(d) with a diagonal that varies by
+    point, `from_operator` takes a vector ``shift=d`` and sketches
+    K_B = D^(−½) K D^(−½), D = diag(d), so the preconditioner above with
+    σ² = 1 targets B = D^(−½) A D^(−½) = K_B + I and is pulled back:
+
+        M⁻¹ = D^(−½) M_B⁻¹ D^(−½),   P = D^½ P_B D^½,
+        log det P = log det P_B + ∑_n log d_n.
+
+    The sketch then captures the top of K_B, the kernel weighted by how
+    strongly each point is observed. `lazy` stores only the rank and key and
+    sketches, at every solve, the kernel part K of whatever system
+    A = K + diag(d) it is given (read with `gaussx.split_diagonal`), which
+    suits a site system that changes at every Newton step. Every d_n must
+    be positive (``eqx.error_if``); a masked site (d_n = ∞) is out of
+    scope.
+
     Attributes:
-        basis: Orthonormal basis U, N × k.
-        eigenvalues: Nyström eigenvalues γ̂, descending, of length k.
-        shift: Noise variance σ².
+        basis: Orthonormal basis U, N × k; ``None`` for a lazy one.
+        eigenvalues: Nyström eigenvalues γ̂, descending, of length k;
+            ``None`` for a lazy one.
+        shift: Noise variance σ², or the per-point shift d of a sketch of
+            K_B; ``None`` for a lazy one.
+        rank: Sketch rank k of a lazy preconditioner.
+        oversample: Extra sketch columns of a lazy preconditioner.
+        key: PRNG key for the test matrix Ω of a lazy preconditioner.
 
     Examples:
         Build once on the kernel matrix K, then solve K + σ² I by CG:
@@ -109,6 +137,19 @@ class NystromPreconditioner(AbstractPreconditioner):
         >>> bool(jnp.allclose(identity, jnp.ones(100), atol=1e-3))
         True
 
+        A lazy one, built per solve from a site system A = K + diag(d):
+
+        >>> variances = jnp.linspace(0.1, 10.0, 100)
+        >>> site_system = lx.TaggedLinearOperator(
+        ...     lx.MatrixLinearOperator(kernel)
+        ...     + lx.DiagonalLinearOperator(variances),
+        ...     psd,
+        ... )
+        >>> lazy = gaussx.NystromPreconditioner.lazy(30, key=jr.key(0))
+        >>> x = gaussx.CGSolver(preconditioner=lazy).solve(site_system, jnp.ones(100))
+        >>> bool(jnp.allclose(site_system.mv(x), jnp.ones(100), atol=1e-2))
+        True
+
         A non-positive shift is rejected:
 
         >>> gaussx.NystromPreconditioner.from_operator(
@@ -119,9 +160,43 @@ class NystromPreconditioner(AbstractPreconditioner):
         ValueError: shift must be positive, got 0.0.
     """
 
-    basis: Float[Array, "n l"]
-    eigenvalues: Float[Array, " l"]
-    shift: Float[Array, ""]
+    basis: Float[Array, "n l"] | None = None
+    eigenvalues: Float[Array, " l"] | None = None
+    shift: Float[Array, ""] | Float[Array, " n"] | None = None
+    rank: int = eqx.field(static=True, default=50)
+    oversample: int = eqx.field(static=True, default=0)
+    key: jax.Array | None = None
+
+    @classmethod
+    def lazy(
+        cls,
+        rank: int = 50,
+        *,
+        oversample: int = 0,
+        key: jax.Array | None = None,
+    ) -> NystromPreconditioner:
+        """A preconditioner that sketches the kernel part of each system.
+
+            A = K + diag(d),   K_B = D^(−½) K D^(−½) ≈ U diag(γ̂) Uᵀ
+
+        At every solve, `gaussx.split_diagonal` reads the system back into K
+        and d, and K_B is sketched at rank k (see **Per-point shifts**).
+
+        Args:
+            rank: Rank k (``rank`` matvecs of K per build).
+            oversample: Extra sketch columns.
+            key: PRNG key for the test matrix Ω. ``None`` means
+                ``jax.random.PRNGKey(0)``.
+
+        Returns:
+            A lazy `NystromPreconditioner`.
+
+        Raises:
+            ValueError: If ``rank < 1``.
+        """
+        if rank < 1:
+            raise ValueError(f"rank must be at least 1, got {rank}.")
+        return cls(rank=rank, oversample=oversample, key=key)
 
     @classmethod
     def from_operator(
@@ -129,7 +204,7 @@ class NystromPreconditioner(AbstractPreconditioner):
         operator: lx.AbstractLinearOperator,
         rank: int = 50,
         *,
-        shift: float | Float[Array, ""],
+        shift: float | Float[Array, ""] | Float[Array, " n"],
         oversample: int = 0,
         key: jax.Array | None = None,
     ) -> NystromPreconditioner:
@@ -143,7 +218,9 @@ class NystromPreconditioner(AbstractPreconditioner):
             rank: Rank k (``rank`` matvecs of K), clamped to the operator
                 size. Aim for k ≳ 2⌈1.5 d_eff(σ²)⌉ + 1.
             shift: Noise variance σ²; the preconditioner targets K + σ² I.
-                Must be positive.
+                Must be positive. A vector d is a per-point shift: the
+                sketch is of K_B = D^(−½) K D^(−½), and the preconditioner
+                targets K + diag(d).
             oversample: Extra sketch columns, discarded after the
                 approximation (see `gaussx.randomized_nystrom`).
             key: PRNG key for the test matrix Ω. ``None`` means
@@ -158,6 +235,19 @@ class NystromPreconditioner(AbstractPreconditioner):
         """
         if isinstance(shift, (int, float)) and shift <= 0:
             raise ValueError(f"shift must be positive, got {shift}.")
+        if jnp.ndim(shift) == 1:
+            dtype = operator.in_structure().dtype
+            shift = checked_shift(
+                jnp.asarray(shift, dtype=dtype), "NystromPreconditioner"
+            )
+            # K_B = D^(−½) K D^(−½) ≈ U diag(γ̂) Uᵀ
+            approx = randomized_nystrom(
+                scaled_operator(operator, shift),
+                rank,
+                oversample=oversample,
+                key=key,
+            )
+            return cls(basis=approx.U, eigenvalues=approx.d, shift=shift)
         # K̂ = U diag(γ̂) Uᵀ
         approx = randomized_nystrom(operator, rank, oversample=oversample, key=key)
         return cls(
@@ -180,8 +270,17 @@ class NystromPreconditioner(AbstractPreconditioner):
 
         Returns:
             The matrix-free operator M⁻¹, tagged positive semidefinite.
+
+        Raises:
+            ValueError: If a lazy preconditioner gets no ``operator``, or a
+                system that does not split into K + diag(d).
         """
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.as_operator(operator)
         basis, noise_variance = self.basis, self.shift
+        assert basis is not None and self.eigenvalues is not None
+        assert noise_variance is not None
         # (γ̂_k + σ²) / (γ̂ + σ²) − 1
         scale = (self.eigenvalues[-1] + noise_variance) / (
             self.eigenvalues + noise_variance
@@ -224,9 +323,12 @@ class NystromPreconditioner(AbstractPreconditioner):
                 stored.
 
         Returns:
-            The scalar log det P (≥ 0, since every s_j ≥ 1).
+            The scalar log det P (≥ 0, since every s_j ≥ 1, for a scalar
+            shift).
         """
-        del operator
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.logdet(operator)
         # s_j = (γ̂_j + σ²) / (γ̂_k + σ²)
         ratio = self._ratio()
         # log det P = ∑_j log s_j
@@ -253,7 +355,9 @@ class NystromPreconditioner(AbstractPreconditioner):
         Returns:
             The draws z, of shape ``(*shape, n)``.
         """
-        del operator
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.sample(key, operator, shape=shape)
         # P = I + U diag(s − 1) Uᵀ
         approximation = self._low_rank_update()
 
@@ -277,10 +381,57 @@ class NystromPreconditioner(AbstractPreconditioner):
                 stored.
 
         Returns:
-            P as a PSD-tagged `gaussx.LowRankUpdate` on an identity base.
+            P as a PSD-tagged `gaussx.LowRankUpdate` on an identity base
+            (on a diagonal base D, and not orthonormal, for a per-point
+            shift).
         """
-        del operator
+        scaled = self._scaled(operator)
+        if scaled is not None:
+            return scaled.approximation(operator)
         return self._low_rank_update()
+
+    def _scaled(
+        self, operator: lx.AbstractLinearOperator | None
+    ) -> _ScaledPreconditioner | None:
+        """The scaled form for a per-point shift or a lazy build, else ``None``.
+
+        Args:
+            operator: The system A, needed by a lazy preconditioner only.
+
+        Returns:
+            P = D^½ P_B D^½ as a `_ScaledPreconditioner`, or ``None`` for a
+            built preconditioner with a scalar shift.
+
+        Raises:
+            ValueError: If a lazy preconditioner gets no ``operator``, or a
+                system that does not split into K + diag(d).
+        """
+        if self.basis is None:
+            if operator is None:
+                raise ValueError(
+                    "A lazy NystromPreconditioner requires the system operator "
+                    "A = K + diag(d) to sketch its kernel part."
+                )
+            # A = K + diag(d)
+            split = system_split(operator, "NystromPreconditioner.lazy")
+            built = NystromPreconditioner.from_operator(
+                split.base,
+                self.rank,
+                shift=split.diagonal,
+                oversample=self.oversample,
+                key=self.key,
+            )
+            return built._scaled(None)
+        assert self.shift is not None and self.eigenvalues is not None
+        if jnp.ndim(self.shift) == 0:
+            return None
+        # the stored sketch is of K_B, shift one
+        inner = NystromPreconditioner(
+            basis=self.basis,
+            eigenvalues=self.eigenvalues,
+            shift=jnp.ones((), dtype=self.basis.dtype),
+        )
+        return _ScaledPreconditioner(inner=inner, shift=self.shift)
 
     def _low_rank_update(self) -> LowRankUpdate:
         """P = I + U diag(s − 1) Uᵀ, built from the stored factors.
@@ -288,6 +439,7 @@ class NystromPreconditioner(AbstractPreconditioner):
         Returns:
             P as a PSD-tagged orthonormal `gaussx.LowRankUpdate`.
         """
+        assert self.basis is not None
         # s − 1 = (γ̂ − γ̂_k) / (γ̂_k + σ²) ≥ 0
         update = self._ratio() - 1.0
         # P = I + U diag(s − 1) Uᵀ
@@ -300,6 +452,7 @@ class NystromPreconditioner(AbstractPreconditioner):
             s, of length k.
         """
         noise_variance = self.shift
+        assert self.eigenvalues is not None and noise_variance is not None
         # s_j = (γ̂_j + σ²) / (γ̂_k + σ²)
         return (self.eigenvalues + noise_variance) / (
             self.eigenvalues[-1] + noise_variance

@@ -60,6 +60,11 @@ _SLQ_CASES = [
     "partial_cholesky_built",
     "partial_cholesky_lazy",
     "nystrom",
+    # per-point shifts, P = D^½ P_B D^½ (gh-878)
+    "partial_cholesky_scaled_built",
+    "partial_cholesky_scaled_lazy",
+    "nystrom_scaled_built",
+    "nystrom_lazy",
 ]
 
 
@@ -82,8 +87,31 @@ def _slq_case(name, key, n=8, rank=3):
         pre = NystromPreconditioner.from_operator(
             kernel_op, rank, shift=_NOISE, key=sketch_key
         )
+    elif "scaled" in name or name == "nystrom_lazy":
+        return _scaled_case(name, kernel, sketch_key, rank)
     else:
         raise ValueError(name)
+    return pre, system
+
+
+def _scaled_case(name, kernel, key, rank):
+    """A per-point-shift preconditioner of A = K + diag(d), d over a decade."""
+    size = kernel.shape[0]
+    psd = lx.positive_semidefinite_tag
+    kernel_op = lx.MatrixLinearOperator(kernel, psd)
+    shift = jnp.geomspace(0.1, 1.0, size, dtype=kernel.dtype)
+    system = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(kernel) + lx.DiagonalLinearOperator(shift),
+        (lx.symmetric_tag, psd),
+    )
+    if name == "partial_cholesky_scaled_built":
+        pre = PartialCholeskyPreconditioner.from_operator(kernel_op, rank, shift=shift)
+    elif name == "partial_cholesky_scaled_lazy":
+        pre = PartialCholeskyPreconditioner(rank=rank, shift=None)
+    elif name == "nystrom_scaled_built":
+        pre = NystromPreconditioner.from_operator(kernel_op, rank, shift=shift, key=key)
+    else:
+        pre = NystromPreconditioner.lazy(rank, key=key)
     return pre, system
 
 
