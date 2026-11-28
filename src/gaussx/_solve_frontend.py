@@ -181,7 +181,9 @@ def linear_solve(
             the CG solve: a `CGSolver` directly, the solve half of a
             `ComposedSolver` or a `KeyedSolver`, and the CG that an
             `AutoSolver` builds for a large operator (a direct solve
-            ignores it). Other strategies raise ``ValueError``.
+            ignores it). Other strategies raise ``ValueError``, and so
+            does a strategy that already carries a preconditioner: before
+            gh-881 the new one silently replaced it.
 
     Returns:
         The solution x, of length N.
