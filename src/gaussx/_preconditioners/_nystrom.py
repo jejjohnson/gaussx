@@ -280,6 +280,7 @@ class NystromPreconditioner(AbstractPreconditioner):
             return scaled.as_operator(operator)
         basis, noise_variance = self.basis, self.shift
         assert basis is not None and self.eigenvalues is not None
+        assert noise_variance is not None
         # (γ̂_k + σ²) / (γ̂ + σ²) − 1
         scale = (self.eigenvalues[-1] + noise_variance) / (
             self.eigenvalues + noise_variance
@@ -421,9 +422,9 @@ class NystromPreconditioner(AbstractPreconditioner):
                 key=self.key,
             )
             return built._scaled(None)
+        assert self.shift is not None and self.eigenvalues is not None
         if jnp.ndim(self.shift) == 0:
             return None
-        assert self.shift is not None and self.eigenvalues is not None
         # the stored sketch is of K_B, shift one
         inner = NystromPreconditioner(
             basis=self.basis,

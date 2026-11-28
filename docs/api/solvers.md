@@ -176,6 +176,10 @@ $d_\text{eff}(\sigma^2) = \mathrm{tr}(\mathbf{K}(\mathbf{K} + \sigma^2 \mathbf{I
 needs a number of iterations that does not grow with $n$ (Frangella, Tropp &
 Udell, 2023).
 
+### Per-point shifts
+
+A non-Gaussian GP, or regression with heteroscedastic noise, solves $\mathbf{A} = \mathbf{K}_{XX} + \mathrm{diag}(\mathbf{d})$, whose diagonal varies by point. `PartialCholeskyPreconditioner`, `NystromPreconditioner`, `PreconditionedCGSolver` and `NystromLogdet` take a vector `shift=d` for it, and the lazy forms (`PartialCholeskyPreconditioner(rank, shift=None)`, `NystromPreconditioner.lazy(rank, key=key)`, `NystromLogdet(shift=None)`) read $\mathbf{d}$ from the system at every solve with `split_diagonal`. With $\mathbf{D} = \mathrm{diag}(\mathbf{d})$, the system is scaled to $\mathbf{B} = \mathbf{D}^{-1/2} \mathbf{A} \mathbf{D}^{-1/2} = \mathbf{K}_B + \mathbf{I}$, the scalar-shift preconditioner $\mathbf{P}_B$ of $\mathbf{B}$ is built with a shift of one, and it is pulled back as $\mathbf{P} = \mathbf{D}^{1/2} \mathbf{P}_B \mathbf{D}^{1/2}$, with $\log \det \mathbf{A} = \log \det \mathbf{B} + \sum_n \log d_n$. The low-rank part then captures the top of $\mathbf{K}_B$, the kernel weighted by how strongly each point is observed, so it is much stronger than any scalar shift no larger than $\min_n d_n$. A scalar `shift` keeps the scalar code path unchanged.
+
 ::: gaussx
     options:
       show_root_heading: false

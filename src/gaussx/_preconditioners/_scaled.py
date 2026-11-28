@@ -72,13 +72,11 @@ def system_split(
             "with gaussx.split_diagonal, which finds no kernel part plus a "
             f"diagonal in {type(operator).__name__}. Pass shift=d explicitly."
         )
-    return DiagonalSplit(
-        base=split.base, diagonal=checked_shift(split.diagonal, owner)
-    )
+    return DiagonalSplit(base=split.base, diagonal=checked_shift(split.diagonal, owner))
 
 
 def resolve_shift(
-    shift: Float[Array, " n"] | None,
+    shift: float | Float[Array, ""] | Float[Array, " n"] | None,
     operator: lx.AbstractLinearOperator,
     owner: str,
 ) -> Float[Array, " n"]:
@@ -307,9 +305,7 @@ class _ScaledPreconditioner(AbstractPreconditioner):
         Returns:
             The draws z, of shape ``(*shape, n)``.
         """
-        inner_draws = self.inner.sample(
-            key, self._scaled_system(operator), shape=shape
-        )
+        inner_draws = self.inner.sample(key, self._scaled_system(operator), shape=shape)
         # D^½ z_B
         return einx.multiply(
             "... row, row -> ... row", inner_draws, jnp.sqrt(self.shift)

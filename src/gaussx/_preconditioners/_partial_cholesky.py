@@ -432,9 +432,9 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         """
         if self.factor is not None:
             shift = self.factor_shift
+            assert shift is not None
             if jnp.ndim(shift) == 0:
                 return None
-            assert shift is not None
             # the stored factor and capacitance are of K_B, shift one
             inner = PartialCholeskyPreconditioner(
                 rank=self.rank,
@@ -525,7 +525,7 @@ def _scaled_from_operator(
     cls: type[PartialCholeskyPreconditioner],
     operator: lx.AbstractLinearOperator,
     rank: int,
-    shift: Float[Array, " n"],
+    shift: float | Float[Array, ""] | Float[Array, " n"],
     pivoting: Literal["greedy", "random"],
     key: jax.Array | None,
     diagonal: Float[Array, " n"] | None,
