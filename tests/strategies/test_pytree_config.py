@@ -131,15 +131,27 @@ def test_tree_map_leaves_strategy_config_unchanged(strategy):
     assert jax.tree_util.tree_map(lambda leaf: 2 * leaf, strategy) == strategy
 
 
+def _reads_shift_from_system(strategy) -> bool:
+    """Whether a partial Cholesky inside ``strategy`` has ``shift=None``."""
+    if isinstance(strategy, gaussx.PreconditionedCGSolver):
+        return strategy.shift is None
+    preconditioner = getattr(strategy, "preconditioner", None)
+    return isinstance(preconditioner, gaussx.PartialCholeskyPreconditioner) and (
+        preconditioner.shift is None
+    )
+
+
 # shift=None needs a system that splits into K + diag(d); the jitted
-# log-density below takes a dense one, so it gets the default (a traced
-# float leaf) instead.
+# log-density below takes a dense one, so those get the default shift (a
+# traced float leaf) instead.
 _SOLVERS = [
     s
     for s in _STRATEGIES
-    if isinstance(s, gaussx.AbstractSolverStrategy)
-    and not isinstance(s, gaussx.PreconditionedCGSolver)
-] + [gaussx.PreconditionedCGSolver()]
+    if isinstance(s, gaussx.AbstractSolverStrategy) and not _reads_shift_from_system(s)
+] + [
+    gaussx.CGSolver(preconditioner=gaussx.PartialCholeskyPreconditioner(rank=2)),
+    gaussx.PreconditionedCGSolver(),
+]
 
 
 def _pytest_ids(objs) -> list[str]:
