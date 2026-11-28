@@ -18,7 +18,6 @@ import lineax as lx
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
-from gaussx._operators._split import split_diagonal
 from gaussx._preconditioners._scaled import resolve_shift, scaled_operator
 from gaussx._primitives._samplers import SamplerName
 from gaussx._randomized._nystrom import randomized_nystrom
@@ -58,10 +57,9 @@ class NystromLogdet(AbstractLogdetStrategy):
     so the rounding of the subtraction cannot make it indefinite. So
     ``shift`` must be the σ² that ``operator`` contains (#345). ``shift``
     is a PyTree leaf, so it can be a traced, learned noise variance. A
-    scalar ``shift`` above the smallest diagonal entry that
-    `gaussx.split_diagonal` reads from A makes A − σ² I indefinite, and
-    raises (``eqx.error_if``) instead of returning NaN; so does a
-    non-finite estimate on a system that does not split.
+    scalar ``shift`` larger than the noise A holds makes A − σ² I
+    indefinite; the non-finite estimate that follows raises
+    (``eqx.error_if``) instead of returning NaN.
 
     **Per-point shifts.** For A = K + diag(d) with a diagonal that varies by
     point, pass ``shift=d`` (a vector), or ``shift=None`` to read d from A
@@ -197,16 +195,8 @@ class NystromLogdet(AbstractLogdetStrategy):
             # log det A = log det B + ∑_n log d_n
             return scaled_logdet + jnp.sum(jnp.log(shift))
         noise_variance = jnp.asarray(self.shift, dtype=operator.in_structure().dtype)
-        split = split_diagonal(operator)
-        if split is not None:
-            # σ² > min_n d_n makes A − σ² I indefinite: NaN otherwise
-            noise_variance = eqx.error_if(
-                noise_variance,
-                noise_variance > jnp.min(split.diagonal),
-                "NystromLogdet: the scalar shift exceeds the smallest diagonal "
-                "entry of the system, so A − shift·I is not PSD; pass "
-                "shift=None (or the vector d) for a per-point diagonal.",
-            )
+        # No check against split_diagonal(A): noise inside the kernel part is
+        # invisible to it, so σ² > min_n d_n can still leave A − σ² I PSD.
         estimate = self._shifted_logdet(operator, noise_variance, key)
         return eqx.error_if(
             estimate,
