@@ -163,7 +163,7 @@ def test_log_marginal_likelihood_takes_a_key(getkey, monkeypatch):
 
 
 def test_expected_log_lik_takes_the_shared_pass(getkey, monkeypatch):
-    system, matrix, loc, value = _problem(getkey(), size=20)
+    system, _, loc, value = _problem(getkey(), size=20)
     counter = _CountingCore(monkeypatch)
     q_cov = lx.DiagonalLinearOperator(jnp.full(20, 0.1))
     gaussx.gaussian_expected_log_lik(value, loc, q_cov, system, solver=_BBMM)
