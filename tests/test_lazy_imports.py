@@ -38,6 +38,7 @@ ALLOWED_LAZY_IMPORTS = {
     ("_operators._sum_kronecker", "_primitives._solve"),
     ("_operators._sum_kronecker", "_primitives._sqrt"),
     ("_operators._utils", "_primitives._diag"),
+    ("_preconditioners._fitc", "_linalg._safe_cholesky"),
     ("_primitives._inv", "_primitives._solve"),
     ("_primitives._logdet", "_strategies._auto"),
     ("_primitives._logdet", "_strategies._slq_logdet"),

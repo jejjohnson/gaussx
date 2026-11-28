@@ -35,7 +35,7 @@ import lineax as lx
 import pytest
 
 import gaussx
-from gaussx._einx import einsum
+from gaussx._einx import einsum, rearrange
 from gaussx._linalg._symmetrize import symmetrize
 from gaussx._testing import psd_operator, tree_allclose
 
@@ -390,6 +390,29 @@ def _badly_scaled_system():
     return einx.multiply("i j, i, j -> i j", A, scale, scale)
 
 
+# FITC needs inputs (gh-824): a Matérn-3/2 kernel, ℓ = 0.2, on n points in
+# [0, 1], with σ² = 1e-2 and k evenly spaced inducing inputs.
+_FITC_X = rearrange(jnp.linspace(0.0, 1.0, _PRE_N), "n -> n 1")
+
+
+def _matern32(left, right):
+    gaps = einx.subtract("n d, m d -> n m d", left, right)
+    # √3 r / ℓ, with a floor under r² for a finite gradient at r = 0
+    scaled = jnp.sqrt(3.0 * (einx.sum("n m [d]", gaps**2) + 1e-12)) / 0.2
+    return (1.0 + scaled) * jnp.exp(-scaled)
+
+
+def _fitc_system():
+    """``(A, K + σ² I)``: the dense system and its split-able operator."""
+    K = _matern32(_FITC_X, _FITC_X)
+    noise = jnp.full(_PRE_N, _PRE_NOISE)
+    system = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(K) + lx.DiagonalLinearOperator(noise),
+        lx.positive_semidefinite_tag,
+    )
+    return K + jnp.diag(noise), system
+
+
 def _preconditioned_system(name):
     """``(A, M⁻¹)`` for one preconditioner on its system."""
     psd = lx.positive_semidefinite_tag
@@ -397,6 +420,12 @@ def _preconditioned_system(name):
         A = _badly_scaled_system()
         pre = gaussx.JacobiPreconditioner().as_operator(lx.MatrixLinearOperator(A, psd))
         return A, pre
+    if name == "fitc":
+        A, system = _fitc_system()
+        pre = gaussx.FITCPreconditioner.from_kernel(
+            _matern32, _FITC_X, _FITC_X[:: _PRE_N // _PRE_RANK]
+        )
+        return A, pre.as_operator(system)
     K = _pre_kernel()
     A = K + _PRE_NOISE * jnp.eye(_PRE_N)
     if name == "partial_cholesky":
@@ -418,7 +447,7 @@ def _preconditioned_system(name):
 @pytest.mark.parametrize(
     "name",
     _cases(
-        ["jacobi", "partial_cholesky", "partial_cholesky_lazy", "nystrom"],
+        ["jacobi", "partial_cholesky", "partial_cholesky_lazy", "nystrom", "fitc"],
         {},
         ("partial_cholesky", "nystrom"),
     ),
