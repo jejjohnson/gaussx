@@ -12,7 +12,7 @@ Each is a plain function of `(loc, cov_operator)`; no distribution object is nee
 |---|---|
 | `gaussian_log_prob(loc, cov_operator, value, *, solver=None, key=None)` | `log N(value \| loc, Σ)` as a scalar. Dispatches on the structure of `Σ`. |
 | `gaussian_entropy(cov_operator, *, solver=None, key=None)` | The entropy `½(N(1 + log 2π) + log \|Σ\|)`, independent of the mean. |
-| `gaussian_kl(p_loc, p_cov, q_loc, q_cov)` | `KL(p ‖ q)` between two Gaussians with operator covariances. The general form. |
+| `gaussian_kl(p_loc, p_cov, q_loc, q_cov)` | `KL(p ‖ q)` between two Gaussians with operator covariances. The general form; `solver=` takes every solve and log-determinant with `q_cov`, `p_logdet=` the log-determinant of `p_cov`. |
 | `kl_standard_normal(m, S, *, solver=None, key=None)` | `KL(N(m, S) ‖ N(0, I))`, the prior term of a variational bound, with no inversion. |
 | `quadratic_form(operator, x, *, solver=None)` | `xᵀ A⁻¹ x` from one solve. |
 | `conditional(loc, cov, obs_idx, obs_values, *, solver=None)` | `p(x_A \| x_B = b)` from a joint. Returns `(mean, cov_operator)` over the unobserved indices. |

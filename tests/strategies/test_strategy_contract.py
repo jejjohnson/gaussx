@@ -248,6 +248,34 @@ def test_grad_wrt_rhs_matches_dense(name):
     assert tree_allclose(got, expected, rtol=_grad_rtol(name), atol=1e-8)
 
 
+@pytest.mark.x64_only(reason="rtol=1e-6 contract needs float64 solves")
+@pytest.mark.parametrize(
+    "name",
+    _cases(
+        [name for name in STRATEGIES if name not in ("lsmr_damped", "multigrid")],
+        {},
+        ("cg",),
+    ),
+)
+def test_gaussian_kl_takes_the_strategy(name):
+    """gaussian_kl(solver=...) is the dense KL up to the strategy's log det Σ_q.
+
+    Its solves are exact to the solver tolerance, so swapping the exact
+    log det Σ_q for the strategy's own (same default seed) is the only
+    difference (gh-884). Damped LSMR solves a different system, and
+    multigrid is solve-only (`compose_solver` gives it a log-determinant).
+    """
+    A = _system(0.3)
+    op = psd_operator(A)
+    strategy = STRATEGIES[name](_kernel(0.3), _NOISE, **_TIGHT)
+    p_cov = psd_operator(_kernel(0.5) + jnp.eye(A.shape[0]))
+    got = gaussx.gaussian_kl(_Y, p_cov, 0.0 * _Y, op, solver=strategy)
+    dense = gaussx.gaussian_kl(_Y, p_cov, 0.0 * _Y, op)
+    # ½ (log det Σ_q by the strategy − exact log det Σ_q)
+    shift = 0.5 * (strategy.logdet(op) - jnp.linalg.slogdet(A)[1])
+    assert jnp.allclose(got, dense + shift, rtol=_grad_rtol(name)), (got, dense)
+
+
 # ---------------------------------------------------------------------------
 # 2. vmap over the right-hand side
 # ---------------------------------------------------------------------------
