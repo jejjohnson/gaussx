@@ -103,7 +103,8 @@ def predictive_variance_sbpv(
         ... )
         >>> cross = k(Xs, X)
         >>> exact = 1.0 - jnp.diag(cross @ jnp.linalg.solve(A.as_matrix(), cross.T))
-        >>> estimate.shape, bool(jnp.all(jnp.abs(estimate - exact) < 0.1))
+        >>> # 400 draws: a standard error of about 0.07 per point
+        >>> estimate.shape, bool(jnp.all(jnp.abs(estimate - exact) < 0.25))
         ((5,), True)
 
     References:
