@@ -180,12 +180,20 @@ def test_nystrom_logdet_vector_and_none_agree(getkey):
     assert tree_allclose(from_system, exact, rtol=rtol)
 
 
-def test_nystrom_logdet_scalar_shift_above_the_smallest_d_raises(getkey):
-    kernel, shift = _problem(getkey(), size=20, decades=2.0)
-    system = _site_system(kernel, shift)
-    too_large = float(jnp.mean(shift))
-    with pytest.raises(Exception, match="exceeds the smallest diagonal"):
-        gaussx.NystromLogdet(shift=too_large, rank=5).logdet(system)
+def test_nystrom_logdet_scalar_shift_with_noise_inside_the_kernel_part(getkey):
+    # A = (K + 0.5 I) + diag(1e-6): the shift 0.5 exceeds the diagonal that
+    # split_diagonal sees, yet A − 0.5 I = K + 1e-6 I is PSD, so it must run.
+    kernel, _ = _problem(getkey(), size=20)
+    size = kernel.shape[0]
+    system = lx.TaggedLinearOperator(
+        lx.MatrixLinearOperator(kernel + 0.5 * jnp.eye(size))
+        + lx.DiagonalLinearOperator(jnp.full((size,), 1e-6, kernel.dtype)),
+        _SYMMETRIC_PSD,
+    )
+    estimate = gaussx.NystromLogdet(shift=0.5, rank=size).logdet(system, key=getkey())
+    exact = jnp.linalg.slogdet(system.as_matrix())[1]
+    rtol = 1e-6 if _x64() else 1e-3
+    assert tree_allclose(estimate, exact, rtol=rtol)
 
 
 @pytest.mark.slow
