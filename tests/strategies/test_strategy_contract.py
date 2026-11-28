@@ -61,6 +61,14 @@ def _bbmm(K, noise, **opts):
     return gaussx.BBMMSolver(**_cg_options(**opts))
 
 
+def _bbmm_nystrom(K, noise, **opts):
+    # P for the solve and for the shared pass of inv_quad_logdet (gh-879)
+    pre = gaussx.NystromPreconditioner.from_operator(
+        psd_operator(K), rank=5, shift=noise, key=jr.key(0)
+    )
+    return gaussx.BBMMSolver(preconditioner=pre, **_cg_options(**opts))
+
+
 def _lsmr(damp):
     def make(K, noise, rtol=None, atol=None, max_steps=None):
         opts = {"btol": rtol, "atol": atol, "max_steps": max_steps}
@@ -118,6 +126,7 @@ STRATEGIES: dict[str, Factory] = {
         preconditioner_rank=5, shift=noise, **_cg_options(**opts)
     ),
     "bbmm": _bbmm,
+    "bbmm_nystrom": _bbmm_nystrom,
     "minres": lambda K, noise, **opts: gaussx.MINRESSolver(**_cg_options(**opts)),
     "lsmr": _lsmr(0.0),
     "lsmr_damped": _lsmr(0.5),

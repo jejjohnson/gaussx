@@ -785,7 +785,7 @@ def test_bbmm_preconditioner_and_logdet_preconditioner_both_raise() -> None:
     rhs = jnp.ones((10, 1))
     strategy = gaussx.BBMMSolver(preconditioner=gaussx.JacobiPreconditioner())
     P = lx.DiagonalLinearOperator(jnp.ones(10))
-    with pytest.raises(ValueError, match="logdet_preconditioner.*preconditioner="):
+    with pytest.raises(ValueError, match=r"logdet_preconditioner.*preconditioner="):
         gaussx.inv_quad_logdet(system, rhs, strategy=strategy, logdet_preconditioner=P)
 
 

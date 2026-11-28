@@ -153,6 +153,8 @@ $\log \det(\mathbf{P}^{-1/2} (\mathbf{K} + \sigma^2 \mathbf{I}) \mathbf{P}^{-1/2
 identity, so the probe variance collapses. Use plain `SLQLogdet` for
 precision-form GMRF systems.
 
+`BBMMSolver(preconditioner=...)` takes any preconditioner that knows $\mathbf{P}$ itself (`supports_slq()`): its solve runs CG with $\mathbf{P}^{-1}$, and the shared pass of `inv_quad_logdet` (and `BBMMSolver.logdet`) draws its probes from $\mathcal{N}(\mathbf{0}, \mathbf{P})$ with the preconditioner's `sample` and adds its exact $\log \det \mathbf{P}$, so only $\mathrm{tr} \log(\mathbf{P}^{-1/2} \mathbf{A} \mathbf{P}^{-1/2})$ is estimated. `inv_quad_logdet(..., key=key)` sets the probes of that pass, and a `KeyedSolver` around a `BBMMSolver` takes the pass with its own key. The gradient of the log-determinant does not get the variance reduction (gaussx#826).
+
 ::: gaussx
     options:
       show_root_heading: false
