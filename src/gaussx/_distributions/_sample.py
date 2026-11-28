@@ -37,6 +37,11 @@ from gaussx._operators._low_rank_update import (
 )
 from gaussx._operators._toeplitz import Toeplitz, _circulant_embedding, toeplitz_sample
 from gaussx._primitives._cholesky import cholesky
+from gaussx._primitives._gaussian_draws import (
+    diagonal_draws,
+    factor_draws,
+    low_rank_update_draws,
+)
 from gaussx._primitives._solve import solve
 from gaussx._primitives._sqrt import dense_symmetric_sqrt
 from gaussx._strategies._base import AbstractSolveStrategy
@@ -231,8 +236,7 @@ def _zero_mean_draws(
         return _structured_or_dense(scalar > 0, scaled, covariance, key, num_draws)
     if isinstance(covariance, lx.IdentityLinearOperator | lx.DiagonalLinearOperator):
         # L = diag(σ)
-        factor = cholesky(covariance)
-        return _factor_draws(factor, covariance, key, num_draws)
+        return diagonal_draws(covariance, key, num_draws)
     if isinstance(covariance, BlockDiag) and _all_square(covariance.operators):
         keys = jr.split(key, len(covariance.operators))
         # L_b z_b, one block at a time
@@ -313,31 +317,7 @@ def _dense_draws(
     # Σ^½, symmetric and defined for a semi-definite Σ
     root_matrix = dense_symmetric_sqrt(matrix)
     root = lx.MatrixLinearOperator(root_matrix)
-    return _factor_draws(root, covariance, key, num_draws)
-
-
-def _factor_draws(
-    factor: lx.AbstractLinearOperator,
-    covariance: lx.AbstractLinearOperator,
-    key: jax.Array,
-    num_draws: int,
-) -> Float[Array, "S N"]:
-    """Draws L z for ``num_draws`` standard-normal z.
-
-    Args:
-        factor: Factor L, with L Lᵀ = Σ.
-        covariance: Covariance Σ, which sets the size and dtype of z.
-        key: PRNG key.
-        num_draws: Number of draws.
-
-    Returns:
-        The draws L z, one row per draw.
-    """
-    dtype = covariance.in_structure().dtype
-    # z ~ 𝒩(0, I), one row per draw
-    noise = jr.normal(key, (num_draws, covariance.in_size()), dtype=dtype)
-    # L z
-    return jax.vmap(factor.mv)(noise)
+    return factor_draws(root, covariance, key, num_draws)
 
 
 def _all_square(operators: tuple[lx.AbstractLinearOperator, ...]) -> bool:
@@ -404,7 +384,7 @@ def _kronecker_draws(
         roots.append(lx.MatrixLinearOperator(root_matrix))
     # Σ^½ = ⊗_d (s_d A_d)^½
     root = Kronecker(*roots)
-    return _factor_draws(root, covariance, key, num_draws)
+    return factor_draws(root, covariance, key, num_draws)
 
 
 def _kronecker_sum_draws(
@@ -550,7 +530,7 @@ def _block_tridiag_draws(
     # L Lᵀ = Σ, lower block-bidiagonal
     factor = cholesky(covariance)
     # L z
-    draws = _factor_draws(factor, covariance, key, num_draws)
+    draws = factor_draws(factor, covariance, key, num_draws)
     # every pivot was positive
     all_finite = jnp.all(jnp.isfinite(draws))
     return jax.lax.cond(
@@ -671,7 +651,8 @@ def _low_rank_draws(
         L_A₀ z₁ + U D^½ z₂ ~ 𝒩(0, A₀ + U D Uᵀ)
 
     The base A₀ is sampled through `_zero_mean_draws`, so its own structure
-    is kept.
+    is kept; the sum is `gaussx._primitives._gaussian_draws`, shared with the
+    preconditioners.
 
     Args:
         covariance: Low-rank update Σ = A₀ + U D Uᵀ.
@@ -681,21 +662,7 @@ def _low_rank_draws(
     Returns:
         The draws, one row per draw.
     """
-    base_key, update_key = jr.split(key)
-    # L_A₀ z₁
-    base = _zero_mean_draws(covariance.base, base_key, num_draws)
-    # z₂ ~ 𝒩(0, I_k), one row per draw
-    noise = jr.normal(
-        update_key, (num_draws, covariance.rank), dtype=covariance.U.dtype
-    )
-    # D^½
-    root_weights = jnp.sqrt(covariance.d)
-    # D^½ z₂
-    scaled = einx.multiply("draw rank, rank -> draw rank", noise, root_weights)
-    # U D^½ z₂
-    update = einsum(scaled, covariance.U, "draw rank, row rank -> draw row")
-    # L_A₀ z₁ + U D^½ z₂
-    return base + update
+    return low_rank_update_draws(covariance, key, num_draws, _zero_mean_draws)
 
 
 def sample_joint_conditional(

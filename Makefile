@@ -146,6 +146,7 @@ test-fast: ## ⚡ Run fast unit tests (skips slow + integration; matches PR CI)
 NO_X64_TESTS := tests/primitives \
 	tests/operators \
 	tests/linalg \
+	tests/strategies/test_preconditioner_protocol.py \
 	tests/inference/test_natural_gradient.py \
 	tests/quadrature/test_callable_likelihood.py \
 	tests/distributions/test_conditional.py \

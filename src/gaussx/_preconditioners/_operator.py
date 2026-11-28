@@ -21,6 +21,10 @@ class OperatorPreconditioner(AbstractPreconditioner):
 
         z = M⁻¹ r,   M⁻¹ ≈ A⁻¹ given
 
+    The approximate inverse is opaque, so P = M itself is not known:
+    `supports_slq` is ``False`` and `logdet`, `sample` and `approximation`
+    raise ``NotImplementedError``.
+
     Attributes:
         approx_inverse: The approximate inverse M⁻¹, either as a lineax
             operator or as a callable ``v -> M⁻¹ v``.

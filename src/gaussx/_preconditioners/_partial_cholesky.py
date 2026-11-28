@@ -20,12 +20,14 @@ import jax
 import jax.numpy as jnp
 import jax.scipy.linalg
 import lineax as lx
-from jaxtyping import Array, Float, Int
+from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from gaussx._einx import einsum
-from gaussx._operators import BlockDiag, LowRankUpdate
-from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._operators import BlockDiag, LowRankUpdate, low_rank_plus_diag
+from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
 from gaussx._primitives._diag import _CHEAP_DIAGONAL, matrix_free_diag
+from gaussx._primitives._gaussian_draws import diagonal_draws, low_rank_update_draws
+from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._randomized._rpcholesky import _pivoted_cholesky
 
 
@@ -77,6 +79,16 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
     precision-form system Q + Aᵀ W A, whose hard directions are its
     smallest eigenvalues.
 
+    **As P itself.** `approximation`, `logdet` and `sample` use
+    M = σ² I + L_k L_kᵀ, built once per call from the same factor as
+    `as_operator`:
+
+        log det M = N log σ² + log det(I_k + L_kᵀ L_k / σ²),
+        z = σ ε_N + L_k ε_k ~ 𝒩(0, M),
+
+    the first by the matrix determinant lemma from the stored capacitance
+    factor. A disabled lazy preconditioner (``rank <= 0``) is M = I.
+
     Attributes:
         rank: Rank k of the partial Cholesky. ``<= 0`` disables the lazy
             preconditioner (`as_operator` returns ``None``).
@@ -124,6 +136,14 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         >>> M_inv = lazy.as_operator(A)
         >>> M_inv.in_structure().shape
         (50,)
+
+        M itself, with a structured log-determinant:
+
+        >>> M = preconditioner.approximation()
+        >>> type(M).__name__
+        'LowRankUpdate'
+        >>> bool(jnp.allclose(gaussx.logdet(M), preconditioner.logdet()))
+        True
     """
 
     rank: int = eqx.field(static=True, default=50)
@@ -217,12 +237,152 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If the lazy path gets no ``operator``.
         """
+        parts = self._parts(operator)
+        if parts is None:
+            return None
+        factor, capacitance, noise_variance, structure = parts
+        return _woodbury(factor, capacitance, noise_variance, structure)
+
+    def supports_slq(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> bool:
+        """``True``: M = σ² I + L_k L_kᵀ is known from its factor.
+
+        Args:
+            operator: The system operator A; unused.
+
+        Returns:
+            ``True``.
+        """
+        del operator
+        return True
+
+    def logdet(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> Float[Array, ""]:
+        """log det M by the matrix determinant lemma.
+
+            log det(σ² I + L_k L_kᵀ) = (N − k) log σ² + log det C,
+            C = σ² I_k + L_kᵀ L_k
+
+        Args:
+            operator: The system operator A = K + σ² I, needed by the lazy
+                path only.
+
+        Returns:
+            The scalar log det M (0 when the lazy ``rank`` is ``<= 0``).
+
+        Raises:
+            ValueError: If the lazy path gets no ``operator``.
+        """
+        parts = self._parts(operator)
+        if parts is None:
+            # M = I
+            return jnp.zeros((), dtype=_dtype(operator))
+        factor, capacitance, noise_variance, _ = parts
+        size, rank = factor.shape
+        # log det C = 2 ∑ log diag(L_C)
+        capacitance_logdet = cholesky_logdet(capacitance)
+        # log det M = (N − k) log σ² + log det C
+        return (size - rank) * jnp.log(noise_variance) + capacitance_logdet
+
+    def sample(
+        self,
+        key: PRNGKeyArray,
+        operator: lx.AbstractLinearOperator | None = None,
+        *,
+        shape: tuple[int, ...] = (),
+    ) -> Float[Array, "*batch n"]:
+        """Draw z = σ ε_N + L_k ε_k ~ 𝒩(0, σ² I + L_k L_kᵀ).
+
+        Args:
+            key: PRNG key for ε_N and ε_k.
+            operator: The system operator A = K + σ² I, needed by the lazy
+                path only.
+            shape: Batch shape of the draws.
+
+        Returns:
+            The draws z, of shape ``(*shape, n)``.
+
+        Raises:
+            ValueError: If the lazy path gets no ``operator``.
+        """
+        # M = σ² I + L_k L_kᵀ, or I when disabled
+        approximation = self.approximation(operator)
+
+        def draws(key: PRNGKeyArray, num_draws: int) -> Float[Array, "draw n"]:
+            if isinstance(approximation, LowRankUpdate):
+                # z = σ ε_N + L_k ε_k, the low-rank path of `gaussx.sample_mvn`
+                return low_rank_update_draws(
+                    approximation, key, num_draws, diagonal_draws
+                )
+            # M = I: z = ε_N
+            return diagonal_draws(approximation, key, num_draws)
+
+        return batched_draws(draws, key, shape)
+
+    def approximation(
+        self,
+        operator: lx.AbstractLinearOperator | None = None,
+    ) -> lx.AbstractLinearOperator:
+        """M = σ² I + L_k L_kᵀ as a PSD `LowRankUpdate` on a diagonal base.
+
+        Its solve (Woodbury) and log-determinant (matrix determinant lemma)
+        cost O(N k²), and neither densifies it.
+
+        Args:
+            operator: The system operator A = K + σ² I, needed by the lazy
+                path only.
+
+        Returns:
+            M as a PSD-tagged `gaussx.LowRankUpdate`, or the identity when
+            the lazy ``rank`` is ``<= 0``.
+
+        Raises:
+            ValueError: If the lazy path gets no ``operator``.
+        """
+        parts = self._parts(operator)
+        if parts is None:
+            # M = I
+            return lx.IdentityLinearOperator(_disabled_structure(operator))
+        factor, _, noise_variance, _ = parts
+        # σ² on every diagonal entry
+        base_diagonal = jnp.full(factor.shape[0], noise_variance, dtype=factor.dtype)
+        # M = σ² I + L_k L_kᵀ
+        return low_rank_plus_diag(base_diagonal, factor, psd=True)
+
+    def _parts(
+        self, operator: lx.AbstractLinearOperator | None
+    ) -> (
+        tuple[
+            Float[Array, "n k"],
+            Float[Array, "k k"],
+            Float[Array, ""],
+            jax.ShapeDtypeStruct,
+        ]
+        | None
+    ):
+        """The factor L_k, the capacitance factor L_C, σ² and the structure.
+
+        Read from the stored fields after `from_operator`; otherwise built
+        once from the system operator A, factoring K = A − σ² I.
+
+        Args:
+            operator: The system operator A, needed by the lazy path only.
+
+        Returns:
+            ``(L_k, L_C, σ², structure)``, or ``None`` when the lazy
+            ``rank`` is ``<= 0``.
+
+        Raises:
+            ValueError: If the lazy path gets no ``operator``.
+        """
         if self.factor is not None:
             assert self.capacitance is not None and self.factor_shift is not None
             structure = jax.ShapeDtypeStruct((self.factor.shape[0],), self.factor.dtype)
-            return _woodbury(
-                self.factor, self.capacitance, self.factor_shift, structure
-            )
+            return self.factor, self.capacitance, self.factor_shift, structure
         if self.rank <= 0:
             return None
         if operator is None:
@@ -240,12 +400,44 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         factor = _factor(
             operator, rank, noise_variance, self.pivoting, self.key, self.diagonal, None
         )
-        return _woodbury(
-            factor,
-            _capacitance(factor, noise_variance),
-            noise_variance,
-            operator.out_structure(),
+        capacitance = _capacitance(factor, noise_variance)
+        return factor, capacitance, noise_variance, operator.out_structure()
+
+
+def _disabled_structure(
+    operator: lx.AbstractLinearOperator | None,
+) -> jax.ShapeDtypeStruct:
+    """The structure of M = I for a disabled preconditioner.
+
+    Args:
+        operator: The system operator A, which sets the size.
+
+    Returns:
+        A's input structure.
+
+    Raises:
+        ValueError: If ``operator`` is ``None``, so the size is unknown.
+    """
+    if operator is None:
+        raise ValueError(
+            "A disabled PartialCholeskyPreconditioner (rank <= 0) is M = I and "
+            "needs the system operator for its size."
         )
+    return operator.in_structure()
+
+
+def _dtype(operator: lx.AbstractLinearOperator | None) -> jnp.dtype:
+    """The dtype of ``operator``, or the default float without one.
+
+    Args:
+        operator: An operator, or ``None``.
+
+    Returns:
+        Its input dtype, or ``jnp.result_type(float)``.
+    """
+    if operator is None:
+        return jnp.result_type(float)
+    return operator.in_structure().dtype
 
 
 def _factor(
