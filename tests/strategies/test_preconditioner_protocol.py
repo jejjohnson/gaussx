@@ -241,3 +241,19 @@ def test_logdet_jit_grad_vmap_in_the_lengthscale(name):
     batched = jax.vmap(structured)(lengthscales)
     looped = jnp.stack([structured(value) for value in lengthscales])
     assert tree_allclose(batched, looped, rtol=rtol)
+
+
+def test_nystrom_sample_gradient_is_finite_at_its_zero_weight(getkey):
+    # P = I + U diag(s − 1) Uᵀ has s_k − 1 = 0 exactly; its root must not
+    # turn the pathwise gradient into inf or NaN
+    pre, system = _slq_case("nystrom", getkey())
+    key = getkey()
+
+    def total(eigenvalues):
+        rebuilt = NystromPreconditioner(
+            basis=pre.basis, eigenvalues=eigenvalues, shift=pre.shift
+        )
+        return jnp.sum(rebuilt.sample(key, system, shape=(4,)))
+
+    gradient = jax.grad(total)(pre.eigenvalues)
+    assert bool(jnp.all(jnp.isfinite(gradient)))

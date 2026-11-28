@@ -30,10 +30,15 @@ M⁻¹ = P⁻¹, while `logdet`, `sample` and `approximation` are about P.
 from __future__ import annotations
 
 import abc
+import math
+from collections.abc import Callable
 
 import equinox as eqx
+import jax
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
+
+from gaussx._einx import rearrange
 
 
 class AbstractPreconditioner(eqx.Module):
@@ -208,3 +213,32 @@ class AbstractPreconditioner(eqx.Module):
             f"{type(self).__name__} does not know its approximation P; "
             "check supports_slq() first."
         )
+
+
+def batched_draws(
+    draws: Callable[[jax.Array, int], Float[Array, "draw n"]],
+    key: PRNGKeyArray,
+    shape: tuple[int, ...],
+) -> Float[Array, "*batch n"]:
+    """Run a row-wise sampler for ``prod(shape)`` draws and shape the result.
+
+    The preconditioners' ``sample`` methods draw through the shared
+    `gaussx._primitives._gaussian_draws` samplers, which stack the draws
+    row-wise; this restores the batch shape the protocol promises.
+
+    Args:
+        draws: ``(key, num_draws) -> (num_draws, n)`` draws from 𝒩(0, P).
+        key: PRNG key.
+        shape: Batch shape of the draws.
+
+    Returns:
+        The draws, of shape ``(*shape, n)``.
+    """
+    stacked = draws(key, math.prod(shape))
+    if not shape:
+        return stacked[0]
+    axes = [f"batch{index}" for index in range(len(shape))]
+    pattern = " ".join(axes)
+    sizes = dict(zip(axes, shape, strict=True))
+    # (prod(shape), n) -> (*shape, n)
+    return rearrange(stacked, f"({pattern}) n -> {pattern} n", **sizes)

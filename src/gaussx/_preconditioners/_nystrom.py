@@ -12,13 +12,13 @@ from __future__ import annotations
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
 from gaussx._einx import einsum
-from gaussx._operators import low_rank_plus_identity
-from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._operators import LowRankUpdate, low_rank_plus_identity
+from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
+from gaussx._primitives._gaussian_draws import diagonal_draws, low_rank_update_draws
 from gaussx._randomized._nystrom import randomized_nystrom
 
 
@@ -70,7 +70,7 @@ class NystromPreconditioner(AbstractPreconditioner):
     part sees the near-identity P⁻¹ A:
 
         log det P = ∑_j log s_j,
-        z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n) ~ 𝒩(0, P).
+        z = ε_n + U (√(s − 1) ⊙ ε_k) ~ 𝒩(0, P).
 
     Attributes:
         basis: Orthonormal basis U, N × k.
@@ -239,10 +239,10 @@ class NystromPreconditioner(AbstractPreconditioner):
         *,
         shape: tuple[int, ...] = (),
     ) -> Float[Array, "*batch n"]:
-        """Draw z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n) ~ 𝒩(0, P).
+        """Draw z = ε_n + U (√(s − 1) ⊙ ε_k) ~ 𝒩(0, P).
 
-        The two parts are independent and cover range(U) and its
-        complement, so Cov(z) = U diag(s) Uᵀ + (I − U Uᵀ) = P.
+        The two parts are independent, so Cov(z) = I + U diag(s − 1) Uᵀ = P;
+        this is the low-rank path of `gaussx.sample_mvn` on `approximation`.
 
         Args:
             key: PRNG key for ε_k and ε_n.
@@ -254,20 +254,14 @@ class NystromPreconditioner(AbstractPreconditioner):
             The draws z, of shape ``(*shape, n)``.
         """
         del operator
-        basis = self.basis
-        size, rank = basis.shape
-        range_key, complement_key = jr.split(key)
-        # ε_k ~ 𝒩(0, I_k), ε_n ~ 𝒩(0, I_n)
-        range_noise = jr.normal(range_key, (*shape, rank), dtype=basis.dtype)
-        noise = jr.normal(complement_key, (*shape, size), dtype=basis.dtype)
-        # √s ⊙ ε_k
-        scaled = jnp.sqrt(self._ratio()) * range_noise
-        # Uᵀ ε_n
-        coefficients = einsum(basis, noise, "row rank, ... row -> ... rank")
-        # U (√s ⊙ ε_k − Uᵀ ε_n)
-        in_range = einsum(basis, scaled - coefficients, "row rank, ... rank -> ... row")
-        # z = U (√s ⊙ ε_k) + (ε_n − U Uᵀ ε_n)
-        return noise + in_range
+        # P = I + U diag(s − 1) Uᵀ
+        approximation = self._low_rank_update()
+
+        def draws(key: PRNGKeyArray, num_draws: int) -> Float[Array, "draw n"]:
+            # z = ε_n + U (√(s − 1) ⊙ ε_k)
+            return low_rank_update_draws(approximation, key, num_draws, diagonal_draws)
+
+        return batched_draws(draws, key, shape)
 
     def approximation(
         self,
@@ -286,6 +280,14 @@ class NystromPreconditioner(AbstractPreconditioner):
             P as a PSD-tagged `gaussx.LowRankUpdate` on an identity base.
         """
         del operator
+        return self._low_rank_update()
+
+    def _low_rank_update(self) -> LowRankUpdate:
+        """P = I + U diag(s − 1) Uᵀ, built from the stored factors.
+
+        Returns:
+            P as a PSD-tagged orthonormal `gaussx.LowRankUpdate`.
+        """
         # s − 1 = (γ̂ − γ̂_k) / (γ̂_k + σ²) ≥ 0
         update = self._ratio() - 1.0
         # P = I + U diag(s − 1) Uᵀ
