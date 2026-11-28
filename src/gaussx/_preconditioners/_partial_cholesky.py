@@ -18,15 +18,15 @@ from typing import Literal
 import equinox as eqx
 import jax
 import jax.numpy as jnp
-import jax.random as jr
 import jax.scipy.linalg
 import lineax as lx
 from jaxtyping import Array, Float, Int, PRNGKeyArray
 
 from gaussx._einx import einsum
 from gaussx._operators import BlockDiag, LowRankUpdate, low_rank_plus_diag
-from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
 from gaussx._primitives._diag import _CHEAP_DIAGONAL, matrix_free_diag
+from gaussx._primitives._gaussian_draws import diagonal_draws, low_rank_update_draws
 from gaussx._primitives._logdet import cholesky_logdet
 from gaussx._randomized._rpcholesky import _pivoted_cholesky
 
@@ -309,21 +309,19 @@ class PartialCholeskyPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If the lazy path gets no ``operator``.
         """
-        parts = self._parts(operator)
-        if parts is None:
+        # M = σ² I + L_k L_kᵀ, or I when disabled
+        approximation = self.approximation(operator)
+
+        def draws(key: PRNGKeyArray, num_draws: int) -> Float[Array, "draw n"]:
+            if isinstance(approximation, LowRankUpdate):
+                # z = σ ε_N + L_k ε_k, the low-rank path of `gaussx.sample_mvn`
+                return low_rank_update_draws(
+                    approximation, key, num_draws, diagonal_draws
+                )
             # M = I: z = ε_N
-            structure = _disabled_structure(operator)
-            return jr.normal(key, (*shape, *structure.shape), dtype=structure.dtype)
-        factor, _, noise_variance, _ = parts
-        size, rank = factor.shape
-        noise_key, factor_key = jr.split(key)
-        # ε_N ~ 𝒩(0, I_N), ε_k ~ 𝒩(0, I_k)
-        noise = jr.normal(noise_key, (*shape, size), dtype=factor.dtype)
-        factor_noise = jr.normal(factor_key, (*shape, rank), dtype=factor.dtype)
-        # L_k ε_k
-        low_rank = einsum(factor, factor_noise, "row rank, ... rank -> ... row")
-        # z = σ ε_N + L_k ε_k
-        return jnp.sqrt(noise_variance) * noise + low_rank
+            return diagonal_draws(approximation, key, num_draws)
+
+        return batched_draws(draws, key, shape)
 
     def approximation(
         self,

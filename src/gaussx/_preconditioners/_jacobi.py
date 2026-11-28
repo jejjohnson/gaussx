@@ -7,12 +7,12 @@ Jacobi preconditioner applies M⁻¹ = diag(1 / |A_nn|) to each CG residual.
 from __future__ import annotations
 
 import jax.numpy as jnp
-import jax.random as jr
 import lineax as lx
 from jaxtyping import Array, Float, PRNGKeyArray
 
-from gaussx._preconditioners._base import AbstractPreconditioner
+from gaussx._preconditioners._base import AbstractPreconditioner, batched_draws
 from gaussx._primitives._diag import matrix_free_diag
+from gaussx._primitives._gaussian_draws import diagonal_draws
 
 
 class JacobiPreconditioner(AbstractPreconditioner):
@@ -164,12 +164,14 @@ class JacobiPreconditioner(AbstractPreconditioner):
         Raises:
             ValueError: If neither ``diagonal`` nor ``operator`` is given.
         """
-        # P_nn = |A_nn|
-        scale = jnp.abs(self._system_diagonal(operator))
-        # ε ~ 𝒩(0, I)
-        noise = jr.normal(key, (*shape, *scale.shape), dtype=scale.dtype)
-        # z = √P_nn ⊙ ε
-        return jnp.sqrt(scale) * noise
+        # P = diag(|A_nn|)
+        approximation = self.approximation(operator)
+
+        def draws(key: PRNGKeyArray, num_draws: int) -> Float[Array, "draw n"]:
+            # z = √P_nn ⊙ ε, the diagonal path of `gaussx.sample_mvn`
+            return diagonal_draws(approximation, key, num_draws)
+
+        return batched_draws(draws, key, shape)
 
     def approximation(
         self,
