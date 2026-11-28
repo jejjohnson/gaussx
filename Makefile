@@ -150,6 +150,7 @@ NO_X64_TESTS := tests/primitives \
 	tests/strategies/test_preconditioner_shift.py \
 	tests/strategies/test_compose_solver.py \
 	tests/strategies/test_fitc_preconditioner.py \
+	tests/strategies/test_preconditioned_slq.py \
 	tests/inference/test_natural_gradient.py \
 	tests/inference/test_site_posterior.py \
 	tests/inference/test_site_evidence.py \

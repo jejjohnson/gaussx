@@ -14,7 +14,7 @@ Each of these has `logdet(operator, *, key=None)` and no `solve`; pair one with 
 |---|---|
 | `AbstractLogdetStrategy` | The base class: a strategy with `logdet(operator, *, key=None)`. Deterministic strategies ignore `key`. |
 | `DenseLogdet()` | Exact, through `gaussx.logdet`, so structured operators keep their cheap exact rule. |
-| `SLQLogdet(num_probes=20, lanczos_order=30, seed=0, sampler="signs")` | Stochastic Lanczos quadrature for a PSD operator. |
+| `SLQLogdet(num_probes=20, lanczos_order=30, seed=0, sampler="signs", preconditioner=None)` | Stochastic Lanczos quadrature for a PSD operator; with a `preconditioner` that knows `P` it adds the exact `log det P` and runs SLQ on the whitened, near-identity operator. |
 | `IndefiniteSLQLogdet(num_probes=20, lanczos_order=30, shift=0.0, seed=0, sampler="signs")` | Stochastic estimate of `log|det(A + shift I)|` for a symmetric, possibly indefinite operator. |
 | `NystromLogdet(shift, rank=50, oversample=0, num_probes=10, lanczos_order=30, seed=0, sampler="signs")` | Nyström-preconditioned logdet of `A + μ I`, with the PSD part sketched and the remainder estimated by SLQ. |
 

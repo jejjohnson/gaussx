@@ -295,9 +295,23 @@ def test_an_opaque_preconditioner_with_a_logdet_that_needs_p_raises():
     assert "BBMMSolver" in str(error.value)
 
 
-def test_slq_logdet_refuses_a_preconditioner_until_825():
-    with pytest.raises(ValueError, match="825"):
-        gaussx.SLQLogdet().with_preconditioner(gaussx.JacobiPreconditioner())
+def test_slq_logdet_takes_the_composed_preconditioner():
+    """compose_solver hands one preconditioner to CG and to SLQ (gh-825)."""
+    pre = gaussx.JacobiPreconditioner()
+    strategy = gaussx.compose_solver(
+        gaussx.CGSolver(), preconditioner=pre, logdet=gaussx.SLQLogdet()
+    )
+    assert strategy.logdet_strategy.preconditioner is pre
+    assert strategy.solve_strategy.preconditioner is pre
+
+
+def test_slq_logdet_refuses_an_opaque_or_second_preconditioner():
+    opaque = gaussx.OperatorPreconditioner(lambda v: v / 2.0)
+    with pytest.raises(ValueError, match="OperatorPreconditioner"):
+        gaussx.SLQLogdet().with_preconditioner(opaque)
+    carried = gaussx.SLQLogdet(preconditioner=gaussx.JacobiPreconditioner())
+    with pytest.raises(ValueError, match="already carries"):
+        carried.with_preconditioner(gaussx.JacobiPreconditioner())
 
 
 def test_jit_does_not_retrace_when_the_preconditioner_arrays_change():

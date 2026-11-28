@@ -18,6 +18,7 @@ vectors S of T = S diag(θ) Sᵀ.
 
 from __future__ import annotations
 
+import dataclasses
 import functools as ft
 from collections.abc import Callable
 from typing import ClassVar
@@ -32,9 +33,11 @@ from jax.typing import DTypeLike
 from jaxtyping import Array, Float
 
 from gaussx._einx import einsum
+from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._primitives._logdet import logdet as _logdet
 from gaussx._primitives._samplers import SamplerName, resolve_sampler
-from gaussx._strategies._base import AbstractLogdetStrategy
+from gaussx._strategies._base import AbstractLogdetStrategy, raise_two_preconditioners
+from gaussx._strategies._whitening import whitened_operator
 
 
 def _lanczos(
@@ -345,6 +348,23 @@ def _check_symmetric(operator: lx.AbstractLinearOperator, name: str) -> None:
         )
 
 
+def _check_supports_slq(preconditioner: AbstractPreconditioner) -> None:
+    """Raise unless ``preconditioner`` knows P, naming its class.
+
+    Args:
+        preconditioner: The preconditioner offered to `SLQLogdet`.
+
+    Raises:
+        ValueError: If ``supports_slq()`` is ``False``.
+    """
+    if not preconditioner.supports_slq():
+        raise ValueError(
+            f"SLQLogdet(preconditioner={type(preconditioner).__name__}) needs "
+            "P itself (its logdet and approximation), but supports_slq() is "
+            "False. Pass the preconditioner to the solve only."
+        )
+
+
 class SLQLogdet(AbstractLogdetStrategy):
     """Stochastic log-determinant by stochastic Lanczos quadrature (SLQ).
 
@@ -361,12 +381,31 @@ class SLQLogdet(AbstractLogdetStrategy):
     a fixed pseudo-likelihood under MCMC. Pass a fresh ``key`` (or wrap a
     strategy in `gaussx.KeyedSolver`) to decorrelate calls.
 
+    **Preconditioned** (gh-825). With a ``preconditioner`` that knows its
+    approximation P ≈ A (``supports_slq()``), the estimate is
+
+        log det A = log det P + log det(R⁻¹ A R⁻ᵀ),   R Rᵀ = P,
+
+    with log det P exact from the preconditioner and SLQ run on the
+    whitened operator R⁻¹ A R⁻ᵀ, which is near the identity, so the probe
+    variance collapses (Gyger, Furrer & Sigrist, 2026, §4.1). R is the
+    closed-form factor of P's diagonal or low-rank-plus-diagonal form,
+    R = diag(√a) R_C with an O(N k) inverse, and the contour-quadrature
+    root P^(−½) for any other P. The probes u^(i) are drawn in the whitened
+    space, so they keep the ``sampler``: z^(i) = R u^(i) is then a probe
+    with 𝔼[z zᵀ] = P, the same estimator as drawing z ~ 𝒩(0, P) and
+    starting Lanczos at R⁻¹ z, without the extra draw. The preconditioner's
+    arrays are held fixed under ``jax.grad``, as in `gaussx.BBMMSolver`:
+    the log-determinant does not depend on P.
+
     Attributes:
         num_probes: Number of probe vectors N_probe.
         lanczos_order: Number of Lanczos steps k, clamped to N.
         seed: Seed of the probes z^(i) when `logdet` gets no ``key``.
         sampler: Probe distribution: ``"signs"``, ``"normal"`` or
             ``"sphere"``.
+        preconditioner: A preconditioner that knows P (``supports_slq()``),
+            or ``None`` for plain SLQ on A.
 
     Examples:
         On a diagonal operator one Lanczos step per probe is exact:
@@ -384,16 +423,66 @@ class SLQLogdet(AbstractLogdetStrategy):
         >>> estimate, error = gaussx.SLQLogdet().logdet_and_error(A)
         >>> error.shape
         ()
-    """
 
-    _no_preconditioner_reason: ClassVar[str] = (
-        "its preconditioned estimator waits on gaussx#825"
-    )
+        A preconditioner equal to A leaves only log det P to compute:
+
+        >>> exact = gaussx.JacobiPreconditioner(diagonal=jnp.array([1.0, 2.0, 4.0]))
+        >>> pre = gaussx.SLQLogdet(num_probes=4, preconditioner=exact)
+        >>> estimate, error = pre.logdet_and_error(A)
+        >>> round(float(estimate), 3), round(float(error), 3)
+        (2.079, 0.0)
+    """
 
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
     sampler: SamplerName = eqx.field(static=True, default="signs")
+    preconditioner: AbstractPreconditioner | None = None
+
+    def with_preconditioner(self, preconditioner: AbstractPreconditioner) -> SLQLogdet:
+        """A copy that whitens A by ``preconditioner`` before SLQ.
+
+            log det A = log det P + log det(R⁻¹ A R⁻ᵀ)
+
+        Args:
+            preconditioner: A preconditioner that knows P.
+
+        Returns:
+            The `SLQLogdet` with ``preconditioner`` attached.
+
+        Raises:
+            ValueError: If one is attached already, or ``preconditioner``
+                does not know P (``supports_slq()`` is ``False``).
+        """
+        if self.preconditioner is not None:
+            raise_two_preconditioners(self, self.preconditioner, preconditioner)
+        _check_supports_slq(preconditioner)
+        return dataclasses.replace(self, preconditioner=preconditioner)
+
+    def _matvec_and_base(
+        self, operator: lx.AbstractLinearOperator
+    ) -> tuple[Callable[[Array], Array], Float[Array, ""] | None]:
+        """The product SLQ runs on, and log det P when preconditioned.
+
+        Args:
+            operator: The symmetric PSD operator A.
+
+        Returns:
+            ``(A.mv, None)`` without a preconditioner, else the matvec of
+            R⁻¹ A R⁻ᵀ and log det P.
+
+        Raises:
+            ValueError: If the preconditioner does not know P.
+        """
+        if self.preconditioner is None:
+            return operator.mv, None
+        _check_supports_slq(self.preconditioner)
+        # P's arrays fixed under grad: the log-determinant does not depend on P
+        dynamic, static = eqx.partition(self.preconditioner, eqx.is_array)
+        preconditioner = eqx.combine(jax.lax.stop_gradient(dynamic), static)
+        # R⁻¹ A R⁻ᵀ, R Rᵀ = P
+        whitened = whitened_operator(operator, preconditioner.approximation(operator))
+        return whitened.mv, preconditioner.logdet(operator)
 
     def _integrand(self, n: int):
         """SLQ integrand with k = min(``lanczos_order``, N) Lanczos steps.
@@ -421,6 +510,8 @@ class SLQLogdet(AbstractLogdetStrategy):
             2. Draw N_probe probes z^(i) from ``key`` (or ``PRNGKey(seed)``).
             3. Run k Lanczos steps from each z^(i) / ‖z^(i)‖ and average
                the Gauss quadratures ‖z^(i)‖² e₁ᵀ log(T^(i)) e₁.
+            4. With a preconditioner, run steps 2 and 3 on R⁻¹ A R⁻ᵀ and add
+               log det P.
 
         Args:
             operator: Symmetric positive-definite operator A, N × N.
@@ -431,7 +522,8 @@ class SLQLogdet(AbstractLogdetStrategy):
             Scalar estimate of log det A.
 
         Raises:
-            ValueError: If A is not tagged symmetric.
+            ValueError: If A is not tagged symmetric, or the preconditioner
+                does not know P.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
@@ -445,7 +537,11 @@ class SLQLogdet(AbstractLogdetStrategy):
             self.sampler,
             operator.in_structure().dtype,
         )
-        return point(operator.mv, key)
+        matvec, base_logdet = self._matvec_and_base(operator)
+        if base_logdet is None:
+            return point(matvec, key)
+        # log det A = log det P + log det(R⁻¹ A R⁻ᵀ)
+        return base_logdet + point(matvec, key)
 
     def logdet_and_error(
         self,
@@ -465,10 +561,12 @@ class SLQLogdet(AbstractLogdetStrategy):
 
         Returns:
             Tuple ``(estimate, standard_error)``: the SLQ estimate and the
-            standard error of the mean across probes.
+            standard error of the mean across probes (log det P adds no
+            error when preconditioned).
 
         Raises:
-            ValueError: If A is not tagged symmetric.
+            ValueError: If A is not tagged symmetric, or the preconditioner
+                does not know P.
         """
         _check_symmetric(operator, "SLQLogdet")
         if key is None:
@@ -482,7 +580,12 @@ class SLQLogdet(AbstractLogdetStrategy):
             self.sampler,
             operator.in_structure().dtype,
         )
-        return with_sem(operator.mv, key)
+        matvec, base_logdet = self._matvec_and_base(operator)
+        if base_logdet is None:
+            return with_sem(matvec, key)
+        estimate, error = with_sem(matvec, key)
+        # log det A = log det P + log det(R⁻¹ A R⁻ᵀ)
+        return base_logdet + estimate, error
 
 
 class IndefiniteSLQLogdet(AbstractLogdetStrategy):

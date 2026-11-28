@@ -43,10 +43,11 @@ def compose_solver(
        log-determinant of `gaussx.AutoSolver`: exact for a structured or
        small operator, stochastic Lanczos for a large PSD one.
     4. ``logdet`` given: ``preconditioner`` is attached to it too when its
-       log-determinant uses one (a `gaussx.BBMMSolver`), and the result is
+       log-determinant uses one (a `gaussx.BBMMSolver`, or a
+       `gaussx.SLQLogdet`, which whitens A by P), and the result is
        ``ComposedSolver(solver, logdet)``. Other log-determinants
-       (`gaussx.DenseLogdet`, `gaussx.SLQLogdet` until gaussx#825) keep their
-       own estimate, and the preconditioner serves the solve.
+       (`gaussx.DenseLogdet`) keep their own estimate, and the
+       preconditioner serves the solve.
     5. A `gaussx.KeyedSolver` is looked through, and its key is kept.
 
     Rejected combinations raise ``ValueError`` naming the classes involved:

@@ -28,7 +28,7 @@ from gaussx._operators._diagonalised import as_diagonalized
 from gaussx._preconditioners import AbstractPreconditioner
 from gaussx._primitives._logdet import _has_structural_logdet, logdet as _logdet
 from gaussx._primitives._solve import solve as _solve
-from gaussx._primitives._sqrt_matmul import sqrt_inv_matmul, sqrt_matmul
+from gaussx._primitives._sqrt_matmul import sqrt_matmul
 from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
 from gaussx._strategies._bbmm import BBMMSolver
@@ -37,6 +37,7 @@ from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._slq_logdet import DenseLogdet
 from gaussx._strategies._tolerances import resolve_tolerance
+from gaussx._strategies._whitening import contour_whitened_operator
 
 
 def inv_quad_logdet(
@@ -594,7 +595,7 @@ def _separate_work(
     if preconditioner is None or _has_exact_logdet(strategy, operator):
         return columns, strategy.logdet(operator)
     # P^(−1/2) A P^(−1/2)
-    whitened = _whitened_operator(operator, preconditioner)
+    whitened = contour_whitened_operator(operator, preconditioner)
     # log det A = log det P + log det(P^(−1/2) A P^(−1/2))
     return columns, _logdet(preconditioner) + strategy.logdet(whitened)
 
@@ -724,45 +725,6 @@ def _preconditioner_inverse(preconditioner: lx.AbstractLinearOperator | None):
         )(block)
 
     return apply_inverse
-
-
-def _whitened_operator(
-    operator: lx.AbstractLinearOperator,
-    preconditioner: lx.AbstractLinearOperator,
-) -> lx.AbstractLinearOperator:
-    """Build the symmetric whitened operator P^(−1/2) A P^(−1/2).
-
-        P^(−1/2) A P^(−1/2) ~ P⁻¹ A
-
-    It is similar to P⁻¹ A, so it has the same log-determinant while staying
-    symmetric enough for Lanczos.
-
-    Only used on the non-BBMM path, where the strategy's own `logdet` has no
-    way to absorb a preconditioner. Each matvec costs two contour-quadrature
-    square roots, so this is worthwhile only when P is cheap to solve
-    against.
-
-    Args:
-        operator: The operator A.
-        preconditioner: The preconditioner P.
-
-    Returns:
-        A matrix-free PSD-tagged operator P^(−1/2) A P^(−1/2).
-    """
-
-    def matvec(vector: Float[Array, " N"]) -> Float[Array, " N"]:
-        column = rearrange(vector, "row -> row 1")
-        # P^(−1/2) v
-        whitened = sqrt_inv_matmul(preconditioner, column)
-        # A P^(−1/2) v
-        applied = operator.mv(rearrange(whitened, "row 1 -> row"))
-        # P^(−1/2) A P^(−1/2) v
-        result = sqrt_inv_matmul(preconditioner, rearrange(applied, "row -> row 1"))
-        return rearrange(result, "row 1 -> row")
-
-    return lx.FunctionLinearOperator(
-        matvec, operator.in_structure(), lx.positive_semidefinite_tag
-    )
 
 
 def _mbcg(

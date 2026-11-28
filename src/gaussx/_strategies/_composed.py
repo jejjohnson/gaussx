@@ -17,6 +17,7 @@ from gaussx._strategies._base import (
 )
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._keyed import KeyedSolver
+from gaussx._strategies._slq_logdet import SLQLogdet
 
 
 if TYPE_CHECKING:
@@ -66,8 +67,9 @@ class ComposedSolver(AbstractSolverStrategy):
         """A copy whose solve, and a BBMM log-determinant, use ``preconditioner``.
 
         The solve part must take it. The log-determinant part takes it too
-        when it is a `gaussx.BBMMSolver` (or a `gaussx.KeyedSolver` around
-        one), whose shared pass uses P; any other log-determinant is kept.
+        when it is a `gaussx.BBMMSolver` or a `gaussx.SLQLogdet` (or a
+        `gaussx.KeyedSolver` around one), which use P; any other
+        log-determinant is kept.
 
         Args:
             preconditioner: The preconditioner to attach.
@@ -155,9 +157,10 @@ def logdet_takes_preconditioner(strategy: AbstractLogdetStrategy) -> bool:
         strategy: A log-determinant strategy.
 
     Returns:
-        ``True`` for a `gaussx.BBMMSolver`, whose shared pass uses P, and for
-        a `gaussx.KeyedSolver` around one.
+        ``True`` for a `gaussx.BBMMSolver`, whose shared pass uses P, for a
+        `gaussx.SLQLogdet`, which whitens A by P (gh-825), and for a
+        `gaussx.KeyedSolver` around either.
     """
     if isinstance(strategy, KeyedSolver):
         return logdet_takes_preconditioner(strategy.strategy)
-    return isinstance(strategy, BBMMSolver)
+    return isinstance(strategy, BBMMSolver | SLQLogdet)
