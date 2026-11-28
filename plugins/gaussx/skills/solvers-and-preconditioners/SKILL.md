@@ -82,7 +82,7 @@ Open the one the task needs; do not read them all.
 <!-- shelf:begin -->
 | Role | Entry | Covers | Names |
 |---|---|---|---|
-| ② strategy | [Choosing a solver](shelf/solvers.md) | dense, CG, preconditioned CG, BBMM, MINRES, LSMR, sparse Cholesky, and composing them | 13 |
+| ② strategy | [Choosing a solver](shelf/solvers.md) | dense, CG, preconditioned CG, BBMM, MINRES, LSMR, sparse Cholesky, and composing them | 14 |
 | ② strategy | [Multigrid](shelf/multigrid.md) | V-cycles over a caller-built hierarchy, as a CG preconditioner or a solve strategy | 6 |
 | ② strategy | [Log-determinant strategies](shelf/logdet.md) | dense, stochastic Lanczos quadrature, Nyström | 5 |
 | ② strategy | [Preconditioners](shelf/preconditioners.md) | Jacobi, Nyström, partial Cholesky, and wrapping your own | 5 |

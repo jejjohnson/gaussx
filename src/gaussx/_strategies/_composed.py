@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+from typing import TYPE_CHECKING
+
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -12,6 +15,12 @@ from gaussx._strategies._base import (
     AbstractSolveStrategy,
     _SolveStats,
 )
+from gaussx._strategies._bbmm import BBMMSolver
+from gaussx._strategies._keyed import KeyedSolver
+
+
+if TYPE_CHECKING:
+    from gaussx._preconditioners import AbstractPreconditioner
 
 
 class ComposedSolver(AbstractSolverStrategy):
@@ -50,6 +59,38 @@ class ComposedSolver(AbstractSolverStrategy):
 
     solve_strategy: AbstractSolveStrategy
     logdet_strategy: AbstractLogdetStrategy
+
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> ComposedSolver:
+        """A copy whose solve, and a BBMM log-determinant, use ``preconditioner``.
+
+        The solve part must take it. The log-determinant part takes it too
+        when it is a `gaussx.BBMMSolver` (or a `gaussx.KeyedSolver` around
+        one), whose shared pass uses P; any other log-determinant is kept.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The `ComposedSolver` with ``preconditioner`` attached.
+
+        Raises:
+            ValueError: If the solve part cannot take it, or a part already
+                carries one.
+        """
+        solve_strategy = self.solve_strategy.with_preconditioner(preconditioner)
+        logdet_strategy = self.logdet_strategy
+        if logdet_strategy is self.solve_strategy and isinstance(
+            solve_strategy, AbstractLogdetStrategy
+        ):
+            # one strategy in both places stays one object
+            logdet_strategy = solve_strategy
+        elif logdet_takes_preconditioner(logdet_strategy):
+            logdet_strategy = logdet_strategy.with_preconditioner(preconditioner)
+        return dataclasses.replace(
+            self, solve_strategy=solve_strategy, logdet_strategy=logdet_strategy
+        )
 
     def solve(
         self,
@@ -105,3 +146,18 @@ class ComposedSolver(AbstractSolverStrategy):
             Scalar log |det A|, exact or estimated.
         """
         return self.logdet_strategy.logdet(operator, key=key)
+
+
+def logdet_takes_preconditioner(strategy: AbstractLogdetStrategy) -> bool:
+    """Whether ``strategy``'s log-determinant uses an attached preconditioner.
+
+    Args:
+        strategy: A log-determinant strategy.
+
+    Returns:
+        ``True`` for a `gaussx.BBMMSolver`, whose shared pass uses P, and for
+        a `gaussx.KeyedSolver` around one.
+    """
+    if isinstance(strategy, KeyedSolver):
+        return logdet_takes_preconditioner(strategy.strategy)
+    return isinstance(strategy, BBMMSolver)

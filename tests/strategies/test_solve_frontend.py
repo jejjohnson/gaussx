@@ -242,23 +242,40 @@ def test_preconditioner_reaches_the_cg_of_composed_and_auto(wrapper):
     assert tree_allclose(A @ x, b, rtol=rtol, atol=rtol * float(jnp.max(jnp.abs(b))))
 
 
-@pytest.mark.parametrize("name", ["preconditioned_cg", "bbmm", "minres"])
+@pytest.mark.parametrize("name", ["preconditioned_cg", "minres", "cg"])
 def test_preconditioner_on_other_strategies_raises_clearly(name):
-    from gaussx import BBMMSolver, JacobiPreconditioner, PreconditionedCGSolver
+    from gaussx import JacobiPreconditioner, PreconditionedCGSolver
 
+    # One rule, `with_preconditioner` (gh-881): a strategy that already
+    # carries a preconditioner, or has no preconditioned solve, refuses.
     solver = {
-        "preconditioned_cg": PreconditionedCGSolver(),
-        "bbmm": BBMMSolver(),
+        "preconditioned_cg": PreconditionedCGSolver(
+            preconditioner=JacobiPreconditioner()
+        ),
         "minres": MINRESSolver(),
+        # before gh-881 linear_solve replaced a CGSolver's own preconditioner
+        "cg": CGSolver(preconditioner=JacobiPreconditioner()),
     }[name]
     op = lx.MatrixLinearOperator(jnp.eye(3), lx.positive_semidefinite_tag)
-    match = (
-        "its own preconditioner" if name == "preconditioned_cg" else "not implemented"
-    )
+    match = "already carries" if name != "minres" else "not implemented"
     with pytest.raises(ValueError, match=match):
         linear_solve(
             op, jnp.ones(3), solver=solver, preconditioner=JacobiPreconditioner()
         )
+
+
+@pytest.mark.parametrize("name", ["preconditioned_cg", "bbmm"])
+def test_preconditioner_attaches_to_bbmm_and_preconditioned_cg(name):
+    from gaussx import BBMMSolver, JacobiPreconditioner, PreconditionedCGSolver
+
+    # Both take a preconditioner since gh-881 (BBMM since gh-879).
+    solver = {"preconditioned_cg": PreconditionedCGSolver(), "bbmm": BBMMSolver()}[name]
+    matrix = jnp.diag(jnp.array([1.0, 2.0, 4.0]))
+    op = lx.MatrixLinearOperator(matrix, lx.positive_semidefinite_tag)
+    x = linear_solve(
+        op, jnp.ones(3), solver=solver, preconditioner=JacobiPreconditioner()
+    )
+    assert jnp.allclose(matrix @ x, jnp.ones(3), atol=1e-3)
 
 
 def test_negative_definite_keeps_structure_with_explicit_strategy(monkeypatch):

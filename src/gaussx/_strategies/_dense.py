@@ -6,6 +6,8 @@ strategy is exact, with no tolerance and no iteration.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import jax
 import lineax as lx
 from jaxtyping import Array, Float
@@ -40,6 +42,10 @@ class DenseSolver(AbstractSolverStrategy):
         >>> round(float(solver.logdet(A)), 4)
         7.3778
     """
+
+    _no_preconditioner_reason: ClassVar[str] = (
+        "an exact factorisation has nothing to precondition"
+    )
 
     def solve(
         self,

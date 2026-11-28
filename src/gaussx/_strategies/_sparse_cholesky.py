@@ -9,6 +9,8 @@ Takahashi sweep over L.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import equinox as eqx
 import jax
 import lineax as lx
@@ -68,6 +70,10 @@ class SparseCholeskySolver(AbstractSolverStrategy):
         >>> bool(jnp.allclose(variances, dense_variances, atol=1e-5))
         True
     """
+
+    _no_preconditioner_reason: ClassVar[str] = (
+        "an exact factorisation has nothing to precondition"
+    )
 
     ordering: Ordering = eqx.field(static=True, default="rcm")
     backend: Backend = eqx.field(static=True, default="jax")

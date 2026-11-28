@@ -14,6 +14,7 @@ from gaussx._strategies._base import (
 )
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._cg import CGSolver
+from gaussx._strategies._compose import compose_solver
 from gaussx._strategies._composed import ComposedSolver
 from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._keyed import KeyedSolver
@@ -67,6 +68,7 @@ __all__ = [
     "SketchAndPrecondLSMR",
     "SparseCholeskySolver",
     "WeightedJacobi",
+    "compose_solver",
     "galerkin_levels",
     "sketch_and_solve",
 ]

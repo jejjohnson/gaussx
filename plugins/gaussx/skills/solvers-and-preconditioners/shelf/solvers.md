@@ -24,6 +24,7 @@ Every strategy has `solve(operator, vector)` and `logdet(operator, *, key=None)`
 | `SparseCholeskySolver(ordering="rcm", backend="jax")` | Exact solve, logdet and `diag_inv` for a `SparseOperator` precision. |
 | `LineaxSolver(solver)` | Wraps a `lineax.AbstractLinearSolver` as a solve-only strategy. |
 | `ComposedSolver(solve_strategy, logdet_strategy)` | Takes the solve from one strategy and the logdet from another. |
+| `compose_solver(solver=None, *, preconditioner=None, logdet=None)` | One strategy from three separate choices: attaches the preconditioner to the solve (and to a BBMM logdet), keeps the solver's own logdet when `logdet` is `None`, and raises naming the classes for a combination that would ignore a preconditioner or give two. |
 | `KeyedSolver(strategy, key)` | Binds a PRNG key to a strategy's stochastic logdet. |
 
 ## Use it

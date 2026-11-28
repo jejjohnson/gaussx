@@ -11,6 +11,8 @@ i = 1, …, N_probe.
 
 from __future__ import annotations
 
+import dataclasses
+
 import equinox as eqx
 import jax
 import lineax as lx
@@ -21,6 +23,7 @@ from gaussx._strategies._base import (
     AbstractSolverStrategy,
     _lineax_stats,
     _SolveStats,
+    raise_two_preconditioners,
 )
 from gaussx._strategies._slq_logdet import SLQLogdet
 from gaussx._strategies._tolerances import (
@@ -198,6 +201,22 @@ class CGSolver(AbstractSolverStrategy):
         # x = s y
         value = solution.value if scale is None else solution.value * scale
         return _lineax_stats(solution, value, rtol, atol, scale)
+
+    def with_preconditioner(self, preconditioner: AbstractPreconditioner) -> CGSolver:
+        """A copy whose solve uses ``preconditioner``.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The `CGSolver` with ``preconditioner`` set.
+
+        Raises:
+            ValueError: If it already carries a preconditioner.
+        """
+        if self.preconditioner is not None:
+            raise_two_preconditioners(self, self.preconditioner, preconditioner)
+        return dataclasses.replace(self, preconditioner=preconditioner)
 
     def logdet(
         self,

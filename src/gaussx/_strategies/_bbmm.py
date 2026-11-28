@@ -10,6 +10,8 @@ batched CG (mBCG) pass lives in `gaussx.inv_quad_logdet`.
 
 from __future__ import annotations
 
+import dataclasses
+
 import equinox as eqx
 import jax
 import jax.numpy as jnp
@@ -21,6 +23,7 @@ from gaussx._strategies._base import (
     AbstractSolverStrategy,
     _lineax_stats,
     _SolveStats,
+    raise_two_preconditioners,
 )
 from gaussx._strategies._cg import preconditioner_options
 from gaussx._strategies._slq_logdet import SLQLogdet
@@ -220,6 +223,22 @@ class BBMMSolver(AbstractSolverStrategy):
         # x = s y
         value = solution.value if scale is None else solution.value * scale
         return _lineax_stats(solution, value, rtol, atol, scale)
+
+    def with_preconditioner(self, preconditioner: AbstractPreconditioner) -> BBMMSolver:
+        """A copy whose solve uses ``preconditioner``.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The `BBMMSolver` with ``preconditioner`` set.
+
+        Raises:
+            ValueError: If it already carries a preconditioner.
+        """
+        if self.preconditioner is not None:
+            raise_two_preconditioners(self, self.preconditioner, preconditioner)
+        return dataclasses.replace(self, preconditioner=preconditioner)
 
     def logdet(
         self,

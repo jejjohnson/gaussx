@@ -8,13 +8,17 @@ Krylov iteration, a stochastic estimate), never what they are.
 from __future__ import annotations
 
 import abc
-from typing import NamedTuple
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, NoReturn
 
 import equinox as eqx
 import jax
 import jax.numpy as jnp
 import lineax as lx
 from jaxtyping import Array, Bool, Float, Int
+
+
+if TYPE_CHECKING:
+    from gaussx._preconditioners import AbstractPreconditioner
 
 from gaussx._strategies._tolerances import (
     operator_dtype,
@@ -106,6 +110,9 @@ class AbstractSolveStrategy(eqx.Module):
         True
     """
 
+    # Why `with_preconditioner` refuses, for a class that cannot take one.
+    _no_preconditioner_reason: ClassVar[str] = "it has no preconditioned solve"
+
     @abc.abstractmethod
     def solve(
         self,
@@ -151,6 +158,29 @@ class AbstractSolveStrategy(eqx.Module):
             atol,
         )
 
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> AbstractSolveStrategy:
+        """A copy whose solve uses ``preconditioner``; raises if it cannot.
+
+            M⁻¹ ≈ A⁻¹ applied to every residual
+
+        A preconditioner changes how A⁻¹ b is computed, never its value.
+        `CGSolver`, `PreconditionedCGSolver`, `AutoSolver`, `BBMMSolver`,
+        `ComposedSolver` and `KeyedSolver` take one; the default raises.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The strategy with ``preconditioner`` attached.
+
+        Raises:
+            ValueError: If the strategy cannot take a preconditioner, or
+                already carries one; the message names both classes.
+        """
+        raise_no_preconditioner(self, preconditioner)
+
 
 class AbstractLogdetStrategy(eqx.Module):
     """Protocol for a log-determinant strategy.
@@ -171,6 +201,33 @@ class AbstractLogdetStrategy(eqx.Module):
         >>> isinstance(gaussx.SLQLogdet(), gaussx.AbstractSolveStrategy)
         False
     """
+
+    # Why `with_preconditioner` refuses, for a class that cannot take one.
+    _no_preconditioner_reason: ClassVar[str] = (
+        "its log-determinant has no preconditioned form"
+    )
+
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> AbstractLogdetStrategy:
+        """A copy whose log-determinant uses ``preconditioner``; raises if not.
+
+            log det A = log det P + tr log(P^(−½) A P^(−½))
+
+        The default raises; `gaussx.BBMMSolver` and the strategies that wrap
+        one take a preconditioner that knows P.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The strategy with ``preconditioner`` attached.
+
+        Raises:
+            ValueError: If the strategy cannot take a preconditioner; the
+                message names both classes.
+        """
+        raise_no_preconditioner(self, preconditioner)
 
     @abc.abstractmethod
     def logdet(
@@ -221,3 +278,62 @@ class AbstractSolverStrategy(AbstractSolveStrategy, AbstractLogdetStrategy):
         >>> round(float(solver.logdet(A)), 4)
         2.0794
     """
+
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> AbstractSolverStrategy:
+        """A copy whose solve uses ``preconditioner``; raises if it cannot.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The strategy with ``preconditioner`` attached.
+
+        Raises:
+            ValueError: If the strategy cannot take a preconditioner, or
+                already carries one; the message names both classes.
+        """
+        raise_no_preconditioner(self, preconditioner)
+
+
+def raise_no_preconditioner(
+    strategy: eqx.Module,
+    preconditioner: AbstractPreconditioner,
+) -> NoReturn:
+    """Refuse to attach ``preconditioner``, naming both classes.
+
+    Args:
+        strategy: The strategy that cannot take it.
+        preconditioner: The preconditioner.
+
+    Raises:
+        ValueError: Always.
+    """
+    reason = getattr(strategy, "_no_preconditioner_reason", "")
+    raise ValueError(
+        f"Preconditioning is not implemented for {type(strategy).__name__}: "
+        f"{reason}, so {type(preconditioner).__name__} cannot be attached."
+    )
+
+
+def raise_two_preconditioners(
+    strategy: eqx.Module,
+    existing: AbstractPreconditioner,
+    preconditioner: AbstractPreconditioner,
+) -> NoReturn:
+    """Refuse a second preconditioner, naming the classes involved.
+
+    Args:
+        strategy: The strategy that already carries one.
+        existing: The preconditioner it carries.
+        preconditioner: The one offered.
+
+    Raises:
+        ValueError: Always.
+    """
+    raise ValueError(
+        f"{type(strategy).__name__} already carries a "
+        f"{type(existing).__name__}; attaching {type(preconditioner).__name__} "
+        "too would give two answers to one question. Pass one preconditioner."
+    )

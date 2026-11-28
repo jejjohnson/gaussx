@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import functools as ft
 from collections.abc import Callable
+from typing import ClassVar
 
 import einx
 import equinox as eqx
@@ -385,6 +386,10 @@ class SLQLogdet(AbstractLogdetStrategy):
         ()
     """
 
+    _no_preconditioner_reason: ClassVar[str] = (
+        "its preconditioned estimator waits on gaussx#825"
+    )
+
     num_probes: int = eqx.field(static=True, default=20)
     lanczos_order: int = eqx.field(static=True, default=30)
     seed: int = eqx.field(static=True, default=0)
@@ -629,6 +634,10 @@ class DenseLogdet(AbstractLogdetStrategy):
         >>> round(float(gaussx.DenseLogdet().logdet(A)), 4)
         2.0794
     """
+
+    _no_preconditioner_reason: ClassVar[str] = (
+        "an exact log-determinant has nothing to precondition"
+    )
 
     def logdet(
         self,

@@ -157,8 +157,8 @@ unit = "strategies"
 skill = "solvers-and-preconditioners"
 covers = "dense, CG, preconditioned CG, BBMM, MINRES, LSMR, sparse Cholesky, and composing them"
 names = [
-    "AutoSolver", "BBMMSolver", "CGSolver", "ComposedSolver", "DenseSolver",
-    "KeyedSolver", "LineaxSolver", "LSMRSolver", "MINRESSolver",
+    "AutoSolver", "BBMMSolver", "CGSolver", "compose_solver", "ComposedSolver",
+    "DenseSolver", "KeyedSolver", "LineaxSolver", "LSMRSolver", "MINRESSolver",
     "PreconditionedCGSolver", "sketch_and_solve", "SketchAndPrecondLSMR",
     "SparseCholeskySolver",
 ]

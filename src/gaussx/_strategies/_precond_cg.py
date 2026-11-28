@@ -10,6 +10,8 @@ i = 1, …, N_probe.
 
 from __future__ import annotations
 
+import dataclasses
+
 import equinox as eqx
 import jax
 import lineax as lx
@@ -19,7 +21,11 @@ from gaussx._preconditioners import (
     AbstractPreconditioner,
     PartialCholeskyPreconditioner,
 )
-from gaussx._strategies._base import AbstractSolverStrategy, _SolveStats
+from gaussx._strategies._base import (
+    AbstractSolverStrategy,
+    _SolveStats,
+    raise_two_preconditioners,
+)
 from gaussx._strategies._cg import CGSolver
 from gaussx._strategies._slq_logdet import SLQLogdet
 
@@ -148,6 +154,24 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             preconditioner=preconditioner,
             throw=self.throw,
         )._solve_with_stats(operator, vector)
+
+    def with_preconditioner(
+        self, preconditioner: AbstractPreconditioner
+    ) -> PreconditionedCGSolver:
+        """A copy whose solve uses ``preconditioner``.
+
+        Args:
+            preconditioner: The preconditioner to attach.
+
+        Returns:
+            The `PreconditionedCGSolver` with ``preconditioner`` set.
+
+        Raises:
+            ValueError: If it already carries a preconditioner.
+        """
+        if self.preconditioner is not None:
+            raise_two_preconditioners(self, self.preconditioner, preconditioner)
+        return dataclasses.replace(self, preconditioner=preconditioner)
 
     def logdet(
         self,
