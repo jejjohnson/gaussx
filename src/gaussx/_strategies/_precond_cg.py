@@ -48,7 +48,11 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
             ``preconditioner`` is given.
         shift: The noise variance σ² in the system A = K + σ² I, for the
             preconditioner built per solve. Must not exceed the noise
-            actually in A. Ignored when ``preconditioner`` is given.
+            actually in A. A vector d is a per-point shift for
+            A = K + diag(d), and ``None`` reads d from the system with
+            `gaussx.split_diagonal` (see
+            `gaussx.PartialCholeskyPreconditioner`). A PyTree leaf, so it
+            can be traced. Ignored when ``preconditioner`` is given.
         rtol: Relative tolerance tol_rel. ``None``: 1e-5 in float64, 1e-3
             in float32 (see `gaussx.CGSolver`).
         atol: Absolute tolerance tol_abs. ``None``: 1e-5 in float64; in
@@ -81,7 +85,7 @@ class PreconditionedCGSolver(AbstractSolverStrategy):
     """
 
     preconditioner_rank: int = eqx.field(static=True, default=50)
-    shift: float = eqx.field(static=True, default=1.0)
+    shift: float | Float[Array, ""] | Float[Array, " n"] | None = 1.0
     rtol: float | None = eqx.field(static=True, default=None)
     atol: float | None = eqx.field(static=True, default=None)
     max_steps: int = eqx.field(static=True, default=1000)
