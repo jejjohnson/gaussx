@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.8.3](https://github.com/jejjohnson/gaussx/compare/v0.8.2...v0.8.3) (2026-11-28)
+
+
+### Features
+
+* **distributions:** gaussian_log_prob with a BBMMSolver takes both terms from one shared pass ([#895](https://github.com/jejjohnson/gaussx/issues/895)) ([a3fc883](https://github.com/jejjohnson/gaussx/commit/a3fc88317a546080481f66b5a82fbdbc99264f1e)), closes [#880](https://github.com/jejjohnson/gaussx/issues/880)
+* **inference:** site_log_evidence gives the evidence of a site posterior from one system, through BBMM's shared pass when stochastic ([#897](https://github.com/jejjohnson/gaussx/issues/897)) ([28ec04f](https://github.com/jejjohnson/gaussx/commit/28ec04f830e65b506f5c84feff3a41c0cb36f37b)), closes [#883](https://github.com/jejjohnson/gaussx/issues/883)
+* **inference:** site_posterior gives the Gaussian posterior of diagonal sites through any solver ([#891](https://github.com/jejjohnson/gaussx/issues/891)) ([dbd6cef](https://github.com/jejjohnson/gaussx/commit/dbd6cefc9b5348d9c6c1207eb9bd67da4c247f72)), closes [#882](https://github.com/jejjohnson/gaussx/issues/882)
+* **operators:** split_diagonal, the kernel part and the diagonal of a system ([#889](https://github.com/jejjohnson/gaussx/issues/889)) ([106ec59](https://github.com/jejjohnson/gaussx/commit/106ec59ec7ef535eb7b7c9796629144dc7db6fa4)), closes [#877](https://github.com/jejjohnson/gaussx/issues/877)
+* **preconditioners:** every preconditioner exposes P itself through logdet, sample, approximation and supports_slq ([#890](https://github.com/jejjohnson/gaussx/issues/890)) ([6899f7a](https://github.com/jejjohnson/gaussx/commit/6899f7ac5be8b6ee6c6fdeb0850fa51b6927178e)), closes [#823](https://github.com/jejjohnson/gaussx/issues/823)
+* **preconditioners:** partial Cholesky, Nyström and NystromLogdet take a per-point shift by symmetric scaling ([#893](https://github.com/jejjohnson/gaussx/issues/893)) ([36a69ea](https://github.com/jejjohnson/gaussx/commit/36a69eace13a0c3bc162fd70ea56e20e4b3f8ef9)), closes [#878](https://github.com/jejjohnson/gaussx/issues/878)
+* **strategies:** compose_solver builds one strategy from a solver, a preconditioner and a log-determinant ([#896](https://github.com/jejjohnson/gaussx/issues/896)) ([17107cc](https://github.com/jejjohnson/gaussx/commit/17107cc9712799f9740a28c5a51fca39d2a4818f)), closes [#881](https://github.com/jejjohnson/gaussx/issues/881)
+* **strategies:** the BBMM solver takes a preconditioner, and inv_quad_logdet a key, so KeyedSolver(BBMMSolver) runs the shared pass ([#894](https://github.com/jejjohnson/gaussx/issues/894)) ([6477fc9](https://github.com/jejjohnson/gaussx/commit/6477fc9aaf6722efb6cdbcc9a3d4aad96dccd0dc)), closes [#879](https://github.com/jejjohnson/gaussx/issues/879)
+
 ## [0.8.2](https://github.com/jejjohnson/gaussx/compare/v0.8.1...v0.8.2) (2026-11-25)
 
 
