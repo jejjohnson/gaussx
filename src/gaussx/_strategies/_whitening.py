@@ -14,6 +14,9 @@ root P^(−½) by contour quadrature.
 
 from __future__ import annotations
 
+import functools as ft
+from collections.abc import Callable
+
 import einx
 import jax
 import jax.numpy as jnp
@@ -48,6 +51,30 @@ def whitened_operator(
         triangular-factor products per matvec for a diagonal or
         low-rank-plus-diagonal P, two contour-quadrature roots otherwise.
     """
+    whitened, _ = whitening(operator, approximation)
+    return whitened
+
+
+def whitening(
+    operator: lx.AbstractLinearOperator,
+    approximation: lx.AbstractLinearOperator,
+) -> tuple[lx.AbstractLinearOperator, Callable[[Array], Array]]:
+    """R⁻¹ A R⁻ᵀ and the map u ↦ R⁻ᵀ u, for a factor R Rᵀ = P.
+
+        z = R u,   P⁻¹ z = R⁻ᵀ u
+
+    A probe u in the whitened space is the probe z = R u of A, with
+    𝔼[z zᵀ] = P for an isotropic u, and R⁻ᵀ u = P⁻¹ z is what the
+    log-determinant's control variate pairs with it (gh-826).
+
+    Args:
+        operator: The symmetric PSD system A.
+        approximation: The preconditioner's P ≈ A.
+
+    Returns:
+        Tuple ``(whitened, inverse_transpose)``: R⁻¹ A R⁻ᵀ as a PSD-tagged
+        operator, and the function u ↦ R⁻ᵀ u.
+    """
     inner = approximation
     while isinstance(inner, lx.TaggedLinearOperator):
         inner = inner.operator
@@ -62,7 +89,26 @@ def whitened_operator(
             if weights is None:
                 weights = jnp.ones(inner.U.shape[1], dtype=inner.U.dtype)
             return _closed_form_whitening(operator, base_diagonal, inner.U, weights)
-    return contour_whitened_operator(operator, approximation)
+    return contour_whitened_operator(operator, approximation), ft.partial(
+        _contour_inverse_root, approximation
+    )
+
+
+def _contour_inverse_root(
+    approximation: lx.AbstractLinearOperator, vector: Float[Array, " n"]
+) -> Float[Array, " n"]:
+    """P^(−½) v by contour quadrature, R⁻ᵀ v for the symmetric root R = P^½.
+
+    Args:
+        approximation: P.
+        vector: v.
+
+    Returns:
+        P^(−½) v.
+    """
+    column = rearrange(vector, "row -> row 1")
+    # P^(−½) v
+    return rearrange(sqrt_inv_matmul(approximation, column), "row 1 -> row")
 
 
 def _closed_form_whitening(
@@ -70,7 +116,7 @@ def _closed_form_whitening(
     base_diagonal: Float[Array, " n"],
     factor: Float[Array, "n k"] | None,
     weights: Float[Array, " k"] | None,
-) -> lx.AbstractLinearOperator:
+) -> tuple[lx.AbstractLinearOperator, Callable[[Array], Array]]:
     """R⁻¹ A R⁻ᵀ for P = diag(a) + U S Uᵀ, with R = diag(√a) R_C.
 
         P = diag(√a) (I + V S Vᵀ) diag(√a),   V = diag(a)^(−½) U = Q R_V,
@@ -88,18 +134,26 @@ def _closed_form_whitening(
         weights: S's diagonal, or ``None`` for a diagonal P.
 
     Returns:
-        The whitened operator, PSD-tagged.
+        Tuple ``(whitened, inverse_transpose)``: the PSD-tagged R⁻¹ A R⁻ᵀ
+        and u ↦ R⁻ᵀ u.
     """
     # diag(a)^(−½)
     inverse_root = 1.0 / jnp.sqrt(base_diagonal)
     structure = operator.in_structure()
     if factor is None:
 
+        def diagonal_inverse_transpose(
+            vector: Float[Array, " n"],
+        ) -> Float[Array, " n"]:
+            # R⁻ᵀ v = diag(a)^(−½) v
+            return inverse_root * vector
+
         def diagonal_matvec(vector: Float[Array, " n"]) -> Float[Array, " n"]:
             # diag(a)^(−½) A diag(a)^(−½) v
             return inverse_root * operator.mv(inverse_root * vector)
 
-        return lx.FunctionLinearOperator(diagonal_matvec, structure, _PSD_TAGS)
+        whitened = lx.FunctionLinearOperator(diagonal_matvec, structure, _PSD_TAGS)
+        return whitened, diagonal_inverse_transpose
 
     # V = diag(a)^(−½) U
     scaled_factor = einx.multiply("row rank, row -> row rank", factor, inverse_root)
@@ -128,13 +182,17 @@ def _closed_form_whitening(
         # R_C⁻¹ v = v + Q (L⁻¹ − I) Qᵀ v
         return vector + einsum(basis, solved - coefficients, "row rank, rank -> row")
 
-    def matvec(vector: Float[Array, " n"]) -> Float[Array, " n"]:
+    def inverse_transpose(vector: Float[Array, " n"]) -> Float[Array, " n"]:
         # R⁻ᵀ v = diag(a)^(−½) R_C⁻ᵀ v
-        right = inverse_root * apply_factor_inverse(vector, transpose=True)
-        # R⁻¹ A R⁻ᵀ v = R_C⁻¹ diag(a)^(−½) A R⁻ᵀ v
-        return apply_factor_inverse(inverse_root * operator.mv(right), transpose=False)
+        return inverse_root * apply_factor_inverse(vector, transpose=True)
 
-    return lx.FunctionLinearOperator(matvec, structure, _PSD_TAGS)
+    def matvec(vector: Float[Array, " n"]) -> Float[Array, " n"]:
+        # R⁻¹ A R⁻ᵀ v = R_C⁻¹ diag(a)^(−½) A R⁻ᵀ v
+        applied = operator.mv(inverse_transpose(vector))
+        return apply_factor_inverse(inverse_root * applied, transpose=False)
+
+    whitened = lx.FunctionLinearOperator(matvec, structure, _PSD_TAGS)
+    return whitened, inverse_transpose
 
 
 def contour_whitened_operator(

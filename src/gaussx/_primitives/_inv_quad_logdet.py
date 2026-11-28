@@ -33,6 +33,7 @@ from gaussx._strategies._auto import AutoSolver
 from gaussx._strategies._base import AbstractLogdetStrategy, AbstractSolverStrategy
 from gaussx._strategies._bbmm import BBMMSolver
 from gaussx._strategies._composed import ComposedSolver
+from gaussx._strategies._control_variate import logdet_control_variate
 from gaussx._strategies._dense import DenseSolver
 from gaussx._strategies._keyed import KeyedSolver
 from gaussx._strategies._slq_logdet import DenseLogdet
@@ -207,8 +208,14 @@ def inv_quad_logdet(
 
     if isinstance(strategy, BBMMSolver):
         preconditioner = _shared_preconditioner(strategy, logdet_preconditioner)
-        columns, logdet_value = _shared_work(
-            (operator, rhs), strategy, preconditioner, key
+        # The pass holds P fixed, including the copy the strategy carries:
+        # only its first argument may carry a tangent.
+        columns, logdet_value, probe_inverses = _shared_work(
+            (operator, rhs), _stop_gradient(strategy), preconditioner, key
+        )
+        # value 0; its gradient is the control variate of gh-826
+        logdet_value = logdet_value + _shared_control_variate(
+            operator, strategy.preconditioner, logdet_preconditioner, probe_inverses
         )
     else:
         columns, logdet_value = _separate_work(
@@ -229,9 +236,9 @@ def _shared_preconditioner(
 ) -> lx.AbstractLinearOperator | AbstractPreconditioner | None:
     """P for the shared pass: the operator given, or the strategy's own.
 
-    The strategy's preconditioner is returned with its arrays' gradient
-    stopped: it is a variance-reduction device, and the quantities being
-    differentiated do not depend on it.
+    P is returned with its arrays' gradient stopped, whichever place it
+    came from: the pass's estimates do not depend on it, and the
+    control-variate term outside the pass is where it is differentiated.
 
     Args:
         strategy: The BBMM strategy.
@@ -247,7 +254,9 @@ def _shared_preconditioner(
     """
     preconditioner = strategy.preconditioner
     if preconditioner is None:
-        return logdet_preconditioner
+        if logdet_preconditioner is None:
+            return None
+        return _stop_gradient(logdet_preconditioner)
     if logdet_preconditioner is not None:
         raise ValueError(
             "inv_quad_logdet got both `logdet_preconditioner` and a "
@@ -260,8 +269,55 @@ def _shared_preconditioner(
             "precondition the log-determinant: the preconditioner does not know "
             "P itself (supports_slq() is False)."
         )
-    dynamic, static = eqx.partition(preconditioner, eqx.is_array)
+    return _stop_gradient(preconditioner)
+
+
+def _stop_gradient(tree):
+    """``tree`` with the gradient of every array leaf stopped.
+
+    Args:
+        tree: A pytree, such as a strategy or a preconditioner.
+
+    Returns:
+        The same pytree, its arrays wrapped in ``jax.lax.stop_gradient``.
+    """
+    dynamic, static = eqx.partition(tree, eqx.is_array)
     return eqx.combine(jax.lax.stop_gradient(dynamic), static)
+
+
+def _shared_control_variate(
+    operator: lx.AbstractLinearOperator,
+    preconditioner: AbstractPreconditioner | None,
+    logdet_preconditioner: lx.AbstractLinearOperator | None,
+    probe_inverses: Float[Array, "N P"],
+) -> Float[Array, ""]:
+    """The zero-valued control-variate term of the shared pass (gh-826).
+
+        ∇ = ∂ log det P − (1 / N_probe) ∑_i w^(i)ᵀ ∂P w^(i),   w^(i) = P⁻¹ z^(i)
+
+    The pass itself holds P fixed and differentiates only A; this term is
+    where P (its arrays, or the system it reads) is differentiated.
+
+    Args:
+        operator: The system A.
+        preconditioner: The strategy's preconditioner, not gradient-stopped.
+        logdet_preconditioner: The operator P given instead, or ``None``.
+        probe_inverses: The probe solves w^(i) from the pass.
+
+    Returns:
+        A scalar zero, or exactly zero without a preconditioner (P = I).
+    """
+    if preconditioner is not None:
+        return logdet_control_variate(
+            preconditioner.logdet(operator),
+            preconditioner.approximation(operator),
+            probe_inverses,
+        )
+    if logdet_preconditioner is not None:
+        return logdet_control_variate(
+            _logdet(logdet_preconditioner), logdet_preconditioner, probe_inverses
+        )
+    return jnp.zeros((), dtype=probe_inverses.dtype)
 
 
 @eqx.filter_custom_vjp
@@ -270,10 +326,10 @@ def _shared_work(
     strategy: BBMMSolver,
     preconditioner: lx.AbstractLinearOperator | AbstractPreconditioner | None,
     key: jax.Array | None,
-) -> tuple[Float[Array, " C"], Float[Array, ""]]:
+) -> tuple[Float[Array, " C"], Float[Array, ""], Float[Array, "N P"]]:
     """Per-column inverse-quadratics and the log-determinant, in one CG pass.
 
-        (b_cᵀ A⁻¹ b_c for each c,   log det A)
+        (b_cᵀ A⁻¹ b_c for each c,   log det A,   P⁻¹ z^(i))
 
     Args:
         differentiable: The pair ``(operator, rhs)``, A and B.
@@ -283,11 +339,15 @@ def _shared_work(
         key: PRNG key for the probes, or ``None`` for ``PRNGKey(seed)``.
 
     Returns:
-        Tuple ``(columns, logdet)``.
+        Tuple ``(columns, logdet, probe_inverses)``; the last, the probe
+        solves P⁻¹ z^(i), feeds the control variate and is not
+        differentiated.
     """
     operator, rhs = differentiable
-    outputs, _ = _shared_work_core(operator, rhs, strategy, preconditioner, key)
-    return outputs
+    (columns, logdet_value), cache = _shared_work_core(
+        operator, rhs, strategy, preconditioner, key
+    )
+    return columns, logdet_value, cache[2]
 
 
 @_shared_work.def_fwd
@@ -313,7 +373,10 @@ def _shared_work_fwd(
     """
     del perturbed
     operator, rhs = differentiable
-    return _shared_work_core(operator, rhs, strategy, preconditioner, key)
+    (columns, logdet_value), cache = _shared_work_core(
+        operator, rhs, strategy, preconditioner, key
+    )
+    return (columns, logdet_value, cache[2]), cache
 
 
 @_shared_work.def_bwd
@@ -345,14 +408,18 @@ def _shared_work_bwd(
     asymmetrically (a Cholesky factor, say) still see a symmetric
     cotangent.
 
-    The preconditioner receives a zero cotangent: it is a variance-reduction
-    device, and the quantities being differentiated do not depend on it.
+    The preconditioner receives a zero cotangent here: the quantities being
+    differentiated do not depend on it. It is differentiated in the
+    control-variate term that `inv_quad_logdet` adds outside this pass
+    (`_shared_control_variate`, gh-826).
 
     Args:
         residuals: ``(solutions, probe_solutions, probe_rights)`` from the
             forward pass: A⁻¹ b_c, A⁻¹ z^(i) and P⁻¹ z^(i).
-        cotangents: Cotangents of ``(columns, logdet)``; ``None`` marks an
-            output that is not being differentiated.
+        cotangents: Cotangents of ``(columns, logdet, probe_inverses)``;
+            ``None`` marks an output that is not being differentiated, and
+            the probe solves' cotangent is ignored (the control variate
+            outside this pass stops their gradient).
         perturbed: Which leaves of ``differentiable`` are differentiated.
         differentiable: The pair ``(operator, rhs)``, A and B.
         strategy: The BBMM strategy (unused).
@@ -366,7 +433,7 @@ def _shared_work_bwd(
     operator, _ = differentiable
     solutions, probe_solutions, probe_rights = residuals
     # ``None`` marks an output that is not being differentiated.
-    ct_columns, ct_logdet = cotangents
+    ct_columns, ct_logdet, _ = cotangents
     if ct_columns is None:
         ct_columns = jnp.zeros(solutions.shape[1], dtype=solutions.dtype)
     if ct_logdet is None:
