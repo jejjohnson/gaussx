@@ -22,6 +22,7 @@ from gaussx._gp._prediction_cache import (
     build_prediction_cache,
     predict_variance,
 )
+from gaussx._primitives._cholesky import cholesky, warn_dense_fallback
 from gaussx._primitives._solve import solve
 from gaussx._strategies._base import AbstractSolverStrategy
 from gaussx._strategies._dense import DenseSolver
@@ -164,6 +165,9 @@ class SitePosterior(eqx.Module):
                 "estimators of gaussx#827; use method='exact' (N solves, in "
                 "batches of batch_size)."
             )
+        prior_diagonal = _prior_diagonal(self.prior_cov)
+        if self.factor is not None and prior_diagonal is not None:
+            return _diagonal_variance(prior_diagonal, self.site_precision)
         if self.factor is not None:
             cache = PredictionCache(
                 alpha=self.weights, operator=self.system, factor=self.factor
@@ -202,6 +206,70 @@ class SitePosterior(eqx.Module):
         return lx.FunctionLinearOperator(
             matvec, prior_cov.in_structure(), lx.positive_semidefinite_tag
         )
+
+
+def _untagged(operator: lx.AbstractLinearOperator) -> lx.AbstractLinearOperator:
+    """The operator under any tags.
+
+    Args:
+        operator: An operator, possibly tagged.
+
+    Returns:
+        The innermost untagged operator.
+    """
+    while isinstance(operator, lx.TaggedLinearOperator):
+        operator = operator.operator
+    return operator
+
+
+def _is_dense_matrix(operator: lx.AbstractLinearOperator) -> bool:
+    """Whether the prior already is a dense matrix, so densifying loses nothing.
+
+    Args:
+        operator: The prior covariance K_XX.
+
+    Returns:
+        ``True`` for a (tagged) `lineax.MatrixLinearOperator`.
+    """
+    return isinstance(_untagged(operator), lx.MatrixLinearOperator)
+
+
+def _prior_diagonal(
+    operator: lx.AbstractLinearOperator,
+) -> Float[Array, " N"] | None:
+    """The diagonal k of a diagonal prior K_XX = diag(k), else ``None``.
+
+    Args:
+        operator: The prior covariance, looked at through tags.
+
+    Returns:
+        k for a (tagged) diagonal or identity operator, else ``None``.
+    """
+    inner = _untagged(operator)
+    if isinstance(inner, lx.DiagonalLinearOperator | lx.IdentityLinearOperator):
+        return lx.diagonal(inner)
+    return None
+
+
+def _diagonal_variance(
+    prior_diagonal: Float[Array, " N"],
+    site_precision: Float[Array, " N"],
+) -> Float[Array, " N"]:
+    """diag(K − K A⁻¹ K) for a diagonal K = diag(k), elementwise.
+
+        [Σ_f|y]_nn = k_n − k_n² / (k_n + d_n),   d_n = 1 / λ_n
+
+    Args:
+        prior_diagonal: The prior variances k.
+        site_precision: The site precisions λ.
+
+    Returns:
+        The marginal variances.
+    """
+    # k + d
+    system_diagonal = prior_diagonal + 1.0 / site_precision
+    # k − k² / (k + d), the same K − K A⁻¹ K form as the dense path
+    return prior_diagonal - prior_diagonal**2 / system_diagonal
 
 
 def _dense_variance(
@@ -286,6 +354,9 @@ def site_posterior(
 
     With a dense solver (``None`` or `gaussx.DenseSolver`) A is densified
     and factored once, and the factor is kept for `SitePosterior.variance`.
+    A structured prior is densified with a `gaussx.DenseFallbackWarning`
+    that names `gaussx.CGSolver`; a dense matrix prior is not warned about,
+    and a diagonal prior stays diagonal (A = diag(k + d), O(N)).
     With an iterative solver (`gaussx.CGSolver`, preconditioned CG,
     `gaussx.BBMMSolver`, ...) every solve goes through it and a
     matrix-free K_XX is never densified.
@@ -360,7 +431,24 @@ def site_posterior(
     residual = site_mean - prior_mean
     system = _site_system(prior_cov, site_precision)
     factor = None
-    if _is_dense(solver):
+    prior_diagonal = _prior_diagonal(prior_cov)
+    if _is_dense(solver) and prior_diagonal is not None:
+        # A = diag(k + d) is diagonal: nothing to densify or factor densely
+        # L = diag(√(k + d))
+        factor = cholesky(
+            lx.DiagonalLinearOperator(prior_diagonal + 1.0 / site_precision)
+        )
+        # w = A⁻¹ (μ_site − μ_f) = L⁻ᵀ L⁻¹ (μ_site − μ_f)
+        weights = solve(factor, solve(factor, residual))
+    elif _is_dense(solver):
+        if not _is_dense_matrix(prior_cov):
+            warn_dense_fallback(
+                "site_posterior: solver=None or DenseSolver densifies the "
+                f"structured prior covariance {type(_untagged(prior_cov)).__name__} "
+                "into an N × N matrix for one dense Cholesky of A = K + diag(1/λ). "
+                "Pass solver=gaussx.CGSolver() (or another iterative strategy) to "
+                "keep it matrix-free."
+            )
         # one Cholesky of A, kept for the variances
         dense_system = lx.MatrixLinearOperator(
             system.as_matrix(), lx.positive_semidefinite_tag

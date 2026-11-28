@@ -11,6 +11,8 @@ so it runs in both lanes.
 
 from __future__ import annotations
 
+import warnings
+
 import einx
 import equinox as eqx
 import jax
@@ -328,3 +330,65 @@ def test_stochastic_variance_waits_on_827(getkey):
         posterior.variance(method="stochastic", key=jr.key(0))
     with pytest.raises(ValueError, match="method"):
         posterior.variance(method="hutchinson")  # type: ignore[arg-type]
+
+
+def test_dense_path_warns_when_it_densifies_a_structured_prior(getkey):
+    size = 10
+    prior_cov, dense = _matrix_free_prior(getkey(), size)
+    # a structured prior that only the warning path may densify
+    structured = lx.FunctionLinearOperator(prior_cov.fn, prior_cov.in_structure(), _PSD)
+    precision = jr.uniform(getkey(), (size,), minval=0.5, maxval=4.0)
+    information = precision * jr.normal(getkey(), (size,))
+    prior_mean = jnp.zeros(size)
+
+    with pytest.warns(gaussx.DenseFallbackWarning, match="CGSolver"):
+        posterior = gaussx.site_posterior(
+            prior_mean, structured, information, precision
+        )
+
+    _, mean, _ = _dense_reference(prior_mean, dense, information, precision)
+    assert tree_allclose(posterior.mean, mean)
+
+
+def test_dense_matrix_prior_does_not_warn(getkey):
+    prior_mean, kernel, information, precision = _problem(getkey())
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", gaussx.DenseFallbackWarning)
+        posterior = gaussx.site_posterior(
+            prior_mean, lx.MatrixLinearOperator(kernel, _PSD), information, precision
+        )
+        posterior.variance()
+
+
+class _NoDensifyDiagonal(lx.DiagonalLinearOperator):
+    """A diagonal prior that fails the test if anything densifies it."""
+
+    def as_matrix(self):
+        raise AssertionError("as_matrix called on the diagonal prior")
+
+
+@pytest.mark.parametrize("solver", [None, gaussx.DenseSolver()])
+def test_diagonal_prior_stays_diagonal(getkey, solver):
+    prior_variance = jr.uniform(getkey(), (_N,), minval=0.5, maxval=2.0)
+    precision = jr.uniform(getkey(), (_N,), minval=1e-3, maxval=4.0)
+    information = precision * jr.normal(getkey(), (_N,))
+    prior_mean = 0.1 * jr.normal(getkey(), (_N,))
+    prior_cov = lx.TaggedLinearOperator(_NoDensifyDiagonal(prior_variance), _PSD)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", gaussx.DenseFallbackWarning)
+        posterior = gaussx.site_posterior(
+            prior_mean, prior_cov, information, precision, solver=solver
+        )
+        variance = posterior.variance()
+        covariance_diagonal = jax.vmap(posterior.covariance().mv)(
+            jnp.eye(_N, dtype=prior_variance.dtype)
+        )
+
+    weights, mean, expected = _dense_reference(
+        prior_mean, jnp.diag(prior_variance), information, precision
+    )
+    assert tree_allclose(posterior.weights, weights)
+    assert tree_allclose(posterior.mean, mean)
+    assert tree_allclose(variance, expected)
+    assert tree_allclose(jnp.diag(covariance_diagonal), expected)
